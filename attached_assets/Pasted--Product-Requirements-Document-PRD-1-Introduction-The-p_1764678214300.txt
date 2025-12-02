@@ -1,0 +1,243 @@
+🚀 Product Requirements Document (PRD)
+1. Introduction
+The purpose of this application is to provide a comprehensive system for managing core business functions, including customer tracking, staff management, inventory, sales transactions, and profit/loss analysis.
+2. Goals and Objectives
+Goal: To build a robust data management system that accurately reflects the core business operations.
+Objective 1 (Sales & Profit): Accurately track sales transactions and automatically calculate profit and loss metrics.
+Objective 2 (Inventory Control): Maintain a real-time, accurate record of inventory quantities and costs.
+Objective 3 (Management): Provide organized records for all customers and staff members.
+3. Feature Requirements
+The following requirements are derived directly from the provided ERD.
+
+3.1. 👤 Customer Management
+This module handles the storage and retrieval of customer information.
+Requirement ID
+Feature Name
+Description
+CRM-001
+Customer Record Creation
+Must allow for the creation of new customer records.
+CRM-002
+Unique Customer ID
+The system must automatically generate a unique string ID (primary key) for each customer.
+CRM-003
+Data Capture
+Must capture and store the name, customer_number, mobile_number, and address.
+CRM-004
+Customer Lookup
+Must allow lookups and searches based on any stored field.
+
+
+3.2. 🧑‍🤝‍ Staff Management
+This module manages employee records and their contract details.
+Requirement ID
+Feature Name
+Description
+STA-001
+Staff Record Creation
+Must allow for the creation of new staff records.
+STA-002
+Unique Staff ID
+The system must automatically generate a unique string ID (primary key) for each staff member.
+STA-003
+Data Capture
+Must capture and store the name, staff_number, mobile_number, and pay_per_month (as a number).
+STA-004
+Contract Status Tracking
+Must store a signed_contract status (boolean: true/false).
+
+
+3.3. 📦 Inventory Management
+This module tracks all products and services the business offers.
+Requirement ID
+Feature Name
+Description
+INV-001
+Item Record Creation
+Must allow for the creation of new inventory items (products or services).
+INV-002
+Unique Inventory ID
+The system must automatically generate a unique string ID (primary key) for each inventory item.
+INV-003
+Type Classification
+Must classify each item as a 'product' or 'service' (type string).
+INV-004
+Cost Tracking
+Must store the cost_price and selling_price (as numbers).
+INV-005
+Quantity Tracking
+Must store the current quantity in stock (as a number). Note: This field is only relevant for 'product' type items.
+
+
+3.4. 🛒 Sales & Transaction Processing
+This module governs the process of recording sales.
+Requirement ID
+Feature Name
+Description
+SLS-001
+Order Creation
+Must allow creation of an order record, linking to a specific inventory_id (product/service).
+SLS-002
+Order Details Capture
+Must capture the quantity (number) and calculate the total_price (number) for the order item.
+SLS-003
+Checkout Creation
+A checkout record must be created for a completed sale, linking to a staff_id and an order_id.
+SLS-004
+Checkout Total
+The checkout.total_price must be the sum of all linked order.total_price values.
+SLS-005
+Transaction Finalization
+A transaction record must be created, linking the customer_id, inventory_id, and checkout_id.
+SLS-006
+Timestamping
+The transaction_date (date) must be automatically recorded upon finalization.
+SLS-007
+Relationship Integrity
+The system must enforce the following relationships: Customer 1:M Transaction, Checkout 1:M Transaction, and Inventory 1:M Transaction.
+
+
+3.5. 📈 Profit and Loss Reporting
+This module automatically calculates financial metrics based on sales data.
+Requirement ID
+Feature Name
+Description
+P&L-001
+P&L Record Creation
+A profit_loss record must be created or updated when a sale (transaction) occurs.
+P&L-002
+Inventory Linkage
+Each P&L record must be linked to a single inventory_id.
+P&L-003
+Quantity Tracking
+total_quantity_sold must be aggregated from the sum of all linked order.quantity.
+P&L-004
+Remaining Quantity
+quantity_remaining must be calculated by subtracting total_quantity_sold from the initial inventory.quantity.
+P&L-005
+Revenue Calculation
+total_revenue must be aggregated from the sum of all linked order.total_price.
+P&L-006
+Net Profit Calculation
+total_net_profit must be calculated using the formula: $( \text{total\_revenue} ) - ( \text{total\_quantity\_sold} \times \text{inventory.cost\_price} )$.
+
+
+4. Data Dictionary (Schema Details)
+Entity (Table)
+Field (Attribute)
+Data Type
+Key/Relationship
+Description
+customers
+id
+string
+PK
+Unique identifier for the customer.
+
+
+customer_number
+string
+
+
+Business-assigned customer number.
+staff
+id
+string
+PK
+Unique identifier for the staff member.
+
+
+signed_contract
+boolean
+
+
+True if contract is signed, false otherwise.
+inventory
+id
+string
+PK
+Unique identifier for the item/service.
+
+
+type
+string
+
+
+Must be 'product' or 'service'.
+order
+id
+string
+PK
+Unique identifier for a line item in a sale.
+
+
+inventory_id
+string
+FK
+Links to the item being ordered.
+checkout
+id
+string
+PK
+Unique identifier for the final sale/receipt.
+
+
+staff_id
+string
+FK
+Links to the staff member who processed the sale.
+
+
+order_id
+string
+FK
+Links to the order line items.
+transactions
+id
+string
+PK
+Unique record of a customer purchasing a specific item.
+
+
+customer_id
+string
+FK
+Links to the purchasing customer.
+
+
+inventory_id
+string
+FK
+Links to the item purchased.
+
+
+checkout_id
+string
+FK
+Links to the associated checkout/receipt.
+profit_loss
+id
+string
+PK
+Unique record for P&L tracking per inventory item.
+
+
+inventory_id
+string
+FK
+Links to the tracked item.
+
+
+total_revenue
+number
+Aggregate
+Total money received for this item.
+
+
+total_net_profit
+number
+Calculated
+Total net profit derived from this item.
+
+Would you like to explore the SQL schema based on this PRD, or perhaps focus on the user interface requirements for one of the modules?
+
