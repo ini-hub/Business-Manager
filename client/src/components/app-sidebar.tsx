@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   Receipt,
   TrendingUp,
+  Settings,
 } from "lucide-react";
 import {
   Sidebar,
@@ -62,6 +63,14 @@ const reportsItems = [
     title: "Profit & Loss",
     url: "/profit-loss",
     icon: TrendingUp,
+  },
+];
+
+const settingsItems = [
+  {
+    title: "Business & Stores",
+    url: "/settings/stores",
+    icon: Settings,
   },
 ];
 
@@ -144,6 +153,30 @@ export function AppSidebar() {
                     className="gap-3"
                   >
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="mt-4">
+          <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Settings
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {settingsItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                    className="gap-3"
+                  >
+                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
                     </Link>
