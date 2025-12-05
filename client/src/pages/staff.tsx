@@ -24,11 +24,13 @@ import { Switch } from "@/components/ui/switch";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { BulkOperations } from "@/components/bulk-operations";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getUserFriendlyError } from "@/lib/error-utils";
 
 export default function StaffPage() {
   const { toast } = useToast();
@@ -60,7 +62,11 @@ export default function StaffPage() {
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create staff member", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Add Staff Member", 
+        description: getUserFriendlyError(error, "staff"), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -73,7 +79,11 @@ export default function StaffPage() {
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update staff member", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Update Staff Member", 
+        description: getUserFriendlyError(error, "staff"), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -87,7 +97,11 @@ export default function StaffPage() {
       setSelectedStaff(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete staff member", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Delete Staff Member", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -233,10 +247,24 @@ export default function StaffPage() {
         title="Staff"
         description="Manage your staff members and their contracts"
         actions={
-          <Button onClick={openCreateForm} data-testid="button-add-staff">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Staff
-          </Button>
+          <div className="flex items-center gap-2">
+            <BulkOperations
+              entityType="staff"
+              data={staffList as unknown as Record<string, unknown>[]}
+              columns={[
+                { key: "name", header: "Name" },
+                { key: "staffNumber", header: "Staff Number" },
+                { key: "mobileNumber", header: "Mobile Number" },
+                { key: "payPerMonth", header: "Pay Per Month" },
+                { key: "signedContract", header: "Signed Contract" },
+              ]}
+              isLoading={isLoading}
+            />
+            <Button onClick={openCreateForm} data-testid="button-add-staff">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Staff
+            </Button>
+          </div>
         }
       />
 

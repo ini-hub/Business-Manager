@@ -22,11 +22,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { BulkOperations } from "@/components/bulk-operations";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCustomerSchema, type Customer, type InsertCustomer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getUserFriendlyError } from "@/lib/error-utils";
 
 export default function Customers() {
   const { toast } = useToast();
@@ -57,7 +59,11 @@ export default function Customers() {
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create customer", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Add Customer", 
+        description: getUserFriendlyError(error, "customer"), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -70,7 +76,11 @@ export default function Customers() {
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update customer", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Update Customer", 
+        description: getUserFriendlyError(error, "customer"), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -84,7 +94,11 @@ export default function Customers() {
       setSelectedCustomer(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete customer", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Delete Customer", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -202,10 +216,23 @@ export default function Customers() {
         title="Customers"
         description="Manage your customer records"
         actions={
-          <Button onClick={openCreateForm} data-testid="button-add-customer">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Customer
-          </Button>
+          <div className="flex items-center gap-2">
+            <BulkOperations
+              entityType="customers"
+              data={customers as unknown as Record<string, unknown>[]}
+              columns={[
+                { key: "name", header: "Name" },
+                { key: "customerNumber", header: "Customer Number" },
+                { key: "mobileNumber", header: "Mobile Number" },
+                { key: "address", header: "Address" },
+              ]}
+              isLoading={isLoading}
+            />
+            <Button onClick={openCreateForm} data-testid="button-add-customer">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Customer
+            </Button>
+          </div>
         }
       />
 

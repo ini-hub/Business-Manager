@@ -1,4 +1,7 @@
 import {
+  businesses,
+  stores,
+  storeCounters,
   customers,
   staff,
   inventory,
@@ -6,6 +9,11 @@ import {
   checkouts,
   transactions,
   profitLoss,
+  type Business,
+  type InsertBusiness,
+  type Store,
+  type InsertStore,
+  type StoreCounter,
   type Customer,
   type InsertCustomer,
   type Staff,
@@ -24,11 +32,27 @@ import {
   type ProfitLossWithInventory,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, count } from "drizzle-orm";
+import { eq, sql, desc, count, and } from "drizzle-orm";
 
 export interface IStorage {
+  // Business
+  getBusiness(): Promise<Business | undefined>;
+  createBusiness(business: InsertBusiness): Promise<Business>;
+  updateBusiness(id: string, business: Partial<InsertBusiness>): Promise<Business | undefined>;
+
+  // Stores
+  getStores(businessId: string): Promise<Store[]>;
+  getStore(id: string): Promise<Store | undefined>;
+  createStore(store: InsertStore): Promise<Store>;
+  updateStore(id: string, store: Partial<InsertStore>): Promise<Store | undefined>;
+  deleteStore(id: string): Promise<boolean>;
+  hasStoreData(id: string): Promise<boolean>;
+
+  // Customer ID Generation
+  generateCustomerNumber(storeId: string): Promise<string>;
+
   // Customers
-  getCustomers(): Promise<Customer[]>;
+  getCustomers(storeId: string): Promise<Customer[]>;
   getCustomer(id: string): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
@@ -36,7 +60,7 @@ export interface IStorage {
   hasCustomerTransactions(id: string): Promise<boolean>;
 
   // Staff
-  getStaffList(): Promise<Staff[]>;
+  getStaffList(storeId: string): Promise<Staff[]>;
   getStaff(id: string): Promise<Staff | undefined>;
   createStaff(staffMember: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff>): Promise<Staff | undefined>;
@@ -44,7 +68,7 @@ export interface IStorage {
   hasStaffCheckouts(id: string): Promise<boolean>;
 
   // Inventory
-  getInventory(): Promise<Inventory[]>;
+  getInventory(storeId: string): Promise<Inventory[]>;
   getInventoryItem(id: string): Promise<Inventory | undefined>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
@@ -58,15 +82,15 @@ export interface IStorage {
   createCheckout(checkout: InsertCheckout): Promise<Checkout>;
 
   // Transactions
-  getTransactions(): Promise<TransactionWithRelations[]>;
+  getTransactions(storeId: string): Promise<TransactionWithRelations[]>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
 
   // Profit & Loss
-  getProfitLoss(): Promise<ProfitLossWithInventory[]>;
-  updateProfitLoss(inventoryId: string): Promise<void>;
+  getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]>;
+  updateProfitLoss(inventoryId: string, storeId: string): Promise<void>;
 
   // Dashboard Stats
-  getDashboardStats(): Promise<{
+  getDashboardStats(storeId: string): Promise<{
     totalCustomers: number;
     totalStaff: number;
     totalInventory: number;
@@ -79,14 +103,84 @@ export interface IStorage {
   }>;
 
   // Chart Data
-  getSalesTrends(): Promise<{ date: string; revenue: number; transactions: number }[]>;
-  getRevenueByType(): Promise<{ name: string; value: number; type: string }[]>;
+  getSalesTrends(storeId: string): Promise<{ date: string; revenue: number; transactions: number }[]>;
+  getRevenueByType(storeId: string): Promise<{ name: string; value: number; type: string }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
+  // Business
+  async getBusiness(): Promise<Business | undefined> {
+    const [business] = await db.select().from(businesses).limit(1);
+    return business;
+  }
+
+  async createBusiness(business: InsertBusiness): Promise<Business> {
+    const [newBusiness] = await db.insert(businesses).values(business).returning();
+    return newBusiness;
+  }
+
+  async updateBusiness(id: string, businessData: Partial<InsertBusiness>): Promise<Business | undefined> {
+    const [updated] = await db.update(businesses).set(businessData).where(eq(businesses.id, id)).returning();
+    return updated;
+  }
+
+  // Stores
+  async getStores(businessId: string): Promise<Store[]> {
+    return await db.select().from(stores).where(eq(stores.businessId, businessId));
+  }
+
+  async getStore(id: string): Promise<Store | undefined> {
+    const [store] = await db.select().from(stores).where(eq(stores.id, id));
+    return store;
+  }
+
+  async createStore(store: InsertStore): Promise<Store> {
+    const [newStore] = await db.insert(stores).values(store).returning();
+    await db.insert(storeCounters).values({ storeId: newStore.id, nextCustomerNumber: 1 });
+    return newStore;
+  }
+
+  async updateStore(id: string, storeData: Partial<InsertStore>): Promise<Store | undefined> {
+    const [updated] = await db.update(stores).set(storeData).where(eq(stores.id, id)).returning();
+    return updated;
+  }
+
+  async deleteStore(id: string): Promise<boolean> {
+    await db.delete(storeCounters).where(eq(storeCounters.storeId, id));
+    const result = await db.delete(stores).where(eq(stores.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async hasStoreData(id: string): Promise<boolean> {
+    const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, id));
+    const staffCount = await db.select({ count: count() }).from(staff).where(eq(staff.storeId, id));
+    const inventoryCount = await db.select({ count: count() }).from(inventory).where(eq(inventory.storeId, id));
+    return customerCount[0].count > 0 || staffCount[0].count > 0 || inventoryCount[0].count > 0;
+  }
+
+  // Customer ID Generation
+  async generateCustomerNumber(storeId: string): Promise<string> {
+    const store = await this.getStore(storeId);
+    if (!store) throw new Error("Store not found");
+
+    let [counter] = await db.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
+    
+    if (!counter) {
+      [counter] = await db.insert(storeCounters).values({ storeId, nextCustomerNumber: 1 }).returning();
+    }
+
+    const customerNumber = `${store.code}${counter.nextCustomerNumber.toString().padStart(3, '0')}`;
+    
+    await db.update(storeCounters)
+      .set({ nextCustomerNumber: counter.nextCustomerNumber + 1 })
+      .where(eq(storeCounters.storeId, storeId));
+
+    return customerNumber;
+  }
+
   // Customers
-  async getCustomers(): Promise<Customer[]> {
-    return await db.select().from(customers);
+  async getCustomers(storeId: string): Promise<Customer[]> {
+    return await db.select().from(customers).where(eq(customers.storeId, storeId));
   }
 
   async getCustomer(id: string): Promise<Customer | undefined> {
@@ -115,8 +209,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Staff
-  async getStaffList(): Promise<Staff[]> {
-    return await db.select().from(staff);
+  async getStaffList(storeId: string): Promise<Staff[]> {
+    return await db.select().from(staff).where(eq(staff.storeId, storeId));
   }
 
   async getStaff(id: string): Promise<Staff | undefined> {
@@ -145,8 +239,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory
-  async getInventory(): Promise<Inventory[]> {
-    return await db.select().from(inventory);
+  async getInventory(storeId: string): Promise<Inventory[]> {
+    return await db.select().from(inventory).where(eq(inventory.storeId, storeId));
   }
 
   async getInventoryItem(id: string): Promise<Inventory | undefined> {
@@ -187,10 +281,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Transactions
-  async getTransactions(): Promise<TransactionWithRelations[]> {
+  async getTransactions(storeId: string): Promise<TransactionWithRelations[]> {
     const txs = await db
       .select()
       .from(transactions)
+      .where(eq(transactions.storeId, storeId))
       .orderBy(desc(transactions.transactionDate));
 
     const result: TransactionWithRelations[] = [];
@@ -199,12 +294,14 @@ export class DatabaseStorage implements IStorage {
       const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
       const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
+      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
 
       result.push({
         ...tx,
         customer,
         inventory: inventoryItem,
         checkout,
+        store,
       });
     }
 
@@ -217,8 +314,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Profit & Loss
-  async getProfitLoss(): Promise<ProfitLossWithInventory[]> {
-    const plRecords = await db.select().from(profitLoss);
+  async getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]> {
+    const plRecords = await db.select().from(profitLoss).where(eq(profitLoss.storeId, storeId));
     const result: ProfitLossWithInventory[] = [];
 
     for (const pl of plRecords) {
@@ -232,12 +329,13 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async updateProfitLoss(inventoryId: string): Promise<void> {
+  async updateProfitLoss(inventoryId: string, storeId: string): Promise<void> {
     const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, inventoryId));
     if (!inventoryItem) return;
 
-    // Get all orders for this inventory item
-    const allOrders = await db.select().from(orders).where(eq(orders.inventoryId, inventoryId));
+    const allOrders = await db.select().from(orders).where(
+      and(eq(orders.inventoryId, inventoryId), eq(orders.storeId, storeId))
+    );
 
     const totalQuantitySold = allOrders.reduce((sum, order) => sum + order.quantity, 0);
     const totalRevenue = allOrders.reduce((sum, order) => sum + order.totalPrice, 0);
@@ -246,8 +344,9 @@ export class DatabaseStorage implements IStorage {
       ? inventoryItem.quantity
       : 0;
 
-    // Check if P&L record exists for this inventory
-    const [existingPL] = await db.select().from(profitLoss).where(eq(profitLoss.inventoryId, inventoryId));
+    const [existingPL] = await db.select().from(profitLoss).where(
+      and(eq(profitLoss.inventoryId, inventoryId), eq(profitLoss.storeId, storeId))
+    );
 
     if (existingPL) {
       await db.update(profitLoss)
@@ -257,9 +356,10 @@ export class DatabaseStorage implements IStorage {
           totalRevenue,
           totalNetProfit,
         })
-        .where(eq(profitLoss.inventoryId, inventoryId));
+        .where(and(eq(profitLoss.inventoryId, inventoryId), eq(profitLoss.storeId, storeId)));
     } else {
       await db.insert(profitLoss).values({
+        storeId,
         inventoryId,
         totalQuantitySold,
         quantityRemaining,
@@ -270,12 +370,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Dashboard Stats
-  async getDashboardStats() {
-    const allCustomers = await db.select().from(customers);
-    const allStaff = await db.select().from(staff);
-    const allInventory = await db.select().from(inventory);
-    const allTransactions = await db.select().from(transactions);
-    const plData = await db.select().from(profitLoss);
+  async getDashboardStats(storeId: string) {
+    const allCustomers = await db.select().from(customers).where(eq(customers.storeId, storeId));
+    const allStaff = await db.select().from(staff).where(eq(staff.storeId, storeId));
+    const allInventory = await db.select().from(inventory).where(eq(inventory.storeId, storeId));
+    const allTransactions = await db.select().from(transactions).where(eq(transactions.storeId, storeId));
+    const plData = await db.select().from(profitLoss).where(eq(profitLoss.storeId, storeId));
 
     const products = allInventory.filter((i) => i.type === "product");
     const services = allInventory.filter((i) => i.type === "service");
@@ -298,13 +398,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Chart Data - Sales Trends (last 30 days)
-  async getSalesTrends(): Promise<{ date: string; revenue: number; transactions: number }[]> {
+  async getSalesTrends(storeId: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
     const allTransactions = await db
       .select()
       .from(transactions)
+      .where(eq(transactions.storeId, storeId))
       .orderBy(transactions.transactionDate);
 
-    const allCheckouts = await db.select().from(checkouts);
+    const allCheckouts = await db.select().from(checkouts).where(eq(checkouts.storeId, storeId));
     const checkoutMap = new Map(allCheckouts.map(c => [c.id, c]));
 
     const trendMap = new Map<string, { revenue: number; transactions: number }>();
@@ -330,8 +431,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Chart Data - Revenue by Type (Product vs Service)
-  async getRevenueByType(): Promise<{ name: string; value: number; type: string }[]> {
-    const plData = await this.getProfitLoss();
+  async getRevenueByType(storeId: string): Promise<{ name: string; value: number; type: string }[]> {
+    const plData = await this.getProfitLoss(storeId);
 
     const result = plData.map(pl => ({
       name: pl.inventory?.name ?? "Unknown",

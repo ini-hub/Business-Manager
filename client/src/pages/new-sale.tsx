@@ -30,6 +30,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Customer, Staff, Inventory } from "@shared/schema";
 
 interface CartItem {
@@ -82,8 +83,8 @@ export default function NewSale() {
         const maxQty = item.type === "service" ? 999 : item.quantity;
         if (existing.quantity >= maxQty) {
           toast({
-            title: "Cannot add more",
-            description: `Only ${maxQty} available in stock`,
+            title: "Stock Limit Reached",
+            description: `Sorry, only ${maxQty} ${item.name} available right now.`,
             variant: "destructive",
           });
           return prev;
@@ -107,8 +108,8 @@ export default function NewSale() {
             const maxQty = c.inventory.type === "service" ? 999 : c.inventory.quantity;
             if (newQty > maxQty) {
               toast({
-                title: "Cannot add more",
-                description: `Only ${maxQty} available in stock`,
+                title: "Stock Limit Reached",
+                description: `Sorry, only ${maxQty} available right now.`,
                 variant: "destructive",
               });
               return c;
@@ -154,8 +155,8 @@ export default function NewSale() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to complete sale",
-        description: error.message,
+        title: "Couldn't Complete Sale",
+        description: getUserFriendlyError(error, "processing this sale"),
         variant: "destructive",
       });
     },

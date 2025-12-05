@@ -30,11 +30,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { BulkOperations } from "@/components/bulk-operations";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertInventorySchema, type Inventory, type InsertInventory } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getUserFriendlyError } from "@/lib/error-utils";
 
 type FilterType = "all" | "product" | "service" | "low-stock";
 
@@ -96,7 +98,11 @@ export default function InventoryPage() {
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to create item", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Add Item", 
+        description: getUserFriendlyError(error, "adding this item"), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -110,7 +116,11 @@ export default function InventoryPage() {
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update item", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Update Item", 
+        description: getUserFriendlyError(error, "updating this item"), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -124,7 +134,11 @@ export default function InventoryPage() {
       setSelectedItem(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to delete item", description: error.message, variant: "destructive" });
+      toast({ 
+        title: "Couldn't Delete Item", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
     },
   });
 
@@ -293,10 +307,24 @@ export default function InventoryPage() {
         title="Inventory"
         description="Manage your products and services"
         actions={
-          <Button onClick={openCreateForm} data-testid="button-add-item">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Item
-          </Button>
+          <div className="flex items-center gap-2">
+            <BulkOperations
+              entityType="inventory"
+              data={inventoryList as unknown as Record<string, unknown>[]}
+              columns={[
+                { key: "name", header: "Name" },
+                { key: "type", header: "Type" },
+                { key: "costPrice", header: "Cost Price" },
+                { key: "sellingPrice", header: "Selling Price" },
+                { key: "quantity", header: "Quantity" },
+              ]}
+              isLoading={isLoading}
+            />
+            <Button onClick={openCreateForm} data-testid="button-add-item">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Item
+            </Button>
+          </div>
         }
       />
 
