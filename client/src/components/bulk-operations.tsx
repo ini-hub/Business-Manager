@@ -28,6 +28,7 @@ interface BulkOperationsProps {
   data: Record<string, unknown>[];
   columns: { key: string; header: string }[];
   isLoading?: boolean;
+  storeId?: string;
 }
 
 interface ImportResult {
@@ -65,6 +66,7 @@ export function BulkOperations({
   data,
   columns,
   isLoading = false,
+  storeId,
 }: BulkOperationsProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -76,14 +78,14 @@ export function BulkOperations({
 
   const importMutation = useMutation({
     mutationFn: async (csvData: Record<string, string>[]) => {
-      const response = await apiRequest("POST", config.endpoint, { data: csvData });
+      const response = await apiRequest("POST", config.endpoint, { data: csvData, storeId });
       return response.json();
     },
     onSuccess: (result: ImportResult) => {
       setImportResult(result);
       setImportProgress(100);
-      queryClient.invalidateQueries({ queryKey: [`/api/${entityType === "inventory" ? "inventory" : entityType}`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/${entityType === "inventory" ? "inventory" : entityType}`, storeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", storeId] });
 
       if (result.failed === 0) {
         toast({

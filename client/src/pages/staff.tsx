@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Hash, DollarSign, FileCheck, FileX } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Hash, DollarSign, FileCheck, FileX, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -25,26 +25,32 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { useStore } from "@/lib/store-context";
+import { Link } from "wouter";
 
 export default function StaffPage() {
   const { toast } = useToast();
+  const { currentStore } = useStore();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
 
   const { data: staffList = [], isLoading } = useQuery<Staff[]>({
-    queryKey: ["/api/staff"],
+    queryKey: ["/api/staff", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const form = useForm<InsertStaff>({
     resolver: zodResolver(insertStaffSchema),
     defaultValues: {
+      storeId: currentStore?.id || "",
       name: "",
       staffNumber: "",
       mobileNumber: "",
@@ -54,9 +60,9 @@ export default function StaffPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: InsertStaff) => apiRequest("POST", "/api/staff", data),
+    mutationFn: (data: InsertStaff) => apiRequest("POST", "/api/staff", { ...data, storeId: currentStore?.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Staff member created successfully" });
       closeForm();
@@ -74,7 +80,7 @@ export default function StaffPage() {
     mutationFn: (data: InsertStaff) =>
       apiRequest("PATCH", `/api/staff/${selectedStaff?.id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
       toast({ title: "Staff member updated successfully" });
       closeForm();
     },
@@ -90,7 +96,7 @@ export default function StaffPage() {
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/staff/${selectedStaff?.id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Staff member deleted successfully" });
       setIsDeleteOpen(false);
@@ -114,6 +120,7 @@ export default function StaffPage() {
 
   const openCreateForm = () => {
     form.reset({
+      storeId: currentStore?.id || "",
       name: "",
       staffNumber: "",
       mobileNumber: "",
@@ -126,6 +133,7 @@ export default function StaffPage() {
 
   const openEditForm = (staff: Staff) => {
     form.reset({
+      storeId: staff.storeId,
       name: staff.name,
       staffNumber: staff.staffNumber,
       mobileNumber: staff.mobileNumber,
@@ -241,11 +249,25 @@ export default function StaffPage() {
     },
   ];
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Staff" description="Manage your staff members and their contracts" />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to manage staff.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Staff"
-        description="Manage your staff members and their contracts"
+        description={`Managing staff for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
             <BulkOperations
@@ -259,6 +281,7 @@ export default function StaffPage() {
                 { key: "signedContract", header: "Signed Contract" },
               ]}
               isLoading={isLoading}
+              storeId={currentStore.id}
             />
             <Button onClick={openCreateForm} data-testid="button-add-staff">
               <Plus className="mr-2 h-4 w-4" />

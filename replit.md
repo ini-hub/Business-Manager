@@ -69,15 +69,27 @@ Preferred communication style: Simple, everyday language.
 - **Drizzle ORM** for type-safe database queries and schema management
 - WebSocket connection using `ws` library for Neon serverless compatibility
 
+**Multi-Store Architecture**
+The system supports multiple stores per business with store-scoped data:
+- **Businesses** - Top-level entity containing stores
+- **Stores** - Each store has unique code used for customer ID generation
+- **Store Context** - React Context (`useStore`) provides current store to all pages
+- **Store Selector** - UI component in sidebar for switching between stores
+- **Customer ID Generation** - Auto-incrementing format using store prefix (e.g., MAIN001)
+- All data queries and mutations are scoped to the currently selected store
+
 **Schema Design**
-Core entities with UUID primary keys:
-1. **Customers** - name, customer number, mobile, address
-2. **Staff** - name, staff number, mobile, pay per month, contract status
-3. **Inventory** - name, type (product/service), cost price, selling price, quantity
-4. **Orders** - links checkouts to inventory items with quantity
-5. **Checkouts** - transaction containers with customer, staff, and date
-6. **Transactions** - complete transaction records with totals
-7. **Profit/Loss** - calculated metrics per inventory item
+Core entities with UUID primary keys and storeId foreign key:
+1. **Businesses** - name (parent entity for stores)
+2. **Stores** - name, code, businessId (unique code per business)
+3. **Store Counters** - tracks auto-increment customer numbers per store
+4. **Customers** - storeId, name, customer number, mobile, address
+5. **Staff** - storeId, name, staff number, mobile, pay per month, contract status
+6. **Inventory** - storeId, name, type (product/service), cost price, selling price, quantity
+7. **Orders** - storeId, links checkouts to inventory items with quantity
+8. **Checkouts** - storeId, transaction containers with customer, staff, and date
+9. **Transactions** - storeId, complete transaction records with totals
+10. **Profit/Loss** - storeId, calculated metrics per inventory item
 
 **Schema Validation**
 - Drizzle-Zod for runtime validation of insert/update operations

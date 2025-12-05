@@ -30,6 +30,10 @@ interface RevenueByTypeData {
   type: string;
 }
 
+interface ChartProps {
+  storeId?: string;
+}
+
 const COLORS = [
   "hsl(var(--chart-1))",
   "hsl(var(--chart-2))",
@@ -60,9 +64,10 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart() {
+export function SalesTrendChart({ storeId }: ChartProps) {
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
-    queryKey: ["/api/charts/sales-trends"],
+    queryKey: ["/api/charts/sales-trends", storeId],
+    enabled: !!storeId,
   });
 
   const chartData = useMemo(() => {
@@ -163,9 +168,10 @@ export function SalesTrendChart() {
   );
 }
 
-export function RevenueByItemChart() {
+export function RevenueByItemChart({ storeId }: ChartProps) {
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
-    queryKey: ["/api/charts/revenue-by-type"],
+    queryKey: ["/api/charts/revenue-by-type", storeId],
+    enabled: !!storeId,
   });
 
   if (isLoading) {
@@ -258,9 +264,10 @@ export function RevenueByItemChart() {
   );
 }
 
-export function RevenueBreakdownChart() {
+export function RevenueBreakdownChart({ storeId }: ChartProps) {
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
-    queryKey: ["/api/charts/revenue-by-type"],
+    queryKey: ["/api/charts/revenue-by-type", storeId],
+    enabled: !!storeId,
   });
 
   const pieData = useMemo(() => {

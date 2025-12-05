@@ -31,12 +31,15 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertInventorySchema, type Inventory, type InsertInventory } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { useStore } from "@/lib/store-context";
+import { Link } from "wouter";
 
 type FilterType = "all" | "product" | "service" | "low-stock";
 
@@ -44,13 +47,15 @@ const LOW_STOCK_THRESHOLD = 5;
 
 export default function InventoryPage() {
   const { toast } = useToast();
+  const { currentStore } = useStore();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
 
   const { data: inventoryList = [], isLoading } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory"],
+    queryKey: ["/api/inventory", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const filteredInventory = useMemo(() => {
@@ -79,6 +84,7 @@ export default function InventoryPage() {
   const form = useForm<InsertInventory>({
     resolver: zodResolver(insertInventorySchema),
     defaultValues: {
+      storeId: currentStore?.id || "",
       name: "",
       type: "product",
       costPrice: 0,
@@ -90,9 +96,9 @@ export default function InventoryPage() {
   const watchType = form.watch("type");
 
   const createMutation = useMutation({
-    mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", data),
+    mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", { ...data, storeId: currentStore?.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item created successfully" });
       closeForm();
@@ -110,7 +116,7 @@ export default function InventoryPage() {
     mutationFn: (data: InsertInventory) =>
       apiRequest("PATCH", `/api/inventory/${selectedItem?.id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item updated successfully" });
       closeForm();
@@ -127,7 +133,7 @@ export default function InventoryPage() {
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/inventory/${selectedItem?.id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item deleted successfully" });
       setIsDeleteOpen(false);
@@ -151,6 +157,7 @@ export default function InventoryPage() {
 
   const openCreateForm = () => {
     form.reset({
+      storeId: currentStore?.id || "",
       name: "",
       type: "product",
       costPrice: 0,
@@ -163,6 +170,7 @@ export default function InventoryPage() {
 
   const openEditForm = (item: Inventory) => {
     form.reset({
+      storeId: item.storeId,
       name: item.name,
       type: item.type,
       costPrice: item.costPrice,
@@ -301,11 +309,25 @@ export default function InventoryPage() {
     },
   ];
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Inventory" description="Manage your products and services" />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to manage inventory.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Inventory"
-        description="Manage your products and services"
+        description={`Managing inventory for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
             <BulkOperations
@@ -319,6 +341,7 @@ export default function InventoryPage() {
                 { key: "quantity", header: "Quantity" },
               ]}
               isLoading={isLoading}
+              storeId={currentStore.id}
             />
             <Button onClick={openCreateForm} data-testid="button-add-item">
               <Plus className="mr-2 h-4 w-4" />

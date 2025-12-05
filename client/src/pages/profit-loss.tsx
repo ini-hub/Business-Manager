@@ -1,16 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, DollarSign, Package, Wrench, ShoppingBag, BarChart3 } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Package, Wrench, ShoppingBag, BarChart3, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { ExportToolbar } from "@/components/export-toolbar";
+import { useStore } from "@/lib/store-context";
+import { Link } from "wouter";
 import type { ProfitLossWithInventory } from "@shared/schema";
 
 export default function ProfitLossPage() {
+  const { currentStore } = useStore();
+
   const { data: profitLossData = [], isLoading } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss"],
+    queryKey: ["/api/profit-loss", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const formatCurrency = (value: number) => {
@@ -155,11 +161,28 @@ export default function ProfitLossPage() {
     margin: pl.totalRevenue > 0 ? ((pl.totalNetProfit / pl.totalRevenue) * 100).toFixed(1) : "0.0",
   }));
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Profit & Loss Report"
+          description="Analyze revenue and profit across all inventory items"
+        />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to view profit & loss reports.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Profit & Loss Report"
-        description="Analyze revenue and profit across all inventory items"
+        description={`Revenue and profit analysis for ${currentStore.name}`}
         actions={
           <ExportToolbar
             data={exportData as unknown as Record<string, unknown>[]}

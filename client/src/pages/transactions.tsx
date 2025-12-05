@@ -1,25 +1,29 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, DollarSign, Hash } from "lucide-react";
+import { Receipt, Calendar, User, Package, DollarSign, Hash, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { MetricCard } from "@/components/metric-card";
+import { useStore } from "@/lib/store-context";
 import type { TransactionWithRelations } from "@shared/schema";
 
 export default function Transactions() {
+  const { currentStore } = useStore();
   const [dateRange, setDateRange] = useState<DateRange>({
     from: undefined,
     to: undefined,
   });
 
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
-    queryKey: ["/api/transactions"],
+    queryKey: ["/api/transactions", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const filteredTransactions = useMemo(() => {
@@ -138,11 +142,28 @@ export default function Transactions() {
     checkout: tx.checkout,
   }));
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Transactions"
+          description="View all sales transactions"
+        />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to view transactions.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Transactions"
-        description="View all sales transactions"
+        description={`Sales transactions for ${currentStore.name}`}
         actions={
           <Button asChild data-testid="button-new-sale">
             <Link href="/sales/new">

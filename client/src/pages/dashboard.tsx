@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { Users, UserCog, Package, Receipt, TrendingUp, DollarSign, ShoppingCart, AlertTriangle } from "lucide-react";
+import { Users, UserCog, Package, Receipt, TrendingUp, DollarSign, ShoppingCart, AlertTriangle, AlertCircle } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
-import type { Customer, Staff, Inventory, Transaction, ProfitLossWithInventory } from "@shared/schema";
+import { useStore } from "@/lib/store-context";
+import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 
 interface DashboardStats {
   totalCustomers: number;
@@ -19,16 +21,19 @@ interface DashboardStats {
   totalRevenue: number;
   totalProfit: number;
   lowStockItems: Inventory[];
-  recentTransactions: Transaction[];
 }
 
 export default function Dashboard() {
+  const { currentStore } = useStore();
+
   const { data: stats, isLoading } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats"],
+    queryKey: ["/api/dashboard/stats", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss"],
+    queryKey: ["/api/profit-loss", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const formatCurrency = (value: number) => {
@@ -38,11 +43,28 @@ export default function Dashboard() {
     }).format(value);
   };
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-8">
+        <PageHeader
+          title="Dashboard"
+          description="Overview of your business performance"
+        />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to see your dashboard.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
         title="Dashboard"
-        description="Overview of your business performance"
+        description={`Overview for ${currentStore.name}`}
         actions={
           <Button asChild data-testid="button-new-sale">
             <Link href="/sales/new">
@@ -101,11 +123,11 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <SalesTrendChart />
-        <RevenueByItemChart />
+        <SalesTrendChart storeId={currentStore.id} />
+        <RevenueByItemChart storeId={currentStore.id} />
       </div>
 
-      <RevenueBreakdownChart />
+      <RevenueBreakdownChart storeId={currentStore.id} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, MapPin, Hash } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, MapPin, Hash, RefreshCw, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,20 +30,27 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCustomerSchema, type Customer, type InsertCustomer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { useStore } from "@/lib/store-context";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Link } from "wouter";
 
 export default function Customers() {
   const { toast } = useToast();
+  const { currentStore } = useStore();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [generatedCustomerNumber, setGeneratedCustomerNumber] = useState("");
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+    queryKey: ["/api/customers", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const form = useForm<InsertCustomer>({
     resolver: zodResolver(insertCustomerSchema),
     defaultValues: {
+      storeId: currentStore?.id || "",
       name: "",
       customerNumber: "",
       mobileNumber: "",
@@ -50,10 +58,24 @@ export default function Customers() {
     },
   });
 
+  const fetchNewCustomerNumber = async () => {
+    if (!currentStore?.id) return;
+    try {
+      const res = await fetch(`/api/stores/${currentStore.id}/generate-customer-number`);
+      if (res.ok) {
+        const data = await res.json();
+        setGeneratedCustomerNumber(data.customerNumber);
+        form.setValue("customerNumber", data.customerNumber);
+      }
+    } catch (error) {
+      console.error("Failed to generate customer number:", error);
+    }
+  };
+
   const createMutation = useMutation({
-    mutationFn: (data: InsertCustomer) => apiRequest("POST", "/api/customers", data),
+    mutationFn: (data: InsertCustomer) => apiRequest("POST", "/api/customers", { ...data, storeId: currentStore?.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Customer created successfully" });
       closeForm();
@@ -71,7 +93,7 @@ export default function Customers() {
     mutationFn: (data: InsertCustomer) =>
       apiRequest("PATCH", `/api/customers/${selectedCustomer?.id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       toast({ title: "Customer updated successfully" });
       closeForm();
     },
@@ -87,7 +109,7 @@ export default function Customers() {
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/customers/${selectedCustomer?.id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Customer deleted successfully" });
       setIsDeleteOpen(false);
@@ -102,8 +124,9 @@ export default function Customers() {
     },
   });
 
-  const openCreateForm = () => {
+  const openCreateForm = async () => {
     form.reset({
+      storeId: currentStore?.id || "",
       name: "",
       customerNumber: "",
       mobileNumber: "",
@@ -111,22 +134,26 @@ export default function Customers() {
     });
     setSelectedCustomer(null);
     setIsFormOpen(true);
+    await fetchNewCustomerNumber();
   };
 
   const openEditForm = (customer: Customer) => {
     form.reset({
+      storeId: customer.storeId,
       name: customer.name,
       customerNumber: customer.customerNumber,
       mobileNumber: customer.mobileNumber,
       address: customer.address,
     });
     setSelectedCustomer(customer);
+    setGeneratedCustomerNumber("");
     setIsFormOpen(true);
   };
 
   const closeForm = () => {
     setIsFormOpen(false);
     setSelectedCustomer(null);
+    setGeneratedCustomerNumber("");
     form.reset();
   };
 
@@ -210,11 +237,25 @@ export default function Customers() {
     },
   ];
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Customers" description="Manage your customer records" />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to manage customers.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description="Manage your customer records"
+        description={`Managing customers for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
             <BulkOperations
@@ -227,6 +268,7 @@ export default function Customers() {
                 { key: "address", header: "Address" },
               ]}
               isLoading={isLoading}
+              storeId={currentStore.id}
             />
             <Button onClick={openCreateForm} data-testid="button-add-customer">
               <Plus className="mr-2 h-4 w-4" />
@@ -279,10 +321,31 @@ export default function Customers() {
                   name="customerNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Customer Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="CUST-001" {...field} data-testid="input-customer-number" />
-                      </FormControl>
+                      <FormLabel>Customer ID</FormLabel>
+                      <div className="flex gap-2">
+                        <FormControl>
+                          <Input 
+                            placeholder={generatedCustomerNumber || "Auto-generated"} 
+                            {...field} 
+                            data-testid="input-customer-number" 
+                          />
+                        </FormControl>
+                        {!selectedCustomer && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={fetchNewCustomerNumber}
+                            title="Generate new ID"
+                            data-testid="button-regenerate-id"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <FormDescription>
+                        Auto-generated based on store code. You can edit it if needed.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

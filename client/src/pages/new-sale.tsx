@@ -12,6 +12,7 @@ import {
   UserCog,
   CheckCircle,
   Search,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -27,10 +28,13 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { useStore } from "@/lib/store-context";
+import { Link } from "wouter";
 import type { Customer, Staff, Inventory } from "@shared/schema";
 
 interface CartItem {
@@ -41,6 +45,7 @@ interface CartItem {
 
 export default function NewSale() {
   const { toast } = useToast();
+  const { currentStore } = useStore();
   const [, setLocation] = useLocation();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
@@ -48,15 +53,18 @@ export default function NewSale() {
   const [searchTerm, setSearchTerm] = useState("");
 
   const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers"],
+    queryKey: ["/api/customers", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const { data: staffList = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff"],
+    queryKey: ["/api/staff", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const { data: inventory = [], isLoading } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory"],
+    queryKey: ["/api/inventory", currentStore?.id],
+    enabled: !!currentStore?.id,
   });
 
   const availableInventory = inventory.filter(
@@ -137,16 +145,17 @@ export default function NewSale() {
       }));
 
       return apiRequest("POST", "/api/sales/checkout", {
+        storeId: currentStore?.id,
         customerId: selectedCustomer,
         staffId: selectedStaff,
         items: orderData,
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", currentStore?.id] });
       toast({ title: "Sale completed successfully!" });
       setCart([]);
       setSelectedCustomer("");
@@ -164,11 +173,28 @@ export default function NewSale() {
 
   const canCheckout = cart.length > 0 && selectedCustomer && selectedStaff;
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="New Sale"
+          description="Create a new sales transaction"
+        />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to create sales.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="New Sale"
-        description="Create a new sales transaction"
+        description={`Create a new sales transaction for ${currentStore.name}`}
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
