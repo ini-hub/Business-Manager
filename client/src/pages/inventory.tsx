@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, DollarSign, Hash, Boxes } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, DollarSign, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,7 +36,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertInventorySchema, type Inventory, type InsertInventory } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
-type FilterType = "all" | "product" | "service";
+type FilterType = "all" | "product" | "service" | "low-stock";
+
+const LOW_STOCK_THRESHOLD = 5;
 
 export default function InventoryPage() {
   const { toast } = useToast();
@@ -49,9 +51,28 @@ export default function InventoryPage() {
     queryKey: ["/api/inventory"],
   });
 
-  const filteredInventory = filterType === "all"
-    ? inventoryList
-    : inventoryList.filter((item) => item.type === filterType);
+  const filteredInventory = useMemo(() => {
+    switch (filterType) {
+      case "all":
+        return inventoryList;
+      case "product":
+        return inventoryList.filter((item) => item.type === "product");
+      case "service":
+        return inventoryList.filter((item) => item.type === "service");
+      case "low-stock":
+        return inventoryList.filter(
+          (item) => item.type === "product" && item.quantity <= LOW_STOCK_THRESHOLD
+        );
+      default:
+        return inventoryList;
+    }
+  }, [inventoryList, filterType]);
+
+  const lowStockCount = useMemo(() => {
+    return inventoryList.filter(
+      (item) => item.type === "product" && item.quantity <= LOW_STOCK_THRESHOLD
+    ).length;
+  }, [inventoryList]);
 
   const form = useForm<InsertInventory>({
     resolver: zodResolver(insertInventorySchema),
@@ -159,7 +180,7 @@ export default function InventoryPage() {
     if (item.quantity === 0) {
       return <Badge variant="destructive">Out of Stock</Badge>;
     }
-    if (item.quantity <= 5) {
+    if (item.quantity <= LOW_STOCK_THRESHOLD) {
       return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100">Low Stock</Badge>;
     }
     return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">In Stock</Badge>;
@@ -279,6 +300,30 @@ export default function InventoryPage() {
         }
       />
 
+      {lowStockCount > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+          <div className="flex-1">
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              Low Stock Alert
+            </p>
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              {lowStockCount} item{lowStockCount !== 1 ? "s" : ""} {lowStockCount !== 1 ? "are" : "is"} running low on stock (below {LOW_STOCK_THRESHOLD} units)
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFilterType("low-stock")}
+            className="border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
+            data-testid="button-view-low-stock"
+          >
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            View Items
+          </Button>
+        </div>
+      )}
+
       <Tabs value={filterType} onValueChange={(v) => setFilterType(v as FilterType)}>
         <TabsList>
           <TabsTrigger value="all" data-testid="tab-all">
@@ -289,6 +334,14 @@ export default function InventoryPage() {
           </TabsTrigger>
           <TabsTrigger value="service" data-testid="tab-services">
             Services ({inventoryList.filter((i) => i.type === "service").length})
+          </TabsTrigger>
+          <TabsTrigger 
+            value="low-stock" 
+            data-testid="tab-low-stock"
+            className={lowStockCount > 0 ? "text-amber-600 dark:text-amber-400" : ""}
+          >
+            <AlertCircle className="mr-1 h-3 w-3" />
+            Low Stock ({lowStockCount})
           </TabsTrigger>
         </TabsList>
       </Tabs>

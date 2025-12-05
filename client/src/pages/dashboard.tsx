@@ -125,22 +125,40 @@ export default function Dashboard() {
               </div>
             ) : (stats?.lowStockItems?.length ?? 0) > 0 ? (
               <div className="space-y-3">
-                {stats?.lowStockItems?.slice(0, 5).map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                  >
-                    <div>
-                      <p className="font-medium text-sm">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatCurrency(item.sellingPrice)}
-                      </p>
+                {stats?.lowStockItems?.slice(0, 5).map((item) => {
+                  const reorderQty = Math.max(10 - item.quantity, 5);
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                      data-testid={`low-stock-item-${item.id.slice(0, 8)}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{item.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant={item.quantity === 0 ? "destructive" : "secondary"} className="text-xs shrink-0">
+                            {item.quantity === 0 ? "Out of Stock" : `${item.quantity} left`}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Reorder: +{reorderQty} units
+                          </span>
+                        </div>
+                      </div>
+                      <Button asChild variant="ghost" size="icon" className="shrink-0 ml-2" data-testid={`button-restock-${item.id.slice(0, 8)}`}>
+                        <Link href="/inventory">
+                          <Package className="h-4 w-4" />
+                        </Link>
+                      </Button>
                     </div>
-                    <Badge variant={item.quantity === 0 ? "destructive" : "secondary"} className="text-xs">
-                      {item.quantity} left
-                    </Badge>
-                  </div>
-                ))}
+                  );
+                })}
+                {(stats?.lowStockItems?.length ?? 0) > 5 && (
+                  <Button asChild variant="outline" size="sm" className="w-full" data-testid="button-view-all-low-stock">
+                    <Link href="/inventory">
+                      View All {stats?.lowStockItems?.length} Items
+                    </Link>
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-center">
