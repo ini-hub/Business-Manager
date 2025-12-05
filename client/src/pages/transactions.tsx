@@ -1,16 +1,37 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Receipt, Calendar, User, Package, DollarSign, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { ExportToolbar } from "@/components/export-toolbar";
+import { MetricCard } from "@/components/metric-card";
 import type { TransactionWithRelations } from "@shared/schema";
 
 export default function Transactions() {
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: undefined,
+    to: undefined,
+  });
+
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions"],
   });
+
+  const filteredTransactions = useMemo(() => {
+    if (!dateRange.from && !dateRange.to) return transactions;
+
+    return transactions.filter((tx) => {
+      const txDate = new Date(tx.transactionDate);
+      if (dateRange.from && txDate < dateRange.from) return false;
+      if (dateRange.to && txDate > dateRange.to) return false;
+      return true;
+    });
+  }, [transactions, dateRange]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -29,6 +50,11 @@ export default function Transactions() {
     }).format(new Date(date));
   };
 
+  const totalAmount = filteredTransactions.reduce(
+    (sum, tx) => sum + (tx.checkout?.totalPrice ?? 0),
+    0
+  );
+
   const columns = [
     {
       key: "id",
@@ -36,7 +62,9 @@ export default function Transactions() {
       render: (tx: TransactionWithRelations) => (
         <div className="flex items-center gap-2">
           <Hash className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-xs">{tx.id.slice(0, 8)}...</span>
+          <span className="font-mono text-xs" data-testid={`text-tx-id-${tx.id.slice(0, 8)}`}>
+            {tx.id.slice(0, 8)}...
+          </span>
         </div>
       ),
     },
@@ -92,6 +120,24 @@ export default function Transactions() {
     },
   ];
 
+  const exportColumns = [
+    { key: "id", header: "Transaction ID" },
+    { key: "transactionDate", header: "Date" },
+    { key: "customer.name", header: "Customer Name" },
+    { key: "customer.customerNumber", header: "Customer Number" },
+    { key: "inventory.name", header: "Item Name" },
+    { key: "inventory.type", header: "Item Type" },
+    { key: "checkout.totalPrice", header: "Amount" },
+  ];
+
+  const exportData = filteredTransactions.map((tx) => ({
+    id: tx.id,
+    transactionDate: new Date(tx.transactionDate).toLocaleString(),
+    customer: tx.customer,
+    inventory: tx.inventory,
+    checkout: tx.checkout,
+  }));
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -107,15 +153,58 @@ export default function Transactions() {
         }
       />
 
-      <DataTable
-        data={transactions}
-        columns={columns}
-        searchable
-        searchPlaceholder="Search transactions..."
-        searchKeys={["id"]}
-        isLoading={isLoading}
-        emptyMessage="No transactions found. Complete your first sale to see records here."
-      />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <MetricCard
+          title="Total Transactions"
+          value={filteredTransactions.length}
+          icon={<Receipt className="h-4 w-4" />}
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="Total Revenue"
+          value={formatCurrency(totalAmount)}
+          icon={<DollarSign className="h-4 w-4" />}
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="Avg. Transaction"
+          value={formatCurrency(
+            filteredTransactions.length > 0 ? totalAmount / filteredTransactions.length : 0
+          )}
+          icon={<DollarSign className="h-4 w-4" />}
+          isLoading={isLoading}
+        />
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+          <CardTitle className="text-base font-medium">Transaction History</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <DateRangeFilter
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+            />
+            <ExportToolbar
+              data={exportData as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              filename="transactions"
+              title="Transaction Report"
+              disabled={isLoading}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            data={filteredTransactions}
+            columns={columns}
+            searchable
+            searchPlaceholder="Search transactions..."
+            searchKeys={["id"]}
+            isLoading={isLoading}
+            emptyMessage="No transactions found. Complete your first sale to see records here."
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

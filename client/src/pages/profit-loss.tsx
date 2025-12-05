@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
+import { ExportToolbar } from "@/components/export-toolbar";
 import type { ProfitLossWithInventory } from "@shared/schema";
 
 export default function ProfitLossPage() {
@@ -23,6 +24,7 @@ export default function ProfitLossPage() {
   const totalProfit = profitLossData.reduce((sum, pl) => sum + pl.totalNetProfit, 0);
   const totalQuantitySold = profitLossData.reduce((sum, pl) => sum + pl.totalQuantitySold, 0);
   const profitableItems = profitLossData.filter((pl) => pl.totalNetProfit > 0).length;
+  const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   const columns = [
     {
@@ -38,7 +40,9 @@ export default function ProfitLossPage() {
             )}
           </div>
           <div>
-            <p className="font-medium">{pl.inventory?.name ?? "Unknown"}</p>
+            <p className="font-medium" data-testid={`text-item-name-${pl.inventoryId.slice(0, 8)}`}>
+              {pl.inventory?.name ?? "Unknown"}
+            </p>
             <Badge variant="outline" className="text-xs capitalize mt-1">
               {pl.inventory?.type ?? "unknown"}
             </Badge>
@@ -130,14 +134,44 @@ export default function ProfitLossPage() {
     },
   ];
 
+  const exportColumns = [
+    { key: "inventory.name", header: "Item Name" },
+    { key: "inventory.type", header: "Type" },
+    { key: "totalQuantitySold", header: "Quantity Sold" },
+    { key: "quantityRemaining", header: "Quantity Remaining" },
+    { key: "inventory.costPrice", header: "Unit Cost" },
+    { key: "inventory.sellingPrice", header: "Selling Price" },
+    { key: "totalRevenue", header: "Total Revenue" },
+    { key: "totalNetProfit", header: "Net Profit" },
+    { key: "margin", header: "Profit Margin %" },
+  ];
+
+  const exportData = profitLossData.map((pl) => ({
+    inventory: pl.inventory,
+    totalQuantitySold: pl.totalQuantitySold,
+    quantityRemaining: pl.inventory?.type === "service" ? "N/A" : pl.quantityRemaining,
+    totalRevenue: pl.totalRevenue,
+    totalNetProfit: pl.totalNetProfit,
+    margin: pl.totalRevenue > 0 ? ((pl.totalNetProfit / pl.totalRevenue) * 100).toFixed(1) : "0.0",
+  }));
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Profit & Loss Report"
         description="Analyze revenue and profit across all inventory items"
+        actions={
+          <ExportToolbar
+            data={exportData as unknown as Record<string, unknown>[]}
+            columns={exportColumns}
+            filename="profit-loss-report"
+            title="Profit & Loss Report"
+            disabled={isLoading}
+          />
+        }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <MetricCard
           title="Total Revenue"
           value={formatCurrency(totalRevenue)}
@@ -149,6 +183,12 @@ export default function ProfitLossPage() {
           value={formatCurrency(totalProfit)}
           icon={totalProfit >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
           trend={totalProfit >= 0 ? "up" : "down"}
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="Profit Margin"
+          value={`${profitMargin.toFixed(1)}%`}
+          icon={<BarChart3 className="h-4 w-4" />}
           isLoading={isLoading}
         />
         <MetricCard
