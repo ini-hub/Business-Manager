@@ -77,6 +77,10 @@ export interface IStorage {
     totalProfit: number;
     lowStockItems: Inventory[];
   }>;
+
+  // Chart Data
+  getSalesTrends(): Promise<{ date: string; revenue: number; transactions: number }[]>;
+  getRevenueByType(): Promise<{ name: string; value: number; type: string }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -291,6 +295,51 @@ export class DatabaseStorage implements IStorage {
       totalProfit,
       lowStockItems,
     };
+  }
+
+  // Chart Data - Sales Trends (last 30 days)
+  async getSalesTrends(): Promise<{ date: string; revenue: number; transactions: number }[]> {
+    const allTransactions = await db
+      .select()
+      .from(transactions)
+      .orderBy(transactions.transactionDate);
+
+    const allCheckouts = await db.select().from(checkouts);
+    const checkoutMap = new Map(allCheckouts.map(c => [c.id, c]));
+
+    const trendMap = new Map<string, { revenue: number; transactions: number }>();
+
+    for (const tx of allTransactions) {
+      const dateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
+      const checkout = checkoutMap.get(tx.checkoutId);
+      const revenue = checkout?.totalPrice ?? 0;
+
+      const existing = trendMap.get(dateStr) ?? { revenue: 0, transactions: 0 };
+      trendMap.set(dateStr, {
+        revenue: existing.revenue + revenue,
+        transactions: existing.transactions + 1,
+      });
+    }
+
+    const result = Array.from(trendMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const last30 = result.slice(-30);
+    return last30;
+  }
+
+  // Chart Data - Revenue by Type (Product vs Service)
+  async getRevenueByType(): Promise<{ name: string; value: number; type: string }[]> {
+    const plData = await this.getProfitLoss();
+
+    const result = plData.map(pl => ({
+      name: pl.inventory?.name ?? "Unknown",
+      value: pl.totalRevenue,
+      type: pl.inventory?.type ?? "unknown",
+    }));
+
+    return result.sort((a, b) => b.value - a.value).slice(0, 10);
   }
 }
 

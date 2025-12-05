@@ -267,6 +267,25 @@ export async function registerRoutes(
     }
   });
 
+  // ========== CHART DATA ==========
+  app.get("/api/charts/sales-trends", async (req, res) => {
+    try {
+      const data = await storage.getSalesTrends();
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch sales trends" });
+    }
+  });
+
+  app.get("/api/charts/revenue-by-type", async (req, res) => {
+    try {
+      const data = await storage.getRevenueByType();
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch revenue by type" });
+    }
+  });
+
   // ========== SALES CHECKOUT ==========
   const checkoutSchema = z.object({
     customerId: z.string(),

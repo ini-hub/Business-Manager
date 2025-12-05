@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
+import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
 import type { Customer, Staff, Inventory, Transaction, ProfitLossWithInventory } from "@shared/schema";
 
 interface DashboardStats {
@@ -98,6 +99,13 @@ export default function Dashboard() {
           isLoading={isLoading}
         />
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SalesTrendChart />
+        <RevenueByItemChart />
+      </div>
+
+      <RevenueBreakdownChart />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
