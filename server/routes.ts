@@ -65,9 +65,21 @@ export async function registerRoutes(
 
   app.delete("/api/customers/:id", async (req, res) => {
     try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+      
+      const hasTransactions = await storage.hasCustomerTransactions(req.params.id);
+      if (hasTransactions) {
+        return res.status(400).json({ 
+          error: "Cannot delete customer with existing transactions. This customer has purchase history that must be preserved for your records." 
+        });
+      }
+      
       const deleted = await storage.deleteCustomer(req.params.id);
       if (!deleted) {
-        return res.status(404).json({ error: "Customer not found" });
+        return res.status(500).json({ error: "Failed to delete customer" });
       }
       res.status(204).send();
     } catch (error) {
@@ -128,9 +140,21 @@ export async function registerRoutes(
 
   app.delete("/api/staff/:id", async (req, res) => {
     try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found" });
+      }
+      
+      const hasCheckouts = await storage.hasStaffCheckouts(req.params.id);
+      if (hasCheckouts) {
+        return res.status(400).json({ 
+          error: "Cannot delete staff member with existing sales records. This staff member has processed sales that must be preserved for your records." 
+        });
+      }
+      
       const deleted = await storage.deleteStaff(req.params.id);
       if (!deleted) {
-        return res.status(404).json({ error: "Staff member not found" });
+        return res.status(500).json({ error: "Failed to delete staff member" });
       }
       res.status(204).send();
     } catch (error) {
@@ -191,9 +215,21 @@ export async function registerRoutes(
 
   app.delete("/api/inventory/:id", async (req, res) => {
     try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: "Inventory item not found" });
+      }
+      
+      const hasTransactions = await storage.hasInventoryTransactions(req.params.id);
+      if (hasTransactions) {
+        return res.status(400).json({ 
+          error: "Cannot delete inventory item with existing sales records. This item has sales history that must be preserved for your records." 
+        });
+      }
+      
       const deleted = await storage.deleteInventoryItem(req.params.id);
       if (!deleted) {
-        return res.status(404).json({ error: "Inventory item not found" });
+        return res.status(500).json({ error: "Failed to delete inventory item" });
       }
       res.status(204).send();
     } catch (error) {

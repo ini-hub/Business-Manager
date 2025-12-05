@@ -24,7 +24,7 @@ import {
   type ProfitLossWithInventory,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, sql, desc, count } from "drizzle-orm";
 
 export interface IStorage {
   // Customers
@@ -33,6 +33,7 @@ export interface IStorage {
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
   deleteCustomer(id: string): Promise<boolean>;
+  hasCustomerTransactions(id: string): Promise<boolean>;
 
   // Staff
   getStaffList(): Promise<Staff[]>;
@@ -40,6 +41,7 @@ export interface IStorage {
   createStaff(staffMember: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff>): Promise<Staff | undefined>;
   deleteStaff(id: string): Promise<boolean>;
+  hasStaffCheckouts(id: string): Promise<boolean>;
 
   // Inventory
   getInventory(): Promise<Inventory[]>;
@@ -47,6 +49,7 @@ export interface IStorage {
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
+  hasInventoryTransactions(id: string): Promise<boolean>;
 
   // Orders
   createOrder(order: InsertOrder): Promise<Order>;
@@ -102,6 +105,11 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async hasCustomerTransactions(id: string): Promise<boolean> {
+    const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.customerId, id));
+    return result[0].count > 0;
+  }
+
   // Staff
   async getStaffList(): Promise<Staff[]> {
     return await db.select().from(staff);
@@ -127,6 +135,11 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async hasStaffCheckouts(id: string): Promise<boolean> {
+    const result = await db.select({ count: count() }).from(checkouts).where(eq(checkouts.staffId, id));
+    return result[0].count > 0;
+  }
+
   // Inventory
   async getInventory(): Promise<Inventory[]> {
     return await db.select().from(inventory);
@@ -150,6 +163,11 @@ export class DatabaseStorage implements IStorage {
   async deleteInventoryItem(id: string): Promise<boolean> {
     const result = await db.delete(inventory).where(eq(inventory.id, id)).returning();
     return result.length > 0;
+  }
+
+  async hasInventoryTransactions(id: string): Promise<boolean> {
+    const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.inventoryId, id));
+    return result[0].count > 0;
   }
 
   // Orders
