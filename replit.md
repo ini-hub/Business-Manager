@@ -160,3 +160,67 @@ Core entities with UUID primary keys and storeId foreign key:
 - Server returns appropriate HTTP status codes (400 for validation, 404 for not found, 500 for server errors)
 - Client displays user-friendly toast notifications for errors
 - Development mode shows detailed error overlays via Replit plugin
+
+### Security Features
+
+**Authentication**
+- Replit Auth integration with OIDC flow
+- PostgreSQL session storage via `connect-pg-simple`
+- Secure cookie configuration with httpOnly flags
+
+**Rate Limiting**
+- General API limiter: 100 requests per 15 minutes per IP
+- Auth-specific limiter: 10 requests per 15 minutes per IP
+- Implemented via `express-rate-limit` middleware
+
+**Input Sanitization**
+- Centralized sanitization utilities (`server/sanitize.ts`)
+- String sanitization (XSS prevention, trimming)
+- Phone number sanitization
+- UUID validation
+- Number and boolean type coercion
+- Applied to all customer, staff, and inventory creation/update routes
+
+**Audit Logging**
+- Comprehensive audit logging (`server/audit.ts`)
+- Logs auth attempts, CRUD operations, checkout transactions
+- Security event logging for webhook signature mismatches
+- Payment logging with transaction details
+
+**Data Integrity**
+- Atomic checkout transactions using `db.transaction()`
+- Inventory stock validation to prevent negative quantities
+- Archive-based soft deletion with transaction preservation
+
+### Performance Optimizations
+
+**Pagination**
+- All list endpoints support pagination (customers, staff, inventory, transactions)
+- Default 50 items per page, max 100
+- Search filtering with pagination
+
+**Database Indexing**
+- Unique constraints on store-scoped identifiers create implicit indexes
+- Optimized lookups for customer numbers, staff numbers, inventory names
+- Session expiry index for efficient cleanup
+
+**Currency Formatting**
+- Centralized currency utility (`client/src/lib/currency-utils.ts`)
+- Store-specific currency support (NGN, USD, etc.)
+- Consistent formatting across all pages and charts
+
+### Payment Integration
+
+**Flutterwave**
+- Payment link generation via Flutterwave API
+- Webhook handler for payment verification
+- Checkout status updates (pending/completed/failed)
+- Signature validation for security
+
+### Bulk Operations
+
+**CSV Import/Export**
+- Bulk import for customers, staff, inventory
+- CSV export with formatted data
+- PDF export with professional formatting
+- Template downloads for data preparation
