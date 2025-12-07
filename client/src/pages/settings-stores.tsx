@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -24,12 +24,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone } from "lucide-react";
+import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins } from "lucide-react";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store as StoreType } from "@shared/schema";
+import { countries, currencies, getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
 
 const businessFormSchema = z.object({
   name: z.string().min(1, "Business name is required").max(200, "Name is too long"),
@@ -45,6 +53,8 @@ const storeFormSchema = z.object({
     .regex(/^[A-Z0-9]+$/, "Store code must be uppercase letters and numbers only"),
   address: z.string().optional(),
   phone: z.string().optional(),
+  country: z.string().default("NG"),
+  currency: z.string().default("NGN"),
 });
 
 type BusinessFormValues = z.infer<typeof businessFormSchema>;
@@ -86,8 +96,19 @@ export default function SettingsStoresPage() {
       code: "",
       address: "",
       phone: "",
+      country: "NG",
+      currency: "NGN",
     },
   });
+
+  const watchedCountry = storeForm.watch("country");
+  
+  useEffect(() => {
+    const countryInfo = getCountryByCode(watchedCountry);
+    if (countryInfo) {
+      storeForm.setValue("currency", countryInfo.currency);
+    }
+  }, [watchedCountry, storeForm]);
 
   const handleBusinessSubmit = async (values: BusinessFormValues) => {
     try {
@@ -169,6 +190,8 @@ export default function SettingsStoresPage() {
       code: store.code,
       address: store.address || "",
       phone: store.phone || "",
+      country: store.country || "NG",
+      currency: store.currency || "NGN",
     });
     setIsStoreDialogOpen(true);
   };
@@ -180,6 +203,8 @@ export default function SettingsStoresPage() {
       code: "",
       address: "",
       phone: "",
+      country: "NG",
+      currency: "NGN",
     });
     setIsStoreDialogOpen(true);
   };
@@ -315,7 +340,7 @@ export default function SettingsStoresPage() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="text-sm text-muted-foreground">
+                  <CardContent className="text-sm text-muted-foreground space-y-1">
                     {store.address && (
                       <p className="flex items-center gap-2 truncate">
                         <MapPin className="h-3 w-3 shrink-0" />
@@ -328,6 +353,14 @@ export default function SettingsStoresPage() {
                         {store.phone}
                       </p>
                     )}
+                    <p className="flex items-center gap-2">
+                      <Globe className="h-3 w-3 shrink-0" />
+                      {getCountryByCode(store.country || "NG")?.name || "Nigeria"}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Coins className="h-3 w-3 shrink-0" />
+                      {getCurrencyByCode(store.currency || "NGN")?.symbol || "₦"} {store.currency || "NGN"}
+                    </p>
                     {currentStore?.id === store.id && (
                       <p className="mt-2 text-xs text-primary font-medium">Currently Selected</p>
                     )}
@@ -473,6 +506,59 @@ export default function SettingsStoresPage() {
                   </FormItem>
                 )}
               />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={storeForm.control}
+                  name="country"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Country</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-store-country">
+                            <SelectValue placeholder="Select country" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {countries.map((country) => (
+                            <SelectItem key={country.code} value={country.code}>
+                              {country.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={storeForm.control}
+                  name="currency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Currency</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-store-currency">
+                            <SelectValue placeholder="Select currency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {currencies.map((currency) => (
+                            <SelectItem key={currency.code} value={currency.code}>
+                              {currency.symbol} {currency.code} - {currency.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Amounts will show in this currency with USD equivalent
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsStoreDialogOpen(false)}>
                   Cancel

@@ -13,6 +13,7 @@ import { StoreSelector } from "@/components/store-selector";
 
 import Dashboard from "@/pages/dashboard";
 import Customers from "@/pages/customers";
+import CustomerDetails from "@/pages/customer-details";
 import StaffPage from "@/pages/staff";
 import InventoryPage from "@/pages/inventory";
 import NewSale from "@/pages/new-sale";
@@ -26,6 +27,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/customers" component={Customers} />
+      <Route path="/customers/:id" component={CustomerDetails} />
       <Route path="/staff" component={StaffPage} />
       <Route path="/inventory" component={InventoryPage} />
       <Route path="/sales/new" component={NewSale} />

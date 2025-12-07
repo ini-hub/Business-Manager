@@ -666,6 +666,7 @@ export async function registerRoutes(
         quantity: z.number().min(1),
       })
     ),
+    paymentMethod: z.enum(["cash", "transfer", "flutterwave"]).default("cash"),
   });
 
   app.post("/api/sales/checkout", async (req, res) => {
@@ -715,6 +716,8 @@ export async function registerRoutes(
           staffId: data.staffId,
           orderId: order.id,
           totalPrice,
+          paymentMethod: data.paymentMethod,
+          paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
         });
 
         // Create transaction
@@ -743,6 +746,99 @@ export async function registerRoutes(
       }
       console.error("Checkout error:", error);
       res.status(500).json({ error: "We couldn't complete this sale right now. Please try again." });
+    }
+  });
+
+  // ========== FLUTTERWAVE PAYMENT LINK ==========
+  const paymentLinkSchema = z.object({
+    amount: z.number().positive(),
+    currency: z.string().default("NGN"),
+    customerName: z.string(),
+    customerEmail: z.string().email(),
+    customerPhone: z.string().optional(),
+    description: z.string(),
+    redirectUrl: z.string().url().optional(),
+  });
+
+  app.post("/api/payments/flutterwave/link", async (req, res) => {
+    try {
+      const data = paymentLinkSchema.parse(req.body);
+      
+      const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY;
+      if (!flutterwaveSecretKey) {
+        return res.status(500).json({ 
+          error: "Flutterwave is not configured. Please add your Flutterwave secret key in settings." 
+        });
+      }
+
+      const txRef = `tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      const response = await fetch("https://api.flutterwave.com/v3/payments", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${flutterwaveSecretKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tx_ref: txRef,
+          amount: data.amount,
+          currency: data.currency,
+          redirect_url: data.redirectUrl || `${req.protocol}://${req.get('host')}/payment-complete`,
+          customer: {
+            email: data.customerEmail,
+            name: data.customerName,
+            phonenumber: data.customerPhone,
+          },
+          customizations: {
+            title: "Business Payment",
+            description: data.description,
+          },
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (result.status === "success") {
+        res.json({ 
+          success: true, 
+          paymentLink: result.data.link,
+          txRef,
+        });
+      } else {
+        res.status(400).json({ 
+          error: result.message || "Failed to generate payment link" 
+        });
+      }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      console.error("Flutterwave error:", error);
+      res.status(500).json({ error: "Failed to generate payment link. Please try again." });
+    }
+  });
+
+  // Flutterwave webhook for payment verification
+  app.post("/api/payments/flutterwave/webhook", async (req, res) => {
+    try {
+      const secretHash = process.env.FLUTTERWAVE_SECRET_HASH;
+      const signature = req.headers["verif-hash"];
+      
+      if (!secretHash || signature !== secretHash) {
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+
+      const { event, data } = req.body;
+      
+      if (event === "charge.completed" && data.status === "successful") {
+        // Update checkout payment status based on tx_ref if needed
+        console.log("Payment successful:", data.tx_ref);
+      }
+      
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("Webhook error:", error);
+      res.status(500).json({ error: "Webhook processing failed" });
     }
   });
 

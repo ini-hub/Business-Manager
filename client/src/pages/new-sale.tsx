@@ -15,6 +15,9 @@ import {
   AlertCircle,
   ChevronsUpDown,
   Check,
+  Banknote,
+  CreditCard,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -34,6 +37,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -62,6 +66,7 @@ export default function NewSale() {
   const [searchTerm, setSearchTerm] = useState("");
   const [customerOpen, setCustomerOpen] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave">("cash");
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
@@ -160,6 +165,7 @@ export default function NewSale() {
         customerId: selectedCustomer,
         staffId: selectedStaff,
         items: orderData,
+        paymentMethod,
       });
     },
     onSuccess: () => {
@@ -171,6 +177,7 @@ export default function NewSale() {
       setCart([]);
       setSelectedCustomer("");
       setSelectedStaff("");
+      setPaymentMethod("cash");
       setLocation("/transactions");
     },
     onError: (error: Error) => {
@@ -477,6 +484,58 @@ export default function NewSale() {
                   </PopoverContent>
                 </Popover>
               </div>
+              <Separator className="my-4" />
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <CreditCard className="h-3 w-3" />
+                  Payment Method
+                </Label>
+                <RadioGroup
+                  value={paymentMethod}
+                  onValueChange={(value) => setPaymentMethod(value as "cash" | "transfer" | "flutterwave")}
+                  className="grid grid-cols-1 gap-2"
+                >
+                  <label
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                      paymentMethod === "cash" ? "border-primary bg-primary/5" : "hover-elevate"
+                    )}
+                  >
+                    <RadioGroupItem value="cash" id="cash" data-testid="radio-cash" />
+                    <Banknote className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium text-sm">Cash</p>
+                      <p className="text-xs text-muted-foreground">Pay with cash</p>
+                    </div>
+                  </label>
+                  <label
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                      paymentMethod === "transfer" ? "border-primary bg-primary/5" : "hover-elevate"
+                    )}
+                  >
+                    <RadioGroupItem value="transfer" id="transfer" data-testid="radio-transfer" />
+                    <CreditCard className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium text-sm">Bank Transfer</p>
+                      <p className="text-xs text-muted-foreground">Direct bank transfer</p>
+                    </div>
+                  </label>
+                  <label
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                      paymentMethod === "flutterwave" ? "border-primary bg-primary/5" : "hover-elevate"
+                    )}
+                  >
+                    <RadioGroupItem value="flutterwave" id="flutterwave" data-testid="radio-flutterwave" />
+                    <Link2 className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium text-sm">Payment Link</p>
+                      <p className="text-xs text-muted-foreground">Generate Flutterwave payment link</p>
+                    </div>
+                  </label>
+                </RadioGroup>
+              </div>
             </CardContent>
             <CardFooter>
               <Button
@@ -490,7 +549,7 @@ export default function NewSale() {
                 ) : (
                   <>
                     <CheckCircle className="mr-2 h-4 w-4" />
-                    Complete Sale
+                    {paymentMethod === "flutterwave" ? "Generate Payment Link" : "Complete Sale"}
                   </>
                 )}
               </Button>

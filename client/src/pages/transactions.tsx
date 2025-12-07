@@ -1,8 +1,16 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, DollarSign, Hash, AlertCircle } from "lucide-react";
+import { Receipt, Calendar, User, Package, DollarSign, CreditCard, Hash, AlertCircle, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -20,6 +28,7 @@ export default function Transactions() {
     from: undefined,
     to: undefined,
   });
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionWithRelations | null>(null);
 
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id],
@@ -37,11 +46,27 @@ export default function Transactions() {
     });
   }, [transactions, dateRange]);
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
+  const formatCurrency = (value: number, currency: string = "NGN") => {
+    return new Intl.NumberFormat("en-NG", {
       style: "currency",
-      currency: "USD",
+      currency: currency,
     }).format(value);
+  };
+
+  const formatDualCurrency = (value: number) => {
+    const storeCurrency = currentStore?.currency || "NGN";
+    const primaryAmount = formatCurrency(value, storeCurrency);
+    if (storeCurrency === "USD") {
+      return primaryAmount;
+    }
+    const usdRate = 1500;
+    const usdAmount = formatCurrency(value / usdRate, "USD");
+    return (
+      <div className="flex flex-col">
+        <span className="font-mono font-medium">{primaryAmount}</span>
+        <span className="text-xs text-muted-foreground font-mono">{usdAmount}</span>
+      </div>
+    );
   };
 
   const formatDate = (date: string | Date) => {
@@ -60,18 +85,6 @@ export default function Transactions() {
   );
 
   const columns = [
-    {
-      key: "id",
-      header: "Transaction ID",
-      render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <Hash className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-xs" data-testid={`text-tx-id-${tx.id.slice(0, 8)}`}>
-            {tx.id.slice(0, 8)}...
-          </span>
-        </div>
-      ),
-    },
     {
       key: "transactionDate",
       header: "Date",
@@ -111,14 +124,24 @@ export default function Transactions() {
       ),
     },
     {
+      key: "paymentMethod",
+      header: "Payment",
+      render: (tx: TransactionWithRelations) => (
+        <div className="flex items-center gap-2">
+          <CreditCard className="h-3 w-3 text-muted-foreground" />
+          <Badge variant="secondary" className="capitalize">
+            {tx.checkout?.paymentMethod ?? "cash"}
+          </Badge>
+        </div>
+      ),
+    },
+    {
       key: "checkout",
       header: "Amount",
       render: (tx: TransactionWithRelations) => (
         <div className="flex items-center gap-2">
           <DollarSign className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono font-medium">
-            {formatCurrency(tx.checkout?.totalPrice ?? 0)}
-          </span>
+          {formatDualCurrency(tx.checkout?.totalPrice ?? 0)}
         </div>
       ),
     },
@@ -223,9 +246,100 @@ export default function Transactions() {
             searchKeys={["id"]}
             isLoading={isLoading}
             emptyMessage="No transactions found. Complete your first sale to see records here."
+            onRowClick={(tx) => setSelectedTransaction(tx)}
           />
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedTransaction} onOpenChange={(open) => !open && setSelectedTransaction(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5" />
+              Transaction Details
+            </DialogTitle>
+            <DialogDescription>
+              Full details for this transaction
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTransaction && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Hash className="h-3 w-3" />
+                    Transaction ID
+                  </p>
+                  <p className="font-mono text-xs break-all" data-testid="text-tx-id">
+                    {selectedTransaction.id}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Date
+                  </p>
+                  <p className="text-sm">
+                    {formatDate(selectedTransaction.transactionDate)}
+                  </p>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <User className="h-3 w-3" />
+                    Customer
+                  </p>
+                  <div>
+                    <p className="font-medium">{selectedTransaction.customer?.name ?? "Unknown"}</p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      {selectedTransaction.customer?.customerNumber}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Package className="h-3 w-3" />
+                    Item
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{selectedTransaction.inventory?.name ?? "Unknown"}</span>
+                    <Badge variant="outline" className="capitalize">
+                      {selectedTransaction.inventory?.type ?? "unknown"}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <CreditCard className="h-3 w-3" />
+                    Payment Method
+                  </p>
+                  <Badge variant="secondary" className="capitalize">
+                    {selectedTransaction.checkout?.paymentMethod ?? "cash"}
+                  </Badge>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <DollarSign className="h-3 w-3" />
+                  Total Amount
+                </p>
+                <div className="text-lg font-bold">
+                  {formatDualCurrency(selectedTransaction.checkout?.totalPrice ?? 0)}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
