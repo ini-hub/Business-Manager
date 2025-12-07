@@ -30,12 +30,14 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const baseUrl = queryKey[0] as string;
-    const storeId = queryKey[1] as string | undefined;
+    const secondParam = queryKey[1] as string | undefined;
     
     let url = baseUrl;
-    if (storeId) {
+    if (secondParam) {
       const separator = baseUrl.includes("?") ? "&" : "?";
-      url = `${baseUrl}${separator}storeId=${storeId}`;
+      // Use businessId for /api/stores, storeId for everything else
+      const paramName = baseUrl === "/api/stores" ? "businessId" : "storeId";
+      url = `${baseUrl}${separator}${paramName}=${secondParam}`;
     }
 
     const res = await fetch(url, {
