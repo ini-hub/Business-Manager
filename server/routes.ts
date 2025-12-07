@@ -185,6 +185,18 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Support both paginated and non-paginated queries
+      const page = parseInt(req.query.page as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 0;
+      
+      if (page > 0 && limit > 0) {
+        const search = req.query.search as string;
+        const includeArchived = req.query.includeArchived === 'true';
+        const result = await storage.getCustomersPaginated(storeId, { page, limit, search, includeArchived });
+        return res.json(result);
+      }
+      
       const customerList = await storage.getCustomers(storeId);
       res.json(customerList);
     } catch (error) {
@@ -342,6 +354,18 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Support both paginated and non-paginated queries
+      const page = parseInt(req.query.page as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 0;
+      
+      if (page > 0 && limit > 0) {
+        const search = req.query.search as string;
+        const includeArchived = req.query.includeArchived === 'true';
+        const result = await storage.getStaffPaginated(storeId, { page, limit, search, includeArchived });
+        return res.json(result);
+      }
+      
       const staffList = await storage.getStaffList(storeId);
       res.json(staffList);
     } catch (error) {
@@ -500,6 +524,17 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Support both paginated and non-paginated queries
+      const page = parseInt(req.query.page as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 0;
+      
+      if (page > 0 && limit > 0) {
+        const search = req.query.search as string;
+        const result = await storage.getInventoryPaginated(storeId, { page, limit, search });
+        return res.json(result);
+      }
+      
       const items = await storage.getInventory(storeId);
       res.json(items);
     } catch (error) {
@@ -621,6 +656,17 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Support both paginated and non-paginated queries
+      const page = parseInt(req.query.page as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 0;
+      
+      if (page > 0 && limit > 0) {
+        const search = req.query.search as string;
+        const result = await storage.getTransactionsPaginated(storeId, { page, limit, search });
+        return res.json(result);
+      }
+      
       const txs = await storage.getTransactions(storeId);
       res.json(txs);
     } catch (error) {

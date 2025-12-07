@@ -35,7 +35,26 @@ import {
   type UpsertUser,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, count, and } from "drizzle-orm";
+import { eq, sql, desc, count, and, asc, like, or, ilike } from "drizzle-orm";
+
+// Pagination types
+export interface PaginationOptions {
+  page: number;
+  limit: number;
+  search?: string;
+  includeArchived?: boolean;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}
 
 export interface IStorage {
   // Users (Required for Replit Auth)
@@ -57,6 +76,7 @@ export interface IStorage {
 
   // Customers
   getCustomers(storeId: string, includeArchived?: boolean): Promise<Customer[]>;
+  getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>>;
   getCustomer(id: string): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
@@ -67,6 +87,7 @@ export interface IStorage {
 
   // Staff
   getStaffList(storeId: string, includeArchived?: boolean): Promise<Staff[]>;
+  getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>>;
   getStaff(id: string): Promise<Staff | undefined>;
   createStaff(staffMember: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff>): Promise<Staff | undefined>;
@@ -77,6 +98,7 @@ export interface IStorage {
 
   // Inventory
   getInventory(storeId: string): Promise<Inventory[]>;
+  getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
   getInventoryItem(id: string): Promise<Inventory | undefined>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
@@ -91,6 +113,7 @@ export interface IStorage {
 
   // Transactions
   getTransactions(storeId: string): Promise<TransactionWithRelations[]>;
+  getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
 
   // Profit & Loss
@@ -243,6 +266,53 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
+  async getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>> {
+    const { page, limit, search, includeArchived = false } = options;
+    const offset = (page - 1) * limit;
+
+    // Build base conditions
+    const conditions = [eq(customers.storeId, storeId)];
+    if (!includeArchived) {
+      conditions.push(eq(customers.isArchived, false));
+    }
+    if (search) {
+      conditions.push(
+        or(
+          ilike(customers.name, `%${search}%`),
+          ilike(customers.customerNumber, `%${search}%`),
+          ilike(customers.mobile, `%${search}%`)
+        )!
+      );
+    }
+
+    // Get total count
+    const [countResult] = await db.select({ count: count() })
+      .from(customers)
+      .where(and(...conditions));
+    const total = countResult.count;
+
+    // Get paginated data
+    const data = await db.select()
+      .from(customers)
+      .where(and(...conditions))
+      .orderBy(asc(customers.customerNumber))
+      .limit(limit)
+      .offset(offset);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
+  }
+
   async getCustomer(id: string): Promise<Customer | undefined> {
     const [customer] = await db.select().from(customers).where(eq(customers.id, id));
     return customer;
@@ -326,6 +396,50 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
+  async getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>> {
+    const { page, limit, search, includeArchived = false } = options;
+    const offset = (page - 1) * limit;
+
+    const conditions = [eq(staff.storeId, storeId)];
+    if (!includeArchived) {
+      conditions.push(eq(staff.isArchived, false));
+    }
+    if (search) {
+      conditions.push(
+        or(
+          ilike(staff.name, `%${search}%`),
+          ilike(staff.staffNumber, `%${search}%`),
+          ilike(staff.mobile, `%${search}%`)
+        )!
+      );
+    }
+
+    const [countResult] = await db.select({ count: count() })
+      .from(staff)
+      .where(and(...conditions));
+    const total = countResult.count;
+
+    const data = await db.select()
+      .from(staff)
+      .where(and(...conditions))
+      .orderBy(asc(staff.staffNumber))
+      .limit(limit)
+      .offset(offset);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
+  }
+
   async getStaff(id: string): Promise<Staff | undefined> {
     const [staffMember] = await db.select().from(staff).where(eq(staff.id, id));
     return staffMember;
@@ -369,6 +483,46 @@ export class DatabaseStorage implements IStorage {
   // Inventory
   async getInventory(storeId: string): Promise<Inventory[]> {
     return await db.select().from(inventory).where(eq(inventory.storeId, storeId));
+  }
+
+  async getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
+    const { page, limit, search } = options;
+    const offset = (page - 1) * limit;
+
+    const conditions = [eq(inventory.storeId, storeId)];
+    if (search) {
+      conditions.push(
+        or(
+          ilike(inventory.name, `%${search}%`),
+          ilike(inventory.type, `%${search}%`)
+        )!
+      );
+    }
+
+    const [countResult] = await db.select({ count: count() })
+      .from(inventory)
+      .where(and(...conditions));
+    const total = countResult.count;
+
+    const data = await db.select()
+      .from(inventory)
+      .where(and(...conditions))
+      .orderBy(asc(inventory.name))
+      .limit(limit)
+      .offset(offset);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
   }
 
   async getInventoryItem(id: string): Promise<Inventory | undefined> {
@@ -434,6 +588,73 @@ export class DatabaseStorage implements IStorage {
     }
 
     return result;
+  }
+
+  async getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>> {
+    const { page, limit, search } = options;
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const [countResult] = await db.select({ count: count() })
+      .from(transactions)
+      .where(eq(transactions.storeId, storeId));
+    const total = countResult.count;
+
+    // Get paginated transactions
+    const txs = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.storeId, storeId))
+      .orderBy(desc(transactions.transactionDate))
+      .limit(limit)
+      .offset(offset);
+
+    // Fetch related data in batch for performance
+    const customerIds = [...new Set(txs.map(tx => tx.customerId))];
+    const inventoryIds = [...new Set(txs.map(tx => tx.inventoryId))];
+    const checkoutIds = [...new Set(txs.map(tx => tx.checkoutId))];
+    const storeIds = [...new Set(txs.map(tx => tx.storeId))];
+
+    const allCustomers = await db.select().from(customers).where(sql`${customers.id} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`);
+    const allInventory = await db.select().from(inventory).where(sql`${inventory.id} IN (${sql.join(inventoryIds.map(id => sql`${id}`), sql`, `)})`);
+    const allCheckouts = await db.select().from(checkouts).where(sql`${checkouts.id} IN (${sql.join(checkoutIds.map(id => sql`${id}`), sql`, `)})`);
+    const allStores = await db.select().from(stores).where(sql`${stores.id} IN (${sql.join(storeIds.map(id => sql`${id}`), sql`, `)})`);
+
+    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+    const inventoryMap = new Map(allInventory.map(i => [i.id, i]));
+    const checkoutMap = new Map(allCheckouts.map(c => [c.id, c]));
+    const storeMap = new Map(allStores.map(s => [s.id, s]));
+
+    const data: TransactionWithRelations[] = txs.map(tx => ({
+      ...tx,
+      customer: customerMap.get(tx.customerId)!,
+      inventory: inventoryMap.get(tx.inventoryId)!,
+      checkout: checkoutMap.get(tx.checkoutId)!,
+      store: storeMap.get(tx.storeId)!,
+    }));
+
+    // Apply search filter on fetched data if provided
+    let filteredData = data;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredData = data.filter(tx => 
+        tx.customer?.name?.toLowerCase().includes(searchLower) ||
+        tx.inventory?.name?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: filteredData,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
