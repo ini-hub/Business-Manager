@@ -11,6 +11,7 @@ import {
   insertInventorySchema,
 } from "@shared/schema";
 import { z } from "zod";
+import { sanitizeString, sanitizeUUID } from "./sanitize";
 
 // Rate limiting configuration for security
 const apiLimiter = rateLimit({
