@@ -591,6 +591,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/customers/:id/transactions", async (req, res) => {
+    try {
+      const txs = await storage.getTransactionsByCustomer(req.params.id);
+      res.json(txs);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't load customer transactions. Please try again." });
+    }
+  });
+
   // ========== PROFIT & LOSS ==========
   app.get("/api/profit-loss", async (req, res) => {
     try {

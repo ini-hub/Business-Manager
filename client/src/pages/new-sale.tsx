@@ -13,6 +13,8 @@ import {
   CheckCircle,
   Search,
   AlertCircle,
+  ChevronsUpDown,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -20,12 +22,18 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -35,6 +43,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
+import { cn } from "@/lib/utils";
 import type { Customer, Staff, Inventory } from "@shared/schema";
 
 interface CartItem {
@@ -51,6 +60,8 @@ export default function NewSale() {
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [selectedStaff, setSelectedStaff] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [customerOpen, setCustomerOpen] = useState(false);
+  const [staffOpen, setStaffOpen] = useState(false);
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
@@ -363,36 +374,108 @@ export default function NewSale() {
                   <Users className="h-3 w-3" />
                   Customer
                 </Label>
-                <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                  <SelectTrigger data-testid="select-customer">
-                    <SelectValue placeholder="Select customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>
-                        {customer.name} ({customer.customerNumber})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={customerOpen}
+                      className="w-full justify-between font-normal"
+                      data-testid="select-customer"
+                    >
+                      {selectedCustomer
+                        ? customers.find((c) => c.id === selectedCustomer)?.name
+                        : "Search customers..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search by name or ID..." data-testid="input-search-customer" />
+                      <CommandList>
+                        <CommandEmpty>No customer found.</CommandEmpty>
+                        <CommandGroup>
+                          {customers.filter(c => !c.isArchived).map((customer) => (
+                            <CommandItem
+                              key={customer.id}
+                              value={`${customer.name} ${customer.customerNumber}`}
+                              onSelect={() => {
+                                setSelectedCustomer(customer.id);
+                                setCustomerOpen(false);
+                              }}
+                              data-testid={`customer-option-${customer.id}`}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedCustomer === customer.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col">
+                                <span>{customer.name}</span>
+                                <span className="text-xs text-muted-foreground font-mono">{customer.customerNumber}</span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   <UserCog className="h-3 w-3" />
                   Staff Member
                 </Label>
-                <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-                  <SelectTrigger data-testid="select-staff">
-                    <SelectValue placeholder="Select staff" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffList.map((staff) => (
-                      <SelectItem key={staff.id} value={staff.id}>
-                        {staff.name} ({staff.staffNumber})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={staffOpen} onOpenChange={setStaffOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={staffOpen}
+                      className="w-full justify-between font-normal"
+                      data-testid="select-staff"
+                    >
+                      {selectedStaff
+                        ? staffList.find((s) => s.id === selectedStaff)?.name
+                        : "Search staff..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search by name or ID..." data-testid="input-search-staff" />
+                      <CommandList>
+                        <CommandEmpty>No staff found.</CommandEmpty>
+                        <CommandGroup>
+                          {staffList.filter(s => !s.isArchived).map((staff) => (
+                            <CommandItem
+                              key={staff.id}
+                              value={`${staff.name} ${staff.staffNumber}`}
+                              onSelect={() => {
+                                setSelectedStaff(staff.id);
+                                setStaffOpen(false);
+                              }}
+                              data-testid={`staff-option-${staff.id}`}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedStaff === staff.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col">
+                                <span>{staff.name}</span>
+                                <span className="text-xs text-muted-foreground font-mono">{staff.staffNumber}</span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </CardContent>
             <CardFooter>

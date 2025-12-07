@@ -47,6 +47,7 @@ import { z } from "zod";
 
 const staffFormSchema = insertStaffSchema.extend({
   mobileNumber: z.string().min(1, "Mobile number is required"),
+  staffNumber: z.string().optional().default(""),
 });
 
 export default function StaffPage() {
@@ -480,45 +481,19 @@ export default function StaffPage() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Jane Smith" {...field} data-testid="input-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="staffNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Staff ID</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="EMP-001" 
-                          {...field} 
-                          disabled={!!selectedStaff}
-                          className={selectedStaff ? "bg-muted cursor-not-allowed" : ""}
-                          data-testid="input-staff-number" 
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {selectedStaff 
-                          ? "Staff ID cannot be changed after creation."
-                          : "Enter a unique staff identifier."}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Jane Smith" {...field} data-testid="input-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div className="grid gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}

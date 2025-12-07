@@ -242,6 +242,39 @@ export class DatabaseStorage implements IStorage {
     return result[0].count > 0;
   }
 
+  // Staff ID Generation - finds next available number without gaps
+  private async getNextAvailableStaffNumber(storeId: string): Promise<string> {
+    const store = await this.getStore(storeId);
+    if (!store) throw new Error("Store not found");
+
+    // Get all existing staff numbers for this store
+    const existingStaff = await db.select({ staffNumber: staff.staffNumber })
+      .from(staff)
+      .where(eq(staff.storeId, storeId));
+    
+    // Extract the numeric suffix from each staff number
+    const usedNumbers = new Set<number>();
+    const prefix = `${store.code}-`;
+    
+    for (const s of existingStaff) {
+      if (s.staffNumber.startsWith(prefix)) {
+        const numPart = s.staffNumber.slice(prefix.length);
+        const num = parseInt(numPart, 10);
+        if (!isNaN(num)) {
+          usedNumbers.add(num);
+        }
+      }
+    }
+    
+    // Find the smallest available number starting from 1
+    let nextNumber = 1;
+    while (usedNumbers.has(nextNumber)) {
+      nextNumber++;
+    }
+    
+    return `${prefix}${nextNumber.toString().padStart(3, '0')}`;
+  }
+
   // Staff
   async getStaffList(storeId: string, includeArchived: boolean = true): Promise<Staff[]> {
     if (includeArchived) {
@@ -258,7 +291,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createStaff(staffMember: InsertStaff): Promise<Staff> {
-    const [newStaff] = await db.insert(staff).values(staffMember).returning();
+    // Generate staff number at save time to avoid gaps
+    const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
+    const [newStaff] = await db.insert(staff).values({
+      ...staffMember,
+      staffNumber,
+    }).returning();
     return newStaff;
   }
 
@@ -360,6 +398,33 @@ export class DatabaseStorage implements IStorage {
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
     const [newTransaction] = await db.insert(transactions).values(transaction).returning();
     return newTransaction;
+  }
+
+  async getTransactionsByCustomer(customerId: string): Promise<TransactionWithRelations[]> {
+    const txs = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.customerId, customerId))
+      .orderBy(desc(transactions.transactionDate));
+
+    const result: TransactionWithRelations[] = [];
+
+    for (const tx of txs) {
+      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
+      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
+      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+
+      result.push({
+        ...tx,
+        customer,
+        inventory: inventoryItem,
+        checkout,
+        store,
+      });
+    }
+
+    return result;
   }
 
   // Profit & Loss

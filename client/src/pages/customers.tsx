@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ShoppingCart, Calendar, DollarSign, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,7 +35,7 @@ import { BulkOperations } from "@/components/bulk-operations";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertCustomerSchema, type Customer, type InsertCustomer } from "@shared/schema";
+import { insertCustomerSchema, type Customer, type InsertCustomer, type TransactionWithRelations } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -55,7 +55,9 @@ export default function Customers() {
   const { currentStore } = useStore();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
   const [activeTab, setActiveTab] = useState("active");
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
@@ -65,6 +67,31 @@ export default function Customers() {
 
   const activeCustomers = customers.filter(c => !c.isArchived);
   const archivedCustomers = customers.filter(c => c.isArchived);
+
+  const { data: customerTransactions = [], isLoading: transactionsLoading } = useQuery<TransactionWithRelations[]>({
+    queryKey: ["/api/customers", viewingCustomer?.id, "transactions"],
+    enabled: !!viewingCustomer?.id && isTransactionsOpen,
+  });
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(value);
+  };
+
+  const formatDate = (date: Date | string) => {
+    return new Date(date).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const openTransactionsDialog = (customer: Customer) => {
+    setViewingCustomer(customer);
+    setIsTransactionsOpen(true);
+  };
 
   const form = useForm<InsertCustomer>({
     resolver: zodResolver(customerFormSchema),
@@ -414,6 +441,7 @@ export default function Customers() {
             searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
             isLoading={isLoading}
             emptyMessage="No active customers found. Add your first customer to get started."
+            onRowClick={openTransactionsDialog}
           />
         </TabsContent>
         <TabsContent value="archived" className="mt-4">
@@ -443,46 +471,19 @@ export default function Customers() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="John Doe" {...field} data-testid="input-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="customerNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Customer ID</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="Assigned on save" 
-                          {...field} 
-                          value={selectedCustomer ? field.value : ""}
-                          disabled
-                          className="bg-muted cursor-not-allowed"
-                          data-testid="input-customer-number" 
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {selectedCustomer 
-                          ? "Customer ID cannot be changed."
-                          : "Will be assigned automatically when saved."}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John Doe" {...field} data-testid="input-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div className="grid gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}
@@ -577,6 +578,78 @@ export default function Customers() {
         isDestructive
         isLoading={archiveMutation.isPending}
       />
+
+      <Dialog open={isTransactionsOpen} onOpenChange={setIsTransactionsOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5" />
+              Transactions for {viewingCustomer?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Customer ID: {viewingCustomer?.customerNumber} | View all transactions for this customer
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            {transactionsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="text-muted-foreground">Loading transactions...</span>
+              </div>
+            ) : customerTransactions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">No transactions found for this customer.</p>
+                <p className="text-sm text-muted-foreground mt-1">Transactions will appear here after they make a purchase.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {customerTransactions.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="border rounded-lg p-4 space-y-2"
+                    data-testid={`transaction-${tx.id}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{tx.inventory?.name || "Unknown Item"}</span>
+                        <Badge variant="secondary">{tx.inventory?.type || "product"}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(tx.transactionDate)}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-4">
+                        <span>Qty: {tx.quantity}</span>
+                        <span>Unit: {formatCurrency(tx.unitPrice)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 font-semibold">
+                        <DollarSign className="h-4 w-4 text-green-600" />
+                        {formatCurrency(tx.totalAmount)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className="border-t pt-4 mt-4">
+                  <div className="flex items-center justify-between font-semibold">
+                    <span>Total ({customerTransactions.length} transactions)</span>
+                    <span className="text-lg">
+                      {formatCurrency(customerTransactions.reduce((sum, tx) => sum + tx.totalAmount, 0))}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end pt-4">
+            <Button variant="outline" onClick={() => setIsTransactionsOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

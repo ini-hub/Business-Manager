@@ -144,8 +144,8 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
 
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isArchived: true }).extend({
   name: trimmedString(1, "Staff name is required"),
-  staffNumber: trimmedString(1, "Staff number is required"),
-  countryCode: z.string().default("+234"),
+  staffNumber: z.string().optional().default(""),
+  countryCode: z.string().default("NG"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
