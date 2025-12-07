@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { setupAuth, isAuthenticated } from "./replitAuth";
+import rateLimit from "express-rate-limit";
 import {
   insertBusinessSchema,
   insertStoreSchema,
@@ -9,6 +11,24 @@ import {
   insertInventorySchema,
 } from "@shared/schema";
 import { z } from "zod";
+
+// Rate limiting configuration for security
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 auth attempts per windowMs
+  message: { error: "Too many login attempts, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 function formatZodErrors(errors: z.ZodIssue[]): string {
   const messages = errors.map((err) => {
@@ -23,6 +43,23 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Apply rate limiting to all API routes
+  app.use("/api/", apiLimiter);
+
+  // Setup authentication
+  await setupAuth(app);
+
+  // Auth routes
+  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
   // ========== BUSINESS ==========
   app.get("/api/business", async (req, res) => {
     try {

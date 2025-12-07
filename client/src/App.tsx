@@ -10,7 +10,10 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { Separator } from "@/components/ui/separator";
 import { StoreProvider } from "@/lib/store-context";
 import { StoreSelector } from "@/components/store-selector";
+import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
 
+import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Customers from "@/pages/customers";
 import CustomerDetails from "@/pages/customer-details";
@@ -23,58 +26,76 @@ import SettingsStoresPage from "@/pages/settings-stores";
 import NotFound from "@/pages/not-found";
 
 function Router() {
-  return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/customers" component={Customers} />
-      <Route path="/customers/:id" component={CustomerDetails} />
-      <Route path="/staff" component={StaffPage} />
-      <Route path="/inventory" component={InventoryPage} />
-      <Route path="/sales/new" component={NewSale} />
-      <Route path="/transactions" component={Transactions} />
-      <Route path="/profit-loss" component={ProfitLossPage} />
-      <Route path="/settings/stores" component={SettingsStoresPage} />
-      <Route component={NotFound} />
-    </Switch>
-  );
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Landing />;
+  }
+
+  return <AuthenticatedLayout />;
 }
 
-function App() {
+function AuthenticatedLayout() {
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
 
   return (
+    <StoreProvider>
+      <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+        <div className="flex min-h-screen w-full">
+          <AppSidebar />
+          <SidebarInset className="flex flex-col flex-1">
+            <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
+              <div className="flex items-center gap-2">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <Separator orientation="vertical" className="h-6" />
+                <div className="w-48">
+                  <StoreSelector />
+                </div>
+              </div>
+              <ThemeToggle />
+            </header>
+            <main className="flex-1 overflow-auto p-6">
+              <div className="mx-auto max-w-7xl">
+                <Switch>
+                  <Route path="/" component={Dashboard} />
+                  <Route path="/customers" component={Customers} />
+                  <Route path="/customers/:id" component={CustomerDetails} />
+                  <Route path="/staff" component={StaffPage} />
+                  <Route path="/inventory" component={InventoryPage} />
+                  <Route path="/sales/new" component={NewSale} />
+                  <Route path="/transactions" component={Transactions} />
+                  <Route path="/profit-loss" component={ProfitLossPage} />
+                  <Route path="/settings/stores" component={SettingsStoresPage} />
+                  <Route component={NotFound} />
+                </Switch>
+              </div>
+            </main>
+          </SidebarInset>
+        </div>
+      </SidebarProvider>
+    </StoreProvider>
+  );
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="business-manager-theme">
-        <StoreProvider>
-          <TooltipProvider>
-            <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-              <div className="flex min-h-screen w-full">
-                <AppSidebar />
-                <SidebarInset className="flex flex-col flex-1">
-                  <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
-                    <div className="flex items-center gap-2">
-                      <SidebarTrigger data-testid="button-sidebar-toggle" />
-                      <Separator orientation="vertical" className="h-6" />
-                      <div className="w-48">
-                        <StoreSelector />
-                      </div>
-                    </div>
-                    <ThemeToggle />
-                  </header>
-                  <main className="flex-1 overflow-auto p-6">
-                    <div className="mx-auto max-w-7xl">
-                      <Router />
-                    </div>
-                  </main>
-                </SidebarInset>
-              </div>
-            </SidebarProvider>
-            <Toaster />
-          </TooltipProvider>
-        </StoreProvider>
+        <TooltipProvider>
+          <Router />
+          <Toaster />
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

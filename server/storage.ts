@@ -9,6 +9,7 @@ import {
   checkouts,
   transactions,
   profitLoss,
+  users,
   type Business,
   type InsertBusiness,
   type Store,
@@ -30,11 +31,17 @@ import {
   type InsertProfitLoss,
   type TransactionWithRelations,
   type ProfitLossWithInventory,
+  type User,
+  type UpsertUser,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and } from "drizzle-orm";
 
 export interface IStorage {
+  // Users (Required for Replit Auth)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+
   // Business
   getBusiness(): Promise<Business | undefined>;
   createBusiness(business: InsertBusiness): Promise<Business>;
@@ -109,6 +116,27 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Users (Required for Replit Auth)
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
   // Business
   async getBusiness(): Promise<Business | undefined> {
     const [business] = await db.select().from(businesses).limit(1);
