@@ -1,5 +1,6 @@
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Store, Users, Package, DollarSign, BarChart3, Shield } from "lucide-react";
 
 export default function Landing() {
@@ -14,13 +15,28 @@ export default function Landing() {
             Manage your multi-store business with ease. Track customers, staff, inventory, 
             sales, and analyze profit/loss - all in one place.
           </p>
-          <Button 
-            size="lg" 
-            onClick={() => window.location.href = "/api/login"}
-            data-testid="button-login"
-          >
-            Sign In to Get Started
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <Link href="/auth/login">
+              <Button size="lg" data-testid="button-login">
+                Sign In
+              </Button>
+            </Link>
+            <Link href="/auth/signup">
+              <Button size="lg" variant="outline" data-testid="button-signup">
+                Create Account
+              </Button>
+            </Link>
+          </div>
+          <p className="text-sm text-muted-foreground mt-4">
+            Or{" "}
+            <button 
+              onClick={() => window.location.href = "/api/login"} 
+              className="text-primary hover:underline"
+              data-testid="button-replit-login"
+            >
+              continue with Replit
+            </button>
+          </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto">

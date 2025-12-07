@@ -25,6 +25,12 @@ import ProfitLossPage from "@/pages/profit-loss";
 import SettingsStoresPage from "@/pages/settings-stores";
 import NotFound from "@/pages/not-found";
 
+import Login from "@/pages/auth/login";
+import Signup from "@/pages/auth/signup";
+import VerifyOtp from "@/pages/auth/verify-otp";
+import ForgotPassword from "@/pages/auth/forgot-password";
+import ResetPassword from "@/pages/auth/reset-password";
+
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -36,11 +42,18 @@ function Router() {
     );
   }
 
-  if (!isAuthenticated) {
-    return <Landing />;
-  }
-
-  return <AuthenticatedLayout />;
+  return (
+    <Switch>
+      <Route path="/auth/login" component={Login} />
+      <Route path="/auth/signup" component={Signup} />
+      <Route path="/auth/verify-otp" component={VerifyOtp} />
+      <Route path="/auth/forgot-password" component={ForgotPassword} />
+      <Route path="/auth/reset-password" component={ResetPassword} />
+      <Route>
+        {isAuthenticated ? <AuthenticatedLayout /> : <Landing />}
+      </Route>
+    </Switch>
+  );
 }
 
 function AuthenticatedLayout() {
