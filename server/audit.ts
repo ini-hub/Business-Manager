@@ -40,10 +40,10 @@ class AuditLogger {
     }
   }
 
-  logAuthAttempt(userId: string | undefined, ip: string | undefined, success: boolean): void {
+  logAuthAttempt(userId: string | undefined, ip: string | undefined, success: boolean, authType?: string): void {
     this.log({
       action: "AUTH_ATTEMPT",
-      resource: "session",
+      resource: authType || "session",
       userId,
       ip,
       status: success ? "success" : "failure",

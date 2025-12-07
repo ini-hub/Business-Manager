@@ -47,6 +47,7 @@ export const stores = pgTable("stores", {
   phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
+  managerStaffId: varchar("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
@@ -127,6 +128,10 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
 
+// Staff roles
+export const staffRoleEnum = ["manager", "regular"] as const;
+export type StaffRole = typeof staffRoleEnum[number];
+
 // Staff table
 export const staff = pgTable("staff", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -138,6 +143,7 @@ export const staff = pgTable("staff", {
   payPerMonth: real("pay_per_month").notNull(),
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
+  role: text("role").notNull().default("regular"), // manager or regular
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
 ]);
@@ -329,9 +335,9 @@ export type ProfitLossWithInventory = ProfitLoss & {
   inventory: Inventory;
 };
 
-// ========== AUTH TABLES (Required for Replit Auth) ==========
+// ========== AUTH TABLES ==========
 
-// Session storage table for Replit Auth
+// Session storage table
 export const sessions = pgTable(
   "sessions",
   {
@@ -342,16 +348,116 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table for Replit Auth
+// User roles enum
+export const userRoleEnum = ["owner", "manager", "staff"] as const;
+export type UserRole = typeof userRoleEnum[number];
+
+// User storage table with custom auth
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
+  email: varchar("email").notNull().unique(),
+  password: varchar("password").notNull(), // Hashed password
+  businessId: varchar("business_id").references(() => businesses.id),
+  role: text("role").notNull().default("owner"), // owner, manager, staff
+  isVerified: boolean("is_verified").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const usersRelations = relations(users, ({ one }) => ({
+  business: one(businesses, {
+    fields: [users.businessId],
+    references: [businesses.id],
+  }),
+}));
+
+// Password complexity validation schema
+export const passwordSchema = z.string()
+  .min(8, "Password must be at least 8 characters")
+  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+  .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+  .regex(/[!@#$%^&*(),.?":{}|<>]/, "Password must contain at least one symbol")
+  .regex(/^\S*$/, "Password must not contain spaces");
+
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  email: z.string().email("Invalid email address"),
+  password: passwordSchema,
+  role: z.enum(userRoleEnum).default("owner"),
+});
+export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+// OTP codes table for verification
+export const otpCodes = pgTable("otp_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  code: varchar("code", { length: 6 }).notNull(),
+  type: text("type").notNull(), // signup, password_reset
+  expiresAt: timestamp("expires_at").notNull(),
+  isUsed: boolean("is_used").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const otpCodesRelations = relations(otpCodes, ({ one }) => ({
+  user: one(users, {
+    fields: [otpCodes.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertOtpCodeSchema = createInsertSchema(otpCodes).omit({ id: true, createdAt: true });
+export type InsertOtpCode = z.infer<typeof insertOtpCodeSchema>;
+export type OtpCode = typeof otpCodes.$inferSelect;
+
+// Signup request schema (combines business + user info)
+export const signupSchema = z.object({
+  businessName: trimmedString(1, "Business name is required"),
+  address: z.string().optional(),
+  phoneCountryCode: z.string().default("+234"),
+  phone: z.string().optional(),
+  email: z.string().email("Invalid email address"),
+  password: passwordSchema,
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+export type SignupRequest = z.infer<typeof signupSchema>;
+
+// Login schema
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+export type LoginRequest = z.infer<typeof loginSchema>;
+
+// Forgot password schema
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+export type ForgotPasswordRequest = z.infer<typeof forgotPasswordSchema>;
+
+// Reset password schema
+export const resetPasswordSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  otp: z.string().length(6, "OTP must be 6 digits"),
+  password: passwordSchema,
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+export type ResetPasswordRequest = z.infer<typeof resetPasswordSchema>;
+
+// OTP verification schema
+export const verifyOtpSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  otp: z.string().length(6, "OTP must be 6 digits"),
+});
+export type VerifyOtpRequest = z.infer<typeof verifyOtpSchema>;
+
+// User with business relation
+export type UserWithBusiness = User & {
+  business: Business | null;
+};

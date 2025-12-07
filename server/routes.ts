@@ -1,18 +1,31 @@
-import type { Express, Request } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated, getSession } from "./replitAuth";
 import rateLimit from "express-rate-limit";
+import bcrypt from "bcrypt";
 import {
   insertBusinessSchema,
   insertStoreSchema,
   insertCustomerSchema,
   insertStaffSchema,
   insertInventorySchema,
+  signupSchema,
+  loginSchema,
+  verifyOtpSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  type UserRole,
 } from "@shared/schema";
 import { z } from "zod";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
 import { auditLogger } from "./audit";
+import passport from "passport";
+
+// Default OTP code for development (no email integration)
+const DEFAULT_OTP = "123456";
+const OTP_EXPIRY_MINUTES = 10;
+const SALT_ROUNDS = 12;
 
 function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
@@ -66,19 +79,365 @@ export async function registerRoutes(
   // Setup authentication
   await setupAuth(app);
 
-  // Auth routes
-  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
+  // ========== CUSTOM AUTH ROUTES ==========
+  
+  // Signup - Create business and user account
+  app.post("/api/auth/signup", async (req: Request, res: Response) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      auditLogger.logAuthAttempt(userId, getClientIp(req), true);
-      res.json(user);
+      const data = signupSchema.parse(req.body);
+      
+      // Check if email already exists
+      const existingUser = await storage.getUserByEmail(data.email);
+      if (existingUser) {
+        return res.status(400).json({ error: "An account with this email already exists." });
+      }
+      
+      // Hash password
+      const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
+      
+      // Create business first
+      const business = await storage.createBusiness({
+        name: data.businessName,
+        address: data.address || "",
+        phone: data.phone || "",
+        phoneCountryCode: data.phoneCountryCode,
+        email: data.email,
+      });
+      
+      // Create user with business association
+      const user = await storage.createUser({
+        email: data.email,
+        password: hashedPassword,
+        businessId: business.id,
+        role: "owner",
+      });
+      
+      // Create OTP code for verification
+      const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+      await storage.createOtpCode({
+        userId: user.id,
+        code: DEFAULT_OTP,
+        type: "signup",
+        expiresAt,
+      });
+      
+      auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "signup");
+      
+      // Return masked email for OTP screen
+      const maskedEmail = data.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+      res.status(201).json({ 
+        message: "Account created. Please verify your email.",
+        email: data.email,
+        maskedEmail,
+        userId: user.id,
+      });
+    } catch (error) {
+      console.error("Signup error:", error);
+      auditLogger.logAuthAttempt(undefined, getClientIp(req), false, "signup");
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "We couldn't create your account. Please try again." });
+    }
+  });
+  
+  // Verify OTP - Confirm email verification
+  app.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
+    try {
+      const data = verifyOtpSchema.parse(req.body);
+      
+      const user = await storage.getUserByEmail(data.email);
+      if (!user) {
+        return res.status(404).json({ error: "Account not found." });
+      }
+      
+      const otpCode = await storage.getValidOtpCode(user.id, data.otp, "signup");
+      if (!otpCode) {
+        auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "verify-otp");
+        return res.status(400).json({ error: "Invalid or expired OTP code." });
+      }
+      
+      // Mark OTP as used and verify user
+      await storage.markOtpCodeAsUsed(otpCode.id);
+      await storage.updateUser(user.id, { isVerified: true });
+      
+      auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "verify-otp");
+      
+      // Log user in by setting session
+      const sessionUser = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        businessId: user.businessId,
+        isVerified: true,
+      };
+      (req as any).login(sessionUser, (err: any) => {
+        if (err) {
+          console.error("Session login error:", err);
+          return res.status(500).json({ error: "Verification successful but login failed." });
+        }
+        res.json({ message: "Email verified successfully.", user: sessionUser });
+      });
+    } catch (error) {
+      console.error("Verify OTP error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Verification failed. Please try again." });
+    }
+  });
+  
+  // Resend OTP
+  app.post("/api/auth/resend-otp", async (req: Request, res: Response) => {
+    try {
+      const { email, type = "signup" } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ error: "Email is required." });
+      }
+      
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ error: "Account not found." });
+      }
+      
+      // Create new OTP code
+      const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+      await storage.createOtpCode({
+        userId: user.id,
+        code: DEFAULT_OTP,
+        type,
+        expiresAt,
+      });
+      
+      const maskedEmail = email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+      res.json({ 
+        message: `OTP has been sent to ${maskedEmail}`,
+        maskedEmail,
+      });
+    } catch (error) {
+      console.error("Resend OTP error:", error);
+      res.status(500).json({ error: "Failed to resend OTP. Please try again." });
+    }
+  });
+  
+  // Login - Email and password authentication
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const data = loginSchema.parse(req.body);
+      
+      const user = await storage.getUserByEmail(data.email);
+      if (!user) {
+        auditLogger.logAuthAttempt(undefined, getClientIp(req), false, "login");
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+      
+      // Check if user has a password (custom auth) or uses Replit Auth
+      if (!user.password) {
+        return res.status(400).json({ error: "Please use the 'Login with Replit' option." });
+      }
+      
+      // Verify password
+      const passwordMatch = await bcrypt.compare(data.password, user.password);
+      if (!passwordMatch) {
+        auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "login");
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+      
+      // Check if email is verified
+      if (!user.isVerified) {
+        return res.status(403).json({ 
+          error: "Please verify your email first.",
+          requiresVerification: true,
+          email: user.email,
+        });
+      }
+      
+      auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "login");
+      
+      // Get business info
+      const business = user.businessId ? await storage.getBusinessByUserId(user.id) : null;
+      
+      // Log user in by setting session
+      const sessionUser = {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        businessId: user.businessId,
+        isVerified: user.isVerified,
+      };
+      
+      (req as any).login(sessionUser, (err: any) => {
+        if (err) {
+          console.error("Session login error:", err);
+          return res.status(500).json({ error: "Login failed. Please try again." });
+        }
+        res.json({ 
+          message: "Login successful.",
+          user: sessionUser,
+          business,
+        });
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      auditLogger.logAuthAttempt(undefined, getClientIp(req), false, "login");
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
+  
+  // Forgot Password - Request password reset
+  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    try {
+      const data = forgotPasswordSchema.parse(req.body);
+      
+      const user = await storage.getUserByEmail(data.email);
+      if (!user) {
+        // Don't reveal if email exists for security
+        const maskedEmail = data.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+        return res.json({ 
+          message: `If an account exists, an OTP has been sent to ${maskedEmail}`,
+          maskedEmail,
+          emailExists: false,
+        });
+      }
+      
+      // Create OTP code for password reset
+      const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+      await storage.createOtpCode({
+        userId: user.id,
+        code: DEFAULT_OTP,
+        type: "password_reset",
+        expiresAt,
+      });
+      
+      const maskedEmail = data.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+      res.json({ 
+        message: `OTP has been sent to ${maskedEmail}`,
+        maskedEmail,
+        emailExists: true,
+      });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Failed to process request. Please try again." });
+    }
+  });
+  
+  // Reset Password - Set new password with OTP verification
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    try {
+      const data = resetPasswordSchema.parse(req.body);
+      
+      const user = await storage.getUserByEmail(data.email);
+      if (!user) {
+        return res.status(404).json({ error: "Account not found." });
+      }
+      
+      const otpCode = await storage.getValidOtpCode(user.id, data.otp, "password_reset");
+      if (!otpCode) {
+        auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "reset-password");
+        return res.status(400).json({ error: "Invalid or expired OTP code." });
+      }
+      
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
+      
+      // Mark OTP as used and update password
+      await storage.markOtpCodeAsUsed(otpCode.id);
+      await storage.updateUser(user.id, { password: hashedPassword });
+      
+      auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "reset-password");
+      
+      res.json({ message: "Password reset successfully. Please login with your new password." });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Failed to reset password. Please try again." });
+    }
+  });
+  
+  // Custom logout
+  app.post("/api/auth/logout", (req: Request, res: Response) => {
+    req.logout((err) => {
+      if (err) {
+        console.error("Logout error:", err);
+        return res.status(500).json({ error: "Logout failed." });
+      }
+      res.json({ message: "Logged out successfully." });
+    });
+  });
+  
+  // Get current user (supports both Replit Auth and custom auth)
+  app.get("/api/auth/user", async (req: any, res) => {
+    try {
+      // Check for custom auth session first
+      if (req.user && req.user.id) {
+        const user = await storage.getUser(req.user.id);
+        if (user) {
+          const business = user.businessId ? await storage.getBusinessByUserId(user.id) : null;
+          auditLogger.logAuthAttempt(user.id, getClientIp(req), true);
+          return res.json({ 
+            ...user, 
+            business,
+            password: undefined, // Never send password
+          });
+        }
+      }
+      
+      // Check for Replit Auth session
+      if (req.user?.claims?.sub) {
+        const userId = req.user.claims.sub;
+        const user = await storage.getUser(userId);
+        auditLogger.logAuthAttempt(userId, getClientIp(req), true);
+        return res.json(user);
+      }
+      
+      res.status(401).json({ message: "Not authenticated" });
     } catch (error) {
       console.error("Error fetching user:", error);
       auditLogger.logAuthAttempt(undefined, getClientIp(req), false);
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
+
+  // ========== RBAC MIDDLEWARE ==========
+  const requireRole = (...allowedRoles: UserRole[]) => {
+    return async (req: any, res: Response, next: NextFunction) => {
+      try {
+        let userRole: string | undefined;
+        
+        // Check custom auth session
+        if (req.user?.role) {
+          userRole = req.user.role;
+        } 
+        // Check Replit Auth - default to owner for backward compatibility
+        else if (req.user?.claims?.sub) {
+          userRole = "owner";
+        }
+        
+        if (!userRole) {
+          return res.status(401).json({ error: "Authentication required." });
+        }
+        
+        if (!allowedRoles.includes(userRole as UserRole)) {
+          return res.status(403).json({ error: "You don't have permission to access this resource." });
+        }
+        
+        next();
+      } catch (error) {
+        console.error("RBAC middleware error:", error);
+        res.status(500).json({ error: "Authorization check failed." });
+      }
+    };
+  };
+
   // ========== BUSINESS ==========
   app.get("/api/business", async (req, res) => {
     try {

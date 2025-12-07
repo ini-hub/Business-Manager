@@ -10,6 +10,7 @@ import {
   transactions,
   profitLoss,
   users,
+  otpCodes,
   type Business,
   type InsertBusiness,
   type Store,
@@ -33,6 +34,9 @@ import {
   type ProfitLossWithInventory,
   type User,
   type UpsertUser,
+  type OtpCode,
+  type InsertOtpCode,
+  type UserRole,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, like, or, ilike } from "drizzle-orm";
@@ -57,9 +61,20 @@ export interface PaginatedResult<T> {
 }
 
 export interface IStorage {
-  // Users (Required for Replit Auth)
+  // Users & Auth
   getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(userData: { email: string; password: string; businessId: string; role?: UserRole }): Promise<User>;
+  updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  
+  // OTP Codes
+  createOtpCode(data: { userId: string; code: string; type: string; expiresAt: Date }): Promise<OtpCode>;
+  getValidOtpCode(userId: string, code: string, type: string): Promise<OtpCode | undefined>;
+  markOtpCodeAsUsed(id: string): Promise<void>;
+  
+  // Business for user
+  getBusinessByUserId(userId: string): Promise<Business | undefined>;
 
   // Business
   getBusiness(): Promise<Business | undefined>;
@@ -153,9 +168,33 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // Users (Required for Replit Auth)
+  // Users & Auth
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async createUser(userData: { email: string; password: string; businessId: string; role?: UserRole }): Promise<User> {
+    const [user] = await db.insert(users).values({
+      email: userData.email,
+      password: userData.password,
+      businessId: userData.businessId,
+      role: userData.role || "owner",
+      isVerified: false,
+    }).returning();
+    return user;
+  }
+
+  async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
+    const [user] = await db.update(users).set({
+      ...data,
+      updatedAt: new Date(),
+    }).where(eq(users.id, id)).returning();
     return user;
   }
 
@@ -172,6 +211,43 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
+  }
+
+  // OTP Codes
+  async createOtpCode(data: { userId: string; code: string; type: string; expiresAt: Date }): Promise<OtpCode> {
+    const [otp] = await db.insert(otpCodes).values({
+      userId: data.userId,
+      code: data.code,
+      type: data.type,
+      expiresAt: data.expiresAt,
+      isUsed: false,
+    }).returning();
+    return otp;
+  }
+
+  async getValidOtpCode(userId: string, code: string, type: string): Promise<OtpCode | undefined> {
+    const [otp] = await db.select().from(otpCodes).where(
+      and(
+        eq(otpCodes.userId, userId),
+        eq(otpCodes.code, code),
+        eq(otpCodes.type, type),
+        eq(otpCodes.isUsed, false),
+        sql`${otpCodes.expiresAt} > NOW()`
+      )
+    );
+    return otp;
+  }
+
+  async markOtpCodeAsUsed(id: string): Promise<void> {
+    await db.update(otpCodes).set({ isUsed: true }).where(eq(otpCodes.id, id));
+  }
+
+  // Business for user
+  async getBusinessByUserId(userId: string): Promise<Business | undefined> {
+    const user = await this.getUser(userId);
+    if (!user || !user.businessId) return undefined;
+    const [business] = await db.select().from(businesses).where(eq(businesses.id, user.businessId));
+    return business;
   }
 
   // Business
@@ -281,7 +357,7 @@ export class DatabaseStorage implements IStorage {
         or(
           ilike(customers.name, `%${search}%`),
           ilike(customers.customerNumber, `%${search}%`),
-          ilike(customers.mobile, `%${search}%`)
+          ilike(customers.mobileNumber, `%${search}%`)
         )!
       );
     }
@@ -410,7 +486,7 @@ export class DatabaseStorage implements IStorage {
         or(
           ilike(staff.name, `%${search}%`),
           ilike(staff.staffNumber, `%${search}%`),
-          ilike(staff.mobile, `%${search}%`)
+          ilike(staff.mobileNumber, `%${search}%`)
         )!
       );
     }
@@ -619,10 +695,10 @@ export class DatabaseStorage implements IStorage {
       .offset(offset);
 
     // Fetch related data in batch for performance
-    const customerIds = [...new Set(txs.map(tx => tx.customerId))];
-    const inventoryIds = [...new Set(txs.map(tx => tx.inventoryId))];
-    const checkoutIds = [...new Set(txs.map(tx => tx.checkoutId))];
-    const storeIds = [...new Set(txs.map(tx => tx.storeId))];
+    const customerIds = Array.from(new Set(txs.map(tx => tx.customerId)));
+    const inventoryIds = Array.from(new Set(txs.map(tx => tx.inventoryId)));
+    const checkoutIds = Array.from(new Set(txs.map(tx => tx.checkoutId)));
+    const storeIds = Array.from(new Set(txs.map(tx => tx.storeId)));
 
     const allCustomers = await db.select().from(customers).where(sql`${customers.id} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`);
     const allInventory = await db.select().from(inventory).where(sql`${inventory.id} IN (${sql.join(inventoryIds.map(id => sql`${id}`), sql`, `)})`);
@@ -924,8 +1000,9 @@ export class DatabaseStorage implements IStorage {
           if (existingPL) {
             await tx.update(profitLoss)
               .set({
+                totalQuantitySold: existingPL.totalQuantitySold + item.quantity,
+                quantityRemaining: inventoryItem.quantity - item.quantity,
                 totalRevenue: existingPL.totalRevenue + revenue,
-                totalCost: existingPL.totalCost + (costPrice * item.quantity),
                 totalNetProfit: existingPL.totalNetProfit + profit,
               })
               .where(eq(profitLoss.id, existingPL.id));
@@ -933,8 +1010,9 @@ export class DatabaseStorage implements IStorage {
             await tx.insert(profitLoss).values({
               storeId: data.storeId,
               inventoryId: item.inventoryId,
+              totalQuantitySold: item.quantity,
+              quantityRemaining: inventoryItem.quantity - item.quantity,
               totalRevenue: revenue,
-              totalCost: costPrice * item.quantity,
               totalNetProfit: profit,
             });
           }
