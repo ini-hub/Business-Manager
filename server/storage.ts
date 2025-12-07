@@ -52,19 +52,23 @@ export interface IStorage {
   generateCustomerNumber(storeId: string): Promise<string>;
 
   // Customers
-  getCustomers(storeId: string): Promise<Customer[]>;
+  getCustomers(storeId: string, includeArchived?: boolean): Promise<Customer[]>;
   getCustomer(id: string): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
   deleteCustomer(id: string): Promise<boolean>;
+  archiveCustomer(id: string): Promise<Customer | undefined>;
+  restoreCustomer(id: string): Promise<Customer | undefined>;
   hasCustomerTransactions(id: string): Promise<boolean>;
 
   // Staff
-  getStaffList(storeId: string): Promise<Staff[]>;
+  getStaffList(storeId: string, includeArchived?: boolean): Promise<Staff[]>;
   getStaff(id: string): Promise<Staff | undefined>;
   createStaff(staffMember: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff>): Promise<Staff | undefined>;
   deleteStaff(id: string): Promise<boolean>;
+  archiveStaff(id: string): Promise<Staff | undefined>;
+  restoreStaff(id: string): Promise<Staff | undefined>;
   hasStaffCheckouts(id: string): Promise<boolean>;
 
   // Inventory
@@ -179,8 +183,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Customers
-  async getCustomers(storeId: string): Promise<Customer[]> {
-    return await db.select().from(customers).where(eq(customers.storeId, storeId));
+  async getCustomers(storeId: string, includeArchived: boolean = true): Promise<Customer[]> {
+    if (includeArchived) {
+      return await db.select().from(customers).where(eq(customers.storeId, storeId));
+    }
+    return await db.select().from(customers).where(
+      and(eq(customers.storeId, storeId), eq(customers.isArchived, false))
+    );
   }
 
   async getCustomer(id: string): Promise<Customer | undefined> {
@@ -203,14 +212,29 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  async archiveCustomer(id: string): Promise<Customer | undefined> {
+    const [updated] = await db.update(customers).set({ isArchived: true }).where(eq(customers.id, id)).returning();
+    return updated;
+  }
+
+  async restoreCustomer(id: string): Promise<Customer | undefined> {
+    const [updated] = await db.update(customers).set({ isArchived: false }).where(eq(customers.id, id)).returning();
+    return updated;
+  }
+
   async hasCustomerTransactions(id: string): Promise<boolean> {
     const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.customerId, id));
     return result[0].count > 0;
   }
 
   // Staff
-  async getStaffList(storeId: string): Promise<Staff[]> {
-    return await db.select().from(staff).where(eq(staff.storeId, storeId));
+  async getStaffList(storeId: string, includeArchived: boolean = true): Promise<Staff[]> {
+    if (includeArchived) {
+      return await db.select().from(staff).where(eq(staff.storeId, storeId));
+    }
+    return await db.select().from(staff).where(
+      and(eq(staff.storeId, storeId), eq(staff.isArchived, false))
+    );
   }
 
   async getStaff(id: string): Promise<Staff | undefined> {
@@ -231,6 +255,16 @@ export class DatabaseStorage implements IStorage {
   async deleteStaff(id: string): Promise<boolean> {
     const result = await db.delete(staff).where(eq(staff.id, id)).returning();
     return result.length > 0;
+  }
+
+  async archiveStaff(id: string): Promise<Staff | undefined> {
+    const [updated] = await db.update(staff).set({ isArchived: true }).where(eq(staff.id, id)).returning();
+    return updated;
+  }
+
+  async restoreStaff(id: string): Promise<Staff | undefined> {
+    const [updated] = await db.update(staff).set({ isArchived: false }).where(eq(staff.id, id)).returning();
+    return updated;
   }
 
   async hasStaffCheckouts(id: string): Promise<boolean> {

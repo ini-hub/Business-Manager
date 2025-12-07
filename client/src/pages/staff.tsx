@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Hash, DollarSign, FileCheck, FileX, AlertCircle } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Hash, DollarSign, FileCheck, FileX, AlertCircle, RotateCcw, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,6 +21,14 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -34,6 +42,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
+import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
+import { z } from "zod";
+
+const staffFormSchema = insertStaffSchema.extend({
+  mobileNumber: z.string().min(1, "Mobile number is required"),
+});
 
 export default function StaffPage() {
   const { toast } = useToast();
@@ -41,18 +55,23 @@ export default function StaffPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
+  const [activeTab, setActiveTab] = useState("active");
 
   const { data: staffList = [], isLoading } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
     enabled: !!currentStore?.id,
   });
 
+  const activeStaff = staffList.filter(s => !s.isArchived);
+  const archivedStaff = staffList.filter(s => s.isArchived);
+
   const form = useForm<InsertStaff>({
-    resolver: zodResolver(insertStaffSchema),
+    resolver: zodResolver(staffFormSchema),
     defaultValues: {
       storeId: currentStore?.id || "",
       name: "",
       staffNumber: "",
+      countryCode: "NG",
       mobileNumber: "",
       payPerMonth: 0,
       signedContract: false,
@@ -93,14 +112,46 @@ export default function StaffPage() {
     },
   });
 
-  const deleteMutation = useMutation({
+  const archiveMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/staff/${selectedStaff?.id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Staff member deleted successfully" });
+      toast({ title: "Staff member archived successfully" });
       setIsDeleteOpen(false);
       setSelectedStaff(null);
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Archive Staff Member", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/staff/${id}/restore`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Staff member restored successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Restore Staff Member", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/staff/${id}/permanent`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Staff member permanently deleted" });
     },
     onError: (error: Error) => {
       toast({ 
@@ -123,6 +174,7 @@ export default function StaffPage() {
       storeId: currentStore?.id || "",
       name: "",
       staffNumber: "",
+      countryCode: "NG",
       mobileNumber: "",
       payPerMonth: 0,
       signedContract: false,
@@ -132,10 +184,16 @@ export default function StaffPage() {
   };
 
   const openEditForm = (staff: Staff) => {
+    let countryCode = staff.countryCode || "NG";
+    if (countryCode.startsWith("+")) {
+      const country = countryCodes.find(c => c.dialCode === countryCode);
+      countryCode = country?.code || "NG";
+    }
     form.reset({
       storeId: staff.storeId,
       name: staff.name,
       staffNumber: staff.staffNumber,
+      countryCode,
       mobileNumber: staff.mobileNumber,
       payPerMonth: staff.payPerMonth,
       signedContract: staff.signedContract,
@@ -151,6 +209,13 @@ export default function StaffPage() {
   };
 
   const onSubmit = (data: InsertStaff) => {
+    const countryCode = data.countryCode || "NG";
+    const validation = validatePhoneNumber(data.mobileNumber, countryCode);
+    if (!validation.valid) {
+      form.setError("mobileNumber", { message: validation.error });
+      return;
+    }
+    
     if (selectedStaff) {
       updateMutation.mutate(data);
     } else {
@@ -158,7 +223,7 @@ export default function StaffPage() {
     }
   };
 
-  const columns = [
+  const activeColumns = [
     {
       key: "staffNumber",
       header: "Staff ID",
@@ -182,7 +247,7 @@ export default function StaffPage() {
       render: (staff: Staff) => (
         <div className="flex items-center gap-2">
           <Phone className="h-3 w-3 text-muted-foreground" />
-          <span>{staff.mobileNumber}</span>
+          <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
         </div>
       ),
     },
@@ -240,9 +305,86 @@ export default function StaffPage() {
               setSelectedStaff(staff);
               setIsDeleteOpen(true);
             }}
-            data-testid={`button-delete-${staff.id}`}
+            data-testid={`button-archive-${staff.id}`}
           >
-            <Trash2 className="h-4 w-4" />
+            <Archive className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const archivedColumns = [
+    {
+      key: "staffNumber",
+      header: "Staff ID",
+      render: (staff: Staff) => (
+        <div className="flex items-center gap-2">
+          <Hash className="h-3 w-3 text-muted-foreground" />
+          <span className="font-mono text-sm">{staff.staffNumber}</span>
+        </div>
+      ),
+    },
+    {
+      key: "name",
+      header: "Name",
+      render: (staff: Staff) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{staff.name}</span>
+          <Badge variant="secondary">Archived</Badge>
+        </div>
+      ),
+    },
+    {
+      key: "mobileNumber",
+      header: "Mobile",
+      render: (staff: Staff) => (
+        <div className="flex items-center gap-2">
+          <Phone className="h-3 w-3 text-muted-foreground" />
+          <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
+        </div>
+      ),
+    },
+    {
+      key: "payPerMonth",
+      header: "Monthly Pay",
+      render: (staff: Staff) => (
+        <div className="flex items-center gap-2">
+          <DollarSign className="h-3 w-3 text-muted-foreground" />
+          <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-32",
+      render: (staff: Staff) => (
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              restoreMutation.mutate(staff.id);
+            }}
+            title="Restore staff member"
+            data-testid={`button-restore-${staff.id}`}
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm("Permanently delete this staff member? This cannot be undone.")) {
+                permanentDeleteMutation.mutate(staff.id);
+              }
+            }}
+            data-testid={`button-delete-permanent-${staff.id}`}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         </div>
       ),
@@ -272,7 +414,7 @@ export default function StaffPage() {
           <div className="flex items-center gap-2">
             <BulkOperations
               entityType="staff"
-              data={staffList as unknown as Record<string, unknown>[]}
+              data={activeStaff as unknown as Record<string, unknown>[]}
               columns={[
                 { key: "name", header: "Name" },
                 { key: "staffNumber", header: "Staff Number" },
@@ -291,15 +433,38 @@ export default function StaffPage() {
         }
       />
 
-      <DataTable
-        data={staffList}
-        columns={columns}
-        searchable
-        searchPlaceholder="Search staff..."
-        searchKeys={["name", "staffNumber", "mobileNumber"]}
-        isLoading={isLoading}
-        emptyMessage="No staff members found. Add your first staff member to get started."
-      />
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="active" data-testid="tab-active-staff">
+            Active ({activeStaff.length})
+          </TabsTrigger>
+          <TabsTrigger value="archived" data-testid="tab-archived-staff">
+            Archived ({archivedStaff.length})
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="active" className="mt-4">
+          <DataTable
+            data={activeStaff}
+            columns={activeColumns}
+            searchable
+            searchPlaceholder="Search active staff..."
+            searchKeys={["name", "staffNumber", "mobileNumber"]}
+            isLoading={isLoading}
+            emptyMessage="No active staff members found. Add your first staff member to get started."
+          />
+        </TabsContent>
+        <TabsContent value="archived" className="mt-4">
+          <DataTable
+            data={archivedStaff}
+            columns={archivedColumns}
+            searchable
+            searchPlaceholder="Search archived staff..."
+            searchKeys={["name", "staffNumber", "mobileNumber"]}
+            isLoading={isLoading}
+            emptyMessage="No archived staff members. Deleted staff will appear here."
+          />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-lg">
@@ -334,28 +499,72 @@ export default function StaffPage() {
                   name="staffNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Staff Number</FormLabel>
+                      <FormLabel>Staff ID</FormLabel>
                       <FormControl>
-                        <Input placeholder="EMP-001" {...field} data-testid="input-staff-number" />
+                        <Input 
+                          placeholder="EMP-001" 
+                          {...field} 
+                          disabled={!!selectedStaff}
+                          className={selectedStaff ? "bg-muted cursor-not-allowed" : ""}
+                          data-testid="input-staff-number" 
+                        />
                       </FormControl>
+                      <FormDescription>
+                        {selectedStaff 
+                          ? "Staff ID cannot be changed after creation."
+                          : "Enter a unique staff identifier."}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
-              <FormField
-                control={form.control}
-                name="mobileNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mobile Number</FormLabel>
-                    <FormControl>
-                      <Input placeholder="+1 234 567 8900" {...field} data-testid="input-mobile" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FormField
+                  control={form.control}
+                  name="countryCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Country</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "NG"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-country-code">
+                            <SelectValue placeholder="Select country" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="max-h-[300px]">
+                          {countryCodes.map((country) => (
+                            <SelectItem key={country.code} value={country.code}>
+                              {country.name} ({country.dialCode})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="mobileNumber"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Mobile Number</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="8012345678" 
+                          {...field} 
+                          data-testid="input-mobile" 
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Enter number without country code
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <FormField
                 control={form.control}
                 name="payPerMonth"
@@ -421,12 +630,12 @@ export default function StaffPage() {
       <ConfirmDialog
         open={isDeleteOpen}
         onOpenChange={setIsDeleteOpen}
-        title="Delete Staff Member"
-        description={`Are you sure you want to delete "${selectedStaff?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={() => deleteMutation.mutate()}
+        title="Archive Staff Member"
+        description={`Are you sure you want to archive "${selectedStaff?.name}"? You can restore them later from the Archived tab.`}
+        confirmText="Archive"
+        onConfirm={() => archiveMutation.mutate()}
         isDestructive
-        isLoading={deleteMutation.isPending}
+        isLoading={archiveMutation.isPending}
       />
     </div>
   );

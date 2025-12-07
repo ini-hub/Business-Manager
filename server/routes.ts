@@ -213,10 +213,51 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Customer not found." });
       }
       
+      // Archive instead of delete (soft delete)
+      const archived = await storage.archiveCustomer(req.params.id);
+      if (!archived) {
+        return res.status(500).json({ error: "We couldn't archive this customer. Please try again." });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't archive this customer. Please try again." });
+    }
+  });
+
+  // Restore archived customer
+  app.post("/api/customers/:id/restore", async (req, res) => {
+    try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found." });
+      }
+      
+      const restored = await storage.restoreCustomer(req.params.id);
+      if (!restored) {
+        return res.status(500).json({ error: "We couldn't restore this customer. Please try again." });
+      }
+      res.json(restored);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't restore this customer. Please try again." });
+    }
+  });
+
+  // Permanently delete archived customer
+  app.delete("/api/customers/:id/permanent", async (req, res) => {
+    try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found." });
+      }
+      
+      if (!customer.isArchived) {
+        return res.status(400).json({ error: "Only archived customers can be permanently deleted." });
+      }
+      
       const hasTransactions = await storage.hasCustomerTransactions(req.params.id);
       if (hasTransactions) {
         return res.status(400).json({ 
-          error: "Cannot delete customer with existing transactions. This customer has purchase history that must be preserved for your records." 
+          error: "Cannot permanently delete customer with existing transactions. This customer has purchase history that must be preserved for your records." 
         });
       }
       
@@ -333,10 +374,51 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Staff member not found." });
       }
       
+      // Archive instead of delete (soft delete)
+      const archived = await storage.archiveStaff(req.params.id);
+      if (!archived) {
+        return res.status(500).json({ error: "We couldn't archive this staff member. Please try again." });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't archive this staff member. Please try again." });
+    }
+  });
+
+  // Restore archived staff
+  app.post("/api/staff/:id/restore", async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      const restored = await storage.restoreStaff(req.params.id);
+      if (!restored) {
+        return res.status(500).json({ error: "We couldn't restore this staff member. Please try again." });
+      }
+      res.json(restored);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't restore this staff member. Please try again." });
+    }
+  });
+
+  // Permanently delete archived staff
+  app.delete("/api/staff/:id/permanent", async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      if (!staffMember.isArchived) {
+        return res.status(400).json({ error: "Only archived staff can be permanently deleted." });
+      }
+      
       const hasCheckouts = await storage.hasStaffCheckouts(req.params.id);
       if (hasCheckouts) {
         return res.status(400).json({ 
-          error: "Cannot delete staff member with existing sales records. This staff member has processed sales that must be preserved for your records." 
+          error: "Cannot permanently delete staff member with existing sales records. This staff member has processed sales that must be preserved for your records." 
         });
       }
       

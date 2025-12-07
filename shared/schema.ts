@@ -94,7 +94,9 @@ export const customers = pgTable("customers", {
   name: text("name").notNull(),
   customerNumber: text("customer_number").notNull(),
   mobileNumber: text("mobile_number").notNull(),
+  countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
   address: text("address").notNull(),
+  isArchived: boolean("is_archived").notNull().default(false),
 }, (table) => [
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
 ]);
@@ -107,9 +109,10 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   transactions: many(transactions),
 }));
 
-export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true }).extend({
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, isArchived: true }).extend({
   name: trimmedString(1, "Customer name is required"),
   customerNumber: trimmedString(1, "Customer ID is required"),
+  countryCode: z.string().default("+234"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
   address: z.string().transform(s => s.trim()).default(""),
 });
@@ -123,8 +126,10 @@ export const staff = pgTable("staff", {
   name: text("name").notNull(),
   staffNumber: text("staff_number").notNull(),
   mobileNumber: text("mobile_number").notNull(),
+  countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
   payPerMonth: real("pay_per_month").notNull(),
   signedContract: boolean("signed_contract").notNull().default(false),
+  isArchived: boolean("is_archived").notNull().default(false),
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
 ]);
@@ -137,9 +142,10 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
   checkouts: many(checkouts),
 }));
 
-export const insertStaffSchema = createInsertSchema(staff).omit({ id: true }).extend({
+export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isArchived: true }).extend({
   name: trimmedString(1, "Staff name is required"),
   staffNumber: trimmedString(1, "Staff number is required"),
+  countryCode: z.string().default("+234"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;

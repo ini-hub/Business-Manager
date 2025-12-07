@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, MapPin, Hash, RefreshCw, AlertCircle } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, MapPin, Hash, RefreshCw, AlertCircle, RotateCcw, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,6 +20,14 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -33,6 +41,13 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
+import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
+import { z } from "zod";
+import { Badge } from "@/components/ui/badge";
+
+const customerFormSchema = insertCustomerSchema.extend({
+  mobileNumber: z.string().min(1, "Mobile number is required"),
+});
 
 export default function Customers() {
   const { toast } = useToast();
@@ -41,22 +56,29 @@ export default function Customers() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [generatedCustomerNumber, setGeneratedCustomerNumber] = useState("");
+  const [activeTab, setActiveTab] = useState("active");
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
     enabled: !!currentStore?.id,
   });
 
+  const activeCustomers = customers.filter(c => !c.isArchived);
+  const archivedCustomers = customers.filter(c => c.isArchived);
+
   const form = useForm<InsertCustomer>({
-    resolver: zodResolver(insertCustomerSchema),
+    resolver: zodResolver(customerFormSchema),
     defaultValues: {
       storeId: currentStore?.id || "",
       name: "",
       customerNumber: "",
+      countryCode: "NG",
       mobileNumber: "",
       address: "",
     },
   });
+
+  const selectedCountryCode = form.watch("countryCode");
 
   const fetchNewCustomerNumber = async () => {
     if (!currentStore?.id) return;
@@ -106,14 +128,46 @@ export default function Customers() {
     },
   });
 
-  const deleteMutation = useMutation({
+  const archiveMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/customers/${selectedCustomer?.id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Customer deleted successfully" });
+      toast({ title: "Customer archived successfully" });
       setIsDeleteOpen(false);
       setSelectedCustomer(null);
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Archive Customer", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/customers/${id}/restore`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Customer restored successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Restore Customer", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/customers/${id}/permanent`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Customer permanently deleted" });
     },
     onError: (error: Error) => {
       toast({ 
@@ -129,6 +183,7 @@ export default function Customers() {
       storeId: currentStore?.id || "",
       name: "",
       customerNumber: "",
+      countryCode: "NG",
       mobileNumber: "",
       address: "",
     });
@@ -138,10 +193,16 @@ export default function Customers() {
   };
 
   const openEditForm = (customer: Customer) => {
+    let countryCode = customer.countryCode || "NG";
+    if (countryCode.startsWith("+")) {
+      const country = countryCodes.find(c => c.dialCode === countryCode);
+      countryCode = country?.code || "NG";
+    }
     form.reset({
       storeId: customer.storeId,
       name: customer.name,
       customerNumber: customer.customerNumber,
+      countryCode,
       mobileNumber: customer.mobileNumber,
       address: customer.address,
     });
@@ -158,6 +219,13 @@ export default function Customers() {
   };
 
   const onSubmit = (data: InsertCustomer) => {
+    const countryCode = data.countryCode || "NG";
+    const validation = validatePhoneNumber(data.mobileNumber, countryCode);
+    if (!validation.valid) {
+      form.setError("mobileNumber", { message: validation.error });
+      return;
+    }
+    
     if (selectedCustomer) {
       updateMutation.mutate(data);
     } else {
@@ -165,7 +233,7 @@ export default function Customers() {
     }
   };
 
-  const columns = [
+  const activeColumns = [
     {
       key: "customerNumber",
       header: "ID",
@@ -189,7 +257,7 @@ export default function Customers() {
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
           <Phone className="h-3 w-3 text-muted-foreground" />
-          <span>{customer.mobileNumber}</span>
+          <span>{formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}</span>
         </div>
       ),
     },
@@ -199,7 +267,7 @@ export default function Customers() {
       render: (customer: Customer) => (
         <div className="flex items-center gap-2 max-w-xs">
           <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-          <span className="truncate">{customer.address}</span>
+          <span className="truncate">{customer.address || "-"}</span>
         </div>
       ),
     },
@@ -228,9 +296,76 @@ export default function Customers() {
               setSelectedCustomer(customer);
               setIsDeleteOpen(true);
             }}
-            data-testid={`button-delete-${customer.id}`}
+            data-testid={`button-archive-${customer.id}`}
           >
-            <Trash2 className="h-4 w-4" />
+            <Archive className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const archivedColumns = [
+    {
+      key: "customerNumber",
+      header: "ID",
+      render: (customer: Customer) => (
+        <div className="flex items-center gap-2">
+          <Hash className="h-3 w-3 text-muted-foreground" />
+          <span className="font-mono text-sm">{customer.customerNumber}</span>
+        </div>
+      ),
+    },
+    {
+      key: "name",
+      header: "Name",
+      render: (customer: Customer) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{customer.name}</span>
+          <Badge variant="secondary">Archived</Badge>
+        </div>
+      ),
+    },
+    {
+      key: "mobileNumber",
+      header: "Mobile",
+      render: (customer: Customer) => (
+        <div className="flex items-center gap-2">
+          <Phone className="h-3 w-3 text-muted-foreground" />
+          <span>{formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}</span>
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-32",
+      render: (customer: Customer) => (
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              restoreMutation.mutate(customer.id);
+            }}
+            title="Restore customer"
+            data-testid={`button-restore-${customer.id}`}
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm("Permanently delete this customer? This cannot be undone.")) {
+                permanentDeleteMutation.mutate(customer.id);
+              }
+            }}
+            data-testid={`button-delete-permanent-${customer.id}`}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         </div>
       ),
@@ -260,7 +395,7 @@ export default function Customers() {
           <div className="flex items-center gap-2">
             <BulkOperations
               entityType="customers"
-              data={customers as unknown as Record<string, unknown>[]}
+              data={activeCustomers as unknown as Record<string, unknown>[]}
               columns={[
                 { key: "name", header: "Name" },
                 { key: "customerNumber", header: "Customer Number" },
@@ -278,15 +413,38 @@ export default function Customers() {
         }
       />
 
-      <DataTable
-        data={customers}
-        columns={columns}
-        searchable
-        searchPlaceholder="Search customers..."
-        searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
-        isLoading={isLoading}
-        emptyMessage="No customers found. Add your first customer to get started."
-      />
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="active" data-testid="tab-active-customers">
+            Active ({activeCustomers.length})
+          </TabsTrigger>
+          <TabsTrigger value="archived" data-testid="tab-archived-customers">
+            Archived ({archivedCustomers.length})
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="active" className="mt-4">
+          <DataTable
+            data={activeCustomers}
+            columns={activeColumns}
+            searchable
+            searchPlaceholder="Search active customers..."
+            searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
+            isLoading={isLoading}
+            emptyMessage="No active customers found. Add your first customer to get started."
+          />
+        </TabsContent>
+        <TabsContent value="archived" className="mt-4">
+          <DataTable
+            data={archivedCustomers}
+            columns={archivedColumns}
+            searchable
+            searchPlaceholder="Search archived customers..."
+            searchKeys={["name", "customerNumber", "mobileNumber"]}
+            isLoading={isLoading}
+            emptyMessage="No archived customers. Deleted customers will appear here."
+          />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-lg">
@@ -327,6 +485,8 @@ export default function Customers() {
                           <Input 
                             placeholder={generatedCustomerNumber || "Auto-generated"} 
                             {...field} 
+                            disabled={!!selectedCustomer}
+                            className={selectedCustomer ? "bg-muted cursor-not-allowed" : ""}
                             data-testid="input-customer-number" 
                           />
                         </FormControl>
@@ -344,26 +504,61 @@ export default function Customers() {
                         )}
                       </div>
                       <FormDescription>
-                        Auto-generated based on store code. You can edit it if needed.
+                        {selectedCustomer 
+                          ? "Customer ID cannot be changed after creation."
+                          : "Auto-generated based on store code."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
-              <FormField
-                control={form.control}
-                name="mobileNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mobile Number</FormLabel>
-                    <FormControl>
-                      <Input placeholder="+1 234 567 8900" {...field} data-testid="input-mobile" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FormField
+                  control={form.control}
+                  name="countryCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Country</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "NG"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-country-code">
+                            <SelectValue placeholder="Select country" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="max-h-[300px]">
+                          {countryCodes.map((country) => (
+                            <SelectItem key={country.code} value={country.code}>
+                              {country.name} ({country.dialCode})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="mobileNumber"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Mobile Number</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="8012345678" 
+                          {...field} 
+                          data-testid="input-mobile" 
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Enter number without country code (e.g., 8012345678)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <FormField
                 control={form.control}
                 name="address"
@@ -405,12 +600,12 @@ export default function Customers() {
       <ConfirmDialog
         open={isDeleteOpen}
         onOpenChange={setIsDeleteOpen}
-        title="Delete Customer"
-        description={`Are you sure you want to delete "${selectedCustomer?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={() => deleteMutation.mutate()}
+        title="Archive Customer"
+        description={`Are you sure you want to archive "${selectedCustomer?.name}"? You can restore them later from the Archived tab.`}
+        confirmText="Archive"
+        onConfirm={() => archiveMutation.mutate()}
         isDestructive
-        isLoading={deleteMutation.isPending}
+        isLoading={archiveMutation.isPending}
       />
     </div>
   );
