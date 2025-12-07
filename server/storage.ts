@@ -113,6 +113,19 @@ export interface IStorage {
   // Chart Data
   getSalesTrends(storeId: string): Promise<{ date: string; revenue: number; transactions: number }[]>;
   getRevenueByType(storeId: string): Promise<{ name: string; value: number; type: string }[]>;
+  
+  // Transactional Checkout (atomic operation)
+  processCheckout(data: {
+    storeId: string;
+    customerId: string;
+    staffId: string;
+    items: Array<{
+      inventoryId: string;
+      quantity: number;
+      customPrice?: number;
+    }>;
+    paymentMethod: "cash" | "transfer" | "flutterwave";
+  }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -583,6 +596,127 @@ export class DatabaseStorage implements IStorage {
     }));
 
     return result.sort((a, b) => b.value - a.value).slice(0, 10);
+  }
+
+  // Transactional Checkout - atomic operation with rollback on failure
+  async processCheckout(data: {
+    storeId: string;
+    customerId: string;
+    staffId: string;
+    items: Array<{
+      inventoryId: string;
+      quantity: number;
+      customPrice?: number;
+    }>;
+    paymentMethod: "cash" | "transfer" | "flutterwave";
+  }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
+    const checkoutIds: string[] = [];
+
+    try {
+      // Use database transaction for atomicity
+      await db.transaction(async (tx) => {
+        // Validate customer exists
+        const [customer] = await tx.select().from(customers).where(eq(customers.id, data.customerId));
+        if (!customer) {
+          throw new Error("Please select a valid customer to complete this sale.");
+        }
+
+        // Validate staff exists
+        const [staffMember] = await tx.select().from(staff).where(eq(staff.id, data.staffId));
+        if (!staffMember) {
+          throw new Error("Please select a valid staff member to complete this sale.");
+        }
+
+        // Process each item within the transaction
+        for (const item of data.items) {
+          // Get inventory item with lock for update (prevents race conditions)
+          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
+          
+          if (!inventoryItem) {
+            throw new Error("One of the items in your cart is no longer available.");
+          }
+
+          // Check stock for products
+          if (inventoryItem.type === "product" && inventoryItem.quantity < item.quantity) {
+            throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
+          }
+
+          // Calculate total price (use custom price if provided)
+          const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
+          const totalPrice = unitPrice * item.quantity;
+
+          // Create order
+          const [order] = await tx.insert(orders).values({
+            storeId: data.storeId,
+            inventoryId: item.inventoryId,
+            quantity: item.quantity,
+            totalPrice,
+          }).returning();
+
+          // Create checkout
+          const [checkout] = await tx.insert(checkouts).values({
+            storeId: data.storeId,
+            staffId: data.staffId,
+            orderId: order.id,
+            totalPrice,
+            paymentMethod: data.paymentMethod,
+            paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
+          }).returning();
+
+          checkoutIds.push(checkout.id);
+
+          // Create transaction record
+          await tx.insert(transactions).values({
+            storeId: data.storeId,
+            customerId: data.customerId,
+            inventoryId: item.inventoryId,
+            checkoutId: checkout.id,
+          });
+
+          // Update inventory quantity for products (atomic decrement)
+          if (inventoryItem.type === "product") {
+            await tx.update(inventory)
+              .set({ quantity: inventoryItem.quantity - item.quantity })
+              .where(eq(inventory.id, item.inventoryId));
+          }
+
+          // Update profit/loss record
+          const costPrice = inventoryItem.costPrice;
+          const revenue = totalPrice;
+          const profit = revenue - (costPrice * item.quantity);
+
+          const [existingPL] = await tx.select().from(profitLoss)
+            .where(and(
+              eq(profitLoss.inventoryId, item.inventoryId),
+              eq(profitLoss.storeId, data.storeId)
+            ));
+
+          if (existingPL) {
+            await tx.update(profitLoss)
+              .set({
+                totalRevenue: existingPL.totalRevenue + revenue,
+                totalCost: existingPL.totalCost + (costPrice * item.quantity),
+                totalNetProfit: existingPL.totalNetProfit + profit,
+              })
+              .where(eq(profitLoss.id, existingPL.id));
+          } else {
+            await tx.insert(profitLoss).values({
+              storeId: data.storeId,
+              inventoryId: item.inventoryId,
+              totalRevenue: revenue,
+              totalCost: costPrice * item.quantity,
+              totalNetProfit: profit,
+            });
+          }
+        }
+      });
+
+      return { success: true, message: "Sale completed successfully", checkoutIds };
+    } catch (error) {
+      // Transaction automatically rolls back on error
+      const message = error instanceof Error ? error.message : "We couldn't complete this sale right now. Please try again.";
+      return { success: false, message };
+    }
   }
 }
 

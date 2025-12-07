@@ -711,74 +711,24 @@ export async function registerRoutes(
     try {
       const data = checkoutSchema.parse(req.body);
 
-      // Validate customer exists
-      const customer = await storage.getCustomer(data.customerId);
-      if (!customer) {
-        return res.status(400).json({ error: "Please select a valid customer to complete this sale." });
+      // Use transactional checkout for atomicity (all-or-nothing)
+      const result = await storage.processCheckout({
+        storeId: data.storeId,
+        customerId: data.customerId,
+        staffId: data.staffId,
+        items: data.items,
+        paymentMethod: data.paymentMethod,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
       }
 
-      // Validate staff exists
-      const staffMember = await storage.getStaff(data.staffId);
-      if (!staffMember) {
-        return res.status(400).json({ error: "Please select a valid staff member to complete this sale." });
-      }
-
-      // Process each item
-      for (const item of data.items) {
-        const inventoryItem = await storage.getInventoryItem(item.inventoryId);
-        if (!inventoryItem) {
-          return res.status(400).json({ error: "One of the items in your cart is no longer available." });
-        }
-
-        // Check stock for products
-        if (inventoryItem.type === "product" && inventoryItem.quantity < item.quantity) {
-          return res.status(400).json({ 
-            error: `Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.` 
-          });
-        }
-
-        // Calculate total price (use custom price if provided, otherwise use selling price)
-        const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
-        const totalPrice = unitPrice * item.quantity;
-
-        // Create order
-        const order = await storage.createOrder({
-          storeId: data.storeId,
-          inventoryId: item.inventoryId,
-          quantity: item.quantity,
-          totalPrice,
-        });
-
-        // Create checkout
-        const checkout = await storage.createCheckout({
-          storeId: data.storeId,
-          staffId: data.staffId,
-          orderId: order.id,
-          totalPrice,
-          paymentMethod: data.paymentMethod,
-          paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
-        });
-
-        // Create transaction
-        await storage.createTransaction({
-          storeId: data.storeId,
-          customerId: data.customerId,
-          inventoryId: item.inventoryId,
-          checkoutId: checkout.id,
-        });
-
-        // Update inventory quantity for products
-        if (inventoryItem.type === "product") {
-          await storage.updateInventoryItem(item.inventoryId, {
-            quantity: inventoryItem.quantity - item.quantity,
-          });
-        }
-
-        // Update profit/loss
-        await storage.updateProfitLoss(item.inventoryId, data.storeId);
-      }
-
-      res.status(201).json({ success: true, message: "Sale completed successfully" });
+      res.status(201).json({ 
+        success: true, 
+        message: result.message,
+        checkoutIds: result.checkoutIds 
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
