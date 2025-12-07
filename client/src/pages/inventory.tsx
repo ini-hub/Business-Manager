@@ -1,6 +1,10 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, DollarSign, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, DollarSign, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw } from "lucide-react";
+import { z } from "zod";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { FormDescription } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -46,13 +50,25 @@ type FilterType = "all" | "product" | "service" | "low-stock";
 
 const LOW_STOCK_THRESHOLD = 5;
 
+const restockSchema = z.object({
+  quantity: z.number().min(1, "Quantity must be at least 1"),
+  newCostPrice: z.number().min(0).optional(),
+  priceMethod: z.enum(["keep", "weighted", "new"]).default("keep"),
+});
+
 export default function InventoryPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
+  const [restockData, setRestockData] = useState({
+    quantity: 1,
+    newCostPrice: 0,
+    priceMethod: "keep" as "keep" | "weighted" | "new",
+  });
 
   const { data: inventoryList = [], isLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id],
@@ -149,6 +165,44 @@ export default function InventoryPage() {
       toast({ 
         title: "Couldn't Delete Item", 
         description: errorMessage, 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const restockMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedItem) return;
+      
+      let newCostPrice = selectedItem.costPrice;
+      const currentQty = selectedItem.quantity;
+      const addQty = restockData.quantity;
+      
+      if (restockData.priceMethod === "new" && restockData.newCostPrice !== undefined) {
+        newCostPrice = restockData.newCostPrice;
+      } else if (restockData.priceMethod === "weighted" && restockData.newCostPrice !== undefined && currentQty > 0) {
+        const totalValue = (currentQty * selectedItem.costPrice) + (addQty * restockData.newCostPrice);
+        const totalQty = currentQty + addQty;
+        newCostPrice = totalValue / totalQty;
+      }
+      
+      return apiRequest("PATCH", `/api/inventory/${selectedItem.id}`, {
+        quantity: currentQty + addQty,
+        costPrice: newCostPrice,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Stock updated successfully" });
+      setIsRestockOpen(false);
+      setSelectedItem(null);
+      setRestockData({ quantity: 1, newCostPrice: 0, priceMethod: "keep" });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Update Stock", 
+        description: getUserFriendlyError(error), 
         variant: "destructive" 
       });
     },
@@ -284,9 +338,29 @@ export default function InventoryPage() {
     {
       key: "actions",
       header: "",
-      className: "w-24",
+      className: "w-32",
       render: (item: Inventory) => (
         <div className="flex items-center gap-1">
+          {item.type === "product" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedItem(item);
+                setRestockData({ 
+                  quantity: 1, 
+                  newCostPrice: item.costPrice, 
+                  priceMethod: "keep" 
+                });
+                setIsRestockOpen(true);
+              }}
+              data-testid={`button-restock-${item.id}`}
+              title="Restock"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -542,6 +616,105 @@ export default function InventoryPage() {
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isRestockOpen} onOpenChange={setIsRestockOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5" />
+              Restock "{selectedItem?.name}"
+            </DialogTitle>
+            <DialogDescription>
+              Add more stock to this item. Current stock: {selectedItem?.quantity ?? 0}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="restock-quantity">Quantity to Add</Label>
+              <Input
+                id="restock-quantity"
+                type="number"
+                min="1"
+                value={restockData.quantity}
+                onChange={(e) => setRestockData(prev => ({ 
+                  ...prev, 
+                  quantity: parseInt(e.target.value) || 1 
+                }))}
+                data-testid="input-restock-quantity"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Cost Price Method</Label>
+              <RadioGroup
+                value={restockData.priceMethod}
+                onValueChange={(value) => setRestockData(prev => ({ 
+                  ...prev, 
+                  priceMethod: value as "keep" | "weighted" | "new" 
+                }))}
+                className="space-y-2"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="keep" id="keep" />
+                  <Label htmlFor="keep" className="font-normal">
+                    Keep existing cost price ({formatCurrency(selectedItem?.costPrice ?? 0)})
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="weighted" id="weighted" />
+                  <Label htmlFor="weighted" className="font-normal">
+                    Weighted average (blend old and new cost)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="new" id="new" />
+                  <Label htmlFor="new" className="font-normal">
+                    Use new cost price only
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {restockData.priceMethod !== "keep" && (
+              <div className="space-y-2">
+                <Label htmlFor="new-cost">New Cost Price ({currencyInfo?.symbol || "₦"})</Label>
+                <Input
+                  id="new-cost"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={restockData.newCostPrice}
+                  onChange={(e) => setRestockData(prev => ({ 
+                    ...prev, 
+                    newCostPrice: parseFloat(e.target.value) || 0 
+                  }))}
+                  data-testid="input-restock-cost"
+                />
+                {restockData.priceMethod === "weighted" && selectedItem && restockData.newCostPrice > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Weighted avg: {formatCurrency(
+                      ((selectedItem.quantity * selectedItem.costPrice) + (restockData.quantity * restockData.newCostPrice)) / 
+                      (selectedItem.quantity + restockData.quantity)
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsRestockOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => restockMutation.mutate()}
+              disabled={restockMutation.isPending || restockData.quantity < 1}
+              data-testid="button-confirm-restock"
+            >
+              {restockMutation.isPending ? "Updating..." : "Add Stock"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -53,6 +53,7 @@ import type { Customer, Staff, Inventory } from "@shared/schema";
 interface CartItem {
   inventory: Inventory;
   quantity: number;
+  customPrice: number; // Allow negotiable pricing
   totalPrice: number;
 }
 
@@ -93,10 +94,12 @@ export default function NewSale() {
       )
     : availableInventory;
 
+  const storeCurrency = currentStore?.currency || "NGN";
+  
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat("en-NG", {
       style: "currency",
-      currency: "USD",
+      currency: storeCurrency,
     }).format(value);
   };
 
@@ -115,11 +118,16 @@ export default function NewSale() {
         }
         return prev.map((c) =>
           c.inventory.id === item.id
-            ? { ...c, quantity: c.quantity + 1, totalPrice: (c.quantity + 1) * item.sellingPrice }
+            ? { ...c, quantity: c.quantity + 1, totalPrice: (c.quantity + 1) * c.customPrice }
             : c
         );
       }
-      return [...prev, { inventory: item, quantity: 1, totalPrice: item.sellingPrice }];
+      return [...prev, { 
+        inventory: item, 
+        quantity: 1, 
+        customPrice: item.sellingPrice, 
+        totalPrice: item.sellingPrice 
+      }];
     });
   };
 
@@ -139,11 +147,23 @@ export default function NewSale() {
               return c;
             }
             if (newQty <= 0) return null as unknown as CartItem;
-            return { ...c, quantity: newQty, totalPrice: newQty * c.inventory.sellingPrice };
+            return { ...c, quantity: newQty, totalPrice: newQty * c.customPrice };
           }
           return c;
         })
         .filter(Boolean)
+    );
+  };
+
+  const updateCustomPrice = (itemId: string, newPrice: number) => {
+    if (newPrice < 0) return;
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c.inventory.id === itemId) {
+          return { ...c, customPrice: newPrice, totalPrice: c.quantity * newPrice };
+        }
+        return c;
+      })
     );
   };
 
@@ -158,6 +178,7 @@ export default function NewSale() {
       const orderData = cart.map((item) => ({
         inventoryId: item.inventory.id,
         quantity: item.quantity,
+        customPrice: item.customPrice,
       }));
 
       return apiRequest("POST", "/api/sales/checkout", {
@@ -318,36 +339,15 @@ export default function NewSale() {
                     {cart.map((item) => (
                       <div
                         key={item.inventory.id}
-                        className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
+                        className="flex flex-col gap-2 p-3 rounded-lg bg-muted/50"
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{item.inventory.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">
-                            {formatCurrency(item.inventory.sellingPrice)} each
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => updateQuantity(item.inventory.id, -1)}
-                            data-testid={`button-decrease-${item.inventory.id}`}
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          <span className="w-8 text-center font-mono text-sm">
-                            {item.quantity}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => updateQuantity(item.inventory.id, 1)}
-                            data-testid={`button-increase-${item.inventory.id}`}
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{item.inventory.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              List price: {formatCurrency(item.inventory.sellingPrice)}
+                            </p>
+                          </div>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -357,6 +357,46 @@ export default function NewSale() {
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1">
+                            <Label className="text-xs text-muted-foreground">Price:</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.customPrice}
+                              onChange={(e) => updateCustomPrice(item.inventory.id, parseFloat(e.target.value) || 0)}
+                              className="h-7 w-24 font-mono text-sm"
+                              data-testid={`input-price-${item.inventory.id}`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => updateQuantity(item.inventory.id, -1)}
+                              data-testid={`button-decrease-${item.inventory.id}`}
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                            <span className="w-8 text-center font-mono text-sm">
+                              {item.quantity}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => updateQuantity(item.inventory.id, 1)}
+                              data-testid={`button-increase-${item.inventory.id}`}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <span className="font-mono text-sm font-medium w-20 text-right">
+                            {formatCurrency(item.totalPrice)}
+                          </span>
                         </div>
                       </div>
                     ))}
