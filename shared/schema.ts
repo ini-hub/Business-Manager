@@ -42,6 +42,8 @@ export const stores = pgTable("stores", {
   code: text("code").notNull(), // Prefix for customer IDs (e.g., "STORE", "NYC", "LA")
   address: text("address"),
   phone: text("phone"),
+  country: text("country").notNull().default("NG"), // ISO country code
+  currency: text("currency").notNull().default("NGN"), // ISO currency code
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
@@ -65,6 +67,8 @@ export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, cre
   code: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1, "Store code is required")),
   address: optionalTrimmedString(),
   phone: optionalTrimmedString(),
+  country: z.string().default("NG"),
+  currency: z.string().default("NGN"),
 });
 export type InsertStore = z.infer<typeof insertStoreSchema>;
 export type Store = typeof stores.$inferSelect;
@@ -213,6 +217,9 @@ export const checkouts = pgTable("checkouts", {
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   orderId: varchar("order_id").notNull().references(() => orders.id),
   totalPrice: real("total_price").notNull(),
+  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave
+  paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
+  paymentReference: text("payment_reference"), // For Flutterwave transaction reference
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
