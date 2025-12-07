@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
 
 export function useAuth() {
@@ -7,9 +8,19 @@ export function useAuth() {
     retry: false,
   });
 
+  const logout = async () => {
+    try {
+      await apiRequest("POST", "/api/auth/logout");
+      queryClient.clear();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
   return {
     user,
     isLoading,
     isAuthenticated: !!user,
+    logout,
   };
 }

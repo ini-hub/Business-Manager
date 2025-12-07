@@ -94,18 +94,53 @@ export default function SettingsStoresPage() {
   const [editingStore, setEditingStore] = useState<StoreType | null>(null);
   const [deletingStore, setDeletingStore] = useState<StoreType | null>(null);
   const [newlyCreatedStaffId, setNewlyCreatedStaffId] = useState<string | null>(null);
+  const [allStaffByStore, setAllStaffByStore] = useState<Record<string, Staff[]>>({});
 
-  const { data: allStaff = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    enabled: !!currentStore?.id,
+  const editingStoreId = editingStore?.id;
+  
+  const { data: storeStaff = [] } = useQuery<Staff[]>({
+    queryKey: ["/api/staff", editingStoreId],
+    enabled: !!editingStoreId,
   });
 
-  const activeStaff = allStaff.filter(s => !s.isArchived);
+  const refreshStaffForStore = async (storeId: string) => {
+    try {
+      const response = await fetch(`/api/staff?storeId=${storeId}`);
+      if (response.ok) {
+        const staff = await response.json();
+        setAllStaffByStore(prev => ({ ...prev, [storeId]: staff }));
+      }
+    } catch {
+      // Keep existing data on error
+    }
+  };
+
+  useEffect(() => {
+    const fetchAllStaffForStores = async () => {
+      if (!stores || stores.length === 0) return;
+      const staffByStore: Record<string, Staff[]> = {};
+      for (const store of stores) {
+        try {
+          const response = await fetch(`/api/staff?storeId=${store.id}`);
+          if (response.ok) {
+            const staff = await response.json();
+            staffByStore[store.id] = staff;
+          }
+        } catch {
+          staffByStore[store.id] = [];
+        }
+      }
+      setAllStaffByStore(staffByStore);
+    };
+    fetchAllStaffForStores();
+  }, [stores]);
+
+  const activeStaffForStore = storeStaff.filter(s => !s.isArchived);
 
   const staffForm = useForm<InsertStaff>({
     resolver: zodResolver(staffFormSchema),
     defaultValues: {
-      storeId: currentStore?.id || "",
+      storeId: editingStoreId || "",
       name: "",
       staffNumber: "",
       countryCode: "NG",
@@ -117,11 +152,17 @@ export default function SettingsStoresPage() {
 
   const createStaffMutation = useMutation({
     mutationFn: async (data: InsertStaff): Promise<Staff> => {
-      const response = await apiRequest("POST", "/api/staff", { ...data, storeId: currentStore?.id });
+      if (!editingStoreId) {
+        throw new Error("Cannot create staff without a store");
+      }
+      const response = await apiRequest("POST", "/api/staff", { ...data, storeId: editingStoreId });
       return response as unknown as Staff;
     },
     onSuccess: async (newStaff: Staff) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/staff", editingStoreId] });
+      if (editingStoreId) {
+        await refreshStaffForStore(editingStoreId);
+      }
       setNewlyCreatedStaffId(newStaff.id);
       storeForm.setValue("managerStaffId", newStaff.id);
       toast({ title: "Staff member created successfully" });
@@ -146,6 +187,8 @@ export default function SettingsStoresPage() {
     }
     createStaffMutation.mutate(data);
   };
+  
+  const isEditingExistingStore = !!editingStore;
 
   const businessForm = useForm<BusinessFormValues>({
     resolver: zodResolver(businessFormSchema),
@@ -167,6 +210,7 @@ export default function SettingsStoresPage() {
       phoneCountryCode: "+234",
       country: "NG",
       currency: "NGN",
+      managerStaffId: null,
     },
   });
 
@@ -205,6 +249,7 @@ export default function SettingsStoresPage() {
         if (currentStore?.id === editingStore.id) {
           setCurrentStore(updated);
         }
+        await refreshStaffForStore(editingStore.id);
         toast({ title: "Store updated successfully" });
       } else {
         if (!business) {
@@ -254,6 +299,7 @@ export default function SettingsStoresPage() {
 
   const openEditStore = (store: StoreType) => {
     setEditingStore(store);
+    setNewlyCreatedStaffId(null);
     storeForm.reset({
       name: store.name,
       code: store.code,
@@ -262,12 +308,14 @@ export default function SettingsStoresPage() {
       phoneCountryCode: store.phoneCountryCode || "+234",
       country: store.country || "NG",
       currency: store.currency || "NGN",
+      managerStaffId: store.managerStaffId || null,
     });
     setIsStoreDialogOpen(true);
   };
 
   const openAddStore = () => {
     setEditingStore(null);
+    setNewlyCreatedStaffId(null);
     storeForm.reset({
       name: "",
       code: "",
@@ -276,8 +324,33 @@ export default function SettingsStoresPage() {
       phoneCountryCode: "+234",
       country: "NG",
       currency: "NGN",
+      managerStaffId: null,
     });
     setIsStoreDialogOpen(true);
+  };
+
+  const openAddStaffDialog = () => {
+    if (!editingStoreId) return;
+    staffForm.reset({
+      storeId: editingStoreId,
+      name: "",
+      staffNumber: "",
+      countryCode: "NG",
+      mobileNumber: "",
+      payPerMonth: 0,
+      signedContract: false,
+    });
+    setIsAddStaffDialogOpen(true);
+  };
+
+  const getManagerName = (managerId: string | null | undefined, storeId?: string) => {
+    if (!managerId) return null;
+    if (storeId && allStaffByStore[storeId]) {
+      const manager = allStaffByStore[storeId].find(s => s.id === managerId);
+      if (manager) return manager.name;
+    }
+    const manager = activeStaffForStore.find(s => s.id === managerId);
+    return manager?.name || null;
   };
 
   if (isLoading) {
@@ -433,6 +506,12 @@ export default function SettingsStoresPage() {
                       <Coins className="h-3 w-3 shrink-0" />
                       {getCurrencyByCode(store.currency || "NGN")?.symbol || "₦"} {store.currency || "NGN"}
                     </p>
+                    {store.managerStaffId && getManagerName(store.managerStaffId, store.id) && (
+                      <p className="flex items-center gap-2">
+                        <User className="h-3 w-3 shrink-0" />
+                        Manager: {getManagerName(store.managerStaffId, store.id)}
+                      </p>
+                    )}
                     {currentStore?.id === store.id && (
                       <p className="mt-2 text-xs text-primary font-medium">Currently Selected</p>
                     )}
@@ -669,12 +748,172 @@ export default function SettingsStoresPage() {
                   )}
                 />
               </div>
+              <FormField
+                control={storeForm.control}
+                name="managerStaffId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Store Manager (Optional)</FormLabel>
+                    {isEditingExistingStore ? (
+                      <div className="flex gap-2">
+                        <Select 
+                          onValueChange={(value) => field.onChange(value === "none" ? null : value)} 
+                          value={field.value || "none"}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="flex-1" data-testid="select-store-manager">
+                              <SelectValue placeholder="Select a manager" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">No manager assigned</SelectItem>
+                            {activeStaffForStore.map((staff) => (
+                              <SelectItem key={staff.id} value={staff.id}>
+                                {staff.name} ({staff.staffNumber})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={openAddStaffDialog}
+                          data-testid="button-add-staff-inline"
+                        >
+                          <UserPlus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-2">
+                        Save the store first, then edit it to assign a manager
+                      </p>
+                    )}
+                    <FormDescription>
+                      {isEditingExistingStore 
+                        ? "Assign a staff member as the manager for this store" 
+                        : "Manager assignment is available after the store is created"}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsStoreDialogOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="submit" data-testid="button-save-store">
                   {editingStore ? "Save Changes" : "Add Store"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAddStaffDialogOpen} onOpenChange={setIsAddStaffDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Staff Member</DialogTitle>
+            <DialogDescription>
+              Create a new staff member to assign as the store manager.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...staffForm}>
+            <form onSubmit={staffForm.handleSubmit(handleStaffSubmit)} className="space-y-4">
+              <FormField
+                control={staffForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="John Doe" data-testid="input-staff-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormItem>
+                <FormLabel>Mobile Number</FormLabel>
+                <div className="flex gap-2">
+                  <FormField
+                    control={staffForm.control}
+                    name="countryCode"
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || "NG"}>
+                        <SelectTrigger className="w-[120px]" data-testid="select-staff-country-code">
+                          <SelectValue placeholder="NG" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {countryCodes.map((cc) => (
+                            <SelectItem key={cc.code} value={cc.code}>
+                              {cc.dialCode} ({cc.code})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FormField
+                    control={staffForm.control}
+                    name="mobileNumber"
+                    render={({ field }) => (
+                      <FormControl>
+                        <Input {...field} placeholder="Phone number" className="flex-1" data-testid="input-staff-mobile" />
+                      </FormControl>
+                    )}
+                  />
+                </div>
+                {staffForm.formState.errors.mobileNumber && (
+                  <p className="text-sm text-destructive">{staffForm.formState.errors.mobileNumber.message}</p>
+                )}
+              </FormItem>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={staffForm.control}
+                  name="payPerMonth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Pay Per Month</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          {...field} 
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          placeholder="50000" 
+                          data-testid="input-staff-pay" 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={staffForm.control}
+                  name="signedContract"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col justify-end">
+                      <div className="flex items-center gap-2">
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="switch-staff-contract"
+                          />
+                        </FormControl>
+                        <FormLabel className="mb-0">Signed Contract</FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setIsAddStaffDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createStaffMutation.isPending} data-testid="button-save-staff">
+                  {createStaffMutation.isPending ? "Creating..." : "Create Staff"}
                 </Button>
               </DialogFooter>
             </form>

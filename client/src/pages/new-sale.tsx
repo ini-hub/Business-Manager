@@ -234,8 +234,8 @@ export default function NewSale() {
         description={`Create a new sales transaction for ${currentStore.name}`}
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="text-base font-medium flex items-center gap-2">
@@ -356,20 +356,20 @@ export default function NewSale() {
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <div className="flex items-center gap-1">
-                            <Label className="text-xs text-muted-foreground">Price:</Label>
+                            <Label className="text-xs text-muted-foreground whitespace-nowrap">Price:</Label>
                             <Input
                               type="number"
                               step="0.01"
                               min="0"
                               value={item.customPrice}
                               onChange={(e) => updateCustomPrice(item.inventory.id, parseFloat(e.target.value) || 0)}
-                              className="h-7 w-24 font-mono text-sm"
+                              className="h-7 w-20 font-mono text-sm"
                               data-testid={`input-price-${item.inventory.id}`}
                             />
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="outline"
                               size="icon"
@@ -379,7 +379,7 @@ export default function NewSale() {
                             >
                               <Minus className="h-3 w-3" />
                             </Button>
-                            <span className="w-8 text-center font-mono text-sm">
+                            <span className="w-6 text-center font-mono text-sm">
                               {item.quantity}
                             </span>
                             <Button
@@ -392,7 +392,7 @@ export default function NewSale() {
                               <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                          <span className="font-mono text-sm font-medium w-20 text-right">
+                          <span className="font-mono text-sm font-medium ml-auto">
                             {formatCurrency(item.totalPrice)}
                           </span>
                         </div>
