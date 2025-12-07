@@ -141,16 +141,6 @@ export async function registerRoutes(
     }
   });
 
-  // ========== CUSTOMER NUMBER GENERATION ==========
-  app.get("/api/stores/:storeId/generate-customer-number", async (req, res) => {
-    try {
-      const customerNumber = await storage.generateCustomerNumber(req.params.storeId);
-      res.json({ customerNumber });
-    } catch (error) {
-      res.status(500).json({ error: "We couldn't generate a customer number. Please try again." });
-    }
-  });
-
   // ========== CUSTOMERS ==========
   app.get("/api/customers", async (req, res) => {
     try {
@@ -284,14 +274,10 @@ export async function registerRoutes(
       for (let i = 0; i < data.length; i++) {
         try {
           const row = data[i];
-          let customerNumber = row.customerNumber;
-          if (!customerNumber) {
-            customerNumber = await storage.generateCustomerNumber(storeId);
-          }
           const parsed = insertCustomerSchema.parse({
             storeId,
             name: row.name,
-            customerNumber,
+            customerNumber: "",
             mobileNumber: row.mobileNumber,
             address: row.address,
           });

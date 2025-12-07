@@ -111,8 +111,8 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, isArchived: true }).extend({
   name: trimmedString(1, "Customer name is required"),
-  customerNumber: trimmedString(1, "Customer ID is required"),
-  countryCode: z.string().default("+234"),
+  customerNumber: z.string().optional().default(""),
+  countryCode: z.string().default("NG"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
   address: z.string().transform(s => s.trim()).default(""),
 });

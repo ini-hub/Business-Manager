@@ -48,9 +48,6 @@ export interface IStorage {
   deleteStore(id: string): Promise<boolean>;
   hasStoreData(id: string): Promise<boolean>;
 
-  // Customer ID Generation
-  generateCustomerNumber(storeId: string): Promise<string>;
-
   // Customers
   getCustomers(storeId: string, includeArchived?: boolean): Promise<Customer[]>;
   getCustomer(id: string): Promise<Customer | undefined>;
@@ -162,24 +159,37 @@ export class DatabaseStorage implements IStorage {
     return customerCount[0].count > 0 || staffCount[0].count > 0 || inventoryCount[0].count > 0;
   }
 
-  // Customer ID Generation
-  async generateCustomerNumber(storeId: string): Promise<string> {
+  // Customer ID Generation - finds next available number without gaps
+  private async getNextAvailableCustomerNumber(storeId: string): Promise<string> {
     const store = await this.getStore(storeId);
     if (!store) throw new Error("Store not found");
 
-    let [counter] = await db.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
+    // Get all existing customer numbers for this store
+    const existingCustomers = await db.select({ customerNumber: customers.customerNumber })
+      .from(customers)
+      .where(eq(customers.storeId, storeId));
     
-    if (!counter) {
-      [counter] = await db.insert(storeCounters).values({ storeId, nextCustomerNumber: 1 }).returning();
+    // Extract the numeric suffix from each customer number
+    const usedNumbers = new Set<number>();
+    const prefix = store.code;
+    
+    for (const c of existingCustomers) {
+      if (c.customerNumber.startsWith(prefix)) {
+        const numPart = c.customerNumber.slice(prefix.length);
+        const num = parseInt(numPart, 10);
+        if (!isNaN(num)) {
+          usedNumbers.add(num);
+        }
+      }
     }
-
-    const customerNumber = `${store.code}${counter.nextCustomerNumber.toString().padStart(3, '0')}`;
     
-    await db.update(storeCounters)
-      .set({ nextCustomerNumber: counter.nextCustomerNumber + 1 })
-      .where(eq(storeCounters.storeId, storeId));
-
-    return customerNumber;
+    // Find the smallest available number starting from 1
+    let nextNumber = 1;
+    while (usedNumbers.has(nextNumber)) {
+      nextNumber++;
+    }
+    
+    return `${prefix}${nextNumber.toString().padStart(3, '0')}`;
   }
 
   // Customers
@@ -198,7 +208,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
-    const [newCustomer] = await db.insert(customers).values(customer).returning();
+    // Generate customer number at save time to avoid gaps
+    const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
+    const [newCustomer] = await db.insert(customers).values({
+      ...customer,
+      customerNumber,
+    }).returning();
     return newCustomer;
   }
 

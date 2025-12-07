@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, MapPin, Hash, RefreshCw, AlertCircle, RotateCcw, Archive } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -47,6 +47,7 @@ import { Badge } from "@/components/ui/badge";
 
 const customerFormSchema = insertCustomerSchema.extend({
   mobileNumber: z.string().min(1, "Mobile number is required"),
+  customerNumber: z.string().optional().default(""),
 });
 
 export default function Customers() {
@@ -55,7 +56,6 @@ export default function Customers() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [generatedCustomerNumber, setGeneratedCustomerNumber] = useState("");
   const [activeTab, setActiveTab] = useState("active");
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
@@ -79,20 +79,6 @@ export default function Customers() {
   });
 
   const selectedCountryCode = form.watch("countryCode");
-
-  const fetchNewCustomerNumber = async () => {
-    if (!currentStore?.id) return;
-    try {
-      const res = await fetch(`/api/stores/${currentStore.id}/generate-customer-number`);
-      if (res.ok) {
-        const data = await res.json();
-        setGeneratedCustomerNumber(data.customerNumber);
-        form.setValue("customerNumber", data.customerNumber);
-      }
-    } catch (error) {
-      console.error("Failed to generate customer number:", error);
-    }
-  };
 
   const createMutation = useMutation({
     mutationFn: (data: InsertCustomer) => apiRequest("POST", "/api/customers", { ...data, storeId: currentStore?.id }),
@@ -178,7 +164,7 @@ export default function Customers() {
     },
   });
 
-  const openCreateForm = async () => {
+  const openCreateForm = () => {
     form.reset({
       storeId: currentStore?.id || "",
       name: "",
@@ -189,7 +175,6 @@ export default function Customers() {
     });
     setSelectedCustomer(null);
     setIsFormOpen(true);
-    await fetchNewCustomerNumber();
   };
 
   const openEditForm = (customer: Customer) => {
@@ -207,14 +192,12 @@ export default function Customers() {
       address: customer.address,
     });
     setSelectedCustomer(customer);
-    setGeneratedCustomerNumber("");
     setIsFormOpen(true);
   };
 
   const closeForm = () => {
     setIsFormOpen(false);
     setSelectedCustomer(null);
-    setGeneratedCustomerNumber("");
     form.reset();
   };
 
@@ -480,33 +463,20 @@ export default function Customers() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Customer ID</FormLabel>
-                      <div className="flex gap-2">
-                        <FormControl>
-                          <Input 
-                            placeholder={generatedCustomerNumber || "Auto-generated"} 
-                            {...field} 
-                            disabled={!!selectedCustomer}
-                            className={selectedCustomer ? "bg-muted cursor-not-allowed" : ""}
-                            data-testid="input-customer-number" 
-                          />
-                        </FormControl>
-                        {!selectedCustomer && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={fetchNewCustomerNumber}
-                            title="Generate new ID"
-                            data-testid="button-regenerate-id"
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+                      <FormControl>
+                        <Input 
+                          placeholder="Assigned on save" 
+                          {...field} 
+                          value={selectedCustomer ? field.value : ""}
+                          disabled
+                          className="bg-muted cursor-not-allowed"
+                          data-testid="input-customer-number" 
+                        />
+                      </FormControl>
                       <FormDescription>
                         {selectedCustomer 
-                          ? "Customer ID cannot be changed after creation."
-                          : "Auto-generated based on store code."}
+                          ? "Customer ID cannot be changed."
+                          : "Will be assigned automatically when saved."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
