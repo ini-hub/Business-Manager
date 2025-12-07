@@ -48,6 +48,7 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import type { Customer, Staff, Inventory } from "@shared/schema";
 
 interface CartItem {
@@ -97,10 +98,7 @@ export default function NewSale() {
   const storeCurrency = currentStore?.currency || "NGN";
   
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: storeCurrency,
-    }).format(value);
+    return formatCurrencyUtil(value, storeCurrency);
   };
 
   const addToCart = (item: Inventory) => {

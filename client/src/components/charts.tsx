@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 
 interface SalesTrendData {
   date: string;
@@ -32,6 +33,7 @@ interface RevenueByTypeData {
 
 interface ChartProps {
   storeId?: string;
+  storeCurrency?: string;
 }
 
 const COLORS = [
@@ -47,13 +49,8 @@ const TYPE_COLORS = {
   service: "hsl(var(--chart-2))",
 };
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+function createFormatCurrency(currencyCode: string = "NGN") {
+  return (value: number) => formatCurrencyUtil(value, currencyCode);
 }
 
 function formatShortDate(dateStr: string) {
@@ -64,7 +61,8 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart({ storeId }: ChartProps) {
+export function SalesTrendChart({ storeId, storeCurrency = "NGN" }: ChartProps) {
+  const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
     queryKey: ["/api/charts/sales-trends", storeId],
     enabled: !!storeId,
@@ -168,7 +166,8 @@ export function SalesTrendChart({ storeId }: ChartProps) {
   );
 }
 
-export function RevenueByItemChart({ storeId }: ChartProps) {
+export function RevenueByItemChart({ storeId, storeCurrency = "NGN" }: ChartProps) {
+  const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
     queryKey: ["/api/charts/revenue-by-type", storeId],
     enabled: !!storeId,
@@ -264,7 +263,8 @@ export function RevenueByItemChart({ storeId }: ChartProps) {
   );
 }
 
-export function RevenueBreakdownChart({ storeId }: ChartProps) {
+export function RevenueBreakdownChart({ storeId, storeCurrency = "NGN" }: ChartProps) {
+  const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
     queryKey: ["/api/charts/revenue-by-type", storeId],
     enabled: !!storeId,

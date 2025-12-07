@@ -8,11 +8,13 @@ import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { useStore } from "@/lib/store-context";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { Link } from "wouter";
 import type { ProfitLossWithInventory } from "@shared/schema";
 
 export default function ProfitLossPage() {
   const { currentStore } = useStore();
+  const storeCurrency = currentStore?.currency || "NGN";
 
   const { data: profitLossData = [], isLoading } = useQuery<ProfitLossWithInventory[]>({
     queryKey: ["/api/profit-loss", currentStore?.id],
@@ -20,10 +22,7 @@ export default function ProfitLossPage() {
   });
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
+    return formatCurrencyUtil(value, storeCurrency);
   };
 
   const totalRevenue = profitLossData.reduce((sum, pl) => sum + pl.totalRevenue, 0);

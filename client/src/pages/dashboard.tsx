@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
 import { useStore } from "@/lib/store-context";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 
 interface DashboardStats {
@@ -36,11 +37,9 @@ export default function Dashboard() {
     enabled: !!currentStore?.id,
   });
 
+  const storeCurrency = currentStore?.currency || "NGN";
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
+    return formatCurrencyUtil(value, storeCurrency);
   };
 
   if (!currentStore) {
@@ -123,11 +122,11 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <SalesTrendChart storeId={currentStore.id} />
-        <RevenueByItemChart storeId={currentStore.id} />
+        <SalesTrendChart storeId={currentStore.id} storeCurrency={storeCurrency} />
+        <RevenueByItemChart storeId={currentStore.id} storeCurrency={storeCurrency} />
       </div>
 
-      <RevenueBreakdownChart storeId={currentStore.id} />
+      <RevenueBreakdownChart storeId={currentStore.id} storeCurrency={storeCurrency} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
