@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
@@ -11,7 +11,20 @@ import {
   insertInventorySchema,
 } from "@shared/schema";
 import { z } from "zod";
-import { sanitizeString, sanitizeUUID } from "./sanitize";
+import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
+import { auditLogger } from "./audit";
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || "unknown";
+}
+
+function getUserId(req: Request): string | undefined {
+  return (req as any).user?.claims?.sub;
+}
 
 // Rate limiting configuration for security
 const apiLimiter = rateLimit({
@@ -58,9 +71,11 @@ export async function registerRoutes(
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
+      auditLogger.logAuthAttempt(userId, getClientIp(req), true);
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
+      auditLogger.logAuthAttempt(undefined, getClientIp(req), false);
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
@@ -222,10 +237,18 @@ export async function registerRoutes(
 
   app.post("/api/customers", async (req, res) => {
     try {
-      const data = insertCustomerSchema.parse(req.body);
+      const sanitizedBody = {
+        ...req.body,
+        name: sanitizeString(req.body.name),
+        mobileNumber: sanitizePhoneNumber(req.body.mobileNumber),
+        address: sanitizeString(req.body.address),
+      };
+      const data = insertCustomerSchema.parse(sanitizedBody);
       const customer = await storage.createCustomer(data);
+      auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE", true);
       res.status(201).json(customer);
     } catch (error) {
+      auditLogger.logDataModification("customer", undefined, getUserId(req), "CREATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -235,13 +258,21 @@ export async function registerRoutes(
 
   app.patch("/api/customers/:id", async (req, res) => {
     try {
-      const data = insertCustomerSchema.partial().parse(req.body);
+      const sanitizedBody = {
+        ...req.body,
+        name: req.body.name ? sanitizeString(req.body.name) : undefined,
+        mobileNumber: req.body.mobileNumber ? sanitizePhoneNumber(req.body.mobileNumber) : undefined,
+        address: req.body.address ? sanitizeString(req.body.address) : undefined,
+      };
+      const data = insertCustomerSchema.partial().parse(sanitizedBody);
       const customer = await storage.updateCustomer(req.params.id, data);
       if (!customer) {
         return res.status(404).json({ error: "This customer no longer exists. It may have been deleted." });
       }
+      auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", true);
       res.json(customer);
     } catch (error) {
+      auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -391,10 +422,19 @@ export async function registerRoutes(
 
   app.post("/api/staff", async (req, res) => {
     try {
-      const data = insertStaffSchema.parse(req.body);
+      const sanitizedBody = {
+        ...req.body,
+        name: sanitizeString(req.body.name),
+        mobileNumber: sanitizePhoneNumber(req.body.mobileNumber),
+        payPerMonth: sanitizeNumber(req.body.payPerMonth),
+        signedContract: sanitizeBoolean(req.body.signedContract),
+      };
+      const data = insertStaffSchema.parse(sanitizedBody);
       const staffMember = await storage.createStaff(data);
+      auditLogger.logDataModification("staff", staffMember.id, getUserId(req), "CREATE", true);
       res.status(201).json(staffMember);
     } catch (error) {
+      auditLogger.logDataModification("staff", undefined, getUserId(req), "CREATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -560,10 +600,20 @@ export async function registerRoutes(
 
   app.post("/api/inventory", async (req, res) => {
     try {
-      const data = insertInventorySchema.parse(req.body);
+      const sanitizedBody = {
+        ...req.body,
+        name: sanitizeString(req.body.name),
+        type: sanitizeString(req.body.type),
+        costPrice: sanitizeNumber(req.body.costPrice),
+        sellingPrice: sanitizeNumber(req.body.sellingPrice),
+        quantity: sanitizeNumber(req.body.quantity),
+      };
+      const data = insertInventorySchema.parse(sanitizedBody);
       const item = await storage.createInventoryItem(data);
+      auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
       res.status(201).json(item);
     } catch (error) {
+      auditLogger.logDataModification("inventory", undefined, getUserId(req), "CREATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -771,15 +821,18 @@ export async function registerRoutes(
       });
 
       if (!result.success) {
+        auditLogger.logDataModification("checkout", undefined, getUserId(req), "CHECKOUT", false, result.message);
         return res.status(400).json({ error: result.message });
       }
 
+      auditLogger.logDataModification("checkout", result.checkoutIds?.[0], getUserId(req), "CHECKOUT", true);
       res.status(201).json({ 
         success: true, 
         message: result.message,
         checkoutIds: result.checkoutIds 
       });
     } catch (error) {
+      auditLogger.logDataModification("checkout", undefined, getUserId(req), "CHECKOUT", false, (error as Error).message);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -864,7 +917,7 @@ export async function registerRoutes(
       const signature = req.headers["verif-hash"];
       
       if (!secretHash || signature !== secretHash) {
-        console.log("AUDIT: [SECURITY_EVENT] [flutterwave_webhook_invalid_signature]");
+        auditLogger.logSecurityEvent("flutterwave_webhook_invalid_signature", undefined, getClientIp(req), { signature });
         return res.status(401).json({ error: "Invalid signature" });
       }
 
@@ -873,7 +926,7 @@ export async function registerRoutes(
       if (event === "charge.completed" && data.status === "successful") {
         const txRef = data.tx_ref;
         const amount = data.amount;
-        console.log("AUDIT: [SUCCESS] [PAYMENT] [flutterwave] [tx_ref:", txRef, "] [amount:", amount, "]");
+        auditLogger.logPayment(txRef, data.customer?.email || "unknown", amount, "flutterwave", "success");
         
         // Update checkout payment status if tx_ref contains checkout IDs
         if (txRef && txRef.includes("-checkout-")) {
@@ -883,7 +936,7 @@ export async function registerRoutes(
           }
         }
       } else if (event === "charge.completed" && data.status === "failed") {
-        console.log("AUDIT: [FAILURE] [PAYMENT] [flutterwave] [tx_ref:", data.tx_ref, "]");
+        auditLogger.logPayment(data.tx_ref, data.customer?.email || "unknown", data.amount, "flutterwave", "failure", "Payment failed");
       }
       
       res.status(200).json({ received: true });
