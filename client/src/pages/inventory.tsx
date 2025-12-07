@@ -40,6 +40,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
+import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 
 type FilterType = "all" | "product" | "service" | "low-stock";
 
@@ -140,19 +141,24 @@ export default function InventoryPage() {
       setSelectedItem(null);
     },
     onError: (error: Error) => {
+      const errorMessage = error.message?.toLowerCase().includes("transaction") || 
+                          error.message?.toLowerCase().includes("order") ||
+                          error.message?.toLowerCase().includes("constraint")
+        ? "Inventory is connected to a transaction. Contact support if the problem persists."
+        : getUserFriendlyError(error);
       toast({ 
         title: "Couldn't Delete Item", 
-        description: getUserFriendlyError(error), 
+        description: errorMessage, 
         variant: "destructive" 
       });
     },
   });
 
+  const storeCurrency = currentStore?.currency || "NGN";
+  const currencyInfo = getCurrencyByCode(storeCurrency);
+  
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
+    return formatCurrencyUtil(value, storeCurrency);
   };
 
   const openCreateForm = () => {
@@ -461,7 +467,7 @@ export default function InventoryPage() {
                   name="costPrice"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Cost Price</FormLabel>
+                      <FormLabel>Cost Price ({currencyInfo?.symbol || "₦"})</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
@@ -481,7 +487,7 @@ export default function InventoryPage() {
                   name="sellingPrice"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Selling Price</FormLabel>
+                      <FormLabel>Selling Price ({currencyInfo?.symbol || "₦"})</FormLabel>
                       <FormControl>
                         <Input
                           type="number"

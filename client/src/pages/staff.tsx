@@ -43,6 +43,7 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
 import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
+import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { z } from "zod";
 
 const staffFormSchema = insertStaffSchema.extend({
@@ -163,11 +164,11 @@ export default function StaffPage() {
     },
   });
 
+  const storeCurrency = currentStore?.currency || "NGN";
+  const currencyInfo = getCurrencyByCode(storeCurrency);
+  
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(value);
+    return formatCurrencyUtil(value, storeCurrency);
   };
 
   const openCreateForm = () => {
@@ -545,7 +546,7 @@ export default function StaffPage() {
                 name="payPerMonth"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Monthly Pay</FormLabel>
+                    <FormLabel>Monthly Pay ({currencyInfo?.symbol || "₦"})</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
@@ -556,6 +557,9 @@ export default function StaffPage() {
                         data-testid="input-pay"
                       />
                     </FormControl>
+                    <FormDescription>
+                      Enter amount in {storeCurrency}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
