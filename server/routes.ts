@@ -864,14 +864,26 @@ export async function registerRoutes(
       const signature = req.headers["verif-hash"];
       
       if (!secretHash || signature !== secretHash) {
+        console.log("AUDIT: [SECURITY_EVENT] [flutterwave_webhook_invalid_signature]");
         return res.status(401).json({ error: "Invalid signature" });
       }
 
       const { event, data } = req.body;
       
       if (event === "charge.completed" && data.status === "successful") {
-        // Update checkout payment status based on tx_ref if needed
-        console.log("Payment successful:", data.tx_ref);
+        const txRef = data.tx_ref;
+        const amount = data.amount;
+        console.log("AUDIT: [SUCCESS] [PAYMENT] [flutterwave] [tx_ref:", txRef, "] [amount:", amount, "]");
+        
+        // Update checkout payment status if tx_ref contains checkout IDs
+        if (txRef && txRef.includes("-checkout-")) {
+          const checkoutId = txRef.split("-checkout-")[1]?.split("-")[0];
+          if (checkoutId) {
+            await storage.updateCheckoutPaymentStatus(checkoutId, "completed");
+          }
+        }
+      } else if (event === "charge.completed" && data.status === "failed") {
+        console.log("AUDIT: [FAILURE] [PAYMENT] [flutterwave] [tx_ref:", data.tx_ref, "]");
       }
       
       res.status(200).json({ received: true });

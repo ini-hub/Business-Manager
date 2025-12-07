@@ -110,6 +110,7 @@ export interface IStorage {
 
   // Checkouts
   createCheckout(checkout: InsertCheckout): Promise<Checkout>;
+  updateCheckoutPaymentStatus(id: string, status: "pending" | "completed" | "failed"): Promise<Checkout | undefined>;
 
   // Transactions
   getTransactions(storeId: string): Promise<TransactionWithRelations[]>;
@@ -560,6 +561,14 @@ export class DatabaseStorage implements IStorage {
   async createCheckout(checkout: InsertCheckout): Promise<Checkout> {
     const [newCheckout] = await db.insert(checkouts).values(checkout).returning();
     return newCheckout;
+  }
+
+  async updateCheckoutPaymentStatus(id: string, status: "pending" | "completed" | "failed"): Promise<Checkout | undefined> {
+    const [updated] = await db.update(checkouts)
+      .set({ paymentStatus: status })
+      .where(eq(checkouts.id, id))
+      .returning();
+    return updated;
   }
 
   // Transactions
