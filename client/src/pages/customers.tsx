@@ -47,7 +47,7 @@ import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 
 const customerFormSchema = insertCustomerSchema.extend({
-  mobileNumber: z.string().min(1, "Mobile number is required"),
+  mobileNumber: z.string().optional().default(""),
   customerNumber: z.string().optional().default(""),
 });
 
@@ -209,10 +209,13 @@ export default function Customers() {
 
   const onSubmit = (data: InsertCustomer) => {
     const countryCode = data.countryCode || "NG";
-    const validation = validatePhoneNumber(data.mobileNumber, countryCode);
-    if (!validation.valid) {
-      form.setError("mobileNumber", { message: validation.error });
-      return;
+    // Only validate phone if provided
+    if (data.mobileNumber && data.mobileNumber.trim()) {
+      const validation = validatePhoneNumber(data.mobileNumber, countryCode);
+      if (!validation.valid) {
+        form.setError("mobileNumber", { message: validation.error });
+        return;
+      }
     }
     
     if (selectedCustomer) {
@@ -245,8 +248,14 @@ export default function Customers() {
       header: "Mobile",
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
-          <Phone className="h-3 w-3 text-muted-foreground" />
-          <span>{formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}</span>
+          {customer.mobileNumber ? (
+            <>
+              <Phone className="h-3 w-3 text-muted-foreground" />
+              <span>{formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
         </div>
       ),
     },
@@ -320,8 +329,14 @@ export default function Customers() {
       header: "Mobile",
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
-          <Phone className="h-3 w-3 text-muted-foreground" />
-          <span>{formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}</span>
+          {customer.mobileNumber ? (
+            <>
+              <Phone className="h-3 w-3 text-muted-foreground" />
+              <span>{formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}</span>
+            </>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
         </div>
       ),
     },
@@ -493,7 +508,7 @@ export default function Customers() {
                   name="mobileNumber"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>Mobile Number</FormLabel>
+                      <FormLabel>Mobile Number (Optional)</FormLabel>
                       <FormControl>
                         <Input 
                           placeholder="8012345678" 

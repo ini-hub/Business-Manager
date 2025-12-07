@@ -97,8 +97,8 @@ export const customers = pgTable("customers", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
   customerNumber: text("customer_number").notNull(),
-  mobileNumber: text("mobile_number").notNull(),
-  countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
+  mobileNumber: text("mobile_number"), // Optional
+  countryCode: text("country_code").default("+234"), // Default to Nigeria
   address: text("address").notNull(),
   isArchived: boolean("is_archived").notNull().default(false),
 }, (table) => [
@@ -117,7 +117,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
   name: trimmedString(1, "Customer name is required"),
   customerNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
-  mobileNumber: trimmedString(1, "Mobile number is required"),
+  mobileNumber: z.string().transform(s => s.trim()).optional().default(""),
   address: z.string().transform(s => s.trim()).default(""),
 });
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
