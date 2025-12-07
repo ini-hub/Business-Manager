@@ -3,6 +3,14 @@ import { pgTable, text, varchar, boolean, integer, real, timestamp, unique } fro
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Helper for trimmed non-empty strings
+const trimmedString = (minLength = 1, message = "This field is required") =>
+  z.string().transform(s => s.trim()).pipe(z.string().min(minLength, message));
+
+// Helper for optional trimmed strings (empty becomes undefined)
+const optionalTrimmedString = () =>
+  z.string().optional().transform(s => s?.trim() || undefined);
+
 // Businesses table - top level organization
 export const businesses = pgTable("businesses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -17,7 +25,12 @@ export const businessesRelations = relations(businesses, ({ many }) => ({
   stores: many(stores),
 }));
 
-export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true });
+export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true }).extend({
+  name: trimmedString(1, "Business name is required"),
+  address: optionalTrimmedString(),
+  phone: optionalTrimmedString(),
+  email: optionalTrimmedString(),
+});
 export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
 export type Business = typeof businesses.$inferSelect;
 
@@ -47,7 +60,12 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   storeCounters: many(storeCounters),
 }));
 
-export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, createdAt: true });
+export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, createdAt: true }).extend({
+  name: trimmedString(1, "Store name is required"),
+  code: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1, "Store code is required")),
+  address: optionalTrimmedString(),
+  phone: optionalTrimmedString(),
+});
 export type InsertStore = z.infer<typeof insertStoreSchema>;
 export type Store = typeof stores.$inferSelect;
 
@@ -89,7 +107,12 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   transactions: many(transactions),
 }));
 
-export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true });
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true }).extend({
+  name: trimmedString(1, "Customer name is required"),
+  customerNumber: trimmedString(1, "Customer ID is required"),
+  mobileNumber: trimmedString(1, "Mobile number is required"),
+  address: z.string().transform(s => s.trim()).default(""),
+});
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
 
@@ -114,7 +137,11 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
   checkouts: many(checkouts),
 }));
 
-export const insertStaffSchema = createInsertSchema(staff).omit({ id: true });
+export const insertStaffSchema = createInsertSchema(staff).omit({ id: true }).extend({
+  name: trimmedString(1, "Staff name is required"),
+  staffNumber: trimmedString(1, "Staff number is required"),
+  mobileNumber: trimmedString(1, "Mobile number is required"),
+});
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 export type Staff = typeof staff.$inferSelect;
 
@@ -141,7 +168,10 @@ export const inventoryRelations = relations(inventory, ({ one, many }) => ({
   profitLoss: many(profitLoss),
 }));
 
-export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true });
+export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true }).extend({
+  name: trimmedString(1, "Item name is required"),
+  type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
+});
 export type InsertInventory = z.infer<typeof insertInventorySchema>;
 export type Inventory = typeof inventory.$inferSelect;
 
