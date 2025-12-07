@@ -664,6 +664,7 @@ export async function registerRoutes(
       z.object({
         inventoryId: z.string(),
         quantity: z.number().min(1),
+        customPrice: z.number().min(0).optional(),
       })
     ),
     paymentMethod: z.enum(["cash", "transfer", "flutterwave"]).default("cash"),
@@ -699,8 +700,9 @@ export async function registerRoutes(
           });
         }
 
-        // Calculate total price
-        const totalPrice = inventoryItem.sellingPrice * item.quantity;
+        // Calculate total price (use custom price if provided, otherwise use selling price)
+        const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
+        const totalPrice = unitPrice * item.quantity;
 
         // Create order
         const order = await storage.createOrder({
