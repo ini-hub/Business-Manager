@@ -17,6 +17,7 @@ export const businesses = pgTable("businesses", {
   name: text("name").notNull(),
   address: text("address"),
   phone: text("phone"),
+  phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
   email: text("email"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -29,6 +30,7 @@ export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: tr
   name: trimmedString(1, "Business name is required"),
   address: optionalTrimmedString(),
   phone: optionalTrimmedString(),
+  phoneCountryCode: z.string().default("+234"),
   email: optionalTrimmedString(),
 });
 export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
@@ -42,6 +44,7 @@ export const stores = pgTable("stores", {
   code: text("code").notNull(), // Prefix for customer IDs (e.g., "STORE", "NYC", "LA")
   address: text("address"),
   phone: text("phone"),
+  phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
   isActive: boolean("is_active").notNull().default(true),
@@ -67,6 +70,7 @@ export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, cre
   code: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1, "Store code is required")),
   address: optionalTrimmedString(),
   phone: optionalTrimmedString(),
+  phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
 });

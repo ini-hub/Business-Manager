@@ -38,11 +38,13 @@ import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins } f
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store as StoreType } from "@shared/schema";
 import { countries, currencies, getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
+import { countryCodes } from "@/lib/phone-utils";
 
 const businessFormSchema = z.object({
   name: z.string().min(1, "Business name is required").max(200, "Name is too long"),
   address: z.string().optional(),
   phone: z.string().optional(),
+  phoneCountryCode: z.string().default("+234"),
 });
 
 const storeFormSchema = z.object({
@@ -53,6 +55,7 @@ const storeFormSchema = z.object({
     .regex(/^[A-Z0-9]+$/, "Store code must be uppercase letters and numbers only"),
   address: z.string().optional(),
   phone: z.string().optional(),
+  phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
 });
@@ -86,6 +89,7 @@ export default function SettingsStoresPage() {
       name: business?.name || "",
       address: business?.address || "",
       phone: business?.phone || "",
+      phoneCountryCode: business?.phoneCountryCode || "+234",
     },
   });
 
@@ -96,6 +100,7 @@ export default function SettingsStoresPage() {
       code: "",
       address: "",
       phone: "",
+      phoneCountryCode: "+234",
       country: "NG",
       currency: "NGN",
     },
@@ -190,6 +195,7 @@ export default function SettingsStoresPage() {
       code: store.code,
       address: store.address || "",
       phone: store.phone || "",
+      phoneCountryCode: store.phoneCountryCode || "+234",
       country: store.country || "NG",
       currency: store.currency || "NGN",
     });
@@ -203,6 +209,7 @@ export default function SettingsStoresPage() {
       code: "",
       address: "",
       phone: "",
+      phoneCountryCode: "+234",
       country: "NG",
       currency: "NGN",
     });
@@ -242,6 +249,7 @@ export default function SettingsStoresPage() {
                 name: business?.name || "",
                 address: business?.address || "",
                 phone: business?.phone || "",
+                phoneCountryCode: business?.phoneCountryCode || "+234",
               });
               setIsBusinessDialogOpen(true);
             }}
@@ -264,7 +272,7 @@ export default function SettingsStoresPage() {
               {business.phone && (
                 <p className="flex items-center gap-2 text-muted-foreground">
                   <Phone className="h-4 w-4" />
-                  {business.phone}
+                  {business.phoneCountryCode || "+234"} {business.phone}
                 </p>
               )}
             </div>
@@ -350,7 +358,7 @@ export default function SettingsStoresPage() {
                     {store.phone && (
                       <p className="flex items-center gap-2">
                         <Phone className="h-3 w-3 shrink-0" />
-                        {store.phone}
+                        {store.phoneCountryCode || "+234"} {store.phone}
                       </p>
                     )}
                     <p className="flex items-center gap-2">
@@ -408,19 +416,38 @@ export default function SettingsStoresPage() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={businessForm.control}
-                name="phone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Phone (Optional)</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="+1 234 567 8900" data-testid="input-business-phone" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <FormItem>
+                <FormLabel>Phone (Optional)</FormLabel>
+                <div className="flex gap-2">
+                  <FormField
+                    control={businessForm.control}
+                    name="phoneCountryCode"
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || "+234"}>
+                        <SelectTrigger className="w-[120px]" data-testid="select-business-phone-country">
+                          <SelectValue placeholder="+234" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {countryCodes.map((cc) => (
+                            <SelectItem key={cc.dialCode} value={cc.dialCode}>
+                              {cc.dialCode} ({cc.name})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FormField
+                    control={businessForm.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormControl>
+                        <Input {...field} placeholder="Phone number" className="flex-1" data-testid="input-business-phone" />
+                      </FormControl>
+                    )}
+                  />
+                </div>
+              </FormItem>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setIsBusinessDialogOpen(false)}>
                   Cancel
@@ -493,19 +520,38 @@ export default function SettingsStoresPage() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={storeForm.control}
-                name="phone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Phone (Optional)</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="+1 234 567 8900" data-testid="input-store-phone" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <FormItem>
+                <FormLabel>Phone (Optional)</FormLabel>
+                <div className="flex gap-2">
+                  <FormField
+                    control={storeForm.control}
+                    name="phoneCountryCode"
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || "+234"}>
+                        <SelectTrigger className="w-[120px]" data-testid="select-store-phone-country">
+                          <SelectValue placeholder="+234" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {countryCodes.map((cc) => (
+                            <SelectItem key={cc.dialCode} value={cc.dialCode}>
+                              {cc.dialCode} ({cc.name})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FormField
+                    control={storeForm.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormControl>
+                        <Input {...field} placeholder="Phone number" className="flex-1" data-testid="input-store-phone" />
+                      </FormControl>
+                    )}
+                  />
+                </div>
+              </FormItem>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={storeForm.control}

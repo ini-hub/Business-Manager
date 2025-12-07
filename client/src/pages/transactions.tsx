@@ -46,7 +46,9 @@ export default function Transactions() {
     });
   }, [transactions, dateRange]);
 
-  const formatCurrency = (value: number, currency: string = "NGN") => {
+  const storeCurrency = currentStore?.currency || "NGN";
+  
+  const formatCurrency = (value: number, currency: string = storeCurrency) => {
     return new Intl.NumberFormat("en-NG", {
       style: "currency",
       currency: currency,
@@ -54,7 +56,6 @@ export default function Transactions() {
   };
 
   const formatDualCurrency = (value: number) => {
-    const storeCurrency = currentStore?.currency || "NGN";
     const primaryAmount = formatCurrency(value, storeCurrency);
     if (storeCurrency === "USD") {
       return primaryAmount;
@@ -140,7 +141,6 @@ export default function Transactions() {
       header: "Amount",
       render: (tx: TransactionWithRelations) => (
         <div className="flex items-center gap-2">
-          <DollarSign className="h-3 w-3 text-muted-foreground" />
           {formatDualCurrency(tx.checkout?.totalPrice ?? 0)}
         </div>
       ),
@@ -328,8 +328,7 @@ export default function Transactions() {
               <Separator />
 
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <DollarSign className="h-3 w-3" />
+                <p className="text-xs text-muted-foreground">
                   Total Amount
                 </p>
                 <div className="text-lg font-bold">
