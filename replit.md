@@ -75,7 +75,7 @@ The system supports multiple stores per business with store-scoped data:
 - **Stores** - Each store has unique code used for customer ID generation
 - **Store Context** - React Context (`useStore`) provides current store to all pages
 - **Store Selector** - UI component in sidebar for switching between stores
-- **Customer ID Generation** - Auto-incrementing format using store prefix (e.g., MAIN001)
+- **Customer ID Generation** - Gap-free auto-assignment at save time using store prefix (e.g., MAIN001, MAIN002). IDs are generated server-side to prevent gaps when forms are cancelled. The algorithm finds the smallest unused number in the sequence.
 - All data queries and mutations are scoped to the currently selected store
 
 **Schema Design**
