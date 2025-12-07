@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { PageHeader } from "@/components/page-header";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormControl,
@@ -34,11 +36,13 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins } from "lucide-react";
+import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins, User, UserPlus } from "lucide-react";
 import { getUserFriendlyError } from "@/lib/error-utils";
-import type { Store as StoreType } from "@shared/schema";
+import type { Store as StoreType, Staff, InsertStaff } from "@shared/schema";
+import { insertStaffSchema } from "@shared/schema";
 import { countries, currencies, getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
-import { countryCodes } from "@/lib/phone-utils";
+import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const businessFormSchema = z.object({
   name: z.string().min(1, "Business name is required").max(200, "Name is too long"),
@@ -58,6 +62,12 @@ const storeFormSchema = z.object({
   phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
+  managerStaffId: z.string().nullable().optional(),
+});
+
+const staffFormSchema = insertStaffSchema.extend({
+  mobileNumber: z.string().min(1, "Mobile number is required"),
+  staffNumber: z.string().optional().default(""),
 });
 
 type BusinessFormValues = z.infer<typeof businessFormSchema>;
@@ -80,8 +90,62 @@ export default function SettingsStoresPage() {
 
   const [isBusinessDialogOpen, setIsBusinessDialogOpen] = useState(false);
   const [isStoreDialogOpen, setIsStoreDialogOpen] = useState(false);
+  const [isAddStaffDialogOpen, setIsAddStaffDialogOpen] = useState(false);
   const [editingStore, setEditingStore] = useState<StoreType | null>(null);
   const [deletingStore, setDeletingStore] = useState<StoreType | null>(null);
+  const [newlyCreatedStaffId, setNewlyCreatedStaffId] = useState<string | null>(null);
+
+  const { data: allStaff = [] } = useQuery<Staff[]>({
+    queryKey: ["/api/staff", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const activeStaff = allStaff.filter(s => !s.isArchived);
+
+  const staffForm = useForm<InsertStaff>({
+    resolver: zodResolver(staffFormSchema),
+    defaultValues: {
+      storeId: currentStore?.id || "",
+      name: "",
+      staffNumber: "",
+      countryCode: "NG",
+      mobileNumber: "",
+      payPerMonth: 0,
+      signedContract: false,
+    },
+  });
+
+  const createStaffMutation = useMutation({
+    mutationFn: async (data: InsertStaff): Promise<Staff> => {
+      const response = await apiRequest("POST", "/api/staff", { ...data, storeId: currentStore?.id });
+      return response as unknown as Staff;
+    },
+    onSuccess: async (newStaff: Staff) => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+      setNewlyCreatedStaffId(newStaff.id);
+      storeForm.setValue("managerStaffId", newStaff.id);
+      toast({ title: "Staff member created successfully" });
+      setIsAddStaffDialogOpen(false);
+      staffForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Create Staff Member", 
+        description: getUserFriendlyError(error, "staff"), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const handleStaffSubmit = (data: InsertStaff) => {
+    const countryCode = data.countryCode || "NG";
+    const validation = validatePhoneNumber(data.mobileNumber, countryCode);
+    if (!validation.valid) {
+      staffForm.setError("mobileNumber", { message: validation.error });
+      return;
+    }
+    createStaffMutation.mutate(data);
+  };
 
   const businessForm = useForm<BusinessFormValues>({
     resolver: zodResolver(businessFormSchema),
