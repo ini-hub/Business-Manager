@@ -46,6 +46,9 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Apply rate limiting to all API routes
   app.use("/api/", apiLimiter);
+  
+  // Apply stricter rate limiting to auth endpoints
+  app.use("/api/auth", authLimiter);
 
   // Setup authentication
   await setupAuth(app);
