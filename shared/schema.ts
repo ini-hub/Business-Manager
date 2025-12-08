@@ -204,6 +204,68 @@ export const insertInventorySchema = createInsertSchema(inventory).omit({ id: tr
 export type InsertInventory = z.infer<typeof insertInventorySchema>;
 export type Inventory = typeof inventory.$inferSelect;
 
+// Cost strategy for restock events
+export const costStrategyEnum = ["keep", "last", "weighted", "override"] as const;
+export type CostStrategy = typeof costStrategyEnum[number];
+
+// Inventory Restock Events table - tracks all restock operations with audit trail
+export const inventoryRestockEvents = pgTable("inventory_restock_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  staffId: varchar("staff_id").references(() => staff.id), // Who performed the restock
+  userId: varchar("user_id").references(() => users.id), // Alternative: owner/manager without staff record
+  quantityAdded: integer("quantity_added").notNull(),
+  previousQuantity: integer("previous_quantity").notNull(),
+  newQuantity: integer("new_quantity").notNull(),
+  unitCost: real("unit_cost").notNull(), // Cost per unit for this restock
+  previousCostPrice: real("previous_cost_price").notNull(),
+  newCostPrice: real("new_cost_price").notNull(),
+  previousSellingPrice: real("previous_selling_price").notNull(),
+  newSellingPrice: real("new_selling_price").notNull(),
+  costStrategy: text("cost_strategy").notNull().default("keep"), // keep, last, weighted, override
+  notes: text("notes"), // Optional notes for this restock
+  restockedAt: timestamp("restocked_at").notNull().defaultNow(),
+});
+
+export const inventoryRestockEventsRelations = relations(inventoryRestockEvents, ({ one }) => ({
+  store: one(stores, {
+    fields: [inventoryRestockEvents.storeId],
+    references: [stores.id],
+  }),
+  inventory: one(inventory, {
+    fields: [inventoryRestockEvents.inventoryId],
+    references: [inventory.id],
+  }),
+  staff: one(staff, {
+    fields: [inventoryRestockEvents.staffId],
+    references: [staff.id],
+  }),
+  user: one(users, {
+    fields: [inventoryRestockEvents.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertRestockEventSchema = createInsertSchema(inventoryRestockEvents).omit({ 
+  id: true, 
+  restockedAt: true,
+  previousQuantity: true,
+  newQuantity: true,
+  previousCostPrice: true,
+  newCostPrice: true,
+  previousSellingPrice: true,
+  newSellingPrice: true,
+}).extend({
+  quantityAdded: z.number().min(1, "Quantity must be at least 1"),
+  unitCost: z.number().min(0, "Unit cost cannot be negative"),
+  costStrategy: z.enum(costStrategyEnum).default("keep"),
+  newSellingPrice: z.number().min(0, "Selling price cannot be negative").optional(),
+  notes: z.string().optional(),
+});
+export type InsertRestockEvent = z.infer<typeof insertRestockEventSchema>;
+export type RestockEvent = typeof inventoryRestockEvents.$inferSelect;
+
 // Orders table (line items in a sale)
 export const orders = pgTable("orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
