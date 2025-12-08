@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -55,13 +56,15 @@ const staffFormSchema = insertStaffSchema.extend({
 
 export default function StaffPage() {
   const { toast } = useToast();
-  const { currentStore } = useStore();
+  const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const userRole = user?.role || "staff";
   const isOwner = userRole === "owner";
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
+  const [transferTargetStoreId, setTransferTargetStoreId] = useState<string>("");
   const [activeTab, setActiveTab] = useState("active");
 
   const { data: staffList = [], isLoading } = useQuery<Staff[]>({
@@ -170,6 +173,28 @@ export default function StaffPage() {
       });
     },
   });
+
+  const transferMutation = useMutation({
+    mutationFn: ({ staffId, targetStoreId }: { staffId: string; targetStoreId: string }) => 
+      apiRequest("POST", `/api/staff/${staffId}/transfer`, { targetStoreId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Staff member transferred successfully" });
+      setIsTransferOpen(false);
+      setSelectedStaff(null);
+      setTransferTargetStoreId("");
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Transfer Staff Member", 
+        description: getUserFriendlyError(error), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const otherStores = stores.filter(s => s.id !== currentStore?.id);
 
   const storeCurrency = currentStore?.currency || "NGN";
   const currencyInfo = getCurrencyByCode(storeCurrency);
@@ -321,7 +346,7 @@ export default function StaffPage() {
         {
           key: "actions",
           header: "",
-          className: "w-24",
+          className: "w-32",
           render: (staff: Staff) => (
             <div className="flex items-center gap-1">
               <Button
@@ -332,9 +357,26 @@ export default function StaffPage() {
                   openEditForm(staff);
                 }}
                 data-testid={`button-edit-${staff.id}`}
+                title="Edit staff member"
               >
                 <Edit className="h-4 w-4" />
               </Button>
+              {otherStores.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedStaff(staff);
+                    setTransferTargetStoreId("");
+                    setIsTransferOpen(true);
+                  }}
+                  data-testid={`button-transfer-${staff.id}`}
+                  title="Transfer to another store"
+                >
+                  <ArrowRightLeft className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -344,6 +386,7 @@ export default function StaffPage() {
                   setIsDeleteOpen(true);
                 }}
                 data-testid={`button-archive-${staff.id}`}
+                title="Archive staff member"
               >
                 <Archive className="h-4 w-4" />
               </Button>
@@ -735,6 +778,56 @@ export default function StaffPage() {
         isDestructive
         isLoading={archiveMutation.isPending}
       />
+
+      <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer Staff Member</DialogTitle>
+            <DialogDescription>
+              Transfer "{selectedStaff?.name}" to another store. A new staff ID will be assigned.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Select Target Store</label>
+              <Select 
+                value={transferTargetStoreId} 
+                onValueChange={setTransferTargetStoreId}
+              >
+                <SelectTrigger data-testid="select-transfer-store">
+                  <SelectValue placeholder="Choose a store..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {otherStores.map((store) => (
+                    <SelectItem key={store.id} value={store.id}>
+                      {store.name} ({store.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsTransferOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedStaff && transferTargetStoreId) {
+                  transferMutation.mutate({ 
+                    staffId: selectedStaff.id, 
+                    targetStoreId: transferTargetStoreId 
+                  });
+                }
+              }}
+              disabled={!transferTargetStoreId || transferMutation.isPending}
+              data-testid="button-confirm-transfer"
+            >
+              {transferMutation.isPending ? "Transferring..." : "Transfer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

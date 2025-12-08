@@ -110,6 +110,7 @@ export interface IStorage {
   getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined>;
   createStaff(staffMember: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined>;
+  transferStaff(id: string, targetStoreId: string): Promise<Staff | undefined>;
   deleteStaff(id: string): Promise<boolean>;
   archiveStaff(id: string): Promise<Staff | undefined>;
   restoreStaff(id: string): Promise<Staff | undefined>;
@@ -573,6 +574,18 @@ export class DatabaseStorage implements IStorage {
       ? { ...staffData, email: staffData.email.toLowerCase() }
       : staffData;
     const [updated] = await db.update(staff).set(normalizedData).where(eq(staff.id, id)).returning();
+    return updated;
+  }
+
+  async transferStaff(id: string, targetStoreId: string): Promise<Staff | undefined> {
+    // Generate a new staff number for the target store
+    const newStaffNumber = await this.getNextAvailableStaffNumber(targetStoreId);
+    
+    // Update the staff member with the new store and staff number
+    const [updated] = await db.update(staff).set({ 
+      storeId: targetStoreId,
+      staffNumber: newStaffNumber
+    }).where(eq(staff.id, id)).returning();
     return updated;
   }
 

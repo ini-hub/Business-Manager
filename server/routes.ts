@@ -907,6 +907,53 @@ export async function registerRoutes(
     }
   });
 
+  // Transfer staff to another store
+  app.post("/api/staff/:id/transfer", async (req, res) => {
+    try {
+      const { targetStoreId } = req.body;
+      if (!targetStoreId) {
+        return res.status(400).json({ error: "Please select a store to transfer to." });
+      }
+      
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      // Get the source store's business
+      const sourceStore = await storage.getStore(staffMember.storeId);
+      if (!sourceStore) {
+        return res.status(404).json({ error: "Source store not found." });
+      }
+      
+      // Get the target store and verify it belongs to the same business
+      const targetStore = await storage.getStore(targetStoreId);
+      if (!targetStore) {
+        return res.status(404).json({ error: "Target store not found." });
+      }
+      
+      if (sourceStore.businessId !== targetStore.businessId) {
+        return res.status(403).json({ error: "Staff can only be transferred to stores within the same business." });
+      }
+      
+      if (staffMember.storeId === targetStoreId) {
+        return res.status(400).json({ error: "Staff member is already in this store." });
+      }
+      
+      // Use the storage method to transfer staff with auto-generated staff number
+      const updated = await storage.transferStaff(req.params.id, targetStoreId);
+      
+      if (!updated) {
+        return res.status(500).json({ error: "We couldn't transfer this staff member. Please try again." });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Staff transfer error:", error);
+      res.status(500).json({ error: "We couldn't transfer this staff member. Please try again." });
+    }
+  });
+
   // Permanently delete archived staff
   app.delete("/api/staff/:id/permanent", async (req, res) => {
     try {
