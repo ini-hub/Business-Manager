@@ -135,7 +135,8 @@ export default function SettingsStoresPage() {
     fetchAllStaffForStores();
   }, [stores]);
 
-  const activeStaffForStore = storeStaff.filter(s => !s.isArchived);
+  // Only show staff with manager role for the store manager dropdown
+  const activeStaffForStore = storeStaff.filter(s => !s.isArchived && s.role === "manager");
 
   const staffForm = useForm<InsertStaff>({
     resolver: zodResolver(staffFormSchema),
