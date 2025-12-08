@@ -171,8 +171,8 @@ export interface IStorage {
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 
   // Inventory Restock Events
-  getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null })[]>;
-  getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null }>>;
+  getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null; user: User | null })[]>;
+  getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null; user: User | null }>>;
   createRestockEvent(data: {
     storeId: string;
     inventoryId: string;
@@ -1067,23 +1067,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory Restock Events
-  async getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null })[]> {
+  async getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null; user: User | null })[]> {
     const events = await db.select({
       restockEvent: inventoryRestockEvents,
       staffMember: staff,
+      userRecord: users,
     })
       .from(inventoryRestockEvents)
       .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
+      .leftJoin(users, eq(inventoryRestockEvents.userId, users.id))
       .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
       .orderBy(desc(inventoryRestockEvents.restockedAt));
     
     return events.map(e => ({
       ...e.restockEvent,
       staff: e.staffMember,
+      user: e.userRecord,
     }));
   }
 
-  async getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null }>> {
+  async getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null; user: User | null }>> {
     const { page = 1, limit = 20 } = options;
     const offset = (page - 1) * limit;
 
@@ -1096,9 +1099,11 @@ export class DatabaseStorage implements IStorage {
     const events = await db.select({
       restockEvent: inventoryRestockEvents,
       staffMember: staff,
+      userRecord: users,
     })
       .from(inventoryRestockEvents)
       .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
+      .leftJoin(users, eq(inventoryRestockEvents.userId, users.id))
       .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
       .orderBy(desc(inventoryRestockEvents.restockedAt))
       .limit(limit)
@@ -1107,6 +1112,7 @@ export class DatabaseStorage implements IStorage {
     const data = events.map(e => ({
       ...e.restockEvent,
       staff: e.staffMember,
+      user: e.userRecord,
     }));
 
     return {

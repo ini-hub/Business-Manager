@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, User, Phone, MapPin, Hash, Calendar, Package, DollarSign, CreditCard, Receipt, AlertCircle } from "lucide-react";
+import { ArrowLeft, User, Phone, MapPin, Hash, Calendar, Package, Coins, CreditCard, Receipt, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -113,7 +113,7 @@ export default function CustomerDetails() {
       header: "Amount",
       render: (tx: TransactionWithRelations) => (
         <div className="flex items-center gap-2">
-          <DollarSign className="h-3 w-3 text-muted-foreground" />
+          <Coins className="h-3 w-3 text-muted-foreground" />
           {formatDualCurrency(tx.checkout?.totalPrice ?? 0)}
         </div>
       ),
@@ -201,7 +201,7 @@ export default function CustomerDetails() {
                 Phone
               </p>
               <p className="text-sm" data-testid="text-customer-phone">
-                {formatPhoneDisplay(customer.countryCode, customer.mobileNumber)}
+                {formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "")}
               </p>
             </div>
             {customer.address && (
@@ -233,7 +233,7 @@ export default function CustomerDetails() {
             <MetricCard
               title="Total Spent"
               value={formatCurrency(totalSpent, currentStore?.currency || "NGN")}
-              icon={<DollarSign className="h-4 w-4" />}
+              icon={<Coins className="h-4 w-4" />}
             />
           </div>
 

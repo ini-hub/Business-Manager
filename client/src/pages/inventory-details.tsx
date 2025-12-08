@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, Package, RefreshCw, Calendar, User, FileText, DollarSign, TrendingUp, Clock, Edit } from "lucide-react";
+import { ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock, Edit, Infinity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,12 +21,13 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
-import type { Inventory, RestockEvent, Staff } from "@shared/schema";
+import type { Inventory, RestockEvent, Staff, User as UserType } from "@shared/schema";
 
 const LOW_STOCK_THRESHOLD = 5;
 
 type RestockEventWithStaff = RestockEvent & {
   staff?: Staff | null;
+  user?: UserType | null;
 };
 
 export default function InventoryDetails() {
@@ -198,12 +199,15 @@ export default function InventoryDetails() {
     {
       key: "staff",
       header: "By",
-      render: (event: RestockEventWithStaff) => (
-        <div className="flex items-center gap-2">
-          <User className="h-3 w-3 text-muted-foreground" />
-          <span className="text-sm">{event.staff?.name || "System"}</span>
-        </div>
-      ),
+      render: (event: RestockEventWithStaff) => {
+        const displayName = event.staff?.name || event.user?.email?.split('@')[0] || "Unknown";
+        return (
+          <div className="flex items-center gap-2">
+            <User className="h-3 w-3 text-muted-foreground" />
+            <span className="text-sm">{displayName}</span>
+          </div>
+        );
+      },
     },
     {
       key: "notes",
@@ -257,8 +261,10 @@ export default function InventoryDetails() {
     );
   }
 
-  const profit = inventory.sellingPrice - inventory.costPrice;
-  const profitMargin = inventory.costPrice > 0 ? (profit / inventory.costPrice) * 100 : 0;
+  const costPrice = inventory.costPrice ?? 0;
+  const sellingPrice = inventory.sellingPrice ?? 0;
+  const profit = sellingPrice - costPrice;
+  const profitMargin = costPrice > 0 ? (profit / costPrice) * 100 : 0;
 
   return (
     <div className="space-y-6">
@@ -274,7 +280,7 @@ export default function InventoryDetails() {
               Restock
             </Button>
           )}
-          <Button variant="outline" onClick={() => setLocation("/inventory")} data-testid="button-edit">
+          <Button variant="outline" onClick={() => setLocation(`/inventory?edit=${inventoryId}`)} data-testid="button-edit">
             <Edit className="h-4 w-4 mr-2" />
             Edit
           </Button>
@@ -303,20 +309,20 @@ export default function InventoryDetails() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <DollarSign className="h-3 w-3" />
+                  <Coins className="h-3 w-3" />
                   Cost Price
                 </p>
                 <p className="font-mono font-medium text-lg" data-testid="text-cost-price">
-                  {formatCurrency(inventory.costPrice)}
+                  {formatCurrency(inventory.costPrice ?? 0)}
                 </p>
               </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <DollarSign className="h-3 w-3" />
+                  <Coins className="h-3 w-3" />
                   Selling Price
                 </p>
                 <p className="font-mono font-medium text-lg" data-testid="text-selling-price">
-                  {formatCurrency(inventory.sellingPrice)}
+                  {formatCurrency(inventory.sellingPrice ?? 0)}
                 </p>
               </div>
               <div className="space-y-1">
@@ -328,17 +334,21 @@ export default function InventoryDetails() {
                   {formatCurrency(profit)} ({profitMargin.toFixed(1)}%)
                 </p>
               </div>
-              {inventory.type === "product" && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Package className="h-3 w-3" />
-                    Current Stock
-                  </p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Package className="h-3 w-3" />
+                  Stock
+                </p>
+                {inventory.type === "product" ? (
                   <p className="font-mono font-medium text-lg" data-testid="text-quantity">
                     {inventory.quantity}
                   </p>
-                </div>
-              )}
+                ) : (
+                  <p className="font-medium text-lg flex items-center gap-1" data-testid="text-quantity">
+                    <Infinity className="h-4 w-4" /> Unlimited
+                  </p>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -353,13 +363,13 @@ export default function InventoryDetails() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">At Cost</p>
                   <p className="font-mono font-medium text-lg">
-                    {formatCurrency(inventory.costPrice * inventory.quantity)}
+                    {formatCurrency(costPrice * inventory.quantity)}
                   </p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">At Selling Price</p>
                   <p className="font-mono font-medium text-lg">
-                    {formatCurrency(inventory.sellingPrice * inventory.quantity)}
+                    {formatCurrency(sellingPrice * inventory.quantity)}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -370,7 +380,12 @@ export default function InventoryDetails() {
                 </div>
               </>
             ) : (
-              <p className="text-muted-foreground text-sm">N/A for services</p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Per Service</p>
+                <p className="font-mono font-medium text-lg text-green-600 dark:text-green-400">
+                  {formatCurrency(profit)} profit
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>

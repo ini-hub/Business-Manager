@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Store, Users, Package, DollarSign, BarChart3, Shield } from "lucide-react";
+import { Store, Users, Package, Coins, BarChart3, Shield } from "lucide-react";
 
 export default function Landing() {
   return (
@@ -72,7 +72,7 @@ export default function Landing() {
 
           <Card>
             <CardHeader>
-              <DollarSign className="h-8 w-8 mb-2 text-primary" />
+              <Coins className="h-8 w-8 mb-2 text-primary" />
               <CardTitle>Sales & Transactions</CardTitle>
               <CardDescription>
                 Process sales with multiple payment methods and negotiable pricing

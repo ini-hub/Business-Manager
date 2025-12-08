@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, DollarSign, CreditCard, Hash, AlertCircle, X } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, Hash, AlertCircle, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -207,7 +207,7 @@ export default function Transactions() {
         <MetricCard
           title="Total Revenue"
           value={formatCurrency(totalAmount)}
-          icon={<DollarSign className="h-4 w-4" />}
+          icon={<Coins className="h-4 w-4" />}
           isLoading={isLoading}
         />
         <MetricCard
@@ -215,7 +215,7 @@ export default function Transactions() {
           value={formatCurrency(
             filteredTransactions.length > 0 ? totalAmount / filteredTransactions.length : 0
           )}
-          icon={<DollarSign className="h-4 w-4" />}
+          icon={<Coins className="h-4 w-4" />}
           isLoading={isLoading}
         />
       </div>

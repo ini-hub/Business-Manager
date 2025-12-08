@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Users, UserCog, Package, Receipt, TrendingUp, DollarSign, ShoppingCart, AlertTriangle, AlertCircle } from "lucide-react";
+import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, AlertCircle } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,7 +106,7 @@ export default function Dashboard() {
         <MetricCard
           title="Total Revenue"
           value={formatCurrency(stats?.totalRevenue ?? 0)}
-          icon={<DollarSign className="h-4 w-4" />}
+          icon={<Coins className="h-4 w-4" />}
           trend="up"
           trendValue="All time"
           isLoading={isLoading}

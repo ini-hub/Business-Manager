@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, DollarSign, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity } from "lucide-react";
 import { z } from "zod";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -313,11 +313,15 @@ export default function InventoryPage() {
       header: "Stock",
       render: (item: Inventory) => (
         <div className="flex items-center gap-2">
-          {item.type === "product" && (
+          {item.type === "product" ? (
             <>
               <Boxes className="h-3 w-3 text-muted-foreground" />
               <span className="font-mono">{item.quantity}</span>
             </>
+          ) : (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Infinity className="h-3 w-3" /> Unlimited
+            </span>
           )}
           {getStockBadge(item)}
         </div>

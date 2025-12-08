@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, DollarSign, Package, Wrench, ShoppingBag, BarChart3, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -197,7 +197,7 @@ export default function ProfitLossPage() {
         <MetricCard
           title="Total Revenue"
           value={formatCurrency(totalRevenue)}
-          icon={<DollarSign className="h-4 w-4" />}
+          icon={<Coins className="h-4 w-4" />}
           isLoading={isLoading}
         />
         <MetricCard
