@@ -1116,6 +1116,83 @@ export async function registerRoutes(
     }
   });
 
+  // ========== INVENTORY RESTOCK ==========
+  app.get("/api/inventory/:id/restock-history", async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 0;
+      
+      if (page > 0 && limit > 0) {
+        const result = await storage.getRestockEventsPaginated(req.params.id, { page, limit });
+        return res.json(result);
+      }
+      
+      const events = await storage.getRestockEvents(req.params.id);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't load restock history. Please try again." });
+    }
+  });
+
+  app.post("/api/inventory/:id/restock", requireAuth, async (req, res) => {
+    try {
+      const inventoryId = req.params.id;
+      const item = await storage.getInventoryItem(inventoryId);
+      if (!item) {
+        return res.status(404).json({ error: "Inventory item not found." });
+      }
+
+      if (item.type !== "product") {
+        return res.status(400).json({ error: "Only products can be restocked. Services don't have inventory quantities." });
+      }
+
+      const { quantityAdded, unitCost, costStrategy, newSellingPrice, notes, staffId } = req.body;
+      
+      if (!quantityAdded || quantityAdded < 1) {
+        return res.status(400).json({ error: "Please enter a valid quantity (at least 1)." });
+      }
+      if (unitCost === undefined || unitCost < 0) {
+        return res.status(400).json({ error: "Please enter a valid unit cost." });
+      }
+      if (!["keep", "last", "weighted", "override"].includes(costStrategy)) {
+        return res.status(400).json({ error: "Invalid cost strategy selected." });
+      }
+
+      const result = await storage.createRestockEvent({
+        storeId: item.storeId,
+        inventoryId,
+        staffId: staffId || null,
+        userId: req.user?.id || null,
+        quantityAdded: Number(quantityAdded),
+        unitCost: Number(unitCost),
+        costStrategy,
+        newSellingPrice: newSellingPrice !== undefined ? Number(newSellingPrice) : undefined,
+        notes: notes || undefined,
+      });
+
+      logAudit({
+        action: 'inventory_restock',
+        resourceType: 'inventory',
+        resourceId: inventoryId,
+        userId: req.user?.id || 'system',
+        details: {
+          quantityAdded,
+          unitCost,
+          costStrategy,
+          previousQuantity: result.restockEvent.previousQuantity,
+          newQuantity: result.restockEvent.newQuantity,
+          previousCostPrice: result.restockEvent.previousCostPrice,
+          newCostPrice: result.restockEvent.newCostPrice,
+        },
+      });
+
+      res.status(201).json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "We couldn't complete the restock. Please try again.";
+      res.status(500).json({ error: message });
+    }
+  });
+
   // ========== TRANSACTIONS ==========
   app.get("/api/transactions", async (req, res) => {
     try {
