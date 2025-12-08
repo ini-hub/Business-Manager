@@ -171,8 +171,8 @@ export interface IStorage {
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 
   // Inventory Restock Events
-  getRestockEvents(inventoryId: string): Promise<RestockEvent[]>;
-  getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent>>;
+  getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null })[]>;
+  getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null }>>;
   createRestockEvent(data: {
     storeId: string;
     inventoryId: string;
@@ -1067,14 +1067,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory Restock Events
-  async getRestockEvents(inventoryId: string): Promise<RestockEvent[]> {
-    return db.select()
+  async getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null })[]> {
+    const events = await db.select({
+      restockEvent: inventoryRestockEvents,
+      staffMember: staff,
+    })
       .from(inventoryRestockEvents)
+      .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
       .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
       .orderBy(desc(inventoryRestockEvents.restockedAt));
+    
+    return events.map(e => ({
+      ...e.restockEvent,
+      staff: e.staffMember,
+    }));
   }
 
-  async getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent>> {
+  async getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null }>> {
     const { page = 1, limit = 20 } = options;
     const offset = (page - 1) * limit;
 
@@ -1084,12 +1093,21 @@ export class DatabaseStorage implements IStorage {
 
     const total = totalResult?.count ?? 0;
 
-    const data = await db.select()
+    const events = await db.select({
+      restockEvent: inventoryRestockEvents,
+      staffMember: staff,
+    })
       .from(inventoryRestockEvents)
+      .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
       .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
       .orderBy(desc(inventoryRestockEvents.restockedAt))
       .limit(limit)
       .offset(offset);
+
+    const data = events.map(e => ({
+      ...e.restockEvent,
+      staff: e.staffMember,
+    }));
 
     return {
       data,

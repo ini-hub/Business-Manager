@@ -43,7 +43,7 @@ import { insertInventorySchema, type Inventory, type InsertInventory } from "@sh
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 
 type FilterType = "all" | "product" | "service" | "low-stock";
@@ -53,6 +53,7 @@ const LOW_STOCK_THRESHOLD = 5;
 export default function InventoryPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
+  const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
@@ -240,6 +241,10 @@ export default function InventoryPage() {
     setIsFormOpen(false);
     setSelectedItem(null);
     form.reset();
+  };
+
+  const navigateToDetails = (item: Inventory) => {
+    setLocation(`/inventory/${item.id}`);
   };
 
   const onSubmit = (data: InsertInventory) => {
@@ -483,6 +488,7 @@ export default function InventoryPage() {
         searchKeys={["name"]}
         isLoading={isLoading}
         emptyMessage="No items found. Add your first item to get started."
+        onRowClick={navigateToDetails}
       />
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
