@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, getSession } from "./replitAuth";
 import rateLimit from "express-rate-limit";
@@ -85,9 +86,10 @@ export async function registerRoutes(
   app.post("/api/auth/signup", async (req: Request, res: Response) => {
     try {
       const data = signupSchema.parse(req.body);
+      const normalizedEmail = data.email.toLowerCase();
       
       // Check if email already exists
-      const existingUser = await storage.getUserByEmail(data.email);
+      const existingUser = await storage.getUserByEmail(normalizedEmail);
       if (existingUser) {
         return res.status(400).json({ error: "This email address is already registered as a business owner. Please use a different email or login to your existing account." });
       }
@@ -101,12 +103,12 @@ export async function registerRoutes(
         address: data.address || "",
         phone: data.phone || "",
         phoneCountryCode: data.phoneCountryCode,
-        email: data.email,
+        email: normalizedEmail,
       });
       
       // Create user with business association
       const user = await storage.createUser({
-        email: data.email,
+        email: normalizedEmail,
         password: hashedPassword,
         businessId: business.id,
         role: "owner",
@@ -124,10 +126,10 @@ export async function registerRoutes(
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "signup");
       
       // Return masked email for OTP screen
-      const maskedEmail = data.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+      const maskedEmail = normalizedEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3");
       res.status(201).json({ 
         message: "Account created. Please verify your email.",
-        email: data.email,
+        email: normalizedEmail,
         maskedEmail,
         userId: user.id,
       });
@@ -288,15 +290,57 @@ export async function registerRoutes(
     }
   });
   
-  // Forgot Password - Request password reset
+  // Forgot Password - Request password reset (also handles staff first-time login)
   app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
     try {
       const data = forgotPasswordSchema.parse(req.body);
+      const normalizedEmail = data.email.toLowerCase(); // Normalize email at start
       
-      const user = await storage.getUserByEmail(data.email);
+      let user = await storage.getUserByEmail(normalizedEmail);
+      
+      // If no user found, check if email belongs to a staff member
+      if (!user) {
+        const staffMember = await storage.getStaffByEmail(normalizedEmail);
+        
+        if (staffMember) {
+          // Check if staff already has a linked user account
+          if (staffMember.userId) {
+            // Get the existing user account
+            user = await storage.getUser(staffMember.userId);
+          }
+          
+          // If still no user, double-check by email (in case userId link was lost)
+          if (!user) {
+            user = await storage.getUserByEmail(normalizedEmail);
+          }
+          
+          // If still no user, create one for the staff member
+          if (!user) {
+            const placeholderPassword = await bcrypt.hash(crypto.randomUUID(), SALT_ROUNDS);
+            
+            // Get the business ID from the store
+            const store = staffMember.store;
+            
+            // Create a new user account for the staff member
+            user = await storage.createUser({
+              email: normalizedEmail,
+              password: placeholderPassword,
+              businessId: store.businessId,
+              role: staffMember.role as "manager" | "staff",
+              isVerified: true, // Staff accounts are pre-verified by owner
+            });
+          }
+          
+          // Link the staff record to the user account if not already linked
+          if (!staffMember.userId && user) {
+            await storage.updateStaff(staffMember.id, { userId: user.id });
+          }
+        }
+      }
+      
       if (!user) {
         // Don't reveal if email exists for security
-        const maskedEmail = data.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+        const maskedEmail = normalizedEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3");
         return res.json({ 
           message: `If an account exists, an OTP has been sent to ${maskedEmail}`,
           maskedEmail,
@@ -313,7 +357,7 @@ export async function registerRoutes(
         expiresAt,
       });
       
-      const maskedEmail = data.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+      const maskedEmail = normalizedEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3");
       res.json({ 
         message: `OTP has been sent to ${maskedEmail}`,
         maskedEmail,
@@ -784,9 +828,11 @@ export async function registerRoutes(
       const sanitizedBody = {
         ...req.body,
         name: sanitizeString(req.body.name),
+        email: sanitizeString(req.body.email)?.toLowerCase(),
         mobileNumber: sanitizePhoneNumber(req.body.mobileNumber),
         payPerMonth: sanitizeNumber(req.body.payPerMonth),
         signedContract: sanitizeBoolean(req.body.signedContract),
+        role: req.body.role || "staff",
       };
       const data = insertStaffSchema.parse(sanitizedBody);
       const staffMember = await storage.createStaff(data);
@@ -803,7 +849,15 @@ export async function registerRoutes(
 
   app.patch("/api/staff/:id", async (req, res) => {
     try {
-      const data = insertStaffSchema.partial().parse(req.body);
+      const sanitizedBody = {
+        ...req.body,
+        ...(req.body.name && { name: sanitizeString(req.body.name) }),
+        ...(req.body.email && { email: sanitizeString(req.body.email)?.toLowerCase() }),
+        ...(req.body.mobileNumber && { mobileNumber: sanitizePhoneNumber(req.body.mobileNumber) }),
+        ...(req.body.payPerMonth !== undefined && { payPerMonth: sanitizeNumber(req.body.payPerMonth) }),
+        ...(req.body.signedContract !== undefined && { signedContract: sanitizeBoolean(req.body.signedContract) }),
+      };
+      const data = insertStaffSchema.partial().parse(sanitizedBody);
       const staffMember = await storage.updateStaff(req.params.id, data);
       if (!staffMember) {
         return res.status(404).json({ error: "This staff member no longer exists. They may have been removed." });

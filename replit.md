@@ -164,9 +164,24 @@ Core entities with UUID primary keys and storeId foreign key:
 ### Security Features
 
 **Authentication**
-- Replit Auth integration with OIDC flow
+- Dual authentication support: Replit Auth (OIDC) and Custom Email/Password
 - PostgreSQL session storage via `connect-pg-simple`
 - Secure cookie configuration with httpOnly flags
+- Password requirements: 8+ chars, uppercase, lowercase, number, special character, no spaces
+- OTP verification for signup and password reset (default: 123456 for development)
+
+**Staff Login Flow**
+- Staff members are created by Owner/Manager with email addresses
+- Staff use "Forgot Password" flow for initial login (no password set initially)
+- System auto-creates user account when staff requests password reset
+- Staff accounts are pre-verified by owner, no email verification needed
+- All emails are normalized to lowercase for consistent lookups
+- Staff role (manager/staff) is transferred to the user account for RBAC
+
+**Role-Based Access Control (RBAC)**
+- Owner: Full access to all features and settings
+- Manager: Management features + Sales + Reports (no business settings)
+- Staff: Sales features only (checkout, transactions)
 
 **Rate Limiting**
 - General API limiter: 100 requests per 15 minutes per IP

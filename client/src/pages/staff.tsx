@@ -37,7 +37,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
+import { insertStaffSchema, type Staff, type InsertStaff, staffRoleEnum } from "@shared/schema";
+import { Mail, Shield } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -72,11 +73,13 @@ export default function StaffPage() {
     defaultValues: {
       storeId: currentStore?.id || "",
       name: "",
+      email: "",
       staffNumber: "",
       countryCode: "NG",
       mobileNumber: "",
       payPerMonth: 0,
       signedContract: false,
+      role: "staff",
     },
   });
 
@@ -175,11 +178,13 @@ export default function StaffPage() {
     form.reset({
       storeId: currentStore?.id || "",
       name: "",
+      email: "",
       staffNumber: "",
       countryCode: "NG",
       mobileNumber: "",
       payPerMonth: 0,
       signedContract: false,
+      role: "staff",
     });
     setSelectedStaff(null);
     setIsFormOpen(true);
@@ -194,11 +199,13 @@ export default function StaffPage() {
     form.reset({
       storeId: staff.storeId,
       name: staff.name,
+      email: staff.email || "",
       staffNumber: staff.staffNumber,
       countryCode,
       mobileNumber: staff.mobileNumber,
       payPerMonth: staff.payPerMonth,
       signedContract: staff.signedContract,
+      role: (staff.role as "manager" | "staff") || "staff",
     });
     setSelectedStaff(staff);
     setIsFormOpen(true);
@@ -241,6 +248,26 @@ export default function StaffPage() {
       header: "Name",
       render: (staff: Staff) => (
         <span className="font-medium">{staff.name}</span>
+      ),
+    },
+    {
+      key: "email",
+      header: "Email",
+      render: (staff: Staff) => (
+        <div className="flex items-center gap-2">
+          <Mail className="h-3 w-3 text-muted-foreground" />
+          <span className="text-sm">{staff.email || "-"}</span>
+        </div>
+      ),
+    },
+    {
+      key: "role",
+      header: "Role",
+      render: (staff: Staff) => (
+        <Badge variant={staff.role === "manager" ? "default" : "secondary"} className="gap-1 capitalize">
+          <Shield className="h-3 w-3" />
+          {staff.role || "Staff"}
+        </Badge>
       ),
     },
     {
@@ -413,6 +440,8 @@ export default function StaffPage() {
               data={activeStaff as unknown as Record<string, unknown>[]}
               columns={[
                 { key: "name", header: "Name" },
+                { key: "email", header: "Email" },
+                { key: "role", header: "Role" },
                 { key: "staffNumber", header: "Staff Number" },
                 { key: "mobileNumber", header: "Mobile Number" },
                 { key: "payPerMonth", header: "Pay Per Month" },
@@ -444,7 +473,7 @@ export default function StaffPage() {
             columns={activeColumns}
             searchable
             searchPlaceholder="Search active staff..."
-            searchKeys={["name", "staffNumber", "mobileNumber"]}
+            searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
             isLoading={isLoading}
             emptyMessage="No active staff members found. Add your first staff member to get started."
           />
@@ -455,7 +484,7 @@ export default function StaffPage() {
             columns={archivedColumns}
             searchable
             searchPlaceholder="Search archived staff..."
-            searchKeys={["name", "staffNumber", "mobileNumber"]}
+            searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
             isLoading={isLoading}
             emptyMessage="No archived staff members. Deleted staff will appear here."
           />
@@ -485,6 +514,51 @@ export default function StaffPage() {
                     <FormControl>
                       <Input placeholder="Jane Smith" {...field} data-testid="input-name" />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="email" 
+                        placeholder="jane@example.com" 
+                        {...field} 
+                        data-testid="input-email" 
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Required for staff login. Staff will use "Forgot Password" to set up their account.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Role</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "staff"}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-role">
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="staff">Staff</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Managers can access store management and reports. Staff can only access sales.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

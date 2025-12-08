@@ -64,7 +64,7 @@ export interface IStorage {
   // Users & Auth
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(userData: { email: string; password: string; businessId: string; role?: UserRole }): Promise<User>;
+  createUser(userData: { email: string; password: string; businessId: string; role?: UserRole; isVerified?: boolean }): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
@@ -104,8 +104,9 @@ export interface IStorage {
   getStaffList(storeId: string, includeArchived?: boolean): Promise<Staff[]>;
   getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>>;
   getStaff(id: string): Promise<Staff | undefined>;
+  getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined>;
   createStaff(staffMember: InsertStaff): Promise<Staff>;
-  updateStaff(id: string, staffMember: Partial<InsertStaff>): Promise<Staff | undefined>;
+  updateStaff(id: string, staffMember: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined>;
   deleteStaff(id: string): Promise<boolean>;
   archiveStaff(id: string): Promise<Staff | undefined>;
   restoreStaff(id: string): Promise<Staff | undefined>;
@@ -175,17 +176,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
     return user;
   }
 
-  async createUser(userData: { email: string; password: string; businessId: string; role?: UserRole }): Promise<User> {
+  async createUser(userData: { email: string; password: string; businessId: string; role?: UserRole; isVerified?: boolean }): Promise<User> {
     const [user] = await db.insert(users).values({
       email: userData.email,
       password: userData.password,
       businessId: userData.businessId,
       role: userData.role || "owner",
-      isVerified: false,
+      isVerified: userData.isVerified ?? false,
     }).returning();
     return user;
   }
@@ -522,18 +523,38 @@ export class DatabaseStorage implements IStorage {
     return staffMember;
   }
 
+  async getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined> {
+    const [result] = await db
+      .select()
+      .from(staff)
+      .innerJoin(stores, eq(staff.storeId, stores.id))
+      .where(and(eq(staff.email, email.toLowerCase()), eq(staff.isArchived, false)));
+    
+    if (!result) return undefined;
+    
+    return {
+      ...result.staff,
+      store: result.stores,
+    };
+  }
+
   async createStaff(staffMember: InsertStaff): Promise<Staff> {
     // Generate staff number at save time to avoid gaps
     const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
     const [newStaff] = await db.insert(staff).values({
       ...staffMember,
+      email: staffMember.email.toLowerCase(), // Normalize email to lowercase
       staffNumber,
     }).returning();
     return newStaff;
   }
 
-  async updateStaff(id: string, staffData: Partial<InsertStaff>): Promise<Staff | undefined> {
-    const [updated] = await db.update(staff).set(staffData).where(eq(staff.id, id)).returning();
+  async updateStaff(id: string, staffData: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined> {
+    // Normalize email if provided
+    const normalizedData = staffData.email 
+      ? { ...staffData, email: staffData.email.toLowerCase() }
+      : staffData;
+    const [updated] = await db.update(staff).set(normalizedData).where(eq(staff.id, id)).returning();
     return updated;
   }
 

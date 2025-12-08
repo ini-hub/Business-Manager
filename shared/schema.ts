@@ -129,23 +129,26 @@ export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
 
 // Staff roles
-export const staffRoleEnum = ["manager", "regular"] as const;
+export const staffRoleEnum = ["manager", "staff"] as const;
 export type StaffRole = typeof staffRoleEnum[number];
 
 // Staff table
 export const staff = pgTable("staff", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
+  userId: varchar("user_id").references(() => users.id), // Link to user account for login
   name: text("name").notNull(),
+  email: text("email").notNull(), // Required for login
   staffNumber: text("staff_number").notNull(),
   mobileNumber: text("mobile_number").notNull(),
   countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
   payPerMonth: real("pay_per_month").notNull(),
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
-  role: text("role").notNull().default("regular"), // manager or regular
+  role: text("role").notNull().default("staff"), // manager or staff
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
+  unique("staff_email_unique").on(table.storeId, table.email),
 ]);
 
 export const staffRelations = relations(staff, ({ one, many }) => ({
@@ -153,14 +156,20 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
     fields: [staff.storeId],
     references: [stores.id],
   }),
+  user: one(users, {
+    fields: [staff.userId],
+    references: [users.id],
+  }),
   checkouts: many(checkouts),
 }));
 
-export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isArchived: true }).extend({
+export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isArchived: true, userId: true }).extend({
   name: trimmedString(1, "Staff name is required"),
+  email: z.string().email("Valid email is required"),
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
+  role: z.enum(staffRoleEnum).default("staff"),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 export type Staff = typeof staff.$inferSelect;

@@ -25,7 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 
-type UserRole = "owner" | "admin" | "manager" | "staff";
+type UserRole = "owner" | "manager" | "staff";
 
 interface MenuItem {
   title: string;
@@ -39,25 +39,25 @@ const managementItems: MenuItem[] = [
     title: "Dashboard",
     url: "/",
     icon: LayoutDashboard,
-    allowedRoles: ["owner", "admin", "manager", "staff"],
+    allowedRoles: ["owner", "manager", "staff"],
   },
   {
     title: "Customers",
     url: "/customers",
     icon: Users,
-    allowedRoles: ["owner", "admin", "manager", "staff"],
+    allowedRoles: ["owner", "manager", "staff"],
   },
   {
     title: "Staff",
     url: "/staff",
     icon: UserCog,
-    allowedRoles: ["owner", "admin", "manager"],
+    allowedRoles: ["owner", "manager"],
   },
   {
     title: "Inventory",
     url: "/inventory",
     icon: Package,
-    allowedRoles: ["owner", "admin", "manager"],
+    allowedRoles: ["owner", "manager"],
   },
 ];
 
@@ -66,13 +66,13 @@ const salesItems: MenuItem[] = [
     title: "New Sale",
     url: "/sales/new",
     icon: ShoppingCart,
-    allowedRoles: ["owner", "admin", "manager", "staff"],
+    allowedRoles: ["owner", "manager", "staff"],
   },
   {
     title: "Transactions",
     url: "/transactions",
     icon: Receipt,
-    allowedRoles: ["owner", "admin", "manager", "staff"],
+    allowedRoles: ["owner", "manager", "staff"],
   },
 ];
 
@@ -81,7 +81,7 @@ const reportsItems: MenuItem[] = [
     title: "Profit & Loss",
     url: "/profit-loss",
     icon: TrendingUp,
-    allowedRoles: ["owner", "admin", "manager"],
+    allowedRoles: ["owner", "manager"],
   },
 ];
 
@@ -90,7 +90,7 @@ const settingsItems: MenuItem[] = [
     title: "Business & Stores",
     url: "/settings/stores",
     icon: Settings,
-    allowedRoles: ["owner", "admin"],
+    allowedRoles: ["owner"],
   },
 ];
 
