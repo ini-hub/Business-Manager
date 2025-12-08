@@ -11,6 +11,7 @@ import {
   profitLoss,
   users,
   otpCodes,
+  inventoryRestockEvents,
   type Business,
   type InsertBusiness,
   type Store,
@@ -37,6 +38,8 @@ import {
   type OtpCode,
   type InsertOtpCode,
   type UserRole,
+  type RestockEvent,
+  type CostStrategy,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, like, or, ilike } from "drizzle-orm";
@@ -166,6 +169,21 @@ export interface IStorage {
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave";
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
+
+  // Inventory Restock Events
+  getRestockEvents(inventoryId: string): Promise<RestockEvent[]>;
+  getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent>>;
+  createRestockEvent(data: {
+    storeId: string;
+    inventoryId: string;
+    staffId?: string | null;
+    userId?: string | null;
+    quantityAdded: number;
+    unitCost: number;
+    costStrategy: CostStrategy;
+    newSellingPrice?: number;
+    notes?: string;
+  }): Promise<{ restockEvent: RestockEvent; updatedInventory: Inventory }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1046,6 +1064,131 @@ export class DatabaseStorage implements IStorage {
       const message = error instanceof Error ? error.message : "We couldn't complete this sale right now. Please try again.";
       return { success: false, message };
     }
+  }
+
+  // Inventory Restock Events
+  async getRestockEvents(inventoryId: string): Promise<RestockEvent[]> {
+    return db.select()
+      .from(inventoryRestockEvents)
+      .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
+      .orderBy(desc(inventoryRestockEvents.restockedAt));
+  }
+
+  async getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent>> {
+    const { page = 1, limit = 20 } = options;
+    const offset = (page - 1) * limit;
+
+    const [totalResult] = await db.select({ count: count() })
+      .from(inventoryRestockEvents)
+      .where(eq(inventoryRestockEvents.inventoryId, inventoryId));
+
+    const total = totalResult?.count ?? 0;
+
+    const data = await db.select()
+      .from(inventoryRestockEvents)
+      .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
+      .orderBy(desc(inventoryRestockEvents.restockedAt))
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      },
+    };
+  }
+
+  async createRestockEvent(data: {
+    storeId: string;
+    inventoryId: string;
+    staffId?: string | null;
+    userId?: string | null;
+    quantityAdded: number;
+    unitCost: number;
+    costStrategy: CostStrategy;
+    newSellingPrice?: number;
+    notes?: string;
+  }): Promise<{ restockEvent: RestockEvent; updatedInventory: Inventory }> {
+    const [currentInventory] = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId));
+    
+    if (!currentInventory) {
+      throw new Error("Inventory item not found");
+    }
+
+    const previousQuantity = currentInventory.quantity;
+    const newQuantity = previousQuantity + data.quantityAdded;
+    const previousCostPrice = currentInventory.costPrice;
+    const previousSellingPrice = currentInventory.sellingPrice;
+
+    let newCostPrice = previousCostPrice;
+    
+    switch (data.costStrategy) {
+      case "keep":
+        newCostPrice = previousCostPrice;
+        break;
+      case "last":
+        newCostPrice = data.unitCost;
+        break;
+      case "weighted":
+        const totalOldValue = previousQuantity * previousCostPrice;
+        const totalNewValue = data.quantityAdded * data.unitCost;
+        newCostPrice = newQuantity > 0 ? (totalOldValue + totalNewValue) / newQuantity : data.unitCost;
+        break;
+      case "override":
+        newCostPrice = data.unitCost;
+        break;
+    }
+
+    const newSellingPrice = data.newSellingPrice ?? previousSellingPrice;
+
+    const result = await db.transaction(async (tx) => {
+      const [updatedInventory] = await tx.update(inventory)
+        .set({
+          quantity: newQuantity,
+          costPrice: newCostPrice,
+          sellingPrice: newSellingPrice,
+        })
+        .where(eq(inventory.id, data.inventoryId))
+        .returning();
+
+      const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
+        storeId: data.storeId,
+        inventoryId: data.inventoryId,
+        staffId: data.staffId,
+        userId: data.userId,
+        quantityAdded: data.quantityAdded,
+        previousQuantity,
+        newQuantity,
+        unitCost: data.unitCost,
+        previousCostPrice,
+        newCostPrice,
+        previousSellingPrice,
+        newSellingPrice,
+        costStrategy: data.costStrategy,
+        notes: data.notes,
+      }).returning();
+
+      const [existingPL] = await tx.select().from(profitLoss)
+        .where(and(
+          eq(profitLoss.inventoryId, data.inventoryId),
+          eq(profitLoss.storeId, data.storeId)
+        ));
+
+      if (existingPL) {
+        await tx.update(profitLoss)
+          .set({ quantityRemaining: newQuantity })
+          .where(eq(profitLoss.id, existingPL.id));
+      }
+
+      return { restockEvent, updatedInventory };
+    });
+
+    return result;
   }
 }
 
