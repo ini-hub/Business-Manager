@@ -201,7 +201,7 @@ export default function CustomerDetails() {
                 Phone
               </p>
               <p className="text-sm" data-testid="text-customer-phone">
-                {formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "")}
+                {formatPhoneDisplay(customer.mobileNumber || "", customer.countryCode || "")}
               </p>
             </div>
             {customer.address && (
