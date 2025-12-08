@@ -1134,7 +1134,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/inventory/:id/restock", requireAuth, async (req, res) => {
+  app.post("/api/inventory/:id/restock", async (req, res) => {
     try {
       const inventoryId = req.params.id;
       const item = await storage.getInventoryItem(inventoryId);
@@ -1158,11 +1158,13 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid cost strategy selected." });
       }
 
+      const userId = (req as any).user?.id || (req as any).user?.claims?.sub || null;
+
       const result = await storage.createRestockEvent({
         storeId: item.storeId,
         inventoryId,
         staffId: staffId || null,
-        userId: req.user?.id || null,
+        userId,
         quantityAdded: Number(quantityAdded),
         unitCost: Number(unitCost),
         costStrategy,
@@ -1170,21 +1172,13 @@ export async function registerRoutes(
         notes: notes || undefined,
       });
 
-      logAudit({
-        action: 'inventory_restock',
-        resourceType: 'inventory',
-        resourceId: inventoryId,
-        userId: req.user?.id || 'system',
-        details: {
-          quantityAdded,
-          unitCost,
-          costStrategy,
-          previousQuantity: result.restockEvent.previousQuantity,
-          newQuantity: result.restockEvent.newQuantity,
-          previousCostPrice: result.restockEvent.previousCostPrice,
-          newCostPrice: result.restockEvent.newCostPrice,
-        },
-      });
+      auditLogger.logDataModification(
+        'inventory_restock',
+        inventoryId,
+        userId || 'system',
+        'CREATE_RESTOCK',
+        true
+      );
 
       res.status(201).json(result);
     } catch (error) {

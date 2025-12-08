@@ -50,12 +50,6 @@ type FilterType = "all" | "product" | "service" | "low-stock";
 
 const LOW_STOCK_THRESHOLD = 5;
 
-const restockSchema = z.object({
-  quantity: z.number().min(1, "Quantity must be at least 1"),
-  newCostPrice: z.number().min(0).optional(),
-  priceMethod: z.enum(["keep", "weighted", "new"]).default("keep"),
-});
-
 export default function InventoryPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
@@ -66,8 +60,11 @@ export default function InventoryPage() {
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [restockData, setRestockData] = useState({
     quantity: 1,
-    newCostPrice: 0,
-    priceMethod: "keep" as "keep" | "weighted" | "new",
+    unitCost: 0,
+    costStrategy: "keep" as "keep" | "last" | "weighted" | "override",
+    newSellingPrice: undefined as number | undefined,
+    updateSellingPrice: false,
+    notes: "",
   });
 
   const { data: inventoryList = [], isLoading } = useQuery<Inventory[]>({
@@ -174,21 +171,12 @@ export default function InventoryPage() {
     mutationFn: async () => {
       if (!selectedItem) return;
       
-      let newCostPrice = selectedItem.costPrice;
-      const currentQty = selectedItem.quantity;
-      const addQty = restockData.quantity;
-      
-      if (restockData.priceMethod === "new" && restockData.newCostPrice !== undefined) {
-        newCostPrice = restockData.newCostPrice;
-      } else if (restockData.priceMethod === "weighted" && restockData.newCostPrice !== undefined && currentQty > 0) {
-        const totalValue = (currentQty * selectedItem.costPrice) + (addQty * restockData.newCostPrice);
-        const totalQty = currentQty + addQty;
-        newCostPrice = totalValue / totalQty;
-      }
-      
-      return apiRequest("PATCH", `/api/inventory/${selectedItem.id}`, {
-        quantity: currentQty + addQty,
-        costPrice: newCostPrice,
+      return apiRequest("POST", `/api/inventory/${selectedItem.id}/restock`, {
+        quantityAdded: restockData.quantity,
+        unitCost: restockData.unitCost || selectedItem.costPrice,
+        costStrategy: restockData.costStrategy,
+        newSellingPrice: restockData.updateSellingPrice ? restockData.newSellingPrice : undefined,
+        notes: restockData.notes || undefined,
       });
     },
     onSuccess: () => {
@@ -197,7 +185,14 @@ export default function InventoryPage() {
       toast({ title: "Stock updated successfully" });
       setIsRestockOpen(false);
       setSelectedItem(null);
-      setRestockData({ quantity: 1, newCostPrice: 0, priceMethod: "keep" });
+      setRestockData({ 
+        quantity: 1, 
+        unitCost: 0, 
+        costStrategy: "keep", 
+        newSellingPrice: undefined,
+        updateSellingPrice: false,
+        notes: "",
+      });
     },
     onError: (error: Error) => {
       toast({ 
@@ -232,7 +227,7 @@ export default function InventoryPage() {
     form.reset({
       storeId: item.storeId,
       name: item.name,
-      type: item.type,
+      type: item.type as "product" | "service",
       costPrice: item.costPrice,
       sellingPrice: item.sellingPrice,
       quantity: item.quantity,
@@ -350,8 +345,11 @@ export default function InventoryPage() {
                 setSelectedItem(item);
                 setRestockData({ 
                   quantity: 1, 
-                  newCostPrice: item.costPrice, 
-                  priceMethod: "keep" 
+                  unitCost: item.costPrice, 
+                  costStrategy: "keep",
+                  newSellingPrice: item.sellingPrice,
+                  updateSellingPrice: false,
+                  notes: "",
                 });
                 setIsRestockOpen(true);
               }}
@@ -647,61 +645,105 @@ export default function InventoryPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Cost Price Method</Label>
+              <Label htmlFor="unit-cost">Unit Cost for This Restock ({currencyInfo?.symbol || "₦"})</Label>
+              <Input
+                id="unit-cost"
+                type="number"
+                step="0.01"
+                min="0"
+                value={restockData.unitCost}
+                onChange={(e) => setRestockData(prev => ({ 
+                  ...prev, 
+                  unitCost: parseFloat(e.target.value) || 0 
+                }))}
+                data-testid="input-unit-cost"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>How to Update Item Cost Price</Label>
               <RadioGroup
-                value={restockData.priceMethod}
+                value={restockData.costStrategy}
                 onValueChange={(value) => setRestockData(prev => ({ 
                   ...prev, 
-                  priceMethod: value as "keep" | "weighted" | "new" 
+                  costStrategy: value as "keep" | "last" | "weighted" | "override" 
                 }))}
                 className="space-y-2"
               >
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="keep" id="keep" />
                   <Label htmlFor="keep" className="font-normal">
-                    Keep existing cost price ({formatCurrency(selectedItem?.costPrice ?? 0)})
+                    Keep existing cost ({formatCurrency(selectedItem?.costPrice ?? 0)})
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="last" id="last" />
+                  <Label htmlFor="last" className="font-normal">
+                    Use this restock's unit cost ({formatCurrency(restockData.unitCost)})
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="weighted" id="weighted" />
                   <Label htmlFor="weighted" className="font-normal">
-                    Weighted average (blend old and new cost)
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="new" id="new" />
-                  <Label htmlFor="new" className="font-normal">
-                    Use new cost price only
+                    Weighted average
                   </Label>
                 </div>
               </RadioGroup>
+              {restockData.costStrategy === "weighted" && selectedItem && restockData.unitCost > 0 && (
+                <p className="text-xs text-muted-foreground ml-6">
+                  New cost: {formatCurrency(
+                    ((selectedItem.quantity * selectedItem.costPrice) + (restockData.quantity * restockData.unitCost)) / 
+                    (selectedItem.quantity + restockData.quantity)
+                  )}
+                </p>
+              )}
             </div>
 
-            {restockData.priceMethod !== "keep" && (
-              <div className="space-y-2">
-                <Label htmlFor="new-cost">New Cost Price ({currencyInfo?.symbol || "₦"})</Label>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="update-selling-price"
+                  checked={restockData.updateSellingPrice}
+                  onChange={(e) => setRestockData(prev => ({ 
+                    ...prev, 
+                    updateSellingPrice: e.target.checked 
+                  }))}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <Label htmlFor="update-selling-price" className="font-normal">
+                  Update selling price
+                </Label>
+              </div>
+              {restockData.updateSellingPrice && (
                 <Input
-                  id="new-cost"
                   type="number"
                   step="0.01"
                   min="0"
-                  value={restockData.newCostPrice}
+                  placeholder={`Current: ${formatCurrency(selectedItem?.sellingPrice ?? 0)}`}
+                  value={restockData.newSellingPrice ?? ""}
                   onChange={(e) => setRestockData(prev => ({ 
                     ...prev, 
-                    newCostPrice: parseFloat(e.target.value) || 0 
+                    newSellingPrice: parseFloat(e.target.value) || undefined 
                   }))}
-                  data-testid="input-restock-cost"
+                  data-testid="input-new-selling-price"
                 />
-                {restockData.priceMethod === "weighted" && selectedItem && restockData.newCostPrice > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Weighted avg: {formatCurrency(
-                      ((selectedItem.quantity * selectedItem.costPrice) + (restockData.quantity * restockData.newCostPrice)) / 
-                      (selectedItem.quantity + restockData.quantity)
-                    )}
-                  </p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="restock-notes">Notes (optional)</Label>
+              <Input
+                id="restock-notes"
+                placeholder="e.g., Supplier batch #123"
+                value={restockData.notes}
+                onChange={(e) => setRestockData(prev => ({ 
+                  ...prev, 
+                  notes: e.target.value 
+                }))}
+                data-testid="input-restock-notes"
+              />
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsRestockOpen(false)}>
