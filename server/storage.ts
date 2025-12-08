@@ -578,6 +578,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async transferStaff(id: string, targetStoreId: string): Promise<Staff | undefined> {
+    // Get the staff member to check their current store
+    const staffMember = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
+    if (!staffMember.length) return undefined;
+    
+    const sourceStoreId = staffMember[0].storeId;
+    
+    // Check if this staff is the manager of the source store
+    const sourceStore = await db.select().from(stores).where(eq(stores.id, sourceStoreId)).limit(1);
+    
     // Generate a new staff number for the target store
     const newStaffNumber = await this.getNextAvailableStaffNumber(targetStoreId);
     
@@ -586,6 +595,12 @@ export class DatabaseStorage implements IStorage {
       storeId: targetStoreId,
       staffNumber: newStaffNumber
     }).where(eq(staff.id, id)).returning();
+    
+    // If this staff was the source store's manager, clear the manager reference
+    if (sourceStore.length && sourceStore[0].managerStaffId === id) {
+      await db.update(stores).set({ managerStaffId: null }).where(eq(stores.id, sourceStoreId));
+    }
+    
     return updated;
   }
 
