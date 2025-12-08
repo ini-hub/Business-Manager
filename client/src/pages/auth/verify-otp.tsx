@@ -115,14 +115,14 @@ export default function VerifyOtp() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <Link href="/auth/login">
-            <Button variant="ghost" size="sm" className="absolute left-4 top-4" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </Link>
+      <Card className="w-full max-w-md relative">
+        <Link href="/auth/login" className="absolute left-4 top-4">
+          <Button variant="ghost" size="sm" data-testid="button-back">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </Link>
+        <CardHeader className="text-center pt-12">
           <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
             <Mail className="h-6 w-6 text-primary" />
           </div>

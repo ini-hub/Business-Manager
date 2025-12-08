@@ -47,6 +47,7 @@ function getPasswordRequirements(password: string): PasswordRequirement[] {
     { label: "At least 8 characters", met: password.length >= 8 },
     { label: "One uppercase letter", met: /[A-Z]/.test(password) },
     { label: "One lowercase letter", met: /[a-z]/.test(password) },
+    { label: "One number", met: /[0-9]/.test(password) },
     { label: "One special character (!@#$%^&*)", met: /[!@#$%^&*(),.?":{}|<>]/.test(password) },
     { label: "No spaces", met: password.length > 0 && !/\s/.test(password) },
   ];
@@ -101,14 +102,14 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <Link href="/">
-            <Button variant="ghost" size="sm" className="absolute left-4 top-4" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </Link>
+      <Card className="w-full max-w-md relative">
+        <Link href="/" className="absolute left-4 top-4">
+          <Button variant="ghost" size="sm" data-testid="button-back">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </Link>
+        <CardHeader className="text-center pt-12">
           <CardTitle className="text-2xl">Create Your Account</CardTitle>
           <CardDescription>
             Start managing your business today

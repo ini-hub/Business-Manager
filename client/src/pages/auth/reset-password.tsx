@@ -42,6 +42,7 @@ function getPasswordRequirements(password: string): PasswordRequirement[] {
     { label: "At least 8 characters", met: password.length >= 8 },
     { label: "One uppercase letter", met: /[A-Z]/.test(password) },
     { label: "One lowercase letter", met: /[a-z]/.test(password) },
+    { label: "One number", met: /[0-9]/.test(password) },
     { label: "One special character (!@#$%^&*)", met: /[!@#$%^&*(),.?":{}|<>]/.test(password) },
     { label: "No spaces", met: password.length > 0 && !/\s/.test(password) },
   ];
@@ -143,14 +144,14 @@ export default function ResetPassword() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <Link href="/auth/forgot-password">
-            <Button variant="ghost" size="sm" className="absolute left-4 top-4" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </Link>
+      <Card className="w-full max-w-md relative">
+        <Link href="/auth/forgot-password" className="absolute left-4 top-4">
+          <Button variant="ghost" size="sm" data-testid="button-back">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+        </Link>
+        <CardHeader className="text-center pt-12">
           <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
             <KeyRound className="h-6 w-6 text-primary" />
           </div>
