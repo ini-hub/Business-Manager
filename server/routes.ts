@@ -89,7 +89,7 @@ export async function registerRoutes(
       // Check if email already exists
       const existingUser = await storage.getUserByEmail(data.email);
       if (existingUser) {
-        return res.status(400).json({ error: "An account with this email already exists." });
+        return res.status(400).json({ error: "This email address is already registered as a business owner. Please use a different email or login to your existing account." });
       }
       
       // Hash password

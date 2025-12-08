@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Hash, DollarSign, FileCheck, FileX, AlertCircle, RotateCcw, Archive } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -257,10 +257,7 @@ export default function StaffPage() {
       key: "payPerMonth",
       header: "Monthly Pay",
       render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <DollarSign className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
-        </div>
+        <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
       ),
     },
     {
@@ -351,10 +348,7 @@ export default function StaffPage() {
       key: "payPerMonth",
       header: "Monthly Pay",
       render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <DollarSign className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
-        </div>
+        <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
       ),
     },
     {
