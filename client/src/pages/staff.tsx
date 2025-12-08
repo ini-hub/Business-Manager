@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -55,6 +56,9 @@ const staffFormSchema = insertStaffSchema.extend({
 export default function StaffPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
+  const { user } = useAuth();
+  const userRole = user?.role || "staff";
+  const isOwner = userRole === "owner";
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
@@ -232,113 +236,148 @@ export default function StaffPage() {
     }
   };
 
-  const activeColumns = [
-    {
-      key: "staffNumber",
-      header: "Staff ID",
-      render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <Hash className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-sm">{staff.staffNumber}</span>
-        </div>
-      ),
-    },
-    {
-      key: "name",
-      header: "Name",
-      render: (staff: Staff) => (
-        <span className="font-medium">{staff.name}</span>
-      ),
-    },
-    {
-      key: "email",
-      header: "Email",
-      render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <Mail className="h-3 w-3 text-muted-foreground" />
-          <span className="text-sm">{staff.email || "-"}</span>
-        </div>
-      ),
-    },
-    {
-      key: "role",
-      header: "Role",
-      render: (staff: Staff) => (
-        <Badge variant={staff.role === "manager" ? "default" : "secondary"} className="gap-1 capitalize">
-          <Shield className="h-3 w-3" />
-          {staff.role || "Staff"}
-        </Badge>
-      ),
-    },
-    {
-      key: "mobileNumber",
-      header: "Mobile",
-      render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <Phone className="h-3 w-3 text-muted-foreground" />
-          <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
-        </div>
-      ),
-    },
-    {
-      key: "payPerMonth",
-      header: "Monthly Pay",
-      render: (staff: Staff) => (
-        <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
-      ),
-    },
-    {
-      key: "signedContract",
-      header: "Contract",
-      render: (staff: Staff) => (
-        <Badge variant={staff.signedContract ? "default" : "secondary"} className="gap-1">
-          {staff.signedContract ? (
-            <>
-              <FileCheck className="h-3 w-3" />
-              Signed
-            </>
-          ) : (
-            <>
-              <FileX className="h-3 w-3" />
-              Pending
-            </>
-          )}
-        </Badge>
-      ),
-    },
-    {
-      key: "actions",
-      header: "",
-      className: "w-24",
-      render: (staff: Staff) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditForm(staff);
-            }}
-            data-testid={`button-edit-${staff.id}`}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedStaff(staff);
-              setIsDeleteOpen(true);
-            }}
-            data-testid={`button-archive-${staff.id}`}
-          >
-            <Archive className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const activeColumns = useMemo(() => {
+    const baseColumns = [
+      {
+        key: "staffNumber",
+        header: "Staff ID",
+        render: (staff: Staff) => (
+          <div className="flex items-center gap-2">
+            <Hash className="h-3 w-3 text-muted-foreground" />
+            <span className="font-mono text-sm">{staff.staffNumber}</span>
+          </div>
+        ),
+      },
+      {
+        key: "name",
+        header: "Name",
+        render: (staff: Staff) => (
+          <span className="font-medium">{staff.name}</span>
+        ),
+      },
+      {
+        key: "email",
+        header: "Email",
+        render: (staff: Staff) => (
+          <div className="flex items-center gap-2">
+            <Mail className="h-3 w-3 text-muted-foreground" />
+            <span className="text-sm">{staff.email || "-"}</span>
+          </div>
+        ),
+      },
+      {
+        key: "mobileNumber",
+        header: "Mobile",
+        render: (staff: Staff) => (
+          <div className="flex items-center gap-2">
+            <Phone className="h-3 w-3 text-muted-foreground" />
+            <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
+          </div>
+        ),
+      },
+    ];
+
+    // Owner-only columns: role, pay, contract, archive actions
+    if (isOwner) {
+      return [
+        ...baseColumns.slice(0, 3), // staffNumber, name, email
+        {
+          key: "role",
+          header: "Role",
+          render: (staff: Staff) => (
+            <Badge variant={staff.role === "manager" ? "default" : "secondary"} className="gap-1 capitalize">
+              <Shield className="h-3 w-3" />
+              {staff.role || "Staff"}
+            </Badge>
+          ),
+        },
+        baseColumns[3], // mobileNumber
+        {
+          key: "payPerMonth",
+          header: "Monthly Pay",
+          render: (staff: Staff) => (
+            <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
+          ),
+        },
+        {
+          key: "signedContract",
+          header: "Contract",
+          render: (staff: Staff) => (
+            <Badge variant={staff.signedContract ? "default" : "secondary"} className="gap-1">
+              {staff.signedContract ? (
+                <>
+                  <FileCheck className="h-3 w-3" />
+                  Signed
+                </>
+              ) : (
+                <>
+                  <FileX className="h-3 w-3" />
+                  Pending
+                </>
+              )}
+            </Badge>
+          ),
+        },
+        {
+          key: "actions",
+          header: "",
+          className: "w-24",
+          render: (staff: Staff) => (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditForm(staff);
+                }}
+                data-testid={`button-edit-${staff.id}`}
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedStaff(staff);
+                  setIsDeleteOpen(true);
+                }}
+                data-testid={`button-archive-${staff.id}`}
+              >
+                <Archive className="h-4 w-4" />
+              </Button>
+            </div>
+          ),
+        },
+      ];
+    }
+
+    // Manager view: limited columns (no role, pay, contract, archive)
+    return [
+      ...baseColumns,
+      {
+        key: "actions",
+        header: "",
+        className: "w-12",
+        render: (staff: Staff) => (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditForm(staff);
+              }}
+              data-testid={`button-edit-${staff.id}`}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          </div>
+        ),
+      },
+    ];
+  }, [isOwner, formatCurrency]);
 
   const archivedColumns = [
     {
@@ -435,25 +474,29 @@ export default function StaffPage() {
         description={`Managing staff for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
-            <BulkOperations
-              entityType="staff"
-              data={activeStaff as unknown as Record<string, unknown>[]}
-              columns={[
-                { key: "name", header: "Name" },
-                { key: "email", header: "Email" },
-                { key: "role", header: "Role" },
-                { key: "staffNumber", header: "Staff Number" },
-                { key: "mobileNumber", header: "Mobile Number" },
-                { key: "payPerMonth", header: "Pay Per Month" },
-                { key: "signedContract", header: "Signed Contract" },
-              ]}
-              isLoading={isLoading}
-              storeId={currentStore.id}
-            />
-            <Button onClick={openCreateForm} data-testid="button-add-staff">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Staff
-            </Button>
+            {isOwner && (
+              <BulkOperations
+                entityType="staff"
+                data={activeStaff as unknown as Record<string, unknown>[]}
+                columns={[
+                  { key: "name", header: "Name" },
+                  { key: "email", header: "Email" },
+                  { key: "role", header: "Role" },
+                  { key: "staffNumber", header: "Staff Number" },
+                  { key: "mobileNumber", header: "Mobile Number" },
+                  { key: "payPerMonth", header: "Pay Per Month" },
+                  { key: "signedContract", header: "Signed Contract" },
+                ]}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+              />
+            )}
+            {isOwner && (
+              <Button onClick={openCreateForm} data-testid="button-add-staff">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Staff
+              </Button>
+            )}
           </div>
         }
       />
@@ -463,9 +506,11 @@ export default function StaffPage() {
           <TabsTrigger value="active" data-testid="tab-active-staff">
             Active ({activeStaff.length})
           </TabsTrigger>
-          <TabsTrigger value="archived" data-testid="tab-archived-staff">
-            Archived ({archivedStaff.length})
-          </TabsTrigger>
+          {isOwner && (
+            <TabsTrigger value="archived" data-testid="tab-archived-staff">
+              Archived ({archivedStaff.length})
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="active" className="mt-4">
           <DataTable
@@ -539,30 +584,32 @@ export default function StaffPage() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Role</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || "staff"}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-role">
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="staff">Staff</SelectItem>
-                        <SelectItem value="manager">Manager</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Managers can access store management and reports. Staff can only access sales.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isOwner && (
+                <FormField
+                  control={form.control}
+                  name="role"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "staff"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-role">
+                            <SelectValue placeholder="Select role" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="staff">Staff</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Managers can access store management and reports. Staff can only access sales.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <div className="grid gap-4 sm:grid-cols-3">
                 <FormField
                   control={form.control}
@@ -609,50 +656,54 @@ export default function StaffPage() {
                   )}
                 />
               </div>
-              <FormField
-                control={form.control}
-                name="payPerMonth"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Monthly Pay ({currencyInfo?.symbol || "₦"})</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                        data-testid="input-pay"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Enter amount in {storeCurrency}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="signedContract"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Contract Signed</FormLabel>
+              {isOwner && (
+                <FormField
+                  control={form.control}
+                  name="payPerMonth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Monthly Pay ({currencyInfo?.symbol || "₦"})</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          data-testid="input-pay"
+                        />
+                      </FormControl>
                       <FormDescription>
-                        Has this staff member signed their employment contract?
+                        Enter amount in {storeCurrency}
                       </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="switch-contract"
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              {isOwner && (
+                <FormField
+                  control={form.control}
+                  name="signedContract"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Contract Signed</FormLabel>
+                        <FormDescription>
+                          Has this staff member signed their employment contract?
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-contract"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={closeForm}>
                   Cancel

@@ -57,7 +57,7 @@ const managementItems: MenuItem[] = [
     title: "Inventory",
     url: "/inventory",
     icon: Package,
-    allowedRoles: ["owner", "manager"],
+    allowedRoles: ["owner"],
   },
 ];
 
@@ -81,7 +81,7 @@ const reportsItems: MenuItem[] = [
     title: "Profit & Loss",
     url: "/profit-loss",
     icon: TrendingUp,
-    allowedRoles: ["owner", "manager"],
+    allowedRoles: ["owner"],
   },
 ];
 
