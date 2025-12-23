@@ -482,6 +482,22 @@ export async function registerRoutes(
     };
   };
 
+  // Helper to verify store belongs to user's business
+  const verifyStoreAccess = async (req: any, storeId: string): Promise<boolean> => {
+    const user = req.user;
+    if (!user?.businessId) return false;
+    
+    const store = await storage.getStore(storeId);
+    if (!store) return false;
+    
+    return store.businessId === user.businessId;
+  };
+
+  // Helper to verify a record's storeId belongs to user's business
+  const verifyRecordStoreAccess = async (req: any, recordStoreId: string): Promise<boolean> => {
+    return verifyStoreAccess(req, recordStoreId);
+  };
+
   // ========== BUSINESS ==========
   app.get("/api/business", async (req, res) => {
     try {
@@ -512,6 +528,12 @@ export async function registerRoutes(
 
   app.patch("/api/business/:id", async (req, res) => {
     try {
+      // Verify user has access to this business
+      const user = req.user as any;
+      if (!user?.businessId || user.businessId !== req.params.id) {
+        return res.status(403).json({ error: "You don't have access to this business." });
+      }
+      
       const data = insertBusinessSchema.partial().parse(req.body);
       const business = await storage.updateBusiness(req.params.id, data);
       if (!business) {
@@ -533,6 +555,16 @@ export async function registerRoutes(
       if (!businessId) {
         return res.status(400).json({ error: "Please select a business first." });
       }
+      
+      // Verify user is authenticated with a business and has access
+      const user = req.user as any;
+      if (!user?.businessId) {
+        return res.status(401).json({ error: "Please log in to access stores." });
+      }
+      if (user.businessId !== businessId) {
+        return res.status(403).json({ error: "You don't have access to this business." });
+      }
+      
       const storeList = await storage.getStores(businessId);
       res.json(storeList);
     } catch (error) {
@@ -546,6 +578,13 @@ export async function registerRoutes(
       if (!store) {
         return res.status(404).json({ error: "Store not found." });
       }
+      
+      // Verify user has access to this store's business
+      const user = req.user as any;
+      if (!user?.businessId || store.businessId !== user.businessId) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       res.json(store);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load store information. Please try again." });
@@ -554,7 +593,18 @@ export async function registerRoutes(
 
   app.post("/api/stores", async (req, res) => {
     try {
-      const data = insertStoreSchema.parse(req.body);
+      // Require authenticated user with business
+      const user = req.user as any;
+      if (!user?.businessId) {
+        return res.status(401).json({ error: "Please log in to create a store." });
+      }
+      
+      // Force businessId from session, ignoring client-provided value
+      const data = insertStoreSchema.parse({
+        ...req.body,
+        businessId: user.businessId
+      });
+      
       const store = await storage.createStore(data);
       res.status(201).json(store);
     } catch (error) {
@@ -567,12 +617,26 @@ export async function registerRoutes(
 
   app.patch("/api/stores/:id", async (req, res) => {
     try {
-      const data = insertStoreSchema.partial().parse(req.body);
-      const store = await storage.updateStore(req.params.id, data);
+      const store = await storage.getStore(req.params.id);
       if (!store) {
         return res.status(404).json({ error: "Store not found." });
       }
-      res.json(store);
+      
+      // Verify user has access to this store's business
+      const user = req.user as any;
+      if (!user?.businessId || store.businessId !== user.businessId) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
+      // Remove businessId to prevent cross-business reassignment
+      const updateBody = { ...req.body };
+      delete updateBody.businessId;
+      const data = insertStoreSchema.partial().parse(updateBody);
+      const updatedStore = await storage.updateStore(req.params.id, data);
+      if (!updatedStore) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+      res.json(updatedStore);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -586,6 +650,12 @@ export async function registerRoutes(
       const store = await storage.getStore(req.params.id);
       if (!store) {
         return res.status(404).json({ error: "Store not found." });
+      }
+      
+      // Verify user has access to this store's business
+      const user = req.user as any;
+      if (!user?.businessId || store.businessId !== user.businessId) {
+        return res.status(403).json({ error: "You don't have access to this store." });
       }
       
       const hasData = await storage.hasStoreData(req.params.id);
@@ -613,6 +683,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Please select a store first." });
       }
       
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
@@ -637,6 +712,12 @@ export async function registerRoutes(
       if (!customer) {
         return res.status(404).json({ error: "Customer not found." });
       }
+      
+      // Verify user has access to this customer's store
+      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this customer." });
+      }
+      
       res.json(customer);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load customer information. Please try again." });
@@ -652,6 +733,12 @@ export async function registerRoutes(
         address: sanitizeString(req.body.address),
       };
       const data = insertCustomerSchema.parse(sanitizedBody);
+      
+      // Verify user has access to create in this store
+      if (!await verifyStoreAccess(req, data.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const customer = await storage.createCustomer(data);
       auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE", true);
       res.status(201).json(customer);
@@ -666,19 +753,31 @@ export async function registerRoutes(
 
   app.patch("/api/customers/:id", async (req, res) => {
     try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found." });
+      }
+      
+      // Verify user has access to this customer's store
+      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this customer." });
+      }
+      
       const sanitizedBody = {
         ...req.body,
         name: req.body.name ? sanitizeString(req.body.name) : undefined,
         mobileNumber: req.body.mobileNumber ? sanitizePhoneNumber(req.body.mobileNumber) : undefined,
         address: req.body.address ? sanitizeString(req.body.address) : undefined,
       };
+      // Remove storeId to prevent cross-store migration via PATCH
+      delete sanitizedBody.storeId;
       const data = insertCustomerSchema.partial().parse(sanitizedBody);
-      const customer = await storage.updateCustomer(req.params.id, data);
-      if (!customer) {
+      const updatedCustomer = await storage.updateCustomer(req.params.id, data);
+      if (!updatedCustomer) {
         return res.status(404).json({ error: "This customer no longer exists. It may have been deleted." });
       }
       auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", true);
-      res.json(customer);
+      res.json(updatedCustomer);
     } catch (error) {
       auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
@@ -693,6 +792,11 @@ export async function registerRoutes(
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
         return res.status(404).json({ error: "Customer not found." });
+      }
+      
+      // Verify user has access to this customer's store
+      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this customer." });
       }
       
       // Archive instead of delete (soft delete)
@@ -714,6 +818,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Customer not found." });
       }
       
+      // Verify user has access to this customer's store
+      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this customer." });
+      }
+      
       const restored = await storage.restoreCustomer(req.params.id);
       if (!restored) {
         return res.status(500).json({ error: "We couldn't restore this customer. Please try again." });
@@ -730,6 +839,11 @@ export async function registerRoutes(
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
         return res.status(404).json({ error: "Customer not found." });
+      }
+      
+      // Verify user has access to this customer's store
+      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this customer." });
       }
       
       if (!customer.isArchived) {
@@ -759,6 +873,11 @@ export async function registerRoutes(
       const { data, storeId } = req.body;
       if (!Array.isArray(data) || !storeId) {
         return res.status(400).json({ error: "Invalid data format or missing store." });
+      }
+
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
       }
 
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
@@ -798,6 +917,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Please select a store first." });
       }
       
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
@@ -822,6 +946,12 @@ export async function registerRoutes(
       if (!staffMember) {
         return res.status(404).json({ error: "Staff member not found." });
       }
+      
+      // Verify user has access to this staff member's store
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      
       res.json(staffMember);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load staff information. Please try again." });
@@ -840,6 +970,12 @@ export async function registerRoutes(
         role: req.body.role || "staff",
       };
       const data = insertStaffSchema.parse(sanitizedBody);
+      
+      // Verify user has access to create in this store
+      if (!await verifyStoreAccess(req, data.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const staffMember = await storage.createStaff(data);
       auditLogger.logDataModification("staff", staffMember.id, getUserId(req), "CREATE", true);
       res.status(201).json(staffMember);
@@ -854,6 +990,16 @@ export async function registerRoutes(
 
   app.patch("/api/staff/:id", async (req, res) => {
     try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      // Verify user has access to this staff member's store
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      
       const sanitizedBody = {
         ...req.body,
         ...(req.body.name && { name: sanitizeString(req.body.name) }),
@@ -862,12 +1008,14 @@ export async function registerRoutes(
         ...(req.body.payPerMonth !== undefined && { payPerMonth: sanitizeNumber(req.body.payPerMonth) }),
         ...(req.body.signedContract !== undefined && { signedContract: sanitizeBoolean(req.body.signedContract) }),
       };
+      // Remove storeId to prevent cross-store migration via PATCH (use transfer endpoint instead)
+      delete sanitizedBody.storeId;
       const data = insertStaffSchema.partial().parse(sanitizedBody);
-      const staffMember = await storage.updateStaff(req.params.id, data);
-      if (!staffMember) {
+      const updatedStaffMember = await storage.updateStaff(req.params.id, data);
+      if (!updatedStaffMember) {
         return res.status(404).json({ error: "This staff member no longer exists. They may have been removed." });
       }
-      res.json(staffMember);
+      res.json(updatedStaffMember);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -881,6 +1029,11 @@ export async function registerRoutes(
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
         return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      // Verify user has access to this staff member's store
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
       }
       
       // Archive instead of delete (soft delete)
@@ -900,6 +1053,11 @@ export async function registerRoutes(
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
         return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      // Verify user has access to this staff member's store
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
       }
       
       const restored = await storage.restoreStaff(req.params.id);
@@ -923,6 +1081,16 @@ export async function registerRoutes(
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
         return res.status(404).json({ error: "Staff member not found." });
+      }
+      
+      // Verify user has access to this staff member's store
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      
+      // Verify user has access to the target store
+      if (!await verifyStoreAccess(req, targetStoreId)) {
+        return res.status(403).json({ error: "You don't have access to the target store." });
       }
       
       // Get the source store's business
@@ -967,6 +1135,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Staff member not found." });
       }
       
+      // Verify user has access to this staff member's store
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      
       if (!staffMember.isArchived) {
         return res.status(400).json({ error: "Only archived staff can be permanently deleted." });
       }
@@ -994,6 +1167,11 @@ export async function registerRoutes(
       const { data, storeId } = req.body;
       if (!Array.isArray(data) || !storeId) {
         return res.status(400).json({ error: "Invalid data format or missing store." });
+      }
+
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
       }
 
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
@@ -1034,6 +1212,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Please select a store first." });
       }
       
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
@@ -1057,6 +1240,12 @@ export async function registerRoutes(
       if (!item) {
         return res.status(404).json({ error: "Inventory item not found." });
       }
+      
+      // Verify user has access to this item's store
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+      
       res.json(item);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load item information. Please try again." });
@@ -1074,6 +1263,12 @@ export async function registerRoutes(
         quantity: sanitizeNumber(req.body.quantity),
       };
       const data = insertInventorySchema.parse(sanitizedBody);
+      
+      // Verify user has access to create in this store
+      if (!await verifyStoreAccess(req, data.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const item = await storage.createInventoryItem(data);
       auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
       res.status(201).json(item);
@@ -1088,12 +1283,25 @@ export async function registerRoutes(
 
   app.patch("/api/inventory/:id", async (req, res) => {
     try {
-      const data = insertInventorySchema.partial().parse(req.body);
-      const item = await storage.updateInventoryItem(req.params.id, data);
+      const item = await storage.getInventoryItem(req.params.id);
       if (!item) {
+        return res.status(404).json({ error: "Inventory item not found." });
+      }
+      
+      // Verify user has access to this item's store
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+      
+      // Remove storeId to prevent cross-store migration via PATCH
+      const updateBody = { ...req.body };
+      delete updateBody.storeId;
+      const data = insertInventorySchema.partial().parse(updateBody);
+      const updatedItem = await storage.updateInventoryItem(req.params.id, data);
+      if (!updatedItem) {
         return res.status(404).json({ error: "This item no longer exists. It may have been deleted." });
       }
-      res.json(item);
+      res.json(updatedItem);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -1107,6 +1315,11 @@ export async function registerRoutes(
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) {
         return res.status(404).json({ error: "Inventory item not found." });
+      }
+      
+      // Verify user has access to this item's store
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
       }
       
       const hasTransactions = await storage.hasInventoryTransactions(req.params.id);
@@ -1132,6 +1345,11 @@ export async function registerRoutes(
       const { data, storeId } = req.body;
       if (!Array.isArray(data) || !storeId) {
         return res.status(400).json({ error: "Invalid data format or missing store." });
+      }
+
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
       }
 
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
@@ -1193,6 +1411,11 @@ export async function registerRoutes(
       if (!item) {
         return res.status(404).json({ error: "Inventory item not found." });
       }
+      
+      // Verify user has access to this item's store
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
 
       if (item.type !== "product") {
         return res.status(400).json({ error: "Only products can be restocked. Services don't have inventory quantities." });
@@ -1247,6 +1470,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Please select a store first." });
       }
       
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
@@ -1280,6 +1508,12 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const plData = await storage.getProfitLoss(storeId);
       res.json(plData);
     } catch (error) {
@@ -1294,6 +1528,12 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const stats = await storage.getDashboardStats(storeId);
       res.json(stats);
     } catch (error) {
@@ -1308,6 +1548,12 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const data = await storage.getSalesTrends(storeId);
       res.json(data);
     } catch (error) {
@@ -1321,6 +1567,12 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
+      
       const data = await storage.getRevenueByType(storeId);
       res.json(data);
     } catch (error) {
