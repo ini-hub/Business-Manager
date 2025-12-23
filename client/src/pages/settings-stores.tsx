@@ -157,24 +157,39 @@ export default function SettingsStoresPage() {
       if (!editingStoreId) {
         throw new Error("Cannot create staff without a store");
       }
-      const response = await apiRequest("POST", "/api/staff", { ...data, storeId: editingStoreId });
-      return response as unknown as Staff;
+      // Create staff with manager role since this is for store manager assignment
+      const response = await apiRequest("POST", "/api/staff", { 
+        ...data, 
+        storeId: editingStoreId,
+        role: "manager" 
+      });
+      return await response.json() as Staff;
     },
     onSuccess: async (newStaff: Staff) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/staff", editingStoreId] });
       if (editingStoreId) {
         await refreshStaffForStore(editingStoreId);
+        
+        // Auto-assign the new staff as store manager
+        try {
+          await apiRequest("PATCH", `/api/stores/${editingStoreId}`, {
+            managerStaffId: newStaff.id
+          });
+          await queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+        } catch {
+          // Store update failed but staff was created
+        }
       }
       setNewlyCreatedStaffId(newStaff.id);
       storeForm.setValue("managerStaffId", newStaff.id);
-      toast({ title: "Staff member created successfully" });
+      toast({ title: "Staff member created and assigned as manager" });
       setIsAddStaffDialogOpen(false);
       staffForm.reset();
     },
     onError: (error: Error) => {
       toast({ 
         title: "Couldn't Create Staff Member", 
-        description: getUserFriendlyError(error, "staff"), 
+        description: error.message || "Please check the information and try again.", 
         variant: "destructive" 
       });
     },

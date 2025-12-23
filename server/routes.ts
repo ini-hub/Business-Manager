@@ -976,6 +976,16 @@ export async function registerRoutes(
         return res.status(403).json({ error: "You don't have access to this store." });
       }
       
+      // Check if email is already in use by another staff member
+      if (data.email) {
+        const existingStaff = await storage.getStaffByEmail(data.email);
+        if (existingStaff) {
+          return res.status(409).json({ 
+            error: "This email address is already assigned to another staff member. Please use a different email." 
+          });
+        }
+      }
+      
       const staffMember = await storage.createStaff(data);
       auditLogger.logDataModification("staff", staffMember.id, getUserId(req), "CREATE", true);
       res.status(201).json(staffMember);
@@ -983,6 +993,13 @@ export async function registerRoutes(
       auditLogger.logDataModification("staff", undefined, getUserId(req), "CREATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      // Check for duplicate email constraint error
+      const errorMessage = (error as Error).message || "";
+      if (errorMessage.includes("unique") || errorMessage.includes("duplicate") || errorMessage.includes("email")) {
+        return res.status(409).json({ 
+          error: "This email address is already assigned to another staff member. Please use a different email." 
+        });
       }
       res.status(500).json({ error: "We couldn't add this staff member right now. Please try again." });
     }
