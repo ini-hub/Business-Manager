@@ -81,6 +81,7 @@ export interface IStorage {
 
   // Business
   getBusiness(): Promise<Business | undefined>;
+  getBusinessById(id: string): Promise<Business | undefined>;
   createBusiness(business: InsertBusiness): Promise<Business>;
   updateBusiness(id: string, business: Partial<InsertBusiness>): Promise<Business | undefined>;
 
@@ -273,6 +274,11 @@ export class DatabaseStorage implements IStorage {
   // Business
   async getBusiness(): Promise<Business | undefined> {
     const [business] = await db.select().from(businesses).limit(1);
+    return business;
+  }
+
+  async getBusinessById(id: string): Promise<Business | undefined> {
+    const [business] = await db.select().from(businesses).where(eq(businesses.id, id));
     return business;
   }
 

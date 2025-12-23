@@ -485,7 +485,12 @@ export async function registerRoutes(
   // ========== BUSINESS ==========
   app.get("/api/business", async (req, res) => {
     try {
-      const business = await storage.getBusiness();
+      // Get business for the currently logged-in user
+      const user = req.user as any;
+      if (!user?.businessId) {
+        return res.json(null);
+      }
+      const business = await storage.getBusinessById(user.businessId);
       res.json(business || null);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load business information. Please try again." });
