@@ -143,6 +143,7 @@ export default function SettingsStoresPage() {
     defaultValues: {
       storeId: editingStoreId || "",
       name: "",
+      email: "",
       staffNumber: "",
       countryCode: "NG",
       mobileNumber: "",
@@ -831,6 +832,22 @@ export default function SettingsStoresPage() {
                     <FormControl>
                       <Input {...field} placeholder="John Doe" data-testid="input-staff-name" />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={staffForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="email" placeholder="staff@example.com" data-testid="input-staff-email" />
+                    </FormControl>
+                    <FormDescription>
+                      Staff will use this email to log in
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
