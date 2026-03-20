@@ -644,23 +644,13 @@ export async function registerRoutes(
       if (!existingStore || existingStore.businessId !== (req as any).user?.businessId) {
         return res.status(403).json({ error: "Unauthorized access to store data." });
       }
-      const data = insertStoreSchema.partial().parse(req.body);
-      const store = await storage.updateStore(req.params.id, data);
-      if (!store) {
-        return res.status(404).json({ error: "Store not found." });
-      }
-      
-      // Verify user has access to this store's business
-      const user = req.user as any;
-      if (!user?.businessId || store.businessId !== user.businessId) {
-        return res.status(403).json({ error: "You don't have access to this store." });
-      }
-      
       // Remove businessId to prevent cross-business reassignment
       const updateBody = { ...req.body };
       delete updateBody.businessId;
+      
       const data = insertStoreSchema.partial().parse(updateBody);
       const updatedStore = await storage.updateStore(req.params.id, data);
+      
       if (!updatedStore) {
         return res.status(404).json({ error: "Store not found." });
       }
