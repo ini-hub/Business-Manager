@@ -12,8 +12,11 @@ export function useAuth() {
     try {
       await apiRequest("POST", "/api/auth/logout");
       queryClient.clear();
+      // Hard redirect ensures the router resets to landing, not a stale route
+      window.location.href = "/";
     } catch (error) {
       console.error("Logout error:", error);
+      window.location.href = "/";
     }
   };
 

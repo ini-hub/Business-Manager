@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, getSession } from "./replitAuth";
+import { setupAuth, isAuthenticated, getSession } from "./auth";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
 import {
@@ -42,8 +42,8 @@ function getUserId(req: Request): string | undefined {
 
 // Rate limiting configuration for security
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 500, // 500 requests per 10 min per IP
   message: { error: "Too many requests, please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -51,8 +51,8 @@ const apiLimiter = rateLimit({
 
 // Stricter rate limiting for auth endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 auth attempts per windowMs
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // 60 auth attempts per minute per IP
   message: { error: "Too many login attempts, please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -80,6 +80,30 @@ export async function registerRoutes(
   // Setup authentication
   await setupAuth(app);
 
+
+  // ========== MULTI-TENANCY HELPERS ==========
+  async function checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
+    const userBusinessId = (req as any).user?.businessId;
+    if (!userBusinessId) {
+      res.status(401).json({ error: "Authentication required." });
+      return false;
+    }
+    const store = await storage.getStore(storeId);
+    if (!store) {
+      res.status(404).json({ error: "Store not found." });
+      return false;
+    }
+    if (store.businessId !== userBusinessId) {
+      res.status(403).json({ error: "Unauthorized access to store data." });
+      return false;
+    }
+    return true;
+  }
+  // ========== HEALTH CHECK ==========
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // ========== CUSTOM AUTH ROUTES ==========
   
   // Signup - Create business and user account
@@ -106,31 +130,20 @@ export async function registerRoutes(
         email: normalizedEmail,
       });
       
-      // Create user with business association
+      // Create user with business association — auto-verified (static OTP in use)
       const user = await storage.createUser({
         email: normalizedEmail,
         password: hashedPassword,
         businessId: business.id,
         role: "owner",
-      });
-      
-      // Create OTP code for verification
-      const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
-      await storage.createOtpCode({
-        userId: user.id,
-        code: DEFAULT_OTP,
-        type: "signup",
-        expiresAt,
+        isVerified: true,
       });
       
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "signup");
       
-      // Return masked email for OTP screen
-      const maskedEmail = normalizedEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3");
       res.status(201).json({ 
-        message: "Account created. Please verify your email.",
+        message: "Account created successfully. You can now log in.",
         email: normalizedEmail,
-        maskedEmail,
         userId: user.id,
       });
     } catch (error) {
@@ -234,9 +247,9 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Invalid email or password." });
       }
       
-      // Check if user has a password (custom auth) or uses Replit Auth
+      // Check if user has a password (custom auth)
       if (!user.password) {
-        return res.status(400).json({ error: "Please use the 'Login with Replit' option." });
+        return res.status(400).json({ error: "Password not set for this account." });
       }
       
       // Verify password
@@ -418,10 +431,10 @@ export async function registerRoutes(
     });
   });
   
-  // Get current user (supports both Replit Auth and custom auth)
+  // Get current user
   app.get("/api/auth/user", async (req: any, res) => {
     try {
-      // Check for custom auth session first
+      // Check for custom auth session
       if (req.user && req.user.id) {
         const user = await storage.getUser(req.user.id);
         if (user) {
@@ -433,14 +446,6 @@ export async function registerRoutes(
             password: undefined, // Never send password
           });
         }
-      }
-      
-      // Check for Replit Auth session
-      if (req.user?.claims?.sub) {
-        const userId = req.user.claims.sub;
-        const user = await storage.getUser(userId);
-        auditLogger.logAuthAttempt(userId, getClientIp(req), true);
-        return res.json(user);
       }
       
       res.status(401).json({ message: "Not authenticated" });
@@ -461,10 +466,6 @@ export async function registerRoutes(
         if (req.user?.role) {
           userRole = req.user.role;
         } 
-        // Check Replit Auth - default to owner for backward compatibility
-        else if (req.user?.claims?.sub) {
-          userRole = "owner";
-        }
         
         if (!userRole) {
           return res.status(401).json({ error: "Authentication required." });
@@ -485,7 +486,11 @@ export async function registerRoutes(
   // ========== BUSINESS ==========
   app.get("/api/business", async (req, res) => {
     try {
-      const business = await storage.getBusiness();
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
+      const business = await storage.getBusinessByUserId(userId);
       res.json(business || null);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load business information. Please try again." });
@@ -507,6 +512,9 @@ export async function registerRoutes(
 
   app.patch("/api/business/:id", async (req, res) => {
     try {
+      if (req.params.id !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to business data." });
+      }
       const data = insertBusinessSchema.partial().parse(req.body);
       const business = await storage.updateBusiness(req.params.id, data);
       if (!business) {
@@ -524,7 +532,14 @@ export async function registerRoutes(
   // ========== STORES ==========
   app.get("/api/stores", async (req, res) => {
     try {
-      const businessId = req.query.businessId as string;
+      const userBusinessId = (req as any).user?.businessId;
+      let businessId = req.query.businessId as string;
+      
+      if (businessId && businessId !== userBusinessId) {
+        return res.status(403).json({ error: "Unauthorized access to business data." });
+      }
+      businessId = businessId || userBusinessId;
+      
       if (!businessId) {
         return res.status(400).json({ error: "Please select a business first." });
       }
@@ -541,6 +556,12 @@ export async function registerRoutes(
       if (!store) {
         return res.status(404).json({ error: "Store not found." });
       }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
+      }
       res.json(store);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load store information. Please try again." });
@@ -549,8 +570,39 @@ export async function registerRoutes(
 
   app.post("/api/stores", async (req, res) => {
     try {
+      const userBusinessId = (req as any).user?.businessId;
+      if (!userBusinessId) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
+      
+      // Force the businessId to be the user's business ID
+      req.body.businessId = userBusinessId;
       const data = insertStoreSchema.parse(req.body);
+      
       const store = await storage.createStore(data);
+      
+      // Automatically add the owner to the staff list of their new store
+      try {
+        const user = (req as any).user;
+        if (user && user.id) {
+          const business = await storage.getBusinessByUserId(user.id);
+          await storage.createStaff({
+            storeId: store.id,
+            userId: user.id,
+            name: business?.name ? `${business.name} Owner` : "Business Owner",
+            email: user.email || business?.email || "owner@example.com",
+            mobileNumber: business?.phone || "0000000000",
+            countryCode: business?.phoneCountryCode || "NG",
+            role: "manager", // Best role mapping for the owner until an explicit 'owner' role is needed
+            payPerMonth: 0,
+            signedContract: true,
+            staffNumber: ""
+          });
+        }
+      } catch (err) {
+        console.error("Failed to auto-create owner staff record:", err);
+      }
+      
       res.status(201).json(store);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -562,6 +614,10 @@ export async function registerRoutes(
 
   app.patch("/api/stores/:id", async (req, res) => {
     try {
+      const existingStore = await storage.getStore(req.params.id);
+      if (!existingStore || existingStore.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
+      }
       const data = insertStoreSchema.partial().parse(req.body);
       const store = await storage.updateStore(req.params.id, data);
       if (!store) {
@@ -581,6 +637,9 @@ export async function registerRoutes(
       const store = await storage.getStore(req.params.id);
       if (!store) {
         return res.status(404).json({ error: "Store not found." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
       }
       
       const hasData = await storage.hasStoreData(req.params.id);
@@ -607,6 +666,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
@@ -647,6 +707,7 @@ export async function registerRoutes(
         address: sanitizeString(req.body.address),
       };
       const data = insertCustomerSchema.parse(sanitizedBody);
+      if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
       const customer = await storage.createCustomer(data);
       auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE", true);
       res.status(201).json(customer);
@@ -768,6 +829,7 @@ export async function registerRoutes(
             mobileNumber: row.mobileNumber,
             address: row.address,
           });
+          if (parsed.storeId && !(await checkStoreAccess(parsed.storeId, req, res))) { throw new Error("Unauthorized store"); }
           await storage.createCustomer(parsed);
           result.success++;
         } catch (error) {
@@ -792,6 +854,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
@@ -835,6 +898,7 @@ export async function registerRoutes(
         role: req.body.role || "staff",
       };
       const data = insertStaffSchema.parse(sanitizedBody);
+      if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
       const staffMember = await storage.createStaff(data);
       auditLogger.logDataModification("staff", staffMember.id, getUserId(req), "CREATE", true);
       res.status(201).json(staffMember);
@@ -1028,6 +1092,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
@@ -1069,6 +1134,7 @@ export async function registerRoutes(
         quantity: sanitizeNumber(req.body.quantity),
       };
       const data = insertInventorySchema.parse(sanitizedBody);
+      if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
       const item = await storage.createInventoryItem(data);
       auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
       res.status(201).json(item);
@@ -1241,6 +1307,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
@@ -1275,6 +1342,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       const plData = await storage.getProfitLoss(storeId);
       res.json(plData);
     } catch (error) {
@@ -1289,6 +1357,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       const stats = await storage.getDashboardStats(storeId);
       res.json(stats);
     } catch (error) {
@@ -1303,6 +1372,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       const data = await storage.getSalesTrends(storeId);
       res.json(data);
     } catch (error) {
@@ -1316,6 +1386,7 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
       const data = await storage.getRevenueByType(storeId);
       res.json(data);
     } catch (error) {

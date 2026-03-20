@@ -80,12 +80,12 @@ export default function Signup() {
       const response = await apiRequest("POST", "/api/auth/signup", data);
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast({
         title: "Account created!",
-        description: "Please verify your email to continue.",
+        description: "You can now sign in with your credentials.",
       });
-      setLocation(`/auth/verify-otp?email=${encodeURIComponent(data.email)}&type=signup`);
+      setLocation("/auth/login");
     },
     onError: (error: any) => {
       toast({
@@ -330,24 +330,7 @@ export default function Signup() {
           </Form>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <div className="relative w-full">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or</span>
-            </div>
-          </div>
-          
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => window.location.href = "/api/login"}
-            data-testid="button-replit-signup"
-          >
-            Continue with Replit
-          </Button>
-          
+
           <p className="text-sm text-center text-muted-foreground">
             Already have an account?{" "}
             <Link href="/auth/login" className="text-primary hover:underline" data-testid="link-login">

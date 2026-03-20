@@ -24,7 +24,7 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   searchable?: boolean;
   searchPlaceholder?: string;
-  searchKeys?: (keyof T)[];
+  searchKeys?: string[];
   isLoading?: boolean;
   emptyMessage?: string;
   pageSize?: number;
@@ -47,8 +47,15 @@ export function DataTable<T extends { id: string }>({
 
   const filteredData = searchable && searchKeys.length > 0
     ? data.filter((item) =>
-        searchKeys.some((key) => {
-          const value = item[key];
+        searchKeys.some((keyPath) => {
+          // Allow resolving nested keys like "checkout.receiptNumber"
+          let value: any = item;
+          const parts = keyPath.split(".");
+          for (const part of parts) {
+            value = value?.[part];
+            if (value === undefined || value === null) break;
+          }
+
           if (typeof value === "string") {
             return value.toLowerCase().includes(searchTerm.toLowerCase());
           }

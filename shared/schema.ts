@@ -78,11 +78,12 @@ export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, cre
 export type InsertStore = z.infer<typeof insertStoreSchema>;
 export type Store = typeof stores.$inferSelect;
 
-// Store counters for auto-incrementing customer IDs per store
+// Store counters for auto-incrementing customer IDs and transaction receipts per store
 export const storeCounters = pgTable("store_counters", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id).unique(),
   nextCustomerNumber: integer("next_customer_number").notNull().default(1),
+  nextTransactionNumber: integer("next_transaction_number").notNull().default(1),
 });
 
 export const storeCountersRelations = relations(storeCounters, ({ one }) => ({
@@ -297,12 +298,15 @@ export const checkouts = pgTable("checkouts", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   orderId: varchar("order_id").notNull().references(() => orders.id),
+  receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
   totalPrice: real("total_price").notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
   paymentReference: text("payment_reference"), // For Flutterwave transaction reference
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  unique("checkout_store_receipt_unique").on(table.storeId, table.receiptNumber),
+]);
 
 export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
   store: one(stores, {
@@ -393,7 +397,7 @@ export type StoreWithBusiness = Store & {
 export type TransactionWithRelations = Transaction & {
   customer: Customer;
   inventory: Inventory;
-  checkout: Checkout;
+  checkout: Checkout & { staff?: Staff };
   store: Store;
 };
 

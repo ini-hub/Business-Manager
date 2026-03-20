@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "./queryClient";
+import { useAuth } from "@/hooks/useAuth";
 import type { Business, Store, InsertBusiness, InsertStore } from "@shared/schema";
 
 interface StoreContextType {
@@ -22,6 +23,10 @@ const STORAGE_KEY = "selectedStoreId";
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [currentStore, setCurrentStoreState] = useState<Store | null>(null);
+  const { user } = useAuth();
+
+  // Scope localStorage key per-user so different accounts don't share state
+  const storageKey = user?.id ? `selectedStoreId_${user.id}` : null;
 
   const { data: business, isLoading: businessLoading } = useQuery<Business | null>({
     queryKey: ["/api/business"],
@@ -33,16 +38,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (stores.length > 0 && !currentStore) {
-      const savedStoreId = localStorage.getItem(STORAGE_KEY);
-      const savedStore = stores.find(s => s.id === savedStoreId);
+    if (stores.length > 0) {
+      const savedStoreId = storageKey ? localStorage.getItem(storageKey) : null;
+      // Only use saved store if it actually belongs to this user's stores
+      const savedStore = savedStoreId ? stores.find(s => s.id === savedStoreId) : null;
       setCurrentStoreState(savedStore || stores[0]);
     }
-  }, [stores, currentStore]);
+  }, [stores, storageKey]);
 
   const setCurrentStore = (store: Store) => {
     setCurrentStoreState(store);
-    localStorage.setItem(STORAGE_KEY, store.id);
+    if (storageKey) localStorage.setItem(storageKey, store.id);
     queryClient.invalidateQueries();
   };
 

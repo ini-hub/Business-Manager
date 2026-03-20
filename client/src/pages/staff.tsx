@@ -35,6 +35,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { ExportToolbar } from "@/components/export-toolbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -496,6 +497,23 @@ export default function StaffPage() {
     },
   ];
 
+  const exportColumns = isOwner 
+    ? [
+        { key: "name", header: "Name" },
+        { key: "email", header: "Email" },
+        { key: "role", header: "Role" },
+        { key: "staffNumber", header: "Staff Number" },
+        { key: "mobileNumber", header: "Mobile Number" },
+        { key: "payPerMonth", header: "Pay Per Month" },
+        { key: "signedContract", header: "Signed Contract" },
+      ]
+    : [
+        { key: "name", header: "Name" },
+        { key: "email", header: "Email" },
+        { key: "staffNumber", header: "Staff Number" },
+        { key: "mobileNumber", header: "Mobile Number" },
+      ];
+
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -517,6 +535,13 @@ export default function StaffPage() {
         description={`Managing staff for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
+            <ExportToolbar
+              data={(activeTab === "active" ? activeStaff : archivedStaff) as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              filename={`staff-${activeTab}`}
+              title={`Staff Report (${activeTab})`}
+              disabled={isLoading}
+            />
             {isOwner && (
               <BulkOperations
                 entityType="staff"

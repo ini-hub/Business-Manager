@@ -42,7 +42,7 @@ import {
   type CostStrategy,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, count, and, asc, like, or, ilike } from "drizzle-orm";
+import { eq, sql, desc, count, and, asc, like, or, ilike, gt } from "drizzle-orm";
 
 // Pagination types
 export interface PaginationOptions {
@@ -252,7 +252,7 @@ export class DatabaseStorage implements IStorage {
         eq(otpCodes.code, code),
         eq(otpCodes.type, type),
         eq(otpCodes.isUsed, false),
-        sql`${otpCodes.expiresAt} > NOW()`
+        gt(otpCodes.expiresAt, new Date())
       )
     );
     return otp;
@@ -351,6 +351,25 @@ export class DatabaseStorage implements IStorage {
     }
     
     return `${prefix}${nextNumber.toString().padStart(3, '0')}`;
+  }
+
+  // Transaction Receipt Number Generation
+  private async getNextAvailableTransactionNumber(tx: any, storeId: string): Promise<string> {
+    const [store] = await tx.select().from(stores).where(eq(stores.id, storeId));
+    if (!store) throw new Error("Store not found");
+
+    const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
+    if (!counter) {
+      await tx.insert(storeCounters).values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 });
+      return `${store.code}-TN-1`;
+    }
+
+    const nextNum = counter.nextTransactionNumber;
+    await tx.update(storeCounters)
+      .set({ nextTransactionNumber: nextNum + 1 })
+      .where(eq(storeCounters.id, counter.id));
+
+    return `${store.code}-TN-${nextNum}`;
   }
 
   // Customers
@@ -557,7 +576,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async createStaff(staffMember: InsertStaff): Promise<Staff> {
+  async createStaff(staffMember: InsertStaff & { userId?: string | null }): Promise<Staff> {
     // Generate staff number at save time to avoid gaps
     const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
     const [newStaff] = await db.insert(staff).values({
@@ -729,12 +748,18 @@ export class DatabaseStorage implements IStorage {
       const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
       const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      
+      let staffMem = undefined;
+      if (checkout) {
+        const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
+        staffMem = foundStaff;
+      }
 
       result.push({
         ...tx,
         customer,
         inventory: inventoryItem,
-        checkout,
+        checkout: checkout ? { ...checkout, staff: staffMem } : checkout as any,
         store,
       });
     }
@@ -772,16 +797,26 @@ export class DatabaseStorage implements IStorage {
     const allCheckouts = await db.select().from(checkouts).where(sql`${checkouts.id} IN (${sql.join(checkoutIds.map(id => sql`${id}`), sql`, `)})`);
     const allStores = await db.select().from(stores).where(sql`${stores.id} IN (${sql.join(storeIds.map(id => sql`${id}`), sql`, `)})`);
 
+    const staffIds = Array.from(new Set(allCheckouts.map(c => c.staffId).filter(Boolean)));
+    const allStaff = staffIds.length > 0 
+      ? await db.select().from(staff).where(sql`${staff.id} IN (${sql.join(staffIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+
     const customerMap = new Map(allCustomers.map(c => [c.id, c]));
     const inventoryMap = new Map(allInventory.map(i => [i.id, i]));
-    const checkoutMap = new Map(allCheckouts.map(c => [c.id, c]));
     const storeMap = new Map(allStores.map(s => [s.id, s]));
+    const staffMap = new Map(allStaff.map(s => [s.id, s]));
+    
+    const checkoutMap = new Map(allCheckouts.map(c => [
+      c.id, 
+      { ...c, staff: staffMap.get(c.staffId) }
+    ]));
 
     const data: TransactionWithRelations[] = txs.map(tx => ({
       ...tx,
       customer: customerMap.get(tx.customerId)!,
       inventory: inventoryMap.get(tx.inventoryId)!,
-      checkout: checkoutMap.get(tx.checkoutId)!,
+      checkout: checkoutMap.get(tx.checkoutId) as any,
       store: storeMap.get(tx.storeId)!,
     }));
 
@@ -828,12 +863,18 @@ export class DatabaseStorage implements IStorage {
       const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
       const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      
+      let staffMem = undefined;
+      if (checkout) {
+        const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
+        staffMem = foundStaff;
+      }
 
       result.push({
         ...tx,
         customer,
         inventory: inventoryItem,
-        checkout,
+        checkout: checkout ? { ...checkout, staff: staffMem } : checkout as any,
         store,
       });
     }
@@ -1026,11 +1067,15 @@ export class DatabaseStorage implements IStorage {
             totalPrice,
           }).returning();
 
+          // Generate receipt number
+          const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
+
           // Create checkout
           const [checkout] = await tx.insert(checkouts).values({
             storeId: data.storeId,
             staffId: data.staffId,
             orderId: order.id,
+            receiptNumber,
             totalPrice,
             paymentMethod: data.paymentMethod,
             paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",

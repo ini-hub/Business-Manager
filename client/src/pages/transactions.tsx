@@ -148,10 +148,12 @@ export default function Transactions() {
   ];
 
   const exportColumns = [
-    { key: "id", header: "Transaction ID" },
+    { key: "checkout.receiptNumber", header: "Transaction No." },
     { key: "transactionDate", header: "Date" },
     { key: "customer.name", header: "Customer Name" },
     { key: "customer.customerNumber", header: "Customer Number" },
+    { key: "checkout.staff.name", header: "Billed By" },
+    { key: "checkout.staff.staffNumber", header: "Staff ID" },
     { key: "inventory.name", header: "Item Name" },
     { key: "inventory.type", header: "Item Type" },
     { key: "checkout.totalPrice", header: "Amount" },
@@ -243,7 +245,7 @@ export default function Transactions() {
             columns={columns}
             searchable
             searchPlaceholder="Search transactions..."
-            searchKeys={["id"]}
+            searchKeys={["checkout.receiptNumber", "customer.name", "inventory.name"]}
             isLoading={isLoading}
             emptyMessage="No transactions found. Complete your first sale to see records here."
             onRowClick={(tx) => setSelectedTransaction(tx)}
@@ -268,10 +270,10 @@ export default function Transactions() {
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Hash className="h-3 w-3" />
-                    Transaction ID
+                    Transaction No.
                   </p>
                   <p className="font-mono text-xs break-all" data-testid="text-tx-id">
-                    {selectedTransaction.id}
+                    {selectedTransaction.checkout?.receiptNumber}
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -297,6 +299,19 @@ export default function Transactions() {
                     <p className="font-medium">{selectedTransaction.customer?.name ?? "Unknown"}</p>
                     <p className="text-xs text-muted-foreground font-mono">
                       {selectedTransaction.customer?.customerNumber}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <User className="h-3 w-3" />
+                    Billed By
+                  </p>
+                  <div>
+                    <p className="font-medium">{selectedTransaction.checkout?.staff?.name ?? "Unknown"}</p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      {selectedTransaction.checkout?.staff?.staffNumber ?? "N/A"}
                     </p>
                   </div>
                 </div>

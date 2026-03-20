@@ -49,7 +49,32 @@ import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
-import type { Customer, Staff, Inventory } from "@shared/schema";
+import type { Customer, Staff, Inventory, InsertCustomer } from "@shared/schema";
+import { insertCustomerSchema } from "@shared/schema";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  FormDescription,
+} from "@/components/ui/form";
+import { Textarea } from "@/components/ui/textarea";
+
+const newCustomerSchema = insertCustomerSchema.extend({
+  mobileNumber: z.string().optional().default(""),
+});
 
 interface CartItem {
   inventory: Inventory;
@@ -69,6 +94,44 @@ export default function NewSale() {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave">("cash");
+  const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
+
+  const customerForm = useForm<InsertCustomer>({
+    resolver: zodResolver(newCustomerSchema),
+    defaultValues: {
+      storeId: currentStore?.id || "",
+      name: "",
+      countryCode: "NG",
+      mobileNumber: "",
+      address: "",
+      customerNumber: "",
+    },
+  });
+
+  const createCustomerMutation = useMutation({
+    mutationFn: async (data: InsertCustomer) => {
+      const response = await apiRequest("POST", "/api/customers", { ...data, storeId: currentStore?.id });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      toast({ title: "Customer created successfully" });
+      setSelectedCustomer(data.id);
+      setNewCustomerDialogOpen(false);
+      customerForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Add Customer", 
+        description: getUserFriendlyError(error, "customer"), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const onCustomerSubmit = (data: InsertCustomer) => {
+    createCustomerMutation.mutate(data);
+  };
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
@@ -419,22 +482,23 @@ export default function NewSale() {
                   <Users className="h-3 w-3" />
                   Customer
                 </Label>
-                <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={customerOpen}
-                      className="w-full justify-between font-normal"
-                      data-testid="select-customer"
-                    >
-                      {selectedCustomer
-                        ? customers.find((c) => c.id === selectedCustomer)?.name
-                        : "Search customers..."}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
+                <div className="flex items-center gap-2">
+                  <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={customerOpen}
+                        className="flex-1 justify-between font-normal"
+                        data-testid="select-customer"
+                      >
+                        {selectedCustomer
+                          ? customers.find((c) => c.id === selectedCustomer)?.name
+                          : "Search customers..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[300px] p-0" align="start">
                     <Command>
                       <CommandInput placeholder="Search by name or ID..." data-testid="input-search-customer" />
                       <CommandList>
@@ -467,6 +531,15 @@ export default function NewSale() {
                     </Command>
                   </PopoverContent>
                 </Popover>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => setNewCustomerDialogOpen(true)}
+                    title="Add New Customer"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
@@ -595,6 +668,74 @@ export default function NewSale() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={newCustomerDialogOpen} onOpenChange={setNewCustomerDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add New Customer</DialogTitle>
+            <DialogDescription>
+              Create a new customer quickly during checkout.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...customerForm}>
+            <form onSubmit={customerForm.handleSubmit(onCustomerSubmit)} className="space-y-4">
+              <FormField
+                control={customerForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="John Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={customerForm.control}
+                name="mobileNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mobile Number (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="8012345678" {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Enter number without country code
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={customerForm.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Address (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="123 Main St, City" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setNewCustomerDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createCustomerMutation.isPending}
+                >
+                  {createCustomerMutation.isPending ? "Creating..." : "Create Customer"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

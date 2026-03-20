@@ -35,6 +35,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { ExportToolbar } from "@/components/export-toolbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -396,6 +397,14 @@ export default function InventoryPage() {
     },
   ];
 
+  const exportColumns = [
+    { key: "name", header: "Item Name" },
+    { key: "type", header: "Type" },
+    { key: "costPrice", header: "Cost Price" },
+    { key: "sellingPrice", header: "Selling Price" },
+    { key: "quantity", header: "Stock" },
+  ];
+
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -417,6 +426,13 @@ export default function InventoryPage() {
         description={`Managing inventory for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
+            <ExportToolbar
+              data={filteredInventory as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              filename="inventory-list"
+              title="Inventory Report"
+              disabled={isLoading}
+            />
             <BulkOperations
               entityType="inventory"
               data={inventoryList as unknown as Record<string, unknown>[]}

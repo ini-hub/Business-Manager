@@ -33,6 +33,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { ExportToolbar } from "@/components/export-toolbar";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -194,8 +195,8 @@ export default function Customers() {
       name: customer.name,
       customerNumber: customer.customerNumber,
       countryCode,
-      mobileNumber: customer.mobileNumber,
-      address: customer.address,
+      mobileNumber: customer.mobileNumber || "",
+      address: customer.address || "",
     });
     setSelectedCustomer(customer);
     setIsFormOpen(true);
@@ -376,6 +377,14 @@ export default function Customers() {
     },
   ];
 
+  const exportColumns = [
+    { key: "name", header: "Name" },
+    { key: "customerNumber", header: "Customer Number" },
+    { key: "mobileNumber", header: "Mobile Number" },
+    { key: "countryCode", header: "Country Code" },
+    { key: "address", header: "Address" },
+  ];
+
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -397,6 +406,13 @@ export default function Customers() {
         description={`Managing customers for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
+            <ExportToolbar
+              data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              filename={`customers-${activeTab}`}
+              title={`Customers Report (${activeTab})`}
+              disabled={isLoading}
+            />
             <BulkOperations
               entityType="customers"
               data={activeCustomers as unknown as Record<string, unknown>[]}

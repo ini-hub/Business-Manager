@@ -27,16 +27,6 @@ export default function Landing() {
               </Button>
             </Link>
           </div>
-          <p className="text-sm text-muted-foreground mt-4">
-            Or{" "}
-            <button 
-              onClick={() => window.location.href = "/api/login"} 
-              className="text-primary hover:underline"
-              data-testid="button-replit-login"
-            >
-              continue with Replit
-            </button>
-          </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto">

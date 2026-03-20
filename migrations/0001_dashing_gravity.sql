@@ -1,0 +1,1 @@
+ALTER TABLE "checkouts" ALTER COLUMN "receipt_number" SET DEFAULT 'LEGACY-RECORD';

@@ -9,6 +9,12 @@ Objective 3 (Management): Provide organized records for all customers and staff 
 3. Feature Requirements
 The following requirements are derived directly from the provided ERD.
 
+3.0. 🏢 Multi-Tenancy & Store Isolation
+This module governs the isolation of data between different business entities.
+Requirement ID | Feature Name | Description
+--- | --- | ---
+MT-001 | Business Isolation | Data (stores, customers, staff, inventory, etc.) belonging to Business A must NEVER be visible or accessible to Business B.
+MT-002 | Store Context | All records must be strictly scoped to their respective business and store. API endpoints must validate user authorization against the requested business/store.
 3.1. 👤 Customer Management
 This module handles the storage and retrieval of customer information.
 Requirement ID
