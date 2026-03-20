@@ -207,6 +207,15 @@ Core entities with UUID primary keys and storeId foreign key:
 - Inventory stock validation to prevent negative quantities
 - Archive-based soft deletion with transaction preservation
 
+**Multi-Tenant Data Isolation**
+- Comprehensive access control preventing cross-business data access
+- Helper functions: `verifyStoreAccess(req, storeId)` and `verifyRecordStoreAccess(req, recordStoreId)`
+- All entity routes verify store belongs to user's business before returning data
+- PATCH routes strip storeId/businessId to prevent cross-tenant migration
+- Store creation forces businessId from session (ignores client value)
+- Bulk import endpoints verify store ownership before processing
+- Staff transfer validates both source and target store access
+
 ### Performance Optimizations
 
 **Pagination**

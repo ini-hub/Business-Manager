@@ -31,6 +31,15 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
     }
   }
 
+  // Handle email already in use errors
+  if (message.toLowerCase().includes("email") && 
+      (message.toLowerCase().includes("already") || message.toLowerCase().includes("in use") || message.toLowerCase().includes("exists"))) {
+    if (context === "staff") {
+      return "This email address is already in use. Please use a different email.";
+    }
+    return message; // Use the server's message for signup/login errors
+  }
+
   if (message.includes("unique constraint") || message.includes("duplicate")) {
     if (context === "customer") {
       return "A customer with this number already exists. Please use a different customer number.";

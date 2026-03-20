@@ -88,9 +88,10 @@ export default function Signup() {
       setLocation("/auth/login");
     },
     onError: (error: any) => {
+      const errorMessage = error.message || error.error || "Failed to create account. Please try again.";
       toast({
-        title: "Signup failed",
-        description: error.error || "Failed to create account. Please try again.",
+        title: "Couldn't Create Account",
+        description: errorMessage,
         variant: "destructive",
       });
     },
