@@ -47,6 +47,7 @@ export const stores = pgTable("stores", {
   phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
+  commissionRate: real("commission_rate").notNull().default(0.30), // Default 30% service commission
   managerStaffId: varchar("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -144,6 +145,7 @@ export const staff = pgTable("staff", {
   mobileNumber: text("mobile_number").notNull(),
   countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
   payPerMonth: real("pay_per_month").notNull(),
+  commissionRateOverride: real("commission_rate_override"), // Nullable: overrides store commission rate
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
   role: text("role").notNull().default("staff"), // manager or staff
@@ -296,7 +298,10 @@ export type Order = typeof orders.$inferSelect;
 export const checkouts = pgTable("checkouts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
-  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id), // Checkout processor (receipt-level)
+  leadStaffId: varchar("lead_staff_id").references(() => staff.id), // Lead staff for this service item (commission)
+  assistingStaff1Id: varchar("assisting_staff1_id").references(() => staff.id), // Optional assisting staff #1
+  assistingStaff2Id: varchar("assisting_staff2_id").references(() => staff.id), // Optional assisting staff #2
   orderId: varchar("order_id").notNull().references(() => orders.id),
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
   totalPrice: real("total_price").notNull(),
@@ -316,6 +321,21 @@ export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
   staff: one(staff, {
     fields: [checkouts.staffId],
     references: [staff.id],
+  }),
+  leadStaff: one(staff, {
+    fields: [checkouts.leadStaffId],
+    references: [staff.id],
+    relationName: "checkoutLeadStaff",
+  }),
+  assistingStaff1: one(staff, {
+    fields: [checkouts.assistingStaff1Id],
+    references: [staff.id],
+    relationName: "checkoutAssistingStaff1",
+  }),
+  assistingStaff2: one(staff, {
+    fields: [checkouts.assistingStaff2Id],
+    references: [staff.id],
+    relationName: "checkoutAssistingStaff2",
   }),
   order: one(orders, {
     fields: [checkouts.orderId],
@@ -537,3 +557,188 @@ export type VerifyOtpRequest = z.infer<typeof verifyOtpSchema>;
 export type UserWithBusiness = User & {
   business: Business | null;
 };
+
+// ========== SETTINGS TABLE ==========
+
+export const settings = pgTable("settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id).unique(),
+  activeDayTransport: real("active_day_transport").notNull().default(1000),
+  passiveDayTransport: real("passive_day_transport").notNull().default(500),
+  commissionRate: real("commission_rate").notNull().default(0.30),
+  defaultPayrollPeriod: text("default_payroll_period").notNull().default("monthly"), // weekly, biweekly, monthly
+  maxAssistingStaff: integer("max_assisting_staff").notNull().default(2),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const settingsRelations = relations(settings, ({ one }) => ({
+  store: one(stores, {
+    fields: [settings.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
+export type InsertSettings = z.infer<typeof insertSettingsSchema>;
+export type Settings = typeof settings.$inferSelect;
+
+// ========== PAYROLL TABLES ==========
+
+// Attendance status enum
+export const attendanceStatusEnum = ["present", "absent", "off_day", "holiday"] as const;
+export type AttendanceStatus = typeof attendanceStatusEnum[number];
+
+// Attendance records table - one record per staff per day
+export const attendanceRecords = pgTable("attendance_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  date: text("date").notNull(), // ISO date string YYYY-MM-DD
+  status: text("status").notNull(), // present, absent, off_day, holiday
+  notes: text("notes"),
+  markedByUserId: varchar("marked_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  unique("attendance_staff_date_unique").on(table.storeId, table.staffId, table.date),
+]);
+
+export const attendanceRecordsRelations = relations(attendanceRecords, ({ one }) => ({
+  store: one(stores, {
+    fields: [attendanceRecords.storeId],
+    references: [stores.id],
+  }),
+  staff: one(staff, {
+    fields: [attendanceRecords.staffId],
+    references: [staff.id],
+  }),
+  markedByUser: one(users, {
+    fields: [attendanceRecords.markedByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const insertAttendanceRecordSchema = createInsertSchema(attendanceRecords).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
+  status: z.enum(attendanceStatusEnum),
+  notes: z.string().optional(),
+});
+export type InsertAttendanceRecord = z.infer<typeof insertAttendanceRecordSchema>;
+export type AttendanceRecord = typeof attendanceRecords.$inferSelect;
+
+// Payroll period status
+export const payrollPeriodStatusEnum = ["pending", "approved", "paid"] as const;
+export type PayrollPeriodStatus = typeof payrollPeriodStatusEnum[number];
+
+// Payroll period type
+export const payrollPeriodTypeEnum = ["weekly", "biweekly", "monthly"] as const;
+export type PayrollPeriodType = typeof payrollPeriodTypeEnum[number];
+
+// Payroll periods table
+export const payrollPeriods = pgTable("payroll_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  periodType: text("period_type").notNull().default("monthly"), // weekly, biweekly, monthly
+  startDate: text("start_date").notNull(), // ISO date YYYY-MM-DD
+  endDate: text("end_date").notNull(),   // ISO date YYYY-MM-DD
+  status: text("status").notNull().default("pending"), // pending, approved, paid
+  settingsSnapshot: jsonb("settings_snapshot"), // Snapshot of rates used at calculation time
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const payrollPeriodsRelations = relations(payrollPeriods, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [payrollPeriods.storeId],
+    references: [stores.id],
+  }),
+  approvedByUser: one(users, {
+    fields: [payrollPeriods.approvedByUserId],
+    references: [users.id],
+  }),
+  entries: many(payrollEntries),
+}));
+
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({ id: true, createdAt: true, approvedAt: true, paidAt: true, settingsSnapshot: true }).extend({
+  periodType: z.enum(payrollPeriodTypeEnum).default("monthly"),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be YYYY-MM-DD"),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "End date must be YYYY-MM-DD"),
+  status: z.enum(payrollPeriodStatusEnum).default("pending"),
+});
+export type InsertPayrollPeriod = z.infer<typeof insertPayrollPeriodSchema>;
+export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
+
+// Payroll entries table — Option 4 Hybrid pay model per staff per period
+export const payrollEntries = pgTable("payroll_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  activeDays: integer("active_days").notNull().default(0),
+  passiveDays: integer("passive_days").notNull().default(0),
+  activeTransport: real("active_transport").notNull().default(0),
+  passiveTransport: real("passive_transport").notNull().default(0),
+  totalTransport: real("total_transport").notNull().default(0),
+  grossCommission: real("gross_commission").notNull().default(0),
+  netPay: real("net_pay").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  unique("payroll_entry_period_staff_unique").on(table.periodId, table.staffId),
+]);
+
+export const payrollEntriesRelations = relations(payrollEntries, ({ one }) => ({
+  period: one(payrollPeriods, {
+    fields: [payrollEntries.periodId],
+    references: [payrollPeriods.id],
+  }),
+  store: one(stores, {
+    fields: [payrollEntries.storeId],
+    references: [stores.id],
+  }),
+  staff: one(staff, {
+    fields: [payrollEntries.staffId],
+    references: [staff.id],
+  }),
+}));
+
+export const insertPayrollEntrySchema = createInsertSchema(payrollEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPayrollEntry = z.infer<typeof insertPayrollEntrySchema>;
+export type PayrollEntry = typeof payrollEntries.$inferSelect;
+
+// Extended payroll types for frontend
+export type PayrollEntryWithStaff = PayrollEntry & {
+  staff: Staff;
+};
+
+export type PayrollPeriodWithEntries = PayrollPeriod & {
+  entries: PayrollEntryWithStaff[];
+};
+
+// Commission breakdown per checkout (computed, not stored)
+export type CommissionBreakdown = {
+  checkoutId: string;
+  receiptNumber: string;
+  transactionDate: string;
+  inventoryName: string;
+  inventoryType: string;
+  serviceAmount: number;
+  commissionPool: number;
+  role: "lead" | "assistant_1" | "assistant_2";
+  share: number;
+  earned: number;
+};
+
+// Daily Summary Line for Option 4 drill-down
+export type DailySummaryLine = {
+  date: string;
+  dayType: "Active" | "Passive" | "Absent";
+  transport: number;
+  servicesWorked: string;
+  commissionEarned: number;
+  dailyTotal: number;
+};
+
+

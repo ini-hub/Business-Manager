@@ -12,6 +12,9 @@ import {
   users,
   otpCodes,
   inventoryRestockEvents,
+  attendanceRecords,
+  payrollPeriods,
+  payrollEntries,
   type Business,
   type InsertBusiness,
   type Store,
@@ -40,9 +43,21 @@ import {
   type UserRole,
   type RestockEvent,
   type CostStrategy,
+  type AttendanceRecord,
+  type InsertAttendanceRecord,
+  type AttendanceStatus,
+  type PayrollPeriod,
+  type InsertPayrollPeriod,
+  type PayrollPeriodStatus,
+  type PayrollEntryWithStaff,
+  type CommissionBreakdown,
+  settings,
+  type Settings,
+  type InsertSettings,
+  type DailySummaryLine,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, count, and, asc, like, or, ilike, gt } from "drizzle-orm";
+import { eq, sql, desc, count, and, asc, like, or, ilike, gt, gte, lte } from "drizzle-orm";
 
 // Pagination types
 export interface PaginationOptions {
@@ -186,6 +201,10 @@ export interface IStorage {
     newSellingPrice?: number;
     notes?: string;
   }): Promise<{ restockEvent: RestockEvent; updatedInventory: Inventory }>;
+
+  // Settings
+  getSettings(storeId: string): Promise<Settings>;
+  upsertSettings(storeId: string, data: Partial<InsertSettings>): Promise<Settings>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1027,6 +1046,9 @@ export class DatabaseStorage implements IStorage {
       inventoryId: string;
       quantity: number;
       customPrice?: number;
+      leadStaffId?: string | null;
+      assistingStaff1Id?: string | null;
+      assistingStaff2Id?: string | null;
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave";
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
@@ -1076,10 +1098,13 @@ export class DatabaseStorage implements IStorage {
           // Generate receipt number
           const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
 
-          // Create checkout
+          // Create checkout (include lead + assisting staff if provided)
           const [checkout] = await tx.insert(checkouts).values({
             storeId: data.storeId,
             staffId: data.staffId,
+            leadStaffId: item.leadStaffId || null,
+            assistingStaff1Id: item.assistingStaff1Id || null,
+            assistingStaff2Id: item.assistingStaff2Id || null,
             orderId: order.id,
             receiptNumber,
             totalPrice,
@@ -1292,6 +1317,491 @@ export class DatabaseStorage implements IStorage {
     });
 
     return result;
+  }
+  // Attendance Records
+  async getAttendanceRecords(storeId: string, options: {
+    staffId?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}): Promise<AttendanceRecord[]> {
+    const conditions = [eq(attendanceRecords.storeId, storeId)];
+    if (options.staffId) conditions.push(eq(attendanceRecords.staffId, options.staffId));
+    if (options.startDate) conditions.push(gte(attendanceRecords.date, options.startDate));
+    if (options.endDate) conditions.push(lte(attendanceRecords.date, options.endDate));
+
+    return await db.select().from(attendanceRecords)
+      .where(and(...conditions))
+      .orderBy(asc(attendanceRecords.date));
+  }
+
+  async upsertAttendanceRecord(data: InsertAttendanceRecord): Promise<AttendanceRecord> {
+    const [record] = await db.insert(attendanceRecords)
+      .values({ ...data, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [attendanceRecords.storeId, attendanceRecords.staffId, attendanceRecords.date],
+        set: {
+          status: data.status,
+          notes: data.notes ?? null,
+          markedByUserId: data.markedByUserId ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return record;
+  }
+
+  async bulkMarkAttendance(storeId: string, date: string, status: AttendanceStatus, staffIds: string[], markedByUserId?: string): Promise<AttendanceRecord[]> {
+    const results: AttendanceRecord[] = [];
+    for (const staffId of staffIds) {
+      const record = await this.upsertAttendanceRecord({ storeId, staffId, date, status, markedByUserId });
+      results.push(record);
+    }
+    return results;
+  }
+
+  async getAttendanceSummary(storeId: string, staffId: string, startDate: string, endDate: string): Promise<{
+    present: number;
+    absent: number;
+    offDay: number;
+    holiday: number;
+    totalWorkingDays: number;
+  }> {
+    const records = await this.getAttendanceRecords(storeId, { staffId, startDate, endDate });
+    const summary = { present: 0, absent: 0, offDay: 0, holiday: 0, totalWorkingDays: 0 };
+    for (const r of records) {
+      if (r.status === "present") { summary.present++; summary.totalWorkingDays++; }
+      else if (r.status === "absent") { summary.absent++; summary.totalWorkingDays++; }
+      else if (r.status === "off_day") summary.offDay++;
+      else if (r.status === "holiday") summary.holiday++;
+    }
+    return summary;
+  }
+
+  // Payroll Periods
+  async getPayrollPeriods(storeId: string): Promise<PayrollPeriod[]> {
+    return await db.select().from(payrollPeriods)
+      .where(eq(payrollPeriods.storeId, storeId))
+      .orderBy(desc(payrollPeriods.createdAt));
+  }
+
+  async getPayrollPeriod(id: string): Promise<PayrollPeriod | undefined> {
+    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, id));
+    return period;
+  }
+
+  async createPayrollPeriod(data: InsertPayrollPeriod): Promise<PayrollPeriod> {
+    const [period] = await db.insert(payrollPeriods).values(data).returning();
+    return period;
+  }
+
+  async updatePayrollPeriodStatus(
+    id: string,
+    status: PayrollPeriodStatus,
+    userId?: string
+  ): Promise<PayrollPeriod | undefined> {
+    const setData: Partial<PayrollPeriod> = { status };
+    if (status === "approved") {
+      setData.approvedByUserId = userId;
+      setData.approvedAt = new Date();
+    }
+    if (status === "paid") {
+      setData.paidAt = new Date();
+    }
+    const [updated] = await db.update(payrollPeriods).set(setData).where(eq(payrollPeriods.id, id)).returning();
+    return updated;
+  }
+
+  // Payroll Entries
+  async getPayrollEntries(periodId: string): Promise<PayrollEntryWithStaff[]> {
+    const rows = await db.select({
+      entry: payrollEntries,
+      staffMember: staff,
+    })
+      .from(payrollEntries)
+      .leftJoin(staff, eq(payrollEntries.staffId, staff.id))
+      .where(eq(payrollEntries.periodId, periodId))
+      .orderBy(desc(payrollEntries.netPay));
+
+    return rows.map(r => ({ ...r.entry, staff: r.staffMember! }));
+  }
+
+  // Option 4 Hybrid Model Commission Calculation Engine
+  async calculatePayrollForPeriod(periodId: string): Promise<PayrollEntryWithStaff[]> {
+    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
+    if (!period) throw new Error("Payroll period not found");
+    if (period.status === "paid") throw new Error("Cannot recalculate a paid payroll period.");
+
+    // Fetch store settings snapshot or current settings
+    const storeSettings = await this.getSettings(period.storeId);
+    const activeTransportRate = storeSettings.activeDayTransport ?? 1000;
+    const passiveTransportRate = storeSettings.passiveDayTransport ?? 500;
+    const baseCommissionRate = storeSettings.commissionRate ?? 0.30;
+
+    // Snapshot settings on the period if pending/approved to ensure historical stability
+    await db.update(payrollPeriods)
+      .set({ settingsSnapshot: storeSettings })
+      .where(eq(payrollPeriods.id, periodId));
+
+    // Get all staff for quick lookup
+    const allStaff = await db.select().from(staff).where(eq(staff.storeId, period.storeId));
+    const activeStaffList = allStaff.filter(s => !s.isArchived);
+    const staffMap = new Map(allStaff.map(s => [s.id, s]));
+
+    // Fetch all checkouts in period date range
+    const periodCheckouts = await db.select({
+      checkout: checkouts,
+      order: orders,
+      inventoryItem: inventory,
+    })
+      .from(checkouts)
+      .innerJoin(orders, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .where(and(
+        eq(checkouts.storeId, period.storeId),
+        gte(checkouts.createdAt, new Date(period.startDate + "T00:00:00.000Z")),
+        lte(checkouts.createdAt, new Date(period.endDate + "T23:59:59.999Z")),
+      ));
+
+    // Fetch attendance records in period date range
+    const attendanceList = await db.select()
+      .from(attendanceRecords)
+      .where(and(
+        eq(attendanceRecords.storeId, period.storeId),
+        gte(attendanceRecords.date, period.startDate),
+        lte(attendanceRecords.date, period.endDate),
+      ));
+
+    // Group checkouts by discrete local date string YYYY-MM-DD
+    const checkoutsByDate = new Map<string, typeof periodCheckouts>();
+    for (const row of periodCheckouts) {
+      const dateStr = row.checkout.createdAt.toISOString().split("T")[0];
+      if (!checkoutsByDate.has(dateStr)) checkoutsByDate.set(dateStr, []);
+      checkoutsByDate.get(dateStr)!.push(row);
+    }
+
+    // Group attendance by date -> staffId -> status
+    const attendanceByDateStaff = new Map<string, Map<string, string>>();
+    for (const rec of attendanceList) {
+      if (!attendanceByDateStaff.has(rec.date)) attendanceByDateStaff.set(rec.date, new Map());
+      attendanceByDateStaff.get(rec.date)!.set(rec.staffId, rec.status);
+    }
+
+    // Prepare per-staff summary accumulation
+    const staffTotals = new Map<string, {
+      activeDays: number;
+      passiveDays: number;
+      grossCommission: number;
+    }>();
+
+    for (const s of activeStaffList) {
+      staffTotals.set(s.id, { activeDays: 0, passiveDays: 0, grossCommission: 0 });
+    }
+
+    // Loop through each distinct marked or transaction date in the period interval
+    const allDateStrs = Array.from(new Set([...checkoutsByDate.keys(), ...attendanceByDateStaff.keys()])).sort();
+
+    for (const dateStr of allDateStrs) {
+      if (dateStr < period.startDate || dateStr > period.endDate) continue;
+
+      const dayCheckouts = checkoutsByDate.get(dateStr) || [];
+      const dayServiceCheckouts = dayCheckouts.filter(c => c.inventoryItem.type === "service");
+
+      // Identify all distinct staff assigned to any service line items that day
+      const dailyActiveStaffIds = new Set<string>();
+      let totalDailyServiceRevenue = 0;
+
+      for (const row of dayServiceCheckouts) {
+        totalDailyServiceRevenue += row.order.totalPrice;
+        const leadId = row.checkout.leadStaffId || row.checkout.staffId;
+        dailyActiveStaffIds.add(leadId);
+        if (row.checkout.assistingStaff1Id) dailyActiveStaffIds.add(row.checkout.assistingStaff1Id);
+        if (row.checkout.assistingStaff2Id) dailyActiveStaffIds.add(row.checkout.assistingStaff2Id);
+      }
+
+      const activeStaffCount = dailyActiveStaffIds.size;
+      const dayAttendance = attendanceByDateStaff.get(dateStr) || new Map<string, string>();
+
+      // Update active/passive day counts per staff member for this day
+      for (const [staffId, totals] of staffTotals) {
+        const isAssigned = dailyActiveStaffIds.has(staffId);
+        const status = dayAttendance.get(staffId);
+
+        // Exclude off days and holidays entirely per spec
+        if (status === "off_day" || status === "holiday") continue;
+
+        if (isAssigned) {
+          // If assigned to service, automatically Active Day
+          totals.activeDays++;
+        } else if (status === "present") {
+          // Present but not assigned -> Passive Day
+          totals.passiveDays++;
+        }
+      }
+
+      // If no service revenue, skip commission math
+      if (totalDailyServiceRevenue <= 0 || activeStaffCount === 0) continue;
+
+      // Calculate Daily Commissionable Amount
+      // Commissionable = Total Daily Service Revenue − (Active Staff Count × Active Transport Amount)
+      const commissionable = Math.max(0, totalDailyServiceRevenue - (activeStaffCount * activeTransportRate));
+      const dailyCommissionPool = commissionable * baseCommissionRate;
+
+      // Distribute pool across service items proportionally
+      for (const row of dayServiceCheckouts) {
+        const serviceWeight = row.order.totalPrice / totalDailyServiceRevenue;
+        const perServicePool = serviceWeight * dailyCommissionPool;
+
+        const leadId = row.checkout.leadStaffId || row.checkout.staffId;
+        const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
+        const staffCount = 1 + assistants.length;
+
+        const leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
+        const asstShare = 0.2;
+
+        // Add lead share
+        if (staffTotals.has(leadId)) {
+          staffTotals.get(leadId)!.grossCommission += perServicePool * leadShare;
+        }
+
+        // Add assistant shares
+        for (const asstId of assistants) {
+          if (staffTotals.has(asstId)) {
+            staffTotals.get(asstId)!.grossCommission += perServicePool * asstShare;
+          }
+        }
+      }
+    }
+
+    // Upsert payroll entries for each active staff member
+    const results: PayrollEntryWithStaff[] = [];
+
+    for (const [staffId, totals] of staffTotals) {
+      const activeTransport = totals.activeDays * activeTransportRate;
+      const passiveTransport = totals.passiveDays * passiveTransportRate;
+      const totalTransport = activeTransport + passiveTransport;
+      const netPay = totalTransport + totals.grossCommission;
+
+      const [entry] = await db.insert(payrollEntries)
+        .values({
+          periodId,
+          storeId: period.storeId,
+          staffId,
+          activeDays: totals.activeDays,
+          passiveDays: totals.passiveDays,
+          activeTransport,
+          passiveTransport,
+          totalTransport,
+          grossCommission: totals.grossCommission,
+          netPay,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [payrollEntries.periodId, payrollEntries.staffId],
+          set: {
+            activeDays: totals.activeDays,
+            passiveDays: totals.passiveDays,
+            activeTransport,
+            passiveTransport,
+            totalTransport,
+            grossCommission: totals.grossCommission,
+            netPay,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+
+      const staffMember = staffMap.get(staffId)!;
+      results.push({ ...entry, staff: staffMember });
+    }
+
+    return results.sort((a, b) => b.netPay - a.netPay);
+  }
+
+  // Option 4 Hybrid Model Drill-down for one staff member
+  async getPayrollDrillDown(periodId: string, staffId: string): Promise<{
+    dailySummary: DailySummaryLine[];
+    transactions: CommissionBreakdown[];
+  }> {
+    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
+    if (!period) throw new Error("Payroll period not found");
+
+    // Use settings snapshot if present, else fall back to current store settings
+    const storeSettings = (period.settingsSnapshot as Settings | null) ?? (await this.getSettings(period.storeId));
+    const activeTransportRate = storeSettings.activeDayTransport ?? 1000;
+    const passiveTransportRate = storeSettings.passiveDayTransport ?? 500;
+    const baseCommissionRate = storeSettings.commissionRate ?? 0.30;
+
+    // Fetch all checkouts in period
+    const periodCheckouts = await db.select({
+      checkout: checkouts,
+      order: orders,
+      inventoryItem: inventory,
+      txn: transactions,
+    })
+      .from(checkouts)
+      .innerJoin(orders, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .innerJoin(transactions, eq(transactions.checkoutId, checkouts.id))
+      .where(and(
+        eq(checkouts.storeId, period.storeId),
+        gte(checkouts.createdAt, new Date(period.startDate + "T00:00:00.000Z")),
+        lte(checkouts.createdAt, new Date(period.endDate + "T23:59:59.999Z")),
+      ));
+
+    // Fetch attendance for this staff member in period
+    const attendanceList = await db.select()
+      .from(attendanceRecords)
+      .where(and(
+        eq(attendanceRecords.storeId, period.storeId),
+        eq(attendanceRecords.staffId, staffId),
+        gte(attendanceRecords.date, period.startDate),
+        lte(attendanceRecords.date, period.endDate),
+      ));
+
+    const attendanceMap = new Map(attendanceList.map(a => [a.date, a.status]));
+
+    // Group checkouts by date to compute daily pools
+    const checkoutsByDate = new Map<string, typeof periodCheckouts>();
+    for (const row of periodCheckouts) {
+      const dateStr = row.txn.transactionDate.toISOString().split("T")[0];
+      if (!checkoutsByDate.has(dateStr)) checkoutsByDate.set(dateStr, []);
+      checkoutsByDate.get(dateStr)!.push(row);
+    }
+
+    const allDateStrs = Array.from(new Set([...checkoutsByDate.keys(), ...attendanceMap.keys()])).sort();
+
+    const dailySummaryLines: DailySummaryLine[] = [];
+    const breakdownList: CommissionBreakdown[] = [];
+
+    for (const dateStr of allDateStrs) {
+      if (dateStr < period.startDate || dateStr > period.endDate) continue;
+
+      const dayCheckouts = checkoutsByDate.get(dateStr) || [];
+      const dayServiceCheckouts = dayCheckouts.filter(c => c.inventoryItem.type === "service");
+
+      const dailyActiveStaffIds = new Set<string>();
+      let totalDailyServiceRevenue = 0;
+
+      for (const row of dayServiceCheckouts) {
+        totalDailyServiceRevenue += row.order.totalPrice;
+        const leadId = row.checkout.leadStaffId || row.checkout.staffId;
+        dailyActiveStaffIds.add(leadId);
+        if (row.checkout.assistingStaff1Id) dailyActiveStaffIds.add(row.checkout.assistingStaff1Id);
+        if (row.checkout.assistingStaff2Id) dailyActiveStaffIds.add(row.checkout.assistingStaff2Id);
+      }
+
+      const activeStaffCount = dailyActiveStaffIds.size;
+      const isAssigned = dailyActiveStaffIds.has(staffId);
+      const status = attendanceMap.get(dateStr);
+
+      if (status === "off_day" || status === "holiday") continue;
+
+      let dayType: "Active" | "Passive" | "Absent" = "Absent";
+      let transport = 0;
+
+      if (isAssigned) {
+        dayType = "Active";
+        transport = activeTransportRate;
+      } else if (status === "present") {
+        dayType = "Passive";
+        transport = passiveTransportRate;
+      } else {
+        continue;
+      }
+
+      // Calculate daily commission pool
+      let commissionEarned = 0;
+      const servicesWorkedNames: string[] = [];
+
+      if (totalDailyServiceRevenue > 0 && activeStaffCount > 0 && isAssigned) {
+        const commissionable = Math.max(0, totalDailyServiceRevenue - (activeStaffCount * activeTransportRate));
+        const dailyCommissionPool = commissionable * baseCommissionRate;
+
+        for (const row of dayServiceCheckouts) {
+          const leadId = row.checkout.leadStaffId || row.checkout.staffId;
+          const isLead = leadId === staffId;
+          const isAsst1 = row.checkout.assistingStaff1Id === staffId;
+          const isAsst2 = row.checkout.assistingStaff2Id === staffId;
+
+          if (!isLead && !isAsst1 && !isAsst2) continue;
+
+          const serviceWeight = row.order.totalPrice / totalDailyServiceRevenue;
+          const perServicePool = serviceWeight * dailyCommissionPool;
+
+          const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
+          const staffCount = 1 + assistants.length;
+
+          const leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
+          const asstShare = 0.2;
+
+          let role: "lead" | "assistant_1" | "assistant_2" = "lead";
+          let share = leadShare;
+
+          if (isLead) {
+            role = "lead";
+            share = leadShare;
+            servicesWorkedNames.push(`${row.inventoryItem.name} (Lead)`);
+          } else if (isAsst1) {
+            role = "assistant_1";
+            share = asstShare;
+            servicesWorkedNames.push(`${row.inventoryItem.name} (Asst 1)`);
+          } else if (isAsst2) {
+            role = "assistant_2";
+            share = asstShare;
+            servicesWorkedNames.push(`${row.inventoryItem.name} (Asst 2)`);
+          }
+
+          const earned = perServicePool * share;
+          commissionEarned += earned;
+
+          breakdownList.push({
+            checkoutId: row.checkout.id,
+            receiptNumber: row.checkout.receiptNumber,
+            transactionDate: row.txn.transactionDate.toISOString(),
+            inventoryName: row.inventoryItem.name,
+            inventoryType: row.inventoryItem.name,
+            serviceAmount: row.order.totalPrice,
+            commissionPool: perServicePool,
+            role,
+            share,
+            earned,
+          });
+        }
+      }
+
+      dailySummaryLines.push({
+        date: dateStr,
+        dayType,
+        transport,
+        servicesWorked: servicesWorkedNames.length > 0 ? servicesWorkedNames.join(", ") : "—",
+        commissionEarned,
+        dailyTotal: transport + commissionEarned,
+      });
+    }
+
+    return {
+      dailySummary: dailySummaryLines.sort((a, b) => a.date.localeCompare(b.date)),
+      transactions: breakdownList.sort((a, b) => a.transactionDate.localeCompare(b.transactionDate)),
+    };
+  }
+
+  // Settings CRUD
+  async getSettings(storeId: string): Promise<Settings> {
+    const [row] = await db.select().from(settings).where(eq(settings.storeId, storeId));
+    if (row) return row;
+    const [inserted] = await db.insert(settings).values({ storeId }).returning();
+    return inserted;
+  }
+
+  async upsertSettings(storeId: string, data: Partial<InsertSettings>): Promise<Settings> {
+    const [updated] = await db.insert(settings)
+      .values({ storeId, ...data })
+      .onConflictDoUpdate({
+        target: settings.storeId,
+        set: { ...data, updatedAt: new Date() },
+      })
+      .returning();
+    return updated;
   }
 }
 

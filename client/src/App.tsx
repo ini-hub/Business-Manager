@@ -19,11 +19,14 @@ import Dashboard from "@/pages/dashboard";
 import Customers from "@/pages/customers";
 import CustomerDetails from "@/pages/customer-details";
 import StaffPage from "@/pages/staff";
+import AttendancePage from "@/pages/attendance";
 import InventoryPage from "@/pages/inventory";
 import InventoryDetails from "@/pages/inventory-details";
 import NewSale from "@/pages/new-sale";
 import Transactions from "@/pages/transactions";
 import ProfitLossPage from "@/pages/profit-loss";
+import PayrollPage from "@/pages/payroll";
+import PayrollDetailPage from "@/pages/payroll-detail";
 import SettingsStoresPage from "@/pages/settings-stores";
 import OnboardingWizard from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
@@ -139,11 +142,14 @@ function AuthenticatedLayout() {
                   <Route path="/customers" component={Customers} />
                   <Route path="/customers/:id" component={CustomerDetails} />
                   <Route path="/staff" component={StaffPage} />
+                  <Route path="/staff/attendance" component={AttendancePage} />
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/:id" component={InventoryDetails} />
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
                   <Route path="/profit-loss" component={ProfitLossPage} />
+                  <Route path="/payroll" component={PayrollPage} />
+                  <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
                   <Route path="/settings/stores" component={SettingsStoresPage} />
                   <Route component={NotFound} />
                 </Switch>

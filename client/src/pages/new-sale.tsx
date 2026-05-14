@@ -81,6 +81,12 @@ interface CartItem {
   quantity: number;
   customPrice: number; // Allow negotiable pricing
   totalPrice: number;
+  // Per-item staff assignment (services only)
+  leadStaffId?: string | null;
+  assistingStaff1Id?: string | null;
+  assistingStaff2Id?: string | null;
+  showAsst1?: boolean; // UI toggle
+  showAsst2?: boolean; // UI toggle
 }
 
 export default function NewSale() {
@@ -187,9 +193,33 @@ export default function NewSale() {
         inventory: item, 
         quantity: 1, 
         customPrice: item.sellingPrice, 
-        totalPrice: item.sellingPrice 
+        totalPrice: item.sellingPrice,
+        leadStaffId: null,
+        assistingStaff1Id: null,
+        assistingStaff2Id: null,
+        showAsst1: false,
+        showAsst2: false,
       }];
     });
+  };
+
+  const updateStaffAssignment = (itemId: string, field: keyof CartItem, value: string | null | boolean) => {
+    setCart((prev) => prev.map(c => {
+      if (c.inventory.id === itemId) {
+        const updated = { ...c, [field]: value };
+        if (field === "leadStaffId" && !value) {
+          updated.assistingStaff1Id = null;
+          updated.assistingStaff2Id = null;
+          updated.showAsst1 = false;
+          updated.showAsst2 = false;
+        } else if (field === "assistingStaff1Id" && !value) {
+          updated.assistingStaff2Id = null;
+          updated.showAsst2 = false;
+        }
+        return updated;
+      }
+      return c;
+    }));
   };
 
   const updateQuantity = (itemId: string, delta: number) => {
@@ -240,6 +270,10 @@ export default function NewSale() {
         inventoryId: item.inventory.id,
         quantity: item.quantity,
         customPrice: item.customPrice,
+        // Only pass staff assignment for service items
+        leadStaffId: item.inventory.type === "service" ? (item.leadStaffId || null) : null,
+        assistingStaff1Id: item.inventory.type === "service" ? (item.assistingStaff1Id || null) : null,
+        assistingStaff2Id: item.inventory.type === "service" ? (item.assistingStaff2Id || null) : null,
       }));
 
       return apiRequest("POST", "/api/sales/checkout", {
@@ -271,7 +305,9 @@ export default function NewSale() {
     },
   });
 
-  const canCheckout = cart.length > 0 && selectedCustomer && selectedStaff;
+  // Block checkout if any service item has no lead staff assigned
+  const serviceItemsMissingLead = cart.filter(c => c.inventory.type === "service" && !c.leadStaffId);
+  const canCheckout = cart.length > 0 && selectedCustomer && selectedStaff && serviceItemsMissingLead.length === 0;
 
   if (!currentStore) {
     return (
@@ -459,6 +495,116 @@ export default function NewSale() {
                             {formatCurrency(item.totalPrice)}
                           </span>
                         </div>
+                        {/* Staff assignment for service items */}
+                        {item.inventory.type === "service" && (
+                          <div className="mt-2 pt-2 border-t border-muted space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                              <UserCog className="h-3 w-3" />
+                              Staff Assignment
+                            </p>
+                            {/* Lead staff */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground w-16 shrink-0">Lead *</span>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button variant="outline" size="sm" className={`flex-1 justify-between font-normal h-7 text-xs ${!item.leadStaffId ? "border-destructive/50" : ""}`}>
+                                    {item.leadStaffId ? staffList.find(s => s.id === item.leadStaffId)?.name : "Select lead…"}
+                                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-52 p-0" align="start">
+                                  <Command>
+                                    <CommandInput placeholder="Search staff…" />
+                                    <CommandList>
+                                      <CommandEmpty>Not found</CommandEmpty>
+                                      <CommandGroup>
+                                        {staffList.filter(s => !s.isArchived).map(s => (
+                                          <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "leadStaffId", s.id)}>
+                                            <Check className={cn("mr-2 h-3 w-3", item.leadStaffId === s.id ? "opacity-100" : "opacity-0")} />
+                                            {s.name}
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+
+                            {/* Assisting staff 1 */}
+                            {item.showAsst1 ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground w-16 shrink-0">Asst. #1</span>
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button variant="outline" size="sm" className="flex-1 justify-between font-normal h-7 text-xs">
+                                      {item.assistingStaff1Id ? staffList.find(s => s.id === item.assistingStaff1Id)?.name : "Select…"}
+                                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-52 p-0" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search staff…" />
+                                      <CommandList>
+                                        <CommandEmpty>Not found</CommandEmpty>
+                                        <CommandGroup>
+                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId).map(s => (
+                                            <CommandItem key={s.id} value={s.name} onSelect={() => {
+                                              updateStaffAssignment(item.inventory.id, "assistingStaff1Id", s.id);
+                                            }}>
+                                              <Check className={cn("mr-2 h-3 w-3", item.assistingStaff1Id === s.id ? "opacity-100" : "opacity-0")} />
+                                              {s.name}
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
+                                {item.assistingStaff1Id && !item.showAsst2 && (
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => updateStaffAssignment(item.inventory.id, "showAsst2", true)}>
+                                    +Asst
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" onClick={() => updateStaffAssignment(item.inventory.id, "showAsst1", true)}>
+                                + Add Assisting Staff
+                              </Button>
+                            )}
+
+                            {/* Assisting staff 2 */}
+                            {item.showAsst2 && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground w-16 shrink-0">Asst. #2</span>
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button variant="outline" size="sm" className="flex-1 justify-between font-normal h-7 text-xs">
+                                      {item.assistingStaff2Id ? staffList.find(s => s.id === item.assistingStaff2Id)?.name : "Select…"}
+                                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-52 p-0" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search staff…" />
+                                      <CommandList>
+                                        <CommandEmpty>Not found</CommandEmpty>
+                                        <CommandGroup>
+                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId && s.id !== item.assistingStaff1Id).map(s => (
+                                            <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "assistingStaff2Id", s.id)}>
+                                              <Check className={cn("mr-2 h-3 w-3", item.assistingStaff2Id === s.id ? "opacity-100" : "opacity-0")} />
+                                              {s.name}
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -648,6 +794,16 @@ export default function NewSale() {
                 </RadioGroup>
               </div>
             </CardContent>
+            {serviceItemsMissingLead.length > 0 && (
+              <div className="px-6 pb-2">
+                <Alert variant="destructive" className="py-2 text-xs">
+                  <AlertDescription className="flex items-center gap-1.5 font-medium">
+                    <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shrink-0" />
+                    Please assign a Lead staff to all service items.
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
             <CardFooter>
               <Button
                 className="w-full"

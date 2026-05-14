@@ -9,6 +9,8 @@ import {
   TrendingUp,
   Settings,
   LogOut,
+  CalendarDays,
+  DollarSign,
 } from "lucide-react";
 import {
   Sidebar,
@@ -54,6 +56,12 @@ const managementItems: MenuItem[] = [
     allowedRoles: ["owner", "manager"],
   },
   {
+    title: "Attendance",
+    url: "/staff/attendance",
+    icon: CalendarDays,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
     title: "Inventory",
     url: "/inventory",
     icon: Package,
@@ -85,6 +93,15 @@ const reportsItems: MenuItem[] = [
   },
 ];
 
+const payrollItems: MenuItem[] = [
+  {
+    title: "Payroll",
+    url: "/payroll",
+    icon: DollarSign,
+    allowedRoles: ["owner", "manager"],
+  },
+];
+
 const settingsItems: MenuItem[] = [
   {
     title: "Business & Stores",
@@ -106,6 +123,7 @@ export function AppSidebar() {
   const visibleManagementItems = filterByRole(managementItems);
   const visibleSalesItems = filterByRole(salesItems);
   const visibleReportsItems = filterByRole(reportsItems);
+  const visiblePayrollItems = filterByRole(payrollItems);
   const visibleSettingsItems = filterByRole(settingsItems);
 
   const handleLogout = async () => {
@@ -194,6 +212,32 @@ export function AppSidebar() {
                       className="gap-3"
                     >
                       <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {visiblePayrollItems.length > 0 && (
+          <SidebarGroup className="mt-4">
+            <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Payroll
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visiblePayrollItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location.startsWith(item.url)}
+                      className="gap-3"
+                    >
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </Link>
