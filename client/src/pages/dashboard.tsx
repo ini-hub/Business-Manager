@@ -112,7 +112,7 @@ export default function Dashboard() {
           isLoading={isLoading}
         />
         <MetricCard
-          title="Net Profit"
+          title="Gross Profit"
           value={formatCurrency(stats?.totalProfit ?? 0)}
           icon={<TrendingUp className="h-4 w-4" />}
           trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}

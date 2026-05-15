@@ -1,12 +1,13 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3 } from "lucide-react";
 import { z } from "zod";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { FormDescription } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { MetricCard } from "@/components/metric-card";
 import {
   Dialog,
   DialogContent,
@@ -225,6 +226,10 @@ export default function InventoryPage() {
     setIsFormOpen(true);
   };
 
+  const totalCostValue = filteredInventory.reduce((acc, item) => item.type === "product" ? acc + (item.costPrice * item.quantity) : acc, 0);
+  const totalRetailValue = filteredInventory.reduce((acc, item) => item.type === "product" ? acc + (item.sellingPrice * item.quantity) : acc, 0);
+  const projectedGrossMargin = totalRetailValue > 0 ? ((totalRetailValue - totalCostValue) / totalRetailValue) * 100 : 0;
+
   const openEditForm = (item: Inventory) => {
     form.reset({
       storeId: item.storeId,
@@ -299,7 +304,9 @@ export default function InventoryPage() {
       key: "costPrice",
       header: "Cost",
       render: (item: Inventory) => (
-        <span className="font-mono text-sm">{formatCurrency(item.costPrice)}</span>
+        <span className={`font-mono text-sm ${item.costPrice === 0 ? "text-amber-600 dark:text-amber-400 font-medium" : ""}`}>
+          {item.costPrice === 0 ? "Unset (₦0)" : formatCurrency(item.costPrice)}
+        </span>
       ),
     },
     {
@@ -321,7 +328,7 @@ export default function InventoryPage() {
             </>
           ) : (
             <span className="flex items-center gap-1 text-muted-foreground">
-              <Infinity className="h-3 w-3" /> Unlimited
+              <Infinity className="h-3 w-3" /> N/A
             </span>
           )}
           {getStockBadge(item)}
@@ -332,11 +339,15 @@ export default function InventoryPage() {
       key: "margin",
       header: "Margin",
       render: (item: Inventory) => {
-        const margin = ((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100;
+        const marginVal = item.sellingPrice - item.costPrice;
+        const marginPct = item.sellingPrice > 0 ? (marginVal / item.sellingPrice) * 100 : 0;
         return (
-          <span className="font-mono text-sm text-muted-foreground">
-            {margin.toFixed(1)}%
-          </span>
+          <div className="flex flex-col">
+            <span className="font-mono text-sm font-medium">{formatCurrency(marginVal)}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {marginPct.toFixed(1)}%
+            </span>
+          </div>
         );
       },
     },
@@ -453,6 +464,30 @@ export default function InventoryPage() {
           </div>
         }
       />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <MetricCard
+          title="Total Cost Value"
+          value={formatCurrency(totalCostValue)}
+          icon={<Package className="h-4 w-4" />}
+          description="Total value of products in stock"
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="Total Retail Value"
+          value={formatCurrency(totalRetailValue)}
+          icon={<Coins className="h-4 w-4" />}
+          description="Expected revenue if all sold"
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="Projected Gross Margin"
+          value={`${projectedGrossMargin.toFixed(1)}%`}
+          icon={<BarChart3 className="h-4 w-4" />}
+          description="Based on current stock value"
+          isLoading={isLoading}
+        />
+      </div>
 
       {lowStockCount > 0 && (
         <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">

@@ -11,7 +11,11 @@ import {
   LogOut,
   CalendarDays,
   DollarSign,
+  Wallet,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import type { PayrollPeriod } from "@shared/schema";
 import {
   Sidebar,
   SidebarContent,
@@ -91,9 +95,12 @@ const reportsItems: MenuItem[] = [
     icon: TrendingUp,
     allowedRoles: ["owner"],
   },
-];
-
-const payrollItems: MenuItem[] = [
+  {
+    title: "Expenses",
+    url: "/expenses",
+    icon: Wallet,
+    allowedRoles: ["owner", "manager"],
+  },
   {
     title: "Payroll",
     url: "/payroll",
@@ -123,8 +130,18 @@ export function AppSidebar() {
   const visibleManagementItems = filterByRole(managementItems);
   const visibleSalesItems = filterByRole(salesItems);
   const visibleReportsItems = filterByRole(reportsItems);
-  const visiblePayrollItems = filterByRole(payrollItems);
   const visibleSettingsItems = filterByRole(settingsItems);
+
+  const { data: payrollPeriods } = useQuery<PayrollPeriod[]>({
+    queryKey: ["/api/payroll/periods"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/payroll/periods");
+      return res.json();
+    },
+    enabled: ["owner", "manager"].includes(userRole),
+  });
+
+  const pendingPayrollCount = payrollPeriods?.filter(p => p.status === "pending").length || 0;
 
   const handleLogout = async () => {
     await logout();
@@ -208,38 +225,17 @@ export function AppSidebar() {
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
-                      isActive={location === item.url}
-                      className="gap-3"
+                      isActive={item.title === "Payroll" ? location.startsWith(item.url) : location === item.url}
+                      className="gap-3 relative"
                     >
                       <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-
-        {visiblePayrollItems.length > 0 && (
-          <SidebarGroup className="mt-4">
-            <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Payroll
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {visiblePayrollItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.startsWith(item.url)}
-                      className="gap-3"
-                    >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        {item.title === "Payroll" && pendingPayrollCount > 0 && (
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm">
+                            {pendingPayrollCount}
+                          </div>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

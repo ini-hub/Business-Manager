@@ -55,6 +55,13 @@ import {
   type Settings,
   type InsertSettings,
   type DailySummaryLine,
+  expenses,
+  expenseCategories,
+  type Expense,
+  type InsertExpense,
+  type ExpenseCategory,
+  type InsertExpenseCategory,
+  type ExpenseWithCategory,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, like, or, ilike, gt, gte, lte } from "drizzle-orm";
@@ -205,6 +212,23 @@ export interface IStorage {
   // Settings
   getSettings(storeId: string): Promise<Settings>;
   upsertSettings(storeId: string, data: Partial<InsertSettings>): Promise<Settings>;
+
+  // Expenses
+  getExpenseCategories(storeId: string): Promise<ExpenseCategory[]>;
+  createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory>;
+  deleteExpenseCategory(id: string): Promise<void>;
+
+  getExpenses(storeId: string, startDate?: string, endDate?: string): Promise<ExpenseWithCategory[]>;
+  createExpense(data: InsertExpense): Promise<Expense>;
+  deleteExpense(id: string): Promise<void>;
+
+  getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
+    serviceRevenue: number;
+    productRevenue: number;
+    totalRevenue: number;
+    costOfGoodsSold: number;
+    grossProfit: number;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -933,7 +957,7 @@ export class DatabaseStorage implements IStorage {
 
     const totalQuantitySold = allOrders.reduce((sum, order) => sum + order.quantity, 0);
     const totalRevenue = allOrders.reduce((sum, order) => sum + order.totalPrice, 0);
-    const totalNetProfit = totalRevenue - (totalQuantitySold * inventoryItem.costPrice);
+    const totalGrossProfit = totalRevenue - (totalQuantitySold * inventoryItem.costPrice);
     const quantityRemaining = inventoryItem.type === "product"
       ? inventoryItem.quantity
       : 0;
@@ -948,7 +972,7 @@ export class DatabaseStorage implements IStorage {
           totalQuantitySold,
           quantityRemaining,
           totalRevenue,
-          totalNetProfit,
+          totalGrossProfit,
         })
         .where(and(eq(profitLoss.inventoryId, inventoryId), eq(profitLoss.storeId, storeId)));
     } else {
@@ -958,7 +982,7 @@ export class DatabaseStorage implements IStorage {
         totalQuantitySold,
         quantityRemaining,
         totalRevenue,
-        totalNetProfit,
+        totalGrossProfit,
       });
     }
   }
@@ -976,7 +1000,7 @@ export class DatabaseStorage implements IStorage {
     const lowStockItems = products.filter((p) => p.quantity <= 5);
 
     const totalRevenue = plData.reduce((sum, pl) => sum + pl.totalRevenue, 0);
-    const totalProfit = plData.reduce((sum, pl) => sum + pl.totalNetProfit, 0);
+    const totalProfit = plData.reduce((sum, pl) => sum + pl.totalGrossProfit, 0);
 
     return {
       totalCustomers: allCustomers.length,
@@ -1146,7 +1170,7 @@ export class DatabaseStorage implements IStorage {
                 totalQuantitySold: existingPL.totalQuantitySold + item.quantity,
                 quantityRemaining: inventoryItem.quantity - item.quantity,
                 totalRevenue: existingPL.totalRevenue + revenue,
-                totalNetProfit: existingPL.totalNetProfit + profit,
+                totalGrossProfit: existingPL.totalGrossProfit + profit,
               })
               .where(eq(profitLoss.id, existingPL.id));
           } else {
@@ -1156,7 +1180,7 @@ export class DatabaseStorage implements IStorage {
               totalQuantitySold: item.quantity,
               quantityRemaining: inventoryItem.quantity - item.quantity,
               totalRevenue: revenue,
-              totalNetProfit: profit,
+              totalGrossProfit: profit,
             });
           }
         }
@@ -1802,6 +1826,96 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return updated;
+  }
+
+  // Expense Categories CRUD
+  async getExpenseCategories(storeId: string): Promise<ExpenseCategory[]> {
+    return db.select().from(expenseCategories).where(eq(expenseCategories.storeId, storeId)).orderBy(asc(expenseCategories.name));
+  }
+
+  async createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory> {
+    const [inserted] = await db.insert(expenseCategories).values(data).returning();
+    return inserted;
+  }
+
+  async deleteExpenseCategory(id: string): Promise<void> {
+    await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
+  }
+
+  // Expenses CRUD
+  async getExpenses(storeId: string, startDate?: string, endDate?: string): Promise<ExpenseWithCategory[]> {
+    let conditions = [eq(expenses.storeId, storeId)];
+    if (startDate) conditions.push(gte(expenses.date, startDate));
+    if (endDate) conditions.push(lte(expenses.date, endDate));
+
+    const rows = await db.select({
+      expense: expenses,
+      category: expenseCategories,
+    })
+    .from(expenses)
+    .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+    .where(and(...conditions))
+    .orderBy(desc(expenses.date), desc(expenses.createdAt));
+
+    return rows.map(r => ({
+      ...r.expense,
+      category: r.category,
+    }));
+  }
+
+  async createExpense(data: InsertExpense): Promise<Expense> {
+    const [inserted] = await db.insert(expenses).values(data).returning();
+    return inserted;
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+    await db.delete(expenses).where(eq(expenses.id, id));
+  }
+
+  async getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
+    serviceRevenue: number;
+    productRevenue: number;
+    totalRevenue: number;
+    costOfGoodsSold: number;
+    grossProfit: number;
+  }> {
+    // Build checkout date filter conditions
+    const conditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+    ];
+    if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+    // Join orders → checkouts → inventory to get per-item revenue and cost
+    const rows = await db
+      .select({
+        inventoryType: inventory.type,
+        costPrice: inventory.costPrice,
+        quantity: orders.quantity,
+        totalPrice: orders.totalPrice,
+      })
+      .from(orders)
+      .innerJoin(checkouts, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(inventory.id, orders.inventoryId))
+      .where(and(...conditions));
+
+    let serviceRevenue = 0;
+    let productRevenue = 0;
+    let costOfGoodsSold = 0;
+
+    for (const row of rows) {
+      if (row.inventoryType === "service") {
+        serviceRevenue += row.totalPrice;
+      } else {
+        productRevenue += row.totalPrice;
+      }
+      costOfGoodsSold += (row.costPrice ?? 0) * row.quantity;
+    }
+
+    const totalRevenue = serviceRevenue + productRevenue;
+    const grossProfit = totalRevenue - costOfGoodsSold;
+    return { serviceRevenue, productRevenue, totalRevenue, costOfGoodsSold, grossProfit };
   }
 }
 

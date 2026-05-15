@@ -25,6 +25,7 @@ import InventoryDetails from "@/pages/inventory-details";
 import NewSale from "@/pages/new-sale";
 import Transactions from "@/pages/transactions";
 import ProfitLossPage from "@/pages/profit-loss";
+import ExpensesPage from "@/pages/expenses";
 import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
 import SettingsStoresPage from "@/pages/settings-stores";
@@ -148,6 +149,7 @@ function AuthenticatedLayout() {
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
                   <Route path="/profit-loss" component={ProfitLossPage} />
+                  <Route path="/expenses" component={ExpensesPage} />
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
                   <Route path="/settings/stores" component={SettingsStoresPage} />

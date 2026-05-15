@@ -440,9 +440,19 @@ export default function NewSale() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{item.inventory.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              List price: {formatCurrency(item.inventory.sellingPrice)}
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-medium text-sm truncate">{item.inventory.name}</p>
+                              <Badge variant="outline" className="text-[10px] h-5 py-0 capitalize">
+                                {item.inventory.type}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground flex items-center gap-2">
+                              <span>List price: {formatCurrency(item.inventory.sellingPrice)}</span>
+                              {item.customPrice !== item.inventory.sellingPrice && (
+                                <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                                  Custom Price
+                                </Badge>
+                              )}
                             </p>
                           </div>
                           <Button
