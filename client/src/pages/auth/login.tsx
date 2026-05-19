@@ -10,8 +10,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Loader2, Eye, EyeOff, ArrowLeft, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Loader2, ArrowLeft, AlertCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 
 // Password policy validator
 const validatePassword = (password: string) => {
@@ -31,7 +32,7 @@ export default function Login() {
     "identifier" | "password" | "activation_code" | "create_password" | "verify_otp" | "org_select" | "almost_there"
   >("identifier");
   const [identifier, setIdentifier] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [isPasswordValid, setIsPasswordValid] = useState(false);
   const [stayLoggedIn, setStayLoggedIn] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
@@ -106,7 +107,6 @@ export default function Login() {
   });
 
   const createPasswordValue = createPassForm.watch("password") || "";
-  const pwdPolicy = validatePassword(createPasswordValue);
 
   // Step 1: Check user identity
   const checkIdentityMutation = useMutation({
@@ -388,8 +388,7 @@ export default function Login() {
   };
 
   const onCreatePasswordSubmit = (data: z.infer<typeof createPasswordFormSchema>) => {
-    const passes = Object.values(pwdPolicy).every(Boolean);
-    if (!passes) {
+    if (!isPasswordValid) {
       toast({
         title: "Invalid password",
         description: "Your password does not meet the security checklist requirements.",
@@ -493,37 +492,23 @@ export default function Login() {
           {step === "password" && (
             <Form {...passForm}>
               <form onSubmit={passForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
-                <FormField
-                  control={passForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Enter password"
-                            className="pr-10"
-                            data-testid="input-password"
-                            {...field}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:bg-transparent"
-                            onClick={() => setShowPassword(!showPassword)}
-                            data-testid="button-toggle-password"
-                          >
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                 <FormField
+                   control={passForm.control}
+                   name="password"
+                   render={({ field }) => (
+                     <FormItem>
+                       <FormLabel>Password</FormLabel>
+                       <FormControl>
+                         <PasswordInput
+                           placeholder="Enter password"
+                           data-testid="input-password"
+                           {...field}
+                         />
+                       </FormControl>
+                       <FormMessage />
+                     </FormItem>
+                   )}
+                 />
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -710,74 +695,26 @@ export default function Login() {
                     <FormItem>
                       <FormLabel>Create Password</FormLabel>
                       <FormControl>
-                        <div className="relative">
-                          <Input
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Create password"
-                            className="pr-10"
-                            data-testid="input-act-password"
-                            {...field}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:bg-transparent"
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
+                        <PasswordInput
+                          placeholder="Create password"
+                          data-testid="input-act-password"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                {/* Password Policy Real-time validation checklist */}
-                <div className="space-y-1.5 p-3 rounded-md bg-muted/40 border text-xs">
-                  <p className="font-semibold text-foreground mb-1">Password Checklist</p>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    {pwdPolicy.minLength ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                    )}
-                    <span className={pwdPolicy.minLength ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>At least 8 characters</span>
+                {createPasswordValue && (
+                  <div className="mt-2">
+                    <PasswordChecklist
+                      password={createPasswordValue}
+                      confirmPassword={createPassForm.watch("confirmPassword")}
+                      onValidationChange={setIsPasswordValid}
+                    />
                   </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    {pwdPolicy.hasUpper ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                    )}
-                    <span className={pwdPolicy.hasUpper ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One uppercase letter (A-Z)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    {pwdPolicy.hasLower ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                    )}
-                    <span className={pwdPolicy.hasLower ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One lowercase letter (a-z)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    {pwdPolicy.hasNumber ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                    )}
-                    <span className={pwdPolicy.hasNumber ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One number (0-9)</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    {pwdPolicy.hasSpecial ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                    )}
-                    <span className={pwdPolicy.hasSpecial ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One special character (@,#,$...)</span>
-                  </div>
-                </div>
+                )}
 
                 <FormField
                   control={createPassForm.control}
@@ -786,8 +723,7 @@ export default function Login() {
                     <FormItem>
                       <FormLabel>Confirm Password</FormLabel>
                       <FormControl>
-                        <Input
-                          type="password"
+                        <PasswordInput
                           placeholder="Confirm password"
                           data-testid="input-confirm-password"
                           {...field}

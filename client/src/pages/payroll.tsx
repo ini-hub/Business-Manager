@@ -38,6 +38,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
@@ -231,10 +232,7 @@ export default function PayrollPage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Payroll" description="Manage staff payroll and commissions" />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>Please <Link href="/settings/stores" className="underline font-medium">set up your store</Link> first.</AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Payroll" />
       </div>
     );
   }
@@ -243,7 +241,7 @@ export default function PayrollPage() {
     <div className="space-y-6">
       <PageHeader
         title="Payroll"
-        description={`Option 4 Hybrid payroll for ${currentStore.name}`}
+        description={`Hybrid payroll for ${currentStore.name}`}
         actions={
           <Button onClick={() => setShowCreateDialog(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -465,7 +463,7 @@ export default function PayrollPage() {
               ) : (
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium">Staff Option 4 Breakdown</CardTitle>
+                    <CardTitle className="text-sm font-medium">Staff Hybrid Breakdown</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">

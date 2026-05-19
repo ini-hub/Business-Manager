@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
@@ -97,12 +98,7 @@ export default function Dashboard() {
           title="Dashboard"
           description="Overview of your business performance"
         />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to see your dashboard.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Dashboard" />
       </div>
     );
   }

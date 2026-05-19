@@ -41,6 +41,8 @@ import { insertCustomerSchema, type Customer, type InsertCustomer } from "@share
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
+import { useAuth } from "@/hooks/useAuth";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
@@ -70,6 +72,7 @@ const customerFormSchema = insertCustomerSchema.extend({
 export default function Customers() {
   const { toast } = useToast();
   const { currentStore } = useStore();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -454,7 +457,7 @@ export default function Customers() {
         </div>
       ),
     },
-  ];
+  ].filter(col => col.key !== "actions" || user?.role !== "staff");
 
   const archivedColumns = [
     {
@@ -527,7 +530,7 @@ export default function Customers() {
         </div>
       ),
     },
-  ];
+  ].filter(col => col.key !== "actions" || user?.role !== "staff");
 
   const exportColumns = [
     { key: "name", header: "Name" },
@@ -541,12 +544,7 @@ export default function Customers() {
     return (
       <div className="space-y-6">
         <PageHeader title="Customers" description="Manage your customer records" />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to manage customers.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Customers" />
       </div>
     );
   }
@@ -565,22 +563,26 @@ export default function Customers() {
               title={`Customers Report (${activeTab})`}
               disabled={isLoading}
             />
-            <BulkOperations
-              entityType="customers"
-              data={activeCustomers as unknown as Record<string, unknown>[]}
-              columns={[
-                { key: "name", header: "Name" },
-                { key: "customerNumber", header: "Customer Number" },
-                { key: "mobileNumber", header: "Mobile Number" },
-                { key: "address", header: "Address" },
-              ]}
-              isLoading={isLoading}
-              storeId={currentStore.id}
-            />
-            <Button onClick={openCreateForm} data-testid="button-add-customer">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Customer
-            </Button>
+            {user?.role !== "staff" && (
+              <BulkOperations
+                entityType="customers"
+                data={activeCustomers as unknown as Record<string, unknown>[]}
+                columns={[
+                  { key: "name", header: "Name" },
+                  { key: "customerNumber", header: "Customer Number" },
+                  { key: "mobileNumber", header: "Mobile Number" },
+                  { key: "address", header: "Address" },
+                ]}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+              />
+            )}
+            {user?.role !== "staff" && (
+              <Button onClick={openCreateForm} data-testid="button-add-customer">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Customer
+              </Button>
+            )}
           </div>
         }
       />

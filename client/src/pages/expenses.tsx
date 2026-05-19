@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Settings2, Trash2, Wallet, Receipt, Filter } from "lucide-react";
+import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { DateRangeFilter } from "@/components/date-range-filter";
@@ -50,10 +51,19 @@ import type { ExpenseWithCategory, ExpenseCategory, Inventory } from "@shared/sc
 const expenseSchema = z.object({
   title: z.string().min(1, "Title is required"),
   amount: z.coerce.number().min(0, "Amount must be positive"),
-  categoryId: z.string().min(1, "Category is required"),
+  categoryId: z.string().optional(),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
   inventoryId: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  const isLinked = data.inventoryId && data.inventoryId !== "none";
+  if (!isLinked && (!data.categoryId || data.categoryId.trim() === "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["categoryId"],
+      message: "Category is required for general operational expenses",
+    });
+  }
 });
 
 type ExpenseFormValues = z.infer<typeof expenseSchema>;
@@ -70,6 +80,13 @@ export default function ExpensesPage() {
   });
 
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
+  const [isNewCategoryMode, setIsNewCategoryMode] = useState(false);
+  const [customCategoryName, setCustomCategoryName] = useState("");
+  const [isEditNewCategoryMode, setIsEditNewCategoryMode] = useState(false);
+  const [editCustomCategoryName, setEditCustomCategoryName] = useState("");
+  const [expenseToEdit, setExpenseToEdit] = useState<ExpenseWithCategory | null>(null);
+  const [filterType, setFilterType] = useState<"all" | "general" | "linked">("all");
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<ExpenseCategory | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseWithCategory | null>(null);
@@ -121,14 +138,50 @@ export default function ExpensesPage() {
     },
   });
 
+  const editForm = useForm<ExpenseFormValues>({
+    resolver: zodResolver(expenseSchema),
+    defaultValues: {
+      title: "",
+      amount: 0,
+      categoryId: "",
+      date: format(new Date(), "yyyy-MM-dd"),
+      notes: "",
+      inventoryId: null,
+    },
+  });
+
+  const selectedInventoryId = form.watch("inventoryId");
+  const editSelectedInventoryId = editForm.watch("inventoryId");
+
   const [newCategoryName, setNewCategoryName] = useState("");
 
   const addExpenseMutation = useMutation({
     mutationFn: async (data: ExpenseFormValues) => {
+      const isLinked = data.inventoryId && data.inventoryId !== "none";
+      let catId = data.categoryId;
+
+      if (!isLinked && isNewCategoryMode) {
+        if (!customCategoryName.trim()) {
+          throw new Error("Please enter a category name.");
+        }
+        const existingCat = categories.find(
+          c => c.name.toLowerCase() === customCategoryName.trim().toLowerCase()
+        );
+        if (existingCat) {
+          catId = existingCat.id;
+        } else {
+          const newCat = await addCategoryMutation.mutateAsync(customCategoryName.trim());
+          catId = newCat.id;
+        }
+      } else if (isLinked) {
+        catId = categories.find(c => !c.isSystem)?.id || categories[0]?.id || "";
+      }
+
       const submissionData = {
         ...data,
         storeId: currentStore!.id,
-        inventoryId: data.inventoryId === "none" ? null : data.inventoryId
+        inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
+        categoryId: catId
       };
       await apiRequest("POST", "/api/expenses", submissionData);
     },
@@ -136,14 +189,73 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/profit-loss/summary"] });
       setIsAddExpenseOpen(false);
+      setIsNewCategoryMode(false);
+      setCustomCategoryName("");
       form.reset();
       toast({ title: "Success", description: "Expense added successfully." });
     },
   });
 
+  const updateExpenseMutation = useMutation({
+    mutationFn: async (data: ExpenseFormValues & { id: string }) => {
+      const isLinked = data.inventoryId && data.inventoryId !== "none";
+      let catId = data.categoryId;
+
+      if (!isLinked && isEditNewCategoryMode) {
+        if (!editCustomCategoryName.trim()) {
+          throw new Error("Please enter a category name.");
+        }
+        const existingCat = categories.find(
+          c => c.name.toLowerCase() === editCustomCategoryName.trim().toLowerCase()
+        );
+        if (existingCat) {
+          catId = existingCat.id;
+        } else {
+          const newCat = await addCategoryMutation.mutateAsync(editCustomCategoryName.trim());
+          catId = newCat.id;
+        }
+      } else if (isLinked) {
+        catId = categories.find(c => !c.isSystem)?.id || categories[0]?.id || "";
+      }
+
+      const submissionData = {
+        ...data,
+        storeId: currentStore!.id,
+        inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
+        categoryId: catId
+      };
+      await apiRequest("PATCH", `/api/expenses/${data.id}`, submissionData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss/summary"] });
+      setIsEditExpenseOpen(false);
+      setExpenseToEdit(null);
+      setIsEditNewCategoryMode(false);
+      setEditCustomCategoryName("");
+      toast({ title: "Success", description: "Expense updated successfully." });
+    },
+  });
+
+  const handleEditClick = (e: ExpenseWithCategory) => {
+    setExpenseToEdit(e);
+    setIsEditNewCategoryMode(false);
+    setEditCustomCategoryName("");
+    editForm.reset({
+      title: e.title,
+      amount: e.amount,
+      categoryId: e.categoryId,
+      date: e.date,
+      notes: e.notes || "",
+      inventoryId: e.inventoryId || "none",
+    });
+    setIsEditExpenseOpen(true);
+  };
+
   const addCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
-      await apiRequest("POST", "/api/expense-categories", { name, storeId: currentStore!.id });
+      const res = await apiRequest("POST", "/api/expense-categories", { name, storeId: currentStore!.id });
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expense-categories"] });
@@ -178,7 +290,13 @@ export default function ExpensesPage() {
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
 
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const filteredExpenses = expenses.filter((e) => {
+    if (filterType === "general") return !e.inventoryId;
+    if (filterType === "linked") return !!e.inventoryId;
+    return true;
+  });
+
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   const columns = [
     {
@@ -222,24 +340,49 @@ export default function ExpensesPage() {
     {
       key: "actions",
       header: "Actions",
-      render: (e: ExpenseWithCategory) => (
-        user?.role === "owner" && !e.isAutoGenerated ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setExpenseToDelete(e)}
-          >
-            <Trash2 className="h-4 w-4 text-red-500" />
-          </Button>
-        ) : (
-          e.isAutoGenerated && <Badge variant="secondary" className="text-[10px]">Auto</Badge>
-        )
-      ),
+      render: (e: ExpenseWithCategory) => {
+        const canEdit = ["owner", "manager"].includes(user?.role || "");
+        const canDelete = user?.role === "owner";
+        
+        if (e.isAutoGenerated) {
+          return <Badge variant="secondary" className="text-[10px]">Auto</Badge>;
+        }
+
+        return (
+          <div className="flex items-center gap-1">
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleEditClick(e)}
+                title="Edit expense"
+              >
+                <Edit className="h-4 w-4 text-blue-500" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setExpenseToDelete(e)}
+                title="Delete expense"
+              >
+                <Trash2 className="h-4 w-4 text-red-500" />
+              </Button>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
   if (!currentStore) {
-    return <div className="p-8 text-center text-muted-foreground">Select a store first</div>;
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Expenses" description="Track operational costs and overhead" />
+        <StoreRequiredAlert title="Store Required for Expenses" />
+      </div>
+    );
   }
 
   return (
@@ -248,8 +391,18 @@ export default function ExpensesPage() {
         title="Expenses"
         description="Track operational costs and overhead"
         actions={
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <BulkExpenseImport categories={categories} />
+            <Select value={filterType} onValueChange={(val: any) => setFilterType(val)}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All Expenses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Expenses</SelectItem>
+                <SelectItem value="general">General OPEX</SelectItem>
+                <SelectItem value="linked">Linked (Sustaining)</SelectItem>
+              </SelectContent>
+            </Select>
             <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} />
             
             {user?.role === "owner" && (
@@ -346,28 +499,58 @@ export default function ExpensesPage() {
                         )}
                       />
                     </div>
-                    <FormField
-                      control={form.control}
-                      name="categoryId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Category</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a category" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {categories.filter(c => !c.isSystem).map((c) => (
-                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {(!selectedInventoryId || selectedInventoryId === "none") && (
+                      <FormField
+                        control={form.control}
+                        name="categoryId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="flex justify-between items-center">
+                              <FormLabel>{isNewCategoryMode ? "New Category Name" : "Category"}</FormLabel>
+                              <Button 
+                                type="button" 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-auto p-0 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                onClick={() => {
+                                  setIsNewCategoryMode(!isNewCategoryMode);
+                                  field.onChange("");
+                                  setCustomCategoryName("");
+                                }}
+                              >
+                                {isNewCategoryMode ? "Select Existing" : "+ New Category"}
+                              </Button>
+                            </div>
+                            {isNewCategoryMode ? (
+                              <FormControl>
+                                <Input 
+                                  placeholder="e.g. Subscriptions, Advertising, Office" 
+                                  value={customCategoryName}
+                                  onChange={(e) => {
+                                    setCustomCategoryName(e.target.value);
+                                    field.onChange(e.target.value);
+                                  }}
+                                />
+                              </FormControl>
+                            ) : (
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select a category" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {categories.filter(c => !c.isSystem).map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                     <FormField
                       control={form.control}
                       name="inventoryId"
@@ -425,7 +608,7 @@ export default function ExpensesPage() {
         />
         <MetricCard
           title="Transaction Count"
-          value={expenses.length}
+          value={filteredExpenses.length}
           icon={<Receipt className="h-4 w-4" />}
           isLoading={isLoadingExpenses}
         />
@@ -438,7 +621,7 @@ export default function ExpensesPage() {
         </CardHeader>
         <CardContent>
           <DataTable
-            data={expenses}
+            data={filteredExpenses}
             columns={columns}
             searchable
             searchPlaceholder="Search descriptions..."
@@ -498,6 +681,149 @@ export default function ExpensesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Expense Dialog */}
+      <Dialog open={isEditExpenseOpen} onOpenChange={setIsEditExpenseOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Expense</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit((d) => {
+              if (expenseToEdit) {
+                updateExpenseMutation.mutate({ ...d, id: expenseToEdit.id });
+              }
+            })} className="space-y-4 pt-4">
+              <FormField
+                control={editForm.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description / Title</FormLabel>
+                    <FormControl><Input {...field} placeholder="e.g. Office Supplies" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={editForm.control}
+                  name="amount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Amount ({storeCurrency})</FormLabel>
+                      <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={editForm.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date</FormLabel>
+                      <FormControl><Input type="date" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              {(!editSelectedInventoryId || editSelectedInventoryId === "none") && (
+                <FormField
+                  control={editForm.control}
+                  name="categoryId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="flex justify-between items-center">
+                        <FormLabel>{isEditNewCategoryMode ? "New Category Name" : "Category"}</FormLabel>
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-auto p-0 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                          onClick={() => {
+                            setIsEditNewCategoryMode(!isEditNewCategoryMode);
+                            field.onChange("");
+                            setEditCustomCategoryName("");
+                          }}
+                        >
+                          {isEditNewCategoryMode ? "Select Existing" : "+ New Category"}
+                        </Button>
+                      </div>
+                      {isEditNewCategoryMode ? (
+                        <FormControl>
+                          <Input 
+                            placeholder="e.g. Subscriptions, Advertising, Office" 
+                            value={editCustomCategoryName}
+                            onChange={(e) => {
+                              setEditCustomCategoryName(e.target.value);
+                              field.onChange(e.target.value);
+                            }}
+                          />
+                        </FormControl>
+                      ) : (
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a category" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {categories.filter(c => !c.isSystem).map((c) => (
+                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              <FormField
+                control={editForm.control}
+                name="inventoryId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Related Service / Product (Optional)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "none"}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an item" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {inventoryItems.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.name} ({item.type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Additional Notes</FormLabel>
+                    <FormControl><Input {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" className="w-full" disabled={updateExpenseMutation.isPending}>
+                {updateExpenseMutation.isPending ? "Updating..." : "Update Expense"}
+              </Button>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

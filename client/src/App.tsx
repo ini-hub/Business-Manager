@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -31,13 +31,17 @@ import ExpensesPage from "@/pages/expenses";
 import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
 import SettingsStoresPage from "@/pages/settings-stores";
+import PromotionsPage from "@/pages/settings/promotions";
 import OnboardingWizard from "@/pages/onboarding";
 import StaffPerformancePage from "@/pages/staff-performance";
 import ProfilePage from "@/pages/profile";
 import StaffDashboard from "@/pages/staff-dashboard";
 import NotFound from "@/pages/not-found";
+import ServiceProfitabilityPage from "@/pages/service-profitability";
 import { GlobalSearch } from "@/components/global-search";
 import { NotificationSheet } from "@/components/notification-sheet";
+
+import StoreFormPage from "@/pages/store-form";
 
 import Login from "@/pages/auth/login";
 import Signup from "@/pages/auth/signup";
@@ -189,10 +193,22 @@ function AuthenticatedLayout() {
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
                   <Route path="/reports/staff-performance" component={StaffPerformancePage} />
+                  <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/profile" component={ProfilePage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
-                  <Route path="/settings/stores" component={SettingsStoresPage} />
+                  <Route path="/settings/stores">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStoresPage />}
+                  </Route>
+                  <Route path="/settings/stores/new">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
+                  </Route>
+                  <Route path="/settings/stores/:id/edit">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
+                  </Route>
+                  <Route path="/settings/promotions">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}
+                  </Route>
                   <Route component={NotFound} />
                 </Switch>
               </div>

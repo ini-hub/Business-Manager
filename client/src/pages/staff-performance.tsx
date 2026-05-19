@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Users, TrendingUp, TrendingDown, Calendar, ShoppingBag, Wrench, BarChart3, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ExportToolbar } from "@/components/export-toolbar";
@@ -114,12 +114,7 @@ export default function StaffPerformancePage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Staff Performance Report" />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Staff Performance" />
       </div>
     );
   }

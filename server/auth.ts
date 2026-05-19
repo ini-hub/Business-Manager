@@ -1,6 +1,8 @@
 import jwt from "jsonwebtoken";
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 
+import { storage } from "./storage";
+
 const JWT_SECRET = process.env.JWT_SECRET || "excellent_bolujo_secret_key";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
 
@@ -37,17 +39,29 @@ export function parseCookies(cookieHeader?: string): Record<string, string> {
 
 export async function setupAuth(app: Express) {
   // Setup JWT middleware to parse httpOnly cookie 'jwt_token'
-  app.use((req: Request, res: Response, next: NextFunction) => {
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
     const cookies = parseCookies(req.headers.cookie);
     const token = cookies.jwt_token || req.headers["authorization"]?.replace("Bearer ", "");
     
     if (token) {
       const claims = verifyToken(token);
       if (claims) {
+        let businessId = claims.organisationId;
+        if (!businessId && claims.userId) {
+          try {
+            const userRecord = await storage.getUser(claims.userId);
+            if (userRecord?.businessId) {
+              businessId = userRecord.businessId;
+            }
+          } catch (dbError) {
+            console.error("Auth middleware DB user lookup error:", dbError);
+          }
+        }
+
         (req as any).user = {
           ...claims,
           id: claims.userId,
-          businessId: claims.organisationId,
+          businessId,
         };
       }
     }

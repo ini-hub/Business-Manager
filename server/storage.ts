@@ -71,6 +71,15 @@ import {
   type ExpenseCategory,
   type InsertExpenseCategory,
   type ExpenseWithCategory,
+  storeIntegrations,
+  type StoreIntegration,
+  type InsertStoreIntegration,
+  promotions,
+  type Promotion,
+  type InsertPromotion,
+  customRoles,
+  type CustomRole,
+  type InsertCustomRole,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, like, or, ilike, gt, gte, lte } from "drizzle-orm";
@@ -120,6 +129,8 @@ export interface IStorage {
   // Stores
   getStores(businessId: string): Promise<Store[]>;
   getStore(id: string): Promise<Store | undefined>;
+  getStoreByName(businessId: string, name: string): Promise<Store | undefined>;
+  getStoreByCode(businessId: string, code: string): Promise<Store | undefined>;
   createStore(store: InsertStore): Promise<Store>;
   updateStore(id: string, store: Partial<InsertStore>): Promise<Store | undefined>;
   deleteStore(id: string): Promise<boolean>;
@@ -228,7 +239,21 @@ export interface IStorage {
     costStrategy: CostStrategy;
     newSellingPrice?: number;
     notes?: string;
+    reason?: string;
+    attachment?: string | null;
   }): Promise<{ restockEvent: RestockEvent; updatedInventory: Inventory }>;
+
+  // Promotions
+  getPromotions(storeId: string): Promise<Promotion[]>;
+  createPromotion(data: InsertPromotion & { storeId: string }): Promise<Promotion>;
+  updatePromotion(id: string, data: Partial<InsertPromotion>): Promise<Promotion | undefined>;
+  deletePromotion(id: string): Promise<boolean>;
+
+  // Custom Roles
+  getCustomRoles(businessId: string): Promise<CustomRole[]>;
+  createCustomRole(data: InsertCustomRole & { businessId: string }): Promise<CustomRole>;
+  updateCustomRole(id: string, data: Partial<InsertCustomRole>): Promise<CustomRole | undefined>;
+  deleteCustomRole(id: string): Promise<boolean>;
 
   // Settings
   getSettings(storeId: string): Promise<Settings>;
@@ -239,8 +264,15 @@ export interface IStorage {
   createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory>;
   deleteExpenseCategory(id: string): Promise<void>;
 
-  getExpenses(storeId: string, startDate?: string, endDate?: string): Promise<ExpenseWithCategory[]>;
+  getExpenses(
+    storeId: string,
+    startDate?: string,
+    endDate?: string,
+    type?: "all" | "general" | "linked" | "service" | "product",
+    inventoryId?: string
+  ): Promise<ExpenseWithCategory[]>;
   createExpense(data: InsertExpense): Promise<Expense>;
+  updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense>;
   deleteExpense(id: string): Promise<void>;
 
   getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
@@ -299,7 +331,7 @@ export interface IStorage {
   // Platform & Organisations
   getUserByIdentifier(emailOrPhone: string): Promise<User | undefined>;
   getUserByActivationCode(code: string): Promise<User | undefined>;
-  getOrganisationsByUserId(userId: string): Promise<OrganisationMember[]>;
+  getOrganisationsByUserId(userId: string): Promise<any[]>;
   getOrganisationMember(userId: string, organisationId: string): Promise<OrganisationMember | undefined>;
   createOrganisation(data: InsertOrganisation): Promise<Organisation>;
   createOrganisationMember(data: InsertOrganisationMember): Promise<OrganisationMember>;
@@ -309,6 +341,12 @@ export interface IStorage {
   getOrganisationBySlug(slug: string): Promise<Organisation | undefined>;
   deleteOrganisationMember(id: string): Promise<void>;
   updateOrganisationMember(id: string, data: Partial<OrganisationMember>): Promise<OrganisationMember>;
+
+  // Store Integrations
+  getStoreIntegrations(storeId: string): Promise<StoreIntegration[]>;
+  getStoreIntegrationByProvider(storeId: string, provider: string): Promise<StoreIntegration | undefined>;
+  upsertStoreIntegration(data: InsertStoreIntegration & { storeId: string; provider: string }): Promise<StoreIntegration>;
+  deleteStoreIntegration(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -346,11 +384,21 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getOrganisationsByUserId(userId: string): Promise<OrganisationMember[]> {
-    return await db
-      .select()
+  async getOrganisationsByUserId(userId: string): Promise<any[]> {
+    const rows = await db
+      .select({
+        id: organisations.id,
+        organisationId: organisations.id,
+        name: organisations.name,
+        slug: organisations.slug,
+        role: organisationMembers.role,
+        status: organisationMembers.status,
+        memberId: organisationMembers.id,
+      })
       .from(organisationMembers)
+      .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
       .where(eq(organisationMembers.userId, userId));
+    return rows;
   }
 
   async getOrganisationMember(userId: string, organisationId: string): Promise<OrganisationMember | undefined> {
@@ -541,6 +589,24 @@ export class DatabaseStorage implements IStorage {
     return store;
   }
 
+  async getStoreByName(businessId: string, name: string): Promise<Store | undefined> {
+    const [store] = await db
+      .select()
+      .from(stores)
+      .where(and(eq(stores.businessId, businessId), ilike(stores.name, name)))
+      .limit(1);
+    return store;
+  }
+
+  async getStoreByCode(businessId: string, code: string): Promise<Store | undefined> {
+    const [store] = await db
+      .select()
+      .from(stores)
+      .where(and(eq(stores.businessId, businessId), eq(stores.code, code.trim().toUpperCase())))
+      .limit(1);
+    return store;
+  }
+
   async createStore(store: InsertStore): Promise<Store> {
     const [newStore] = await db.insert(stores).values(store).returning();
     await db.insert(storeCounters).values({ storeId: newStore.id, nextCustomerNumber: 1 });
@@ -553,9 +619,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteStore(id: string): Promise<boolean> {
-    await db.delete(storeCounters).where(eq(storeCounters.storeId, id));
-    const result = await db.delete(stores).where(eq(stores.id, id)).returning();
-    return result.length > 0;
+    return await db.transaction(async (tx) => {
+      // 1. Delete all staff records associated with this store
+      await tx.delete(staff).where(eq(staff.storeId, id));
+
+      // 2. Clear storeCounters
+      await tx.delete(storeCounters).where(eq(storeCounters.storeId, id));
+
+      // 3. Set managerStaffId to null in the store to avoid cyclic dependency before deleting
+      await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.id, id));
+
+      // 4. Delete the store
+      const result = await tx.delete(stores).where(eq(stores.id, id)).returning();
+      return result.length > 0;
+    });
   }
 
   async hasStoreData(id: string): Promise<boolean> {
@@ -1495,30 +1572,149 @@ export class DatabaseStorage implements IStorage {
         const storeSettings = await this.getSettings(data.storeId);
         const lowStockThreshold = storeSettings?.lowStockThreshold ?? 5;
 
-        // 1. Calculate Gross Cart Total first
-        let grossCartTotal = 0;
+        // Fetch active promotions for this store
+        const storePromotions = await tx.select().from(promotions).where(
+          and(eq(promotions.storeId, data.storeId), eq(promotions.isActive, true))
+        );
+
+        // Pre-process items list and apply promotions
+        const processedItems: Array<{
+          inventoryId: string;
+          quantity: number;
+          customPrice?: number;
+          unitPrice: number;
+          leadStaffId?: string | null;
+          assistingStaff1Id?: string | null;
+          assistingStaff2Id?: string | null;
+          commissionSplit?: "standard" | "equal";
+          isPromoLine?: boolean;
+          promoName?: string;
+        }> = [];
+
         for (const item of data.items) {
           const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
-          if (inventoryItem) {
-            const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
-            grossCartTotal += unitPrice * item.quantity;
+          if (!inventoryItem) {
+            throw new Error("One of the items in your cart is no longer available.");
+          }
+          const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
+          
+          if (unitPrice <= 0) {
+            throw new Error(`Item ${inventoryItem.name} cannot be sold for ₦0. Only active promotions can apply ₦0 items.`);
+          }
+
+          processedItems.push({
+            ...item,
+            unitPrice,
+            isPromoLine: false,
+          });
+        }
+
+        // Apply Buy X Get Y (Same Item) first
+        for (const promo of storePromotions) {
+          if (promo.type === "buy_x_get_y" && promo.buyItemId === promo.getItemId && promo.buyItemId) {
+            const buyQty = promo.buyQuantity || 1;
+            const getQty = promo.getQuantity || 1;
+            const cycle = buyQty + getQty;
+
+            const itemIdx = processedItems.findIndex(i => i.inventoryId === promo.buyItemId && !i.isPromoLine);
+            if (itemIdx !== -1) {
+              const item = processedItems[itemIdx];
+              const qty = item.quantity;
+              if (qty >= cycle) {
+                const times = Math.floor(qty / cycle);
+                const freeQty = times * getQty;
+                const paidQty = qty - freeQty;
+
+                processedItems.splice(itemIdx, 1);
+                if (paidQty > 0) {
+                  processedItems.push({
+                    ...item,
+                    quantity: paidQty,
+                  });
+                }
+                processedItems.push({
+                  ...item,
+                  quantity: freeQty,
+                  unitPrice: 0,
+                  customPrice: 0,
+                  isPromoLine: true,
+                  promoName: promo.name,
+                });
+              }
+            }
           }
         }
-        if (grossCartTotal === 0) grossCartTotal = 1;
 
-        // 2. Generate a single transaction receipt number for the entire checkout
+        // Apply Buy X Get Y (Different Item)
+        for (const promo of storePromotions) {
+          if (promo.type === "buy_x_get_y" && promo.buyItemId !== promo.getItemId && promo.buyItemId && promo.getItemId) {
+            const buyQty = promo.buyQuantity || 1;
+            const getQty = promo.getQuantity || 1;
+
+            const buyItemPaidQty = processedItems
+              .filter(i => i.inventoryId === promo.buyItemId && !i.isPromoLine)
+              .reduce((sum, i) => sum + i.quantity, 0);
+
+            if (buyItemPaidQty >= buyQty) {
+              const times = Math.floor(buyItemPaidQty / buyQty);
+              const freeQty = times * getQty;
+
+              processedItems.push({
+                inventoryId: promo.getItemId,
+                quantity: freeQty,
+                unitPrice: 0,
+                customPrice: 0,
+                isPromoLine: true,
+                promoName: promo.name,
+                leadStaffId: data.staffId,
+                commissionSplit: "standard",
+              });
+            }
+          }
+        }
+
+        // Apply Spend X Get Y Free
+        for (const promo of storePromotions) {
+          if (promo.type === "spend_x_get_y" && promo.spendAmount && promo.getItemId) {
+            const spendReq = promo.spendAmount;
+            const getQty = promo.getQuantity || 1;
+
+            const paidSubtotal = processedItems
+              .filter(i => !i.isPromoLine)
+              .reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0);
+
+            if (paidSubtotal >= spendReq) {
+              processedItems.push({
+                inventoryId: promo.getItemId,
+                quantity: getQty,
+                unitPrice: 0,
+                customPrice: 0,
+                isPromoLine: true,
+                promoName: promo.name,
+                leadStaffId: data.staffId,
+                commissionSplit: "standard",
+              });
+            }
+          }
+        }
+
+        // 1. Calculate Gross Cart Total
+        let grossCartTotal = 0;
+        for (const item of processedItems) {
+          grossCartTotal += item.unitPrice * item.quantity;
+        }
+
+        // 2. Generate a single transaction receipt number
         const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
 
         // 3. Define transaction-level discount variables
         const totalDiscount = data.discountAmount || 0;
         const discountPct = data.discountPercent || (grossCartTotal > 0 ? (totalDiscount / grossCartTotal) * 100 : 0);
-        const totalCharged = Math.max(1, grossCartTotal - totalDiscount);
+        const totalCharged = Math.max(0, grossCartTotal - totalDiscount);
 
-        // 4. Process each item within the transaction
-        for (const item of data.items) {
-          // Get inventory item with lock for update (prevents race conditions)
+        // 4. Process each item
+        for (const item of processedItems) {
           const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
-          
           if (!inventoryItem) {
             throw new Error("One of the items in your cart is no longer available.");
           }
@@ -1528,9 +1724,7 @@ export class DatabaseStorage implements IStorage {
             throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
           }
 
-          // Calculate total price (use custom price if provided, full list value)
-          const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
-          const totalPrice = unitPrice * item.quantity;
+          const totalPrice = item.unitPrice * item.quantity;
 
           // Create order
           const [order] = await tx.insert(orders).values({
@@ -1540,7 +1734,7 @@ export class DatabaseStorage implements IStorage {
             totalPrice,
           }).returning();
 
-          // Create checkout with standalone Option B transaction-level fields
+          // Create checkout
           const [checkout] = await tx.insert(checkouts).values({
             storeId: data.storeId,
             staffId: data.staffId,
@@ -1550,16 +1744,16 @@ export class DatabaseStorage implements IStorage {
             commissionSplit: item.commissionSplit || "standard",
             orderId: order.id,
             receiptNumber,
-            totalPrice, // Represents the gross list value of this line item
+            totalPrice,
             paymentMethod: data.paymentMethod,
             paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
             subtotal: grossCartTotal,
-            discountAmount: totalDiscount,
-            discountPercent: discountPct,
-            discountReason: data.discountReason || null,
+            discountAmount: item.isPromoLine ? 0 : totalDiscount,
+            discountPercent: item.isPromoLine ? 0 : discountPct,
+            discountReason: item.isPromoLine ? `Promo - ${item.promoName}` : (data.discountReason || null),
             discountApprovedBy: data.discountApprovedBy || null,
             totalCharged: totalCharged,
-            createdAt: txDate, // Explicitly set to the dynamic business/effective date
+            createdAt: txDate,
           }).returning();
 
           checkoutIds.push(checkout.id);
@@ -1570,17 +1764,16 @@ export class DatabaseStorage implements IStorage {
             customerId: data.customerId,
             inventoryId: item.inventoryId,
             checkoutId: checkout.id,
-            transactionDate: txDate, // Explicitly set to the dynamic business/effective date
+            transactionDate: txDate,
           });
 
-          // Update inventory quantity for products (atomic decrement)
+          // Update inventory quantity
           if (inventoryItem.type === "product") {
             const newQuantity = inventoryItem.quantity - item.quantity;
             await tx.update(inventory)
               .set({ quantity: newQuantity })
               .where(eq(inventory.id, item.inventoryId));
             
-            // Check for low stock
             if (newQuantity <= lowStockThreshold) {
               lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
             }
@@ -1626,7 +1819,6 @@ export class DatabaseStorage implements IStorage {
 
       return { success: true, message: "Sale completed successfully", checkoutIds };
     } catch (error) {
-      // Transaction automatically rolls back on error
       const message = error instanceof Error ? error.message : "We couldn't complete this sale right now. Please try again.";
       return { success: false, message };
     }
@@ -1703,6 +1895,8 @@ export class DatabaseStorage implements IStorage {
     costStrategy: CostStrategy;
     newSellingPrice?: number;
     notes?: string;
+    reason?: string;
+    attachment?: string | null;
   }): Promise<{ restockEvent: RestockEvent; updatedInventory: Inventory }> {
     const [currentInventory] = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId));
     
@@ -1761,6 +1955,8 @@ export class DatabaseStorage implements IStorage {
         newSellingPrice,
         costStrategy: data.costStrategy,
         notes: data.notes,
+        reason: data.reason || "Regular Restock",
+        attachment: data.attachment || null,
       }).returning();
 
       const [existingPL] = await tx.select().from(profitLoss)
@@ -1923,11 +2119,40 @@ export class DatabaseStorage implements IStorage {
     return rows.map(r => ({ ...r.entry, staff: r.staffMember! }));
   }
 
+  // CommissionSplitCalculator class implementing clean OOP design pattern
+  // Follows strict override priority: Service -> Store -> Business -> Fallback.
+  CommissionSplitCalculator = class {
+    private businessStaffShare: number;
+    private storeStaffShare: number;
+    private storeOverride: boolean;
+
+    constructor(business: any, store: any) {
+      this.businessStaffShare = business?.commissionSplitStaffShare ?? 20;
+      this.storeStaffShare = store?.commissionSplitStaffShare ?? 20;
+      this.storeOverride = store?.commissionSplitOverride ?? false;
+    }
+
+    public getStaffRate(item: any): number {
+      if (item?.commissionSplitOverride) {
+        return (item.commissionSplitStaffShare ?? 20) / 100;
+      }
+      if (this.storeOverride) {
+        return this.storeStaffShare / 100;
+      }
+      return this.businessStaffShare / 100;
+    }
+  }
+
   // Option 4 Hybrid Model Commission Calculation Engine
   async calculatePayrollForPeriod(periodId: string): Promise<PayrollEntryWithStaff[]> {
     const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
     if (!period) throw new Error("Payroll period not found");
     if (period.status === "paid") throw new Error("Cannot recalculate a paid payroll period.");
+
+    const store = await this.getStore(period.storeId);
+    if (!store) throw new Error("Store not found");
+    const business = await this.getBusinessById(store.businessId);
+    const splitCalculator = new this.CommissionSplitCalculator(business, store);
 
     // Fetch store settings snapshot or current settings
     const storeSettings = await this.getSettings(period.storeId);
@@ -2099,16 +2324,14 @@ export class DatabaseStorage implements IStorage {
       // If no service revenue, skip commission math
       if (totalDailyServiceRevenue <= 0 || activeStaffCount === 0) continue;
 
-      // Calculate Daily Commissionable Amount
-      // Commissionable = Total Daily Service Revenue − (Active Staff Count × Active Transport Amount)
-      const commissionable = Math.max(0, totalDailyServiceRevenue - (activeStaffCount * activeTransportRate));
-      const dailyCommissionPool = commissionable * baseCommissionRate;
+      // Distribute pool across service items proportionally with dynamic overrides
+      const transportRatio = totalDailyServiceRevenue > 0 ? (activeStaffCount * activeTransportRate) / totalDailyServiceRevenue : 0;
 
-      // Distribute pool across service items proportionally
       for (const row of dayServiceCheckouts) {
         const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
-        const serviceWeight = totalDailyServiceRevenue > 0 ? (effectivePrice / totalDailyServiceRevenue) : 0;
-        const perServicePool = serviceWeight * dailyCommissionPool;
+        const serviceCommissionable = Math.max(0, effectivePrice * (1 - transportRatio));
+        const serviceRate = splitCalculator.getStaffRate(row.inventoryItem);
+        const perServicePool = serviceCommissionable * serviceRate;
 
         const leadId = row.checkout.leadStaffId || row.checkout.staffId;
         const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
@@ -2391,6 +2614,89 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  // Promotions CRUD
+  async getPromotions(storeId: string): Promise<Promotion[]> {
+    return await db.select().from(promotions).where(eq(promotions.storeId, storeId)).orderBy(asc(promotions.name));
+  }
+
+  async createPromotion(data: InsertPromotion & { storeId: string }): Promise<Promotion> {
+    const [row] = await db.insert(promotions).values(data).returning();
+    return row;
+  }
+
+  async updatePromotion(id: string, data: Partial<InsertPromotion>): Promise<Promotion | undefined> {
+    const [row] = await db.update(promotions).set(data).where(eq(promotions.id, id)).returning();
+    return row;
+  }
+
+  async deletePromotion(id: string): Promise<boolean> {
+    const res = await db.delete(promotions).where(eq(promotions.id, id)).returning();
+    return res.length > 0;
+  }
+
+  // Custom Roles CRUD
+  async getCustomRoles(businessId: string): Promise<CustomRole[]> {
+    return await db.select().from(customRoles).where(eq(customRoles.businessId, businessId)).orderBy(asc(customRoles.name));
+  }
+
+  async createCustomRole(data: InsertCustomRole & { businessId: string }): Promise<CustomRole> {
+    const [row] = await db.insert(customRoles).values({
+      businessId: data.businessId,
+      name: data.name,
+      description: data.description || null,
+      permissions: data.permissions || [],
+    }).returning();
+    return row;
+  }
+
+  async updateCustomRole(id: string, data: Partial<InsertCustomRole>): Promise<CustomRole | undefined> {
+    const [row] = await db.update(customRoles).set({
+      ...data,
+      updatedAt: new Date(),
+    }).where(eq(customRoles.id, id)).returning();
+    return row;
+  }
+
+  async deleteCustomRole(id: string): Promise<boolean> {
+    const res = await db.delete(customRoles).where(eq(customRoles.id, id)).returning();
+    return res.length > 0;
+  }
+
+  // Store Integrations
+  async getStoreIntegrations(storeId: string): Promise<StoreIntegration[]> {
+    return await db.select().from(storeIntegrations).where(eq(storeIntegrations.storeId, storeId));
+  }
+
+  async getStoreIntegrationByProvider(storeId: string, provider: string): Promise<StoreIntegration | undefined> {
+    const [row] = await db
+      .select()
+      .from(storeIntegrations)
+      .where(and(eq(storeIntegrations.storeId, storeId), eq(storeIntegrations.provider, provider)));
+    return row;
+  }
+
+  async upsertStoreIntegration(data: InsertStoreIntegration & { storeId: string; provider: string }): Promise<StoreIntegration> {
+    const existing = await this.getStoreIntegrationByProvider(data.storeId, data.provider);
+    if (existing) {
+      const [updated] = await db
+        .update(storeIntegrations)
+        .set({
+          ...data,
+          updatedAt: new Date(),
+        })
+        .where(eq(storeIntegrations.id, existing.id))
+        .returning();
+      return updated;
+    }
+    
+    const [inserted] = await db.insert(storeIntegrations).values(data).returning();
+    return inserted;
+  }
+
+  async deleteStoreIntegration(id: string): Promise<void> {
+    await db.delete(storeIntegrations).where(eq(storeIntegrations.id, id));
+  }
+
   // Expense Categories CRUD
   async getExpenseCategories(storeId: string): Promise<ExpenseCategory[]> {
     return db.select().from(expenseCategories).where(eq(expenseCategories.storeId, storeId)).orderBy(asc(expenseCategories.name));
@@ -2402,14 +2708,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteExpenseCategory(id: string): Promise<void> {
+    const associatedExpenses = await db.select()
+      .from(expenses)
+      .where(eq(expenses.categoryId, id))
+      .limit(1);
+
+    if (associatedExpenses.length > 0) {
+      throw new Error("conflict:Cannot delete expense category. It may be in use.");
+    }
+
     await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
   }
 
   // Expenses CRUD
-  async getExpenses(storeId: string, startDate?: string, endDate?: string): Promise<ExpenseWithCategory[]> {
+  async getExpenses(
+    storeId: string,
+    startDate?: string,
+    endDate?: string,
+    type?: "all" | "general" | "linked" | "service" | "product",
+    inventoryId?: string
+  ): Promise<ExpenseWithCategory[]> {
     let conditions = [eq(expenses.storeId, storeId)];
     if (startDate) conditions.push(gte(expenses.date, startDate));
     if (endDate) conditions.push(lte(expenses.date, endDate));
+    if (inventoryId && inventoryId !== "none" && inventoryId !== "all") {
+      conditions.push(eq(expenses.inventoryId, inventoryId));
+    }
 
     const rows = await db.select({
       expense: expenses,
@@ -2422,11 +2746,33 @@ export class DatabaseStorage implements IStorage {
       .where(and(...conditions))
       .orderBy(desc(expenses.date));
 
-    return rows.map(r => ({
+    let mapped = rows.map(r => ({
       ...r.expense,
       category: r.category!,
       inventory: r.inventory || undefined,
     })) as ExpenseWithCategory[];
+
+    if (type && type !== "all") {
+      if (type === "general") {
+        mapped = mapped.filter(e => !e.inventoryId);
+      } else if (type === "linked") {
+        mapped = mapped.filter(e => !!e.inventoryId);
+      } else if (type === "service") {
+        mapped = mapped.filter(e => e.inventory?.type === "service");
+      } else if (type === "product") {
+        mapped = mapped.filter(e => e.inventory?.type === "product");
+      }
+    }
+
+    return mapped;
+  }
+
+  async updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense> {
+    const [updated] = await db.update(expenses)
+      .set(data)
+      .where(eq(expenses.id, id))
+      .returning();
+    return updated;
   }
 
   async getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {

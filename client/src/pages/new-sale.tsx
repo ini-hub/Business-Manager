@@ -18,6 +18,8 @@ import {
   Banknote,
   CreditCard,
   Link2,
+  Gift,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -46,6 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
@@ -178,6 +181,15 @@ export default function NewSale() {
     enabled: !!currentStore?.id,
   });
 
+  const { data: promotionsList = [] } = useQuery<any[]>({
+    queryKey: ["/api/promotions", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/promotions?storeId=${currentStore?.id}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id,
+  });
+
   const availableInventory = inventory.filter(
     (item) => item.type === "service" || item.quantity > 0
   );
@@ -289,6 +301,85 @@ export default function NewSale() {
 
   const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
 
+  // Compute promotions automatically on the client-side cart
+  const activePromos = promotionsList.filter(p => p.isActive);
+  
+  const appliedPromos: Array<{ name: string; type: string; description: string }> = [];
+  const freeItemsPreview: Array<{ name: string; quantity: number }> = [];
+  let promoDiscount = 0;
+
+  // 1. Buy X Get Y (Same Item)
+  activePromos.forEach(promo => {
+    if (promo.type === "buy_x_get_y" && promo.buyItemId === promo.getItemId && promo.buyItemId) {
+      const cartItem = cart.find(c => c.inventory.id === promo.buyItemId);
+      if (cartItem) {
+        const buyQty = promo.buyQuantity || 1;
+        const getQty = promo.getQuantity || 1;
+        const cycle = buyQty + getQty;
+        if (cartItem.quantity >= cycle) {
+          const times = Math.floor(cartItem.quantity / cycle);
+          const freeQty = times * getQty;
+          promoDiscount += freeQty * cartItem.customPrice;
+          appliedPromos.push({
+            name: promo.name,
+            type: "buy_x_get_y",
+            description: `Buy ${buyQty} get ${getQty} free (Deducted ${freeQty} × free item(s) value)`
+          });
+          freeItemsPreview.push({
+            name: cartItem.inventory.name,
+            quantity: freeQty
+          });
+        }
+      }
+    }
+  });
+
+  // 2. Buy X Get Y (Different Item)
+  activePromos.forEach(promo => {
+    if (promo.type === "buy_x_get_y" && promo.buyItemId !== promo.getItemId && promo.buyItemId && promo.getItemId) {
+      const cartItem = cart.find(c => c.inventory.id === promo.buyItemId);
+      if (cartItem && cartItem.quantity >= (promo.buyQuantity || 1)) {
+        const times = Math.floor(cartItem.quantity / (promo.buyQuantity || 1));
+        const freeQty = times * (promo.getQuantity || 1);
+        const rewardItem = inventory.find(i => i.id === promo.getItemId);
+        if (rewardItem) {
+          appliedPromos.push({
+            name: promo.name,
+            type: "buy_x_get_y",
+            description: `Buy ${promo.buyQuantity} of ${cartItem.inventory.name} get ${freeQty} of ${rewardItem.name} free!`
+          });
+          freeItemsPreview.push({
+            name: rewardItem.name,
+            quantity: freeQty
+          });
+        }
+      }
+    }
+  });
+
+  // 3. Spend X Get Y Free
+  activePromos.forEach(promo => {
+    if (promo.type === "spend_x_get_y" && promo.spendAmount && promo.getItemId) {
+      const remainingTotal = Math.max(0, cartTotal - promoDiscount);
+      if (remainingTotal >= promo.spendAmount) {
+        const rewardItem = inventory.find(i => i.id === promo.getItemId);
+        if (rewardItem) {
+          appliedPromos.push({
+            name: promo.name,
+            type: "spend_x_get_y",
+            description: `Spend threshold of ₦${promo.spendAmount.toLocaleString()} reached. Get ${promo.getQuantity || 1} × ${rewardItem.name} free!`
+          });
+          freeItemsPreview.push({
+            name: rewardItem.name,
+            quantity: promo.getQuantity || 1
+          });
+        }
+      }
+    }
+  });
+
+  const finalCartTotal = Math.max(0, cartTotal - promoDiscount);
+
   const checkoutMutation = useMutation({
     mutationFn: async () => {
       const orderData = cart.map((item) => ({
@@ -393,12 +484,7 @@ export default function NewSale() {
           title="New Sale"
           description="Create a new sales transaction"
         />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to create sales.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for POS" />
       </div>
     );
   }
@@ -573,6 +659,7 @@ export default function NewSale() {
                               size="icon"
                               className="h-7 w-7"
                               onClick={() => updateQuantity(item.inventory.id, 1)}
+                              disabled={item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
                               data-testid={`button-increase-${item.inventory.id}`}
                             >
                               <Plus className="h-3 w-3" />
@@ -721,10 +808,42 @@ export default function NewSale() {
             </CardContent>
             <Separator />
             <CardFooter className="flex flex-col gap-4 pt-4">
+              {/* Applied Promotions Indicator */}
+              {appliedPromos.length > 0 && (
+                <div className="w-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-lg p-3 text-xs space-y-1.5">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <Gift className="h-4 w-4 text-emerald-500 animate-bounce" />
+                    Applied Promotions ({appliedPromos.length})
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 pl-1">
+                    {appliedPromos.map((p, idx) => (
+                      <li key={idx} className="leading-tight">
+                        <span className="font-medium">{p.name}:</span> {p.description}
+                      </li>
+                    ))}
+                  </ul>
+                  {freeItemsPreview.length > 0 && (
+                    <div className="mt-1 pt-1.5 border-t border-emerald-500/20 font-semibold text-[11px] text-emerald-600 dark:text-emerald-400">
+                      Reward Free Item(s) to hand over: {freeItemsPreview.map(f => `${f.quantity} × ${f.name}`).join(", ")}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="w-full flex justify-between items-center text-sm font-medium">
                 <span className="text-muted-foreground">Subtotal</span>
                 <span className="font-mono">{formatCurrency(cartTotal)}</span>
               </div>
+
+              {promoDiscount > 0 && (
+                <div className="w-full flex justify-between items-center text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Promotional Savings
+                  </span>
+                  <span className="font-mono">- {formatCurrency(promoDiscount)}</span>
+                </div>
+              )}
 
               {/* Standalone Option B Discount Panel */}
               <div className="w-full border border-primary/10 rounded-lg p-3.5 bg-primary/5 space-y-3 animate-fade-in">
@@ -761,7 +880,7 @@ export default function NewSale() {
                         <Input
                           type="number"
                           min={0}
-                          max={cartTotal}
+                          max={finalCartTotal}
                           className="h-8 font-mono text-xs"
                           placeholder="0.00"
                           value={discountAmount || ""}
@@ -773,9 +892,9 @@ export default function NewSale() {
                               setDiscountApprovedBy("");
                               return;
                             }
-                            const amt = Math.min(cartTotal, Math.max(0, val));
+                            const amt = Math.min(finalCartTotal, Math.max(0, val));
                             setDiscountAmount(amt);
-                            const pct = cartTotal > 0 ? (amt / cartTotal) * 100 : 0;
+                            const pct = finalCartTotal > 0 ? (amt / finalCartTotal) * 100 : 0;
                             setDiscountPercent(pct);
                             
                             // Check if authorization is required
@@ -796,22 +915,22 @@ export default function NewSale() {
                         <Input
                           type="number"
                           min={0}
-                          max={cartTotal}
+                          max={finalCartTotal}
                           className="h-8 font-mono text-xs"
-                          placeholder={cartTotal ? (cartTotal - discountAmount).toFixed(2) : "0.00"}
-                          value={discountAmount > 0 ? (cartTotal - discountAmount).toFixed(2) : ""}
+                          placeholder={finalCartTotal ? (finalCartTotal - discountAmount).toFixed(2) : "0.00"}
+                          value={discountAmount > 0 ? (finalCartTotal - discountAmount).toFixed(2) : ""}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
-                            if (isNaN(val) || val >= cartTotal) {
+                            if (isNaN(val) || val >= finalCartTotal) {
                               setDiscountAmount(0);
                               setDiscountPercent(0);
                               setDiscountApprovedBy("");
                               return;
                             }
                             const target = Math.max(0, val);
-                            const amt = Math.max(0, cartTotal - target);
+                            const amt = Math.max(0, finalCartTotal - target);
                             setDiscountAmount(amt);
-                            const pct = cartTotal > 0 ? (amt / cartTotal) * 100 : 0;
+                            const pct = finalCartTotal > 0 ? (amt / finalCartTotal) * 100 : 0;
                             setDiscountPercent(pct);
 
                             // Check if authorization is required
@@ -863,7 +982,7 @@ export default function NewSale() {
               <div className="w-full flex justify-between items-center pt-2 border-t">
                 <span className="font-bold text-base text-foreground">Total Charged</span>
                 <span className="text-xl font-bold font-mono text-emerald-600">
-                  {formatCurrency(Math.max(0, cartTotal - discountAmount))}
+                  {formatCurrency(Math.max(0, finalCartTotal - discountAmount))}
                 </span>
               </div>
             </CardFooter>

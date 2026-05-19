@@ -27,6 +27,8 @@ test-discounts.js
 test-*.js
 debug-*.js
 rename-db.js
+server/test-auth-data.ts
+server/test-*.ts
 
 # Database seeding and demo scripts
 seed-clean-demo.js

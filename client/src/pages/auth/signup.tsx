@@ -6,12 +6,13 @@ import { Link, useLocation } from "wouter";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Eye, EyeOff, ArrowLeft, Check, X } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
 import { countryCodes } from "@/lib/phone-utils";
 
 const passwordSchema = z
@@ -56,9 +57,6 @@ function getPasswordRequirements(password: string): PasswordRequirement[] {
 export default function Signup() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
   const form = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
     defaultValues: {
@@ -76,7 +74,6 @@ export default function Signup() {
   const [otp, setOtp] = useState("");
 
   const password = form.watch("password");
-  const passwordRequirements = getPasswordRequirements(password || "");
 
   const signupMutation = useMutation({
     mutationFn: async (data: SignupFormData) => {
@@ -374,47 +371,19 @@ export default function Signup() {
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Create a strong password"
-                          autoComplete="new-password"
-                          data-testid="input-password"
-                          {...field}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                          onClick={() => setShowPassword(!showPassword)}
-                          data-testid="button-toggle-password"
-                        >
-                          {showPassword ? (
-                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <Eye className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </Button>
-                      </div>
+                      <PasswordInput
+                        placeholder="Create a strong password"
+                        autoComplete="new-password"
+                        data-testid="input-password"
+                        {...field}
+                      />
                     </FormControl>
                     {password && (
-                      <div className="mt-2 space-y-1">
-                        {passwordRequirements.map((req, idx) => (
-                          <div 
-                            key={idx} 
-                            className={`flex items-center gap-2 text-xs ${
-                              req.met ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
-                            }`}
-                          >
-                            {req.met ? (
-                              <Check className="h-3 w-3" />
-                            ) : (
-                              <X className="h-3 w-3" />
-                            )}
-                            {req.label}
-                          </div>
-                        ))}
+                      <div className="mt-2">
+                        <PasswordChecklist
+                          password={password}
+                          confirmPassword={form.watch("confirmPassword")}
+                        />
                       </div>
                     )}
                     <FormMessage />
@@ -429,29 +398,12 @@ export default function Signup() {
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="Confirm your password"
-                          autoComplete="new-password"
-                          data-testid="input-confirm-password"
-                          {...field}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          data-testid="button-toggle-confirm-password"
-                        >
-                          {showConfirmPassword ? (
-                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <Eye className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </Button>
-                      </div>
+                      <PasswordInput
+                        placeholder="Confirm your password"
+                        autoComplete="new-password"
+                        data-testid="input-confirm-password"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

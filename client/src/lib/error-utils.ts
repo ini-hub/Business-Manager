@@ -1,6 +1,22 @@
 export function getUserFriendlyError(error: Error | unknown, context?: string): string {
   const message = error instanceof Error ? error.message : String(error);
   
+  if (
+    message.toLowerCase().includes("store creation failed") ||
+    message.toLowerCase().includes("store update failed") ||
+    message.toLowerCase().includes("cannot create store") ||
+    message.toLowerCase().includes("cannot update store") ||
+    message.toLowerCase().includes("already exists") ||
+    message.toLowerCase().includes("taken") ||
+    message.toLowerCase().includes("already in use")
+  ) {
+    return message
+      .replace(/^Store Creation Failed:\s*/i, "")
+      .replace(/^Store Update Failed:\s*/i, "")
+      .replace(/^Cannot create store:\s*/i, "")
+      .replace(/^Cannot update store:\s*/i, "");
+  }
+  
   const errorMappings: Record<string, string> = {
     "Failed to fetch": "Unable to connect to the server. Please check your internet connection and try again.",
     "Network Error": "Unable to connect to the server. Please check your internet connection and try again.",

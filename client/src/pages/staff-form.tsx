@@ -71,6 +71,11 @@ export default function StaffFormPage() {
     },
   });
 
+  const { data: customRoles = [] } = useQuery<any[]>({
+    queryKey: ["/api/custom-roles"],
+    enabled: isOwner,
+  });
+
   const form = useForm<any>({
     resolver: zodResolver(localStaffSchema),
     defaultValues: {
@@ -226,6 +231,11 @@ export default function StaffFormPage() {
                             <SelectContent>
                               <SelectItem value="staff">Staff (Sales Access Only)</SelectItem>
                               <SelectItem value="manager">Manager (Full Store Access)</SelectItem>
+                              {customRoles.map((role: any) => (
+                                <SelectItem key={role.id} value={role.name.toLowerCase()}>
+                                  {role.name} (Custom Role)
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                           <FormMessage />

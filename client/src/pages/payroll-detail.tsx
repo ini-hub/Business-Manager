@@ -89,7 +89,7 @@ export default function PayrollDetailPage() {
             {entry?.staff?.name ?? "Staff Member"}
           </h1>
           <p className="text-muted-foreground mt-0.5">
-            Option 4 Hybrid Drill-Down Dashboard
+            Hybrid Drill-Down Dashboard
             {period && (
               <> · {format(parseISO(period.startDate), "MMM d")} – {format(parseISO(period.endDate), "MMM d, yyyy")}</>
             )}

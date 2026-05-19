@@ -34,6 +34,7 @@ import { DateRangeFilter, type DateRange } from "@/components/date-range-filter"
 import { ExportToolbar } from "@/components/export-toolbar";
 import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -327,12 +328,7 @@ export default function Transactions() {
           title="Transactions"
           description="View all sales transactions"
         />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to view transactions.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Transactions" />
       </div>
     );
   }

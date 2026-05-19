@@ -3,12 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { Link } from "wouter";
 import { DateRangeFilter } from "@/components/date-range-filter";
@@ -90,12 +92,7 @@ export default function ProfitLossPage() {
           title="Profit & Loss Report"
           description="Analyze revenue and profit across all inventory items"
         />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to view profit & loss reports.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Reports" />
       </div>
     );
   }
@@ -379,11 +376,24 @@ export default function ProfitLossPage() {
                     <span className="font-mono text-red-600">− {formatCurrency(summary?.totalExpenses ?? 0)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center font-bold text-xl pt-4 border-t mt-4">
+                  <div className="flex justify-between items-center font-bold text-xl pt-4 border-t mt-4 mb-4">
                     <span>OPERATING PROFIT</span>
                     <span className={`font-mono ${opProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                       {formatCurrency(opProfit)}
                     </span>
+                  </div>
+
+                  <Separator className="my-4" />
+                  <div className="flex gap-2 items-center p-3 rounded-lg border border-blue-100 bg-blue-50/50 text-blue-800 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-200 shadow-sm">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                    <div className="flex-1 text-xs md:text-sm flex flex-col md:flex-row md:items-center justify-between gap-2">
+                      <span>ⓘ Service & Product sustaining costs are completely excluded from this statement.</span>
+                      <Link href="/inventory">
+                        <Button size="sm" variant="ghost" className="text-blue-700 dark:text-blue-400 p-0 h-auto font-semibold flex items-center gap-1">
+                          View per-item breakdown in Inventory &rarr;
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 </>
               )}

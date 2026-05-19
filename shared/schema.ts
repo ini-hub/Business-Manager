@@ -24,6 +24,8 @@ export const organisations = pgTable("organisations", {
   businessUrl: text("business_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  commissionSplitBusinessShare: integer("commission_split_business_share").notNull().default(80),
+  commissionSplitStaffShare: integer("commission_split_staff_share").notNull().default(20),
 });
 
 export const organisationsRelations = relations(organisations, ({ many }) => ({
@@ -67,6 +69,9 @@ export const stores = pgTable("stores", {
   managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  commissionSplitOverride: boolean("commission_split_override").notNull().default(false),
+  commissionSplitBusinessShare: integer("commission_split_business_share").notNull().default(80),
+  commissionSplitStaffShare: integer("commission_split_staff_share").notNull().default(20),
 }, (table) => [
   unique("store_business_name_unique").on(table.businessId, table.name),
   unique("store_business_code_unique").on(table.businessId, table.code),
@@ -194,7 +199,7 @@ export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isAr
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
-  role: z.enum(staffRoleEnum).default("staff"),
+  role: z.string().default("staff"),
   paymentMethod: z.enum(["fixed", "hybrid"]).default("hybrid"),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
@@ -209,6 +214,9 @@ export const inventory = pgTable("inventory", {
   costPrice: real("cost_price").notNull(),
   sellingPrice: real("selling_price").notNull(),
   quantity: integer("quantity").notNull().default(0), // Only relevant for products
+  commissionSplitOverride: boolean("commission_split_override").default(false).notNull(),
+  commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
+  commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),
 }, (table) => [
   unique("inventory_store_name_unique").on(table.storeId, table.name),
 ]);
@@ -251,6 +259,8 @@ export const inventoryRestockEvents = pgTable("inventory_restock_events", {
   newSellingPrice: real("new_selling_price").notNull(),
   costStrategy: text("cost_strategy").notNull().default("keep"), // keep, last, weighted, override
   notes: text("notes"), // Optional notes for this restock
+  reason: text("reason").notNull().default("Regular Restock"), // Regular Restock, Returned Stock, Correction, Opening Stock
+  attachment: text("attachment"), // Optional receipt upload url
   restockedAt: timestamp("restocked_at").notNull().defaultNow(),
 });
 
@@ -288,6 +298,8 @@ export const insertRestockEventSchema = createInsertSchema(inventoryRestockEvent
   costStrategy: z.enum(costStrategyEnum).default("keep"),
   newSellingPrice: z.number().min(0, "Selling price cannot be negative").optional(),
   notes: z.string().optional(),
+  reason: z.enum(["Regular Restock", "Returned Stock", "Correction", "Opening Stock"]).default("Regular Restock"),
+  attachment: z.string().optional().nullable(),
 });
 export type InsertRestockEvent = z.infer<typeof insertRestockEventSchema>;
 export type RestockEvent = typeof inventoryRestockEvents.$inferSelect;
@@ -965,4 +977,81 @@ export const insertStoreIntegrationSchema = createInsertSchema(storeIntegrations
 });
 export type InsertStoreIntegration = z.infer<typeof insertStoreIntegrationSchema>;
 export type StoreIntegration = typeof storeIntegrations.$inferSelect;
+
+// Promotions Table
+export const promotions = pgTable("promotions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // 'buy_x_get_y' | 'spend_x_get_y'
+  buyItemId: varchar("buy_item_id").references(() => inventory.id),
+  buyQuantity: integer("buy_quantity"),
+  getItemId: varchar("get_item_id").references(() => inventory.id),
+  getQuantity: integer("get_quantity"),
+  spendAmount: real("spend_amount"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const promotionsRelations = relations(promotions, ({ one }) => ({
+  store: one(stores, {
+    fields: [promotions.storeId],
+    references: [stores.id],
+  }),
+  buyItem: one(inventory, {
+    fields: [promotions.buyItemId],
+    references: [inventory.id],
+  }),
+  getItem: one(inventory, {
+    fields: [promotions.getItemId],
+    references: [inventory.id],
+  }),
+}));
+
+export const insertPromotionSchema = createInsertSchema(promotions).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  name: trimmedString(1, "Promotion name is required"),
+  type: z.enum(["buy_x_get_y", "spend_x_get_y"]),
+  buyQuantity: z.number().min(1).optional().nullable(),
+  getQuantity: z.number().min(1).optional().nullable(),
+  spendAmount: z.number().min(0).optional().nullable(),
+  isActive: z.boolean().default(true),
+});
+
+export type InsertPromotion = z.infer<typeof insertPromotionSchema>;
+export type Promotion = typeof promotions.$inferSelect;
+
+// Custom Roles Table
+export const customRoles = pgTable("custom_roles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`), // array of accessible modules/features
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const customRolesRelations = relations(customRoles, ({ one }) => ({
+  business: one(businesses, {
+    fields: [customRoles.businessId],
+    references: [businesses.id],
+  }),
+}));
+
+export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: trimmedString(1, "Role name is required"),
+  permissions: z.array(z.string()).default([]),
+});
+
+export type InsertCustomRole = z.infer<typeof insertCustomRoleSchema>;
+export type CustomRole = typeof customRoles.$inferSelect;
+
+
 

@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
@@ -210,12 +211,7 @@ export default function AttendancePage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Attendance" description="Track staff attendance" />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your store</Link> first.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Attendance" />
       </div>
     );
   }

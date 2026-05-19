@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,6 +30,7 @@ export default function ProfilePage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [isPasswordValid, setIsPasswordValid] = useState(false);
 
   const updateProfileMutation = useMutation({
     mutationFn: (data: { name: string; profilePhotoUrl: string }) => 
@@ -65,6 +67,14 @@ export default function ProfilePage() {
 
   const handlePasswordChange = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPasswordValid) {
+      toast({
+        title: "Invalid Password",
+        description: "Your new password does not meet the security checklist requirements.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (newPassword !== confirmPassword) {
       toast({ title: "Passwords do not match", variant: "destructive" });
       return;
@@ -198,9 +208,8 @@ export default function ProfilePage() {
                   <form onSubmit={handlePasswordChange} className="space-y-4">
                     <div className="grid gap-2">
                       <Label htmlFor="current-password">Current Password</Label>
-                      <Input 
+                      <PasswordInput 
                         id="current-password" 
-                        type="password" 
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
                         required
@@ -208,9 +217,8 @@ export default function ProfilePage() {
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="new-password">New Password</Label>
-                      <Input 
+                      <PasswordInput 
                         id="new-password" 
-                        type="password" 
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         required
@@ -218,14 +226,22 @@ export default function ProfilePage() {
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="confirm-password">Confirm New Password</Label>
-                      <Input 
+                      <PasswordInput 
                         id="confirm-password" 
-                        type="password" 
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         required
                       />
                     </div>
+                    {newPassword && (
+                      <div className="mt-2">
+                        <PasswordChecklist
+                          password={newPassword}
+                          confirmPassword={confirmPassword}
+                          onValidationChange={setIsPasswordValid}
+                        />
+                      </div>
+                    )}
                     <div className="flex justify-end pt-4">
                       <Button 
                         type="submit" 

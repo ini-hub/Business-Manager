@@ -20,6 +20,7 @@ import {
   insertCustomerSchema,
   insertStaffSchema,
   insertInventorySchema,
+  insertPromotionSchema,
   signupSchema,
   loginSchema,
   verifyOtpSchema,
@@ -27,8 +28,18 @@ import {
   resetPasswordSchema,
   passwordSchema,
   type UserRole,
+  orders,
+  checkouts,
+  promotions,
+  customers,
+  inventory,
+  staff,
+  customRoles,
+  insertCustomRoleSchema,
 } from "@shared/schema";
 import { z } from "zod";
+import { db } from "./db";
+import { eq, and, gte, lte, gt, count } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
 import { auditLogger } from "./audit";
 import passport from "passport";
@@ -129,8 +140,8 @@ export async function registerRoutes(
 
   // ========== MULTI-TENANCY HELPERS ==========
   async function checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
-    const userBusinessId = (req as any).user?.businessId;
-    if (!userBusinessId) {
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    if (!userId) {
       res.status(401).json({ error: "Authentication required." });
       return false;
     }
@@ -139,7 +150,10 @@ export async function registerRoutes(
       res.status(404).json({ error: "Store not found." });
       return false;
     }
-    if (store.businessId !== userBusinessId) {
+
+    // Verify user has direct membership access to the business the store belongs to
+    const member = await storage.getOrganisationMember(userId, store.businessId);
+    if (!member) {
       res.status(403).json({ error: "Unauthorized access to store data." });
       return false;
     }
@@ -181,6 +195,15 @@ export async function registerRoutes(
       const members = await storage.getOrganisationsByUserId(user.id);
       const isPending = members.some(m => m.status === "pending");
       const isPartial = members.some(m => m.status === "partial");
+
+      // Bypasses the activation screens if the user already has a password on the platform.
+      if (user.password || user.passwordHash) {
+        return res.json({
+          status: "password_required",
+          email: user.email,
+          phone: user.phone,
+        });
+      }
 
       // 1. If invited staff in partial status (code verified but password not yet set) -> direct to set password
       if (isPartial || (user.createdByInvitation && user.activationCodeUsed && !user.password && !user.passwordHash)) {
@@ -725,6 +748,82 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Organisation switch error:", error);
       res.status(500).json({ error: "Failed to switch organization workspace." });
+    }
+  });
+
+  // Create a brand new business workspace under current active user
+  app.post("/api/auth/organisation/create", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { name } = req.body;
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ error: "Business name is required." });
+      }
+
+      const userId = (req as any).user.userId || (req as any).user.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User account not found." });
+      }
+
+      // Create new organisation
+      const nameTrimmed = name.trim();
+      const slug = nameTrimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Math.floor(1000 + Math.random() * 9000);
+      const organisation = await storage.createOrganisation({
+        name: nameTrimmed,
+        slug,
+        receiptPrefix: nameTrimmed.substring(0, 3).toUpperCase(),
+      });
+
+      // Add user as the active Owner of this new organisation
+      await storage.createOrganisationMember({
+        userId: user.id,
+        organisationId: organisation.id,
+        role: "owner",
+        status: "active",
+        activatedAt: new Date(),
+      });
+
+      // Update the user's default businessId for backward-compatibility if not set
+      if (!user.businessId) {
+        await storage.updateUser(user.id, { businessId: organisation.id });
+      }
+
+      // Audit log the creation
+      auditLogger.logDataModification("organisation", organisation.id, user.id, "CREATE", true);
+
+      // Generate updated JWT session token scoped to the newly created organisation
+      const payload = {
+        userId: user.id,
+        organisationId: organisation.id,
+        role: "owner",
+        email: user.email || undefined,
+      };
+
+      const token = generateToken(payload, false);
+
+      res.cookie("jwt_token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: "lax",
+      });
+
+      const sessionUser = {
+        id: user.id,
+        email: user.email || user.phone || "",
+        role: "owner",
+        businessId: organisation.id,
+        isVerified: user.isVerified || user.isEmailVerified || user.isPhoneVerified,
+      };
+
+      res.json({
+        message: "Business workspace created successfully.",
+        user: sessionUser,
+        business: organisation,
+      });
+    } catch (error) {
+      console.error("Organisation creation error:", error);
+      res.status(500).json({ error: "Failed to create new business workspace." });
     }
   });
 
@@ -1390,18 +1489,43 @@ export async function registerRoutes(
   // ========== BUSINESS ==========
   app.get("/api/business", async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
-      if (!userId) {
+      const user = (req as any).user;
+      if (!user?.id) {
         return res.status(401).json({ error: "Authentication required." });
       }
-      const business = await storage.getBusinessByUserId(userId);
-      res.json(business || null);
+
+      // 1. Check active session businessId from claims
+      let activeBusinessId = user.businessId;
+
+      // 2. Fallback to database user record if not in active session
+      if (!activeBusinessId) {
+        const userRecord = await storage.getUser(user.id);
+        activeBusinessId = userRecord?.businessId;
+      }
+
+      // 3. Fallback to first joined organization in database
+      if (!activeBusinessId) {
+        const userOrgs = await storage.getOrganisationsByUserId(user.id);
+        if (userOrgs.length > 0) {
+          activeBusinessId = userOrgs[0].id;
+          // Sync default businessId in user profile
+          await storage.updateUser(user.id, { businessId: activeBusinessId });
+        }
+      }
+
+      if (activeBusinessId) {
+        const business = await storage.getBusinessById(activeBusinessId);
+        return res.json(business || null);
+      }
+
+      res.json(null);
     } catch (error) {
+      console.error("GET /api/business error:", error);
       res.status(500).json({ error: "We couldn't load business information. Please try again." });
     }
   });
 
-  app.post("/api/business", async (req, res) => {
+  app.post("/api/business", requireRole("owner"), async (req, res) => {
     try {
       const data = insertBusinessSchema.parse(req.body);
       const business = await storage.createBusiness(data);
@@ -1414,7 +1538,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/business/:id", async (req, res) => {
+  app.patch("/api/business/:id", requireRole("owner"), async (req, res) => {
     try {
       if (req.params.id !== (req as any).user?.businessId) {
         return res.status(403).json({ error: "Unauthorized access to business data." });
@@ -1436,30 +1560,31 @@ export async function registerRoutes(
   // ========== STORES ==========
   app.get("/api/stores", async (req, res) => {
     try {
-      const userBusinessId = (req as any).user?.businessId;
-      let businessId = req.query.businessId as string;
-
-      if (businessId && businessId !== userBusinessId) {
-        return res.status(403).json({ error: "Unauthorized access to business data." });
+      const userId = (req as any).user?.userId || (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Please log in to access stores." });
       }
+
+      let businessId = req.query.businessId as string;
+      const userBusinessId = (req as any).user?.businessId;
+
+      // Fallback to active session businessId if not specified in query
       businessId = businessId || userBusinessId;
 
       if (!businessId) {
         return res.status(400).json({ error: "Please select a business first." });
       }
 
-      // Verify user is authenticated with a business and has access
-      const user = req.user as any;
-      if (!user?.businessId) {
-        return res.status(401).json({ error: "Please log in to access stores." });
-      }
-      if (user.businessId !== businessId) {
-        return res.status(403).json({ error: "You don't have access to this business." });
+      // Verify user has direct membership access to the requested business
+      const member = await storage.getOrganisationMember(userId, businessId);
+      if (!member) {
+        return res.status(403).json({ error: "Unauthorized access to business data." });
       }
 
       const storeList = await storage.getStores(businessId);
       res.json(storeList);
     } catch (error) {
+      console.error("GET /api/stores error:", error);
       res.status(500).json({ error: "We couldn't load your stores. Please try again." });
     }
   });
@@ -1470,19 +1595,26 @@ export async function registerRoutes(
       if (!store) {
         return res.status(404).json({ error: "Store not found." });
       }
-      if (store.businessId !== (req as any).user?.businessId) {
+
+      const userId = (req as any).user?.userId || (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Please log in to access store details." });
+      }
+
+      // Verify user has access to the business the store belongs to
+      const member = await storage.getOrganisationMember(userId, store.businessId);
+      if (!member) {
         return res.status(403).json({ error: "Unauthorized access to store data." });
       }
-      if (store.businessId !== (req as any).user?.businessId) {
-        return res.status(403).json({ error: "Unauthorized access to store data." });
-      }
+
       res.json(store);
     } catch (error) {
+      console.error("GET /api/stores/:id error:", error);
       res.status(500).json({ error: "We couldn't load store information. Please try again." });
     }
   });
 
-  app.post("/api/stores", async (req, res) => {
+  app.post("/api/stores", requireRole("owner"), async (req, res) => {
     try {
       const userBusinessId = (req as any).user?.businessId;
       if (!userBusinessId) {
@@ -1493,13 +1625,25 @@ export async function registerRoutes(
       req.body.businessId = userBusinessId;
       const data = insertStoreSchema.parse(req.body);
 
+      // Check for duplicate name or code within the business
+      const existingByName = await storage.getStoreByName(userBusinessId, data.name);
+      if (existingByName) {
+        return res.status(400).json({ error: `Store Creation Failed: A store named "${data.name}" already exists.` });
+      }
+
+      const existingByCode = await storage.getStoreByCode(userBusinessId, data.code);
+      if (existingByCode) {
+        return res.status(400).json({ error: `Store Creation Failed: A store with code "${data.code}" already exists.` });
+      }
+
       const store = await storage.createStore(data);
 
       // Automatically add the owner to the staff list of their new store
       try {
         const user = (req as any).user;
         if (user && user.id) {
-          const business = await storage.getBusinessByUserId(user.id);
+          const activeBusinessId = user.businessId;
+          const business = activeBusinessId ? await storage.getBusinessById(activeBusinessId) : undefined;
           await storage.createStaff({
             storeId: store.id,
             userId: user.id,
@@ -1527,7 +1671,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/stores/:id", async (req, res) => {
+  app.patch("/api/stores/:id", requireRole("owner"), async (req, res) => {
     try {
       const existingStore = await storage.getStore(req.params.id);
       if (!existingStore || existingStore.businessId !== (req as any).user?.businessId) {
@@ -1538,6 +1682,23 @@ export async function registerRoutes(
       delete updateBody.businessId;
 
       const data = insertStoreSchema.partial().parse(updateBody);
+
+      // If updating name, check for duplicate within the business
+      if (data.name && data.name.toLowerCase() !== existingStore.name.toLowerCase()) {
+        const existingByName = await storage.getStoreByName(existingStore.businessId, data.name);
+        if (existingByName && existingByName.id !== existingStore.id) {
+          return res.status(400).json({ error: `Store Update Failed: A store named "${data.name}" already exists.` });
+        }
+      }
+
+      // If updating code, check for duplicate within the business
+      if (data.code && data.code.trim().toUpperCase() !== existingStore.code.toUpperCase()) {
+        const existingByCode = await storage.getStoreByCode(existingStore.businessId, data.code);
+        if (existingByCode && existingByCode.id !== existingStore.id) {
+          return res.status(400).json({ error: `Store Update Failed: A store with code "${data.code}" already exists.` });
+        }
+      }
+
       const updatedStore = await storage.updateStore(req.params.id, data);
 
       if (!updatedStore) {
@@ -1552,7 +1713,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/stores/:id", async (req, res) => {
+  app.delete("/api/stores/:id", requireRole("owner"), async (req, res) => {
     try {
       const store = await storage.getStore(req.params.id);
       if (!store) {
@@ -1562,8 +1723,13 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Unauthorized access to store data." });
       }
 
-      const hasData = await storage.hasStoreData(req.params.id);
-      if (hasData) {
+      const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, req.params.id));
+      const inventoryCount = await db.select({ count: count() }).from(inventory).where(eq(inventory.storeId, req.params.id));
+      
+      const staffList = await storage.getStaffList(req.params.id);
+      const nonOwnerStaff = staffList.filter(s => s.userId !== (req as any).user?.id && s.email !== (req as any).user?.email);
+
+      if (customerCount[0].count > 0 || inventoryCount[0].count > 0 || nonOwnerStaff.length > 0) {
         return res.status(400).json({
           error: "This store has customers, staff, or inventory. Please remove them first before deleting the store."
         });
@@ -1576,6 +1742,69 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't delete the store. Please try again." });
+    }
+  });
+
+  // ========== STORE INTEGRATIONS ==========
+  app.get("/api/stores/:storeId/integrations", async (req, res) => {
+    try {
+      const store = await storage.getStore(req.params.storeId);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store integrations." });
+      }
+
+      const integrations = await storage.getStoreIntegrations(req.params.storeId);
+      const masked = integrations.map(int => ({
+        ...int,
+        secretKey: int.secretKey ? "••••••••••••••••" : null,
+        webhookSecret: int.webhookSecret ? "••••••••••••••••" : null,
+      }));
+      res.json(masked);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch store integrations." });
+    }
+  });
+
+  app.post("/api/stores/:storeId/integrations", async (req, res) => {
+    try {
+      const store = await storage.getStore(req.params.storeId);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store integrations." });
+      }
+
+      req.body.storeId = req.params.storeId;
+      const data = insertStoreIntegrationSchema.parse(req.body);
+
+      // Handle masked passwords: if the UI sent the masked bullet value "••••••••••••••••", keep the existing stored value
+      if (data.secretKey === "••••••••••••••••" || data.webhookSecret === "••••••••••••••••") {
+        const existing = await storage.getStoreIntegrationByProvider(req.params.storeId, data.provider);
+        if (existing) {
+          if (data.secretKey === "••••••••••••••••") {
+            data.secretKey = existing.secretKey;
+          }
+          if (data.webhookSecret === "••••••••••••••••") {
+            data.webhookSecret = existing.webhookSecret;
+          }
+        }
+      }
+
+      const integration = await storage.upsertStoreIntegration(data);
+      res.status(201).json({
+        ...integration,
+        secretKey: integration.secretKey ? "••••••••••••••••" : null,
+        webhookSecret: integration.webhookSecret ? "••••••••••••••••" : null,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Failed to save integration settings." });
     }
   });
 
@@ -1646,7 +1875,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/customers/:id", async (req, res) => {
+  app.patch("/api/customers/:id", requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -1682,7 +1911,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/customers/:id", async (req, res) => {
+  app.delete("/api/customers/:id", requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -1706,7 +1935,7 @@ export async function registerRoutes(
   });
 
   // Restore archived customer
-  app.post("/api/customers/:id/restore", async (req, res) => {
+  app.post("/api/customers/:id/restore", requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -1729,7 +1958,7 @@ export async function registerRoutes(
   });
 
   // Permanently delete archived customer
-  app.delete("/api/customers/:id/permanent", async (req, res) => {
+  app.delete("/api/customers/:id/permanent", requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -2102,6 +2331,18 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Staff member is already in this store." });
       }
 
+      // Check if a staff member with this email already exists in the target store
+      const existingInTarget = await db.select()
+        .from(staff)
+        .where(and(eq(staff.storeId, targetStoreId), eq(staff.email, staffMember.email)))
+        .limit(1);
+
+      if (existingInTarget.length > 0) {
+        return res.status(400).json({
+          error: "This staff member's email is already registered in the target store (e.g. they are already configured there). They cannot be transferred."
+        });
+      }
+
       // Use the storage method to transfer staff with auto-generated staff number
       const updated = await storage.transferStaff(req.params.id, targetStoreId);
 
@@ -2248,6 +2489,31 @@ export async function registerRoutes(
         sellingPrice: sanitizeNumber(req.body.sellingPrice),
         quantity: sanitizeNumber(req.body.quantity),
       };
+
+      const type = sanitizedBody.type;
+      const quantity = sanitizedBody.quantity;
+      const costPrice = sanitizedBody.costPrice;
+      const sellingPrice = sanitizedBody.sellingPrice;
+      if (type === "product") {
+        if (quantity === undefined || quantity === null || isNaN(quantity) || quantity < 1) {
+          return res.status(400).json({ error: "Stock quantity must be at least 1. If this item is out of stock, do not add it until stock is available." });
+        }
+      } else if (type === "service") {
+        sanitizedBody.quantity = 0; // Services do not have stock
+      }
+
+      if (costPrice <= 0) {
+        return res.status(400).json({ error: "Unit cost must be greater than zero." });
+      }
+
+      if (sellingPrice <= 0) {
+        return res.status(400).json({ error: "Selling price must be greater than zero." });
+      }
+
+      if (sellingPrice < costPrice) {
+        return res.status(400).json({ error: `Selling price cannot be less than unit cost (₦${costPrice.toLocaleString()}).` });
+      }
+
       const data = insertInventorySchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
       
@@ -2289,12 +2555,12 @@ export async function registerRoutes(
           }
 
           await storage.createInventoryItem({
-            ...item,
             storeId,
+            name: item.name,
+            type: item.type,
             quantity: Number(item.quantity) || 0,
             costPrice: Number(item.costPrice) || 0,
             sellingPrice: Number(item.sellingPrice) || 0,
-            lowStockThreshold: Number(item.lowStockThreshold) || 5,
           });
           results.success++;
         } catch (err: any) {
@@ -2325,6 +2591,30 @@ export async function registerRoutes(
       const updateBody = { ...req.body };
       delete updateBody.storeId;
       const data = insertInventorySchema.partial().parse(updateBody);
+
+      const finalType = data.type || item.type;
+      const finalQuantity = data.quantity !== undefined ? data.quantity : item.quantity;
+      const finalCostPrice = data.costPrice !== undefined ? data.costPrice : item.costPrice;
+      const finalSellingPrice = data.sellingPrice !== undefined ? data.sellingPrice : item.sellingPrice;
+
+      if (finalType === "product") {
+        if (finalQuantity === undefined || finalQuantity === null || isNaN(finalQuantity) || finalQuantity < 1) {
+          return res.status(400).json({ error: "Stock quantity must be at least 1. If this item is out of stock, do not add it until stock is available." });
+        }
+      }
+
+      if (finalCostPrice <= 0) {
+        return res.status(400).json({ error: "Unit cost must be greater than zero." });
+      }
+
+      if (finalSellingPrice <= 0) {
+        return res.status(400).json({ error: "Selling price must be greater than zero." });
+      }
+
+      if (finalSellingPrice < finalCostPrice) {
+        return res.status(400).json({ error: `Selling price cannot be less than unit cost (₦${finalCostPrice.toLocaleString()}).` });
+      }
+
       const updatedItem = await storage.updateInventoryItem(req.params.id, data);
       if (!updatedItem) {
         return res.status(404).json({ error: "This item no longer exists. It may have been deleted." });
@@ -2429,6 +2719,199 @@ export async function registerRoutes(
       res.json(events);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load restock history. Please try again." });
+    }
+  });
+
+  app.get("/api/inventory/:id/sustaining-costs", async (req, res) => {
+    try {
+      const inventoryId = req.params.id;
+      const item = await storage.getInventoryItem(inventoryId);
+      if (!item) {
+        return res.status(404).json({ error: "Inventory item not found." });
+      }
+
+      // Verify user has access to this item's store
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+
+      // Calculate Sales / Revenue for this specific item in the range
+      const checkoutConditions: any[] = [
+        eq(checkouts.storeId, item.storeId),
+        eq(checkouts.paymentStatus, "completed"),
+        eq(checkouts.isVoided, false),
+      ];
+      if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+      if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+      const sales = await db.select({
+        quantity: orders.quantity,
+        totalPrice: orders.totalPrice,
+      })
+        .from(orders)
+        .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+        .where(and(eq(orders.inventoryId, inventoryId), ...checkoutConditions));
+
+      const totalRevenue = sales.reduce((sum, s) => sum + s.totalPrice, 0);
+      const totalQuantitySold = sales.reduce((sum, s) => sum + s.quantity, 0);
+      const totalCogs = totalQuantitySold * (item.costPrice ?? 0);
+      const grossProfit = totalRevenue - totalCogs;
+      const grossProfitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+
+      // Fetch sustaining costs (expenses linked to this item in this period)
+      const sustainingExpenses = await storage.getExpenses(item.storeId, startDate, endDate, "linked", inventoryId);
+      const totalSustainingCosts = sustainingExpenses.reduce((sum, e) => sum + e.amount, 0);
+      const netProfit = grossProfit - totalSustainingCosts;
+      const netProfitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+      const status = netProfit > 0 ? "profit" : netProfit < 0 ? "loss" : "breakeven";
+
+      res.json({
+        totalRevenue,
+        totalCogs,
+        grossProfit,
+        grossProfitMargin,
+        totalSustainingCosts,
+        netProfit,
+        netProfitMargin,
+        status,
+        expenses: sustainingExpenses
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Could not calculate sustaining costs." });
+    }
+  });
+
+  app.get("/api/reports/service-profitability", requireRole("owner"), async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) {
+        return res.status(400).json({ error: "Please select a store first." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+
+      // 1. Fetch all inventory items for this store
+      const items = await storage.getInventory(storeId);
+
+      // 2. Fetch completed checkouts and their orders in the range
+      const checkoutConditions: any[] = [
+        eq(checkouts.storeId, storeId),
+        eq(checkouts.paymentStatus, "completed"),
+        eq(checkouts.isVoided, false),
+      ];
+      if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+      if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+      const sales = await db.select({
+        inventoryId: orders.inventoryId,
+        quantity: orders.quantity,
+        totalPrice: orders.totalPrice,
+      })
+        .from(orders)
+        .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+        .where(and(...checkoutConditions));
+
+      // 3. Fetch all expenses linked to specific items in the period
+      const allLinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "linked");
+
+      // 4. Group calculations per item
+      const itemSummaries = items.map(item => {
+        const itemSales = sales.filter(s => s.inventoryId === item.id);
+        const revenue = itemSales.reduce((sum, s) => sum + s.totalPrice, 0);
+        const quantitySold = itemSales.reduce((sum, s) => sum + s.quantity, 0);
+        const cogs = quantitySold * (item.costPrice ?? 0);
+        const grossProfit = revenue - cogs;
+        const grossProfitMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+        const itemExpenses = allLinkedExpenses.filter(e => e.inventoryId === item.id);
+        const sustainingCosts = itemExpenses.reduce((sum, e) => sum + e.amount, 0);
+        const netProfit = grossProfit - sustainingCosts;
+        const netProfitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+        const status = netProfit > 0 ? "profit" : netProfit < 0 ? "loss" : "breakeven";
+
+        return {
+          id: item.id,
+          name: item.name,
+          type: item.type,
+          revenue,
+          quantitySold,
+          cogs,
+          grossProfit,
+          grossProfitMargin,
+          sustainingCosts,
+          netProfit,
+          netProfitMargin,
+          status,
+        };
+      });
+
+      const services = itemSummaries.filter(s => s.type === "service");
+      const products = itemSummaries.filter(s => s.type === "product");
+
+      // 5. General overheads (unlinked expenses) grouped by category
+      const unlinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "general");
+      const overheadsByCategory: Record<string, number> = {};
+      unlinkedExpenses.forEach(e => {
+        if (e.category?.isSystem && e.category?.name === "Payroll") return;
+        const catName = e.category?.name || "Uncategorized";
+        overheadsByCategory[catName] = (overheadsByCategory[catName] || 0) + e.amount;
+      });
+      const generalOverheads = Object.entries(overheadsByCategory).map(([category, amount]) => ({
+        category,
+        amount
+      }));
+      const totalGeneralOverhead = unlinkedExpenses.reduce((sum, e) => {
+        if (e.category?.isSystem && e.category?.name === "Payroll") return sum;
+        return sum + e.amount;
+      }, 0);
+
+      // 6. Paid payroll periods in range
+      const payrollDetails = await storage.getPaidPayrollExpenses(storeId, startDate, endDate);
+      const totalPayroll = payrollDetails.reduce((sum, p) => sum + p.amount, 0);
+
+      // 7. Discounts given in range
+      const discountConditions: any[] = [
+        eq(checkouts.storeId, storeId),
+        eq(checkouts.paymentStatus, "completed"),
+        eq(checkouts.isVoided, false),
+        gt(checkouts.discountAmount, 0),
+      ];
+      if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+      if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+      const uniqueTxDiscounts = await db
+        .select({
+          discountAmount: checkouts.discountAmount,
+        })
+        .from(checkouts)
+        .where(and(...discountConditions));
+      const totalDiscounts = uniqueTxDiscounts.reduce((sum, d) => sum + (d.discountAmount || 0), 0);
+
+      // Final dynamic calculations
+      const totalNetProfit = itemSummaries.reduce((sum, s) => sum + s.netProfit, 0);
+      const operatingProfit = totalNetProfit - totalGeneralOverhead - totalPayroll - totalDiscounts;
+
+      res.json({
+        services,
+        products,
+        generalOverheads,
+        totalGeneralOverhead,
+        payrollDetails,
+        totalPayroll,
+        totalDiscounts,
+        totalNetProfit,
+        operatingProfit
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Could not calculate service profitability report." });
     }
   });
 
@@ -2603,7 +3086,7 @@ export async function registerRoutes(
       const { serviceRevenue, productRevenue, totalRevenue, costOfGoodsSold, grossProfit, discountsGiven, discountsList } =
         await storage.getProfitLossSummary(storeId, startDate, endDate);
 
-      const expenseList = await storage.getExpenses(storeId, startDate, endDate);
+      const expenseList = await storage.getExpenses(storeId, startDate, endDate, "general");
 
       let totalOperationalExpenses = 0;
       const expensesByCategory: Record<string, number> = {};
@@ -2903,6 +3386,180 @@ export async function registerRoutes(
     }
   });
 
+  // ========== PROMOTIONS ==========
+  app.get("/api/promotions", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const result = await storage.getPromotions(storeId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load promotions." });
+    }
+  });
+
+  app.post("/api/promotions", async (req, res) => {
+    try {
+      const data = insertPromotionSchema.parse(req.body);
+      if (!(await checkStoreAccess(data.storeId, req, res))) return;
+
+      // Only owner/manager can edit promotions
+      const role = (req as any).user?.role;
+      if (role !== "manager" && role !== "owner") {
+        return res.status(403).json({ error: "Only managers and owners can manage promotions." });
+      }
+
+      const promotion = await storage.createPromotion(data);
+      auditLogger.logDataModification("promotions", promotion.id, getUserId(req), "CREATE", true);
+      res.status(201).json(promotion);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Could not create promotion." });
+    }
+  });
+
+  app.patch("/api/promotions/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const data = insertPromotionSchema.partial().parse(req.body);
+      
+      const promotion = await db.select().from(promotions).where(eq(promotions.id, id)).then(r => r[0]);
+      if (!promotion) return res.status(404).json({ error: "Promotion not found." });
+      if (!(await checkStoreAccess(promotion.storeId, req, res))) return;
+
+      // Only owner/manager can edit promotions
+      const role = (req as any).user?.role;
+      if (role !== "manager" && role !== "owner") {
+        return res.status(403).json({ error: "Only managers and owners can manage promotions." });
+      }
+
+      const updated = await storage.updatePromotion(id, data);
+      auditLogger.logDataModification("promotions", id, getUserId(req), "UPDATE", true);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Could not update promotion." });
+    }
+  });
+
+  app.delete("/api/promotions/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const promotion = await db.select().from(promotions).where(eq(promotions.id, id)).then(r => r[0]);
+      if (!promotion) return res.status(404).json({ error: "Promotion not found." });
+      if (!(await checkStoreAccess(promotion.storeId, req, res))) return;
+
+      // Only owner/manager can edit promotions
+      const role = (req as any).user?.role;
+      if (role !== "manager" && role !== "owner") {
+        return res.status(403).json({ error: "Only managers and owners can manage promotions." });
+      }
+
+      await storage.deletePromotion(id);
+      auditLogger.logDataModification("promotions", id, getUserId(req), "DELETE", true);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete promotion." });
+    }
+  });
+
+  // ========== CUSTOM ROLES ==========
+  app.get("/api/custom-roles", async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
+      
+      const roles = await storage.getCustomRoles(businessId);
+      res.json(roles);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load custom roles." });
+    }
+  });
+
+  app.post("/api/custom-roles", async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
+
+      const role = (req as any).user?.role;
+      if (role !== "owner") {
+        return res.status(403).json({ error: "Only owners can manage custom roles." });
+      }
+
+      const data = insertCustomRoleSchema.parse({
+        ...req.body,
+        businessId,
+      });
+      const customRole = await storage.createCustomRole(data);
+
+      auditLogger.logDataModification("custom_roles", customRole.id, getUserId(req), "CREATE", true);
+      res.status(201).json(customRole);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Could not create custom role." });
+    }
+  });
+
+  app.patch("/api/custom-roles/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
+
+      const role = (req as any).user?.role;
+      if (role !== "owner") {
+        return res.status(403).json({ error: "Only owners can manage custom roles." });
+      }
+
+      const existing = await db.select().from(customRoles).where(eq(customRoles.id, id)).then(r => r[0]);
+      if (!existing || existing.businessId !== businessId) {
+        return res.status(404).json({ error: "Role not found." });
+      }
+
+      const data = insertCustomRoleSchema.partial().parse(req.body);
+      const updated = await storage.updateCustomRole(id, data);
+      
+      auditLogger.logDataModification("custom_roles", id, getUserId(req), "UPDATE", true);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "Could not update custom role." });
+    }
+  });
+
+  app.delete("/api/custom-roles/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
+
+      const role = (req as any).user?.role;
+      if (role !== "owner") {
+        return res.status(403).json({ error: "Only owners can manage custom roles." });
+      }
+
+      const existing = await db.select().from(customRoles).where(eq(customRoles.id, id)).then(r => r[0]);
+      if (!existing || existing.businessId !== businessId) {
+        return res.status(404).json({ error: "Role not found." });
+      }
+
+      await storage.deleteCustomRole(id);
+      auditLogger.logDataModification("custom_roles", id, getUserId(req), "DELETE", true);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete custom role." });
+    }
+  });
+
   // ========== SEARCH ==========
   app.get("/api/search", isAuthenticated, async (req, res) => {
     try {
@@ -3054,30 +3711,67 @@ export async function registerRoutes(
 
   app.post("/api/expenses/bulk", requireManagerOrOwner, async (req, res) => {
     try {
-      const { storeId, expenses } = req.body;
+      const storeId = req.body.storeId;
+      const rawExpenses = req.body.expenses || req.body.data;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
-      if (!Array.isArray(expenses)) return res.status(400).json({ error: "Expenses must be an array." });
+      if (!Array.isArray(rawExpenses)) return res.status(400).json({ error: "Expenses must be an array." });
 
-      const results = { success: 0, failed: 0, errors: [] as string[] };
+      // Verify user has access to this store
+      if (!await verifyStoreAccess(req, storeId)) {
+        return res.status(403).json({ error: "You don't have access to this store." });
+      }
 
-      for (const expense of expenses) {
+      // Pre-load all expense categories to resolve by name
+      const categories = await storage.getExpenseCategories(storeId);
+      const catMap = new Map(categories.map(c => [c.name.toLowerCase().trim(), c.id]));
+
+      const results = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
+
+      for (let i = 0; i < rawExpenses.length; i++) {
+        const expense = rawExpenses[i];
+        const rowNum = i + 1;
         try {
-          if (!expense.description || !expense.amount || !expense.categoryId) {
+          if (!expense.description || !expense.amount) {
              results.failed++;
-             results.errors.push(`Missing data for: ${JSON.stringify(expense)}`);
+             results.errors.push({ row: rowNum, message: `Missing description or amount.` });
+             continue;
+          }
+
+          let categoryId = expense.categoryId;
+          const rawCat = expense.category || expense.categoryName || "";
+          const catLower = rawCat.toLowerCase().trim();
+          
+          if (!categoryId && catLower) {
+            if (catMap.has(catLower)) {
+              categoryId = catMap.get(catLower);
+            } else {
+              const newCat = await storage.createExpenseCategory({
+                storeId,
+                name: rawCat.trim(),
+                description: `Automatically created during bulk upload`,
+              });
+              categoryId = newCat.id;
+              catMap.set(catLower, newCat.id);
+            }
+          }
+
+          if (!categoryId) {
+             results.failed++;
+             results.errors.push({ row: rowNum, message: `Category is required (specify a category name or ID).` });
              continue;
           }
 
           await storage.createExpense({
-            ...expense,
-            storeId,
+            description: expense.description,
             amount: Number(expense.amount),
+            categoryId,
+            storeId,
             date: expense.date ? new Date(expense.date) : new Date(),
           });
           results.success++;
         } catch (err: any) {
           results.failed++;
-          results.errors.push(`${expense.description}: ${err.message}`);
+          results.errors.push({ row: rowNum, message: err.message });
         }
       }
 
@@ -3241,107 +3935,236 @@ export async function registerRoutes(
     }
   });
 
-  // ========== FLUTTERWAVE PAYMENT LINK ==========
+  // ========== DYNAMIC MULTI-TENANT PAYMENT STRATEGY ROUTER ==========
   const paymentLinkSchema = z.object({
+    storeId: z.string(),
+    customerEmail: z.string().email(),
+    customerName: z.string(),
+    customerPhone: z.string().optional(),
     amount: z.number().positive(),
     currency: z.string().default("NGN"),
-    customerName: z.string(),
-    customerEmail: z.string().email(),
-    customerPhone: z.string().optional(),
     description: z.string(),
     redirectUrl: z.string().url().optional(),
+    provider: z.enum(["flutterwave", "stripe", "paystack"]).default("flutterwave"),
   });
 
-  app.post("/api/payments/flutterwave/link", async (req, res) => {
+  app.post("/api/payments/create-link", async (req, res) => {
     try {
       const data = paymentLinkSchema.parse(req.body);
+      const storeId = data.storeId;
 
-      const flutterwaveSecretKey = process.env.FLUTTERWAVE_SECRET_KEY;
-      if (!flutterwaveSecretKey) {
-        return res.status(500).json({
-          error: "Flutterwave is not configured. Please add your Flutterwave secret key in settings."
+      // 1. Fetch the merchant's custom store integration credentials from DB
+      const integration = await storage.getStoreIntegrationByProvider(storeId, data.provider);
+      if (!integration || !integration.isActive || !integration.secretKey) {
+        return res.status(400).json({
+          error: `${data.provider.toUpperCase()} payment gateway is not active or configured for this store. Please complete setups in settings.`
         });
       }
 
-      const txRef = `tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const checkoutSuffix = req.body.checkoutId ? `-checkout-${req.body.checkoutId}` : "";
+      const txRef = `tx-${storeId}${checkoutSuffix}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      const secretKey = integration.secretKey;
 
-      const response = await fetch("https://api.flutterwave.com/v3/payments", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${flutterwaveSecretKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          tx_ref: txRef,
-          amount: data.amount,
-          currency: data.currency,
-          redirect_url: data.redirectUrl || `${req.protocol}://${req.get('host')}/payment-complete`,
-          customer: {
-            email: data.customerEmail,
-            name: data.customerName,
-            phonenumber: data.customerPhone,
-          },
-          customizations: {
-            title: "Business Payment",
-            description: data.description,
-          },
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.status === "success") {
-        res.json({
+      // 2. Offline Sandbox Simulation for Developers and Testing
+      if (secretKey.startsWith("FLWSECK_TEST") || secretKey.startsWith("sk_test_stripe") || secretKey.startsWith("sk_test_paystack")) {
+        return res.json({
           success: true,
-          paymentLink: result.data.link,
-          txRef,
-        });
-      } else {
-        res.status(400).json({
-          error: result.message || "Failed to generate payment link"
+          paymentLink: `https://checkout.sandbox.com/pay/${data.provider}/${txRef}`,
+          txRef
         });
       }
+
+      // 3. Strategy Router based on Selected Payment Provider
+      if (data.provider === "flutterwave") {
+        const response = await fetch("https://api.flutterwave.com/v3/payments", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${secretKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            tx_ref: txRef,
+            amount: data.amount,
+            currency: data.currency,
+            redirect_url: data.redirectUrl || `${req.protocol}://${req.get('host')}/payment-complete`,
+            customer: {
+              email: data.customerEmail,
+              name: data.customerName,
+              phonenumber: data.customerPhone,
+            },
+            customizations: {
+              title: "Business Payment",
+              description: data.description,
+            },
+          }),
+        });
+
+        const result = await response.json();
+        if (result.status === "success") {
+          return res.json({ success: true, paymentLink: result.data.link, txRef });
+        } else {
+          return res.status(400).json({ error: result.message || "Failed to generate Flutterwave checkout link." });
+        }
+      } 
+      
+      else if (data.provider === "stripe") {
+        const params = new URLSearchParams();
+        params.append("payment_method_types[0]", "card");
+        params.append("line_items[0][price_data][currency]", data.currency.toLowerCase());
+        params.append("line_items[0][price_data][product_data][name]", data.description);
+        params.append("line_items[0][price_data][unit_amount]", Math.round(data.amount * 100).toString()); // in Cents
+        params.append("line_items[0][quantity]", "1");
+        params.append("mode", "payment");
+        params.append("success_url", data.redirectUrl || `${req.protocol}://${req.get('host')}/payment-complete?ref=${txRef}`);
+        params.append("customer_email", data.customerEmail);
+        params.append("client_reference_id", txRef);
+
+        const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${secretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        });
+
+        const result = await response.json();
+        if (result.url) {
+          return res.json({ success: true, paymentLink: result.url, txRef });
+        } else {
+          return res.status(400).json({ error: result.error?.message || "Failed to generate Stripe checkout session." });
+        }
+      } 
+      
+      else if (data.provider === "paystack") {
+        const response = await fetch("https://api.paystack.co/transaction/initialize", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${secretKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: data.customerEmail,
+            amount: Math.round(data.amount * 100), // in Kobo
+            reference: txRef,
+            callback_url: data.redirectUrl || `${req.protocol}://${req.get('host')}/payment-complete`,
+            currency: data.currency,
+          }),
+        });
+
+        const result = await response.json();
+        if (result.status) {
+          return res.json({ success: true, paymentLink: result.data.authorization_url, txRef });
+        } else {
+          return res.status(400).json({ error: result.message || "Failed to initialize Paystack transaction." });
+        }
+      }
+
+      res.status(400).json({ error: "Unsupported payment provider." });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
-      console.error("Flutterwave error:", error);
+      console.error("Payment Link Generation error:", error);
       res.status(500).json({ error: "Failed to generate payment link. Please try again." });
     }
   });
 
-  // Flutterwave webhook for payment verification
-  app.post("/api/payments/flutterwave/webhook", async (req, res) => {
+  app.post("/api/payments/webhook/:provider", async (req, res) => {
     try {
-      const secretHash = process.env.FLUTTERWAVE_SECRET_HASH;
-      const signature = req.headers["verif-hash"];
+      const provider = req.params.provider;
+      let txRef = "";
+      let amount = 0;
+      let email = "unknown";
+      let isSuccess = false;
+      let storeId = "";
 
-      if (!secretHash || signature !== secretHash) {
-        auditLogger.logSecurityEvent("flutterwave_webhook_invalid_signature", undefined, getClientIp(req), { signature });
-        return res.status(401).json({ error: "Invalid signature" });
+      if (provider === "flutterwave") {
+        const { event, data } = req.body;
+        txRef = data?.tx_ref || "";
+        
+        if (txRef && txRef.startsWith("tx-")) {
+          storeId = txRef.split("-")[1];
+        }
+
+        if (storeId) {
+          const integration = await storage.getStoreIntegrationByProvider(storeId, "flutterwave");
+          const signature = req.headers["verif-hash"];
+          const webhookSecret = integration?.webhookSecret || "";
+
+          if (webhookSecret && signature !== webhookSecret) {
+            auditLogger.logSecurityEvent("flutterwave_webhook_invalid_signature", undefined, getClientIp(req), { signature });
+            return res.status(401).json({ error: "Invalid signature" });
+          }
+        }
+
+        if (event === "charge.completed" && data.status === "successful") {
+          amount = data.amount;
+          email = data.customer?.email || "unknown";
+          isSuccess = true;
+        }
+      } 
+      
+      else if (provider === "stripe") {
+        const { type, data } = req.body;
+        const session = data?.object;
+        txRef = session?.client_reference_id || "";
+        
+        if (txRef && txRef.startsWith("tx-")) {
+          storeId = txRef.split("-")[1];
+        }
+
+        if (type === "checkout.session.completed") {
+          amount = (session.amount_total || 0) / 100;
+          email = session.customer_details?.email || "unknown";
+          isSuccess = true;
+        }
+      } 
+      
+      else if (provider === "paystack") {
+        const { event, data } = req.body;
+        txRef = data?.reference || "";
+
+        if (txRef && txRef.startsWith("tx-")) {
+          storeId = txRef.split("-")[1];
+        }
+
+        if (storeId) {
+          const integration = await storage.getStoreIntegrationByProvider(storeId, "paystack");
+          const signature = req.headers["x-paystack-signature"];
+          const secretKey = integration?.secretKey || "";
+          
+          if (secretKey) {
+            const crypto = require("crypto");
+            const hash = crypto.createHmac("sha512", secretKey).update(JSON.stringify(req.body)).digest("hex");
+            if (signature !== hash) {
+              auditLogger.logSecurityEvent("paystack_webhook_invalid_signature", undefined, getClientIp(req), { signature });
+              return res.status(401).json({ error: "Invalid signature" });
+            }
+          }
+        }
+
+        if (event === "charge.success") {
+          amount = (data.amount || 0) / 100;
+          email = data.customer?.email || "unknown";
+          isSuccess = true;
+        }
       }
 
-      const { event, data } = req.body;
+      if (isSuccess && txRef) {
+        auditLogger.logPayment(txRef, email, amount, provider, "success");
 
-      if (event === "charge.completed" && data.status === "successful") {
-        const txRef = data.tx_ref;
-        const amount = data.amount;
-        auditLogger.logPayment(txRef, data.customer?.email || "unknown", amount, "flutterwave", "success");
-
-        // Update checkout payment status if tx_ref contains checkout IDs
-        if (txRef && txRef.includes("-checkout-")) {
+        if (txRef.includes("-checkout-")) {
           const checkoutId = txRef.split("-checkout-")[1]?.split("-")[0];
           if (checkoutId) {
             await storage.updateCheckoutPaymentStatus(checkoutId, "completed");
           }
         }
-      } else if (event === "charge.completed" && data.status === "failed") {
-        auditLogger.logPayment(data.tx_ref, data.customer?.email || "unknown", data.amount, "flutterwave", "failure", "Payment failed");
       }
 
       res.status(200).json({ received: true });
     } catch (error) {
-      console.error("Webhook error:", error);
+      console.error("Webhook processing error:", error);
       res.status(500).json({ error: "Webhook processing failed" });
     }
   });
@@ -3381,6 +4204,10 @@ export async function registerRoutes(
       await storage.deleteExpenseCategory(req.params.id);
       res.status(204).end();
     } catch (error) {
+      const err = error as Error;
+      if (err.message.startsWith("conflict:")) {
+        return res.status(409).json({ error: err.message.substring(9) });
+      }
       res.status(500).json({ error: "Could not delete expense category. It may be in use." });
     }
   });
@@ -3390,11 +4217,13 @@ export async function registerRoutes(
       const storeId = req.query.storeId as string;
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
+      const type = req.query.type as any;
+      const inventoryId = req.query.inventoryId as string | undefined;
 
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const expenses = await storage.getExpenses(storeId, startDate, endDate);
+      const expenses = await storage.getExpenses(storeId, startDate, endDate, type, inventoryId);
       res.json(expenses);
     } catch (error) {
       res.status(500).json({ error: "Could not fetch expenses." });
@@ -3403,14 +4232,21 @@ export async function registerRoutes(
 
   app.post("/api/expenses", requireManagerOrOwner, async (req, res) => {
     try {
-      const { storeId, title, amount, categoryId, date, notes, receiptUrl } = req.body;
+      const { storeId, title, amount, categoryId, date, notes, receiptUrl, inventoryId } = req.body;
       if (!storeId || !title || amount === undefined || !categoryId || !date) {
         return res.status(400).json({ error: "Missing required fields." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const expense = await storage.createExpense({
-        storeId, title, amount: Number(amount), categoryId, date, notes, receiptUrl
+        storeId,
+        title,
+        amount: Number(amount),
+        categoryId,
+        date,
+        notes,
+        receiptUrl,
+        inventoryId: inventoryId === "none" ? null : (inventoryId || null)
       });
       res.status(201).json(expense);
     } catch (error) {
@@ -3418,6 +4254,23 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/expenses/:id", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { title, amount, categoryId, date, notes, receiptUrl, inventoryId } = req.body;
+      const expense = await storage.updateExpense(req.params.id, {
+        title,
+        amount: amount !== undefined ? Number(amount) : undefined,
+        categoryId,
+        date,
+        notes,
+        receiptUrl,
+        inventoryId: inventoryId === "none" ? null : (inventoryId || undefined)
+      });
+      res.json(expense);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update expense." });
+    }
+  });
 
   app.delete("/api/expenses/:id", requireRole("owner"), async (req, res) => {
     try {

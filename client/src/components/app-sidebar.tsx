@@ -7,11 +7,13 @@ import {
   ShoppingCart,
   Receipt,
   TrendingUp,
+  BarChart3,
   Settings,
   LogOut,
   CalendarDays,
   DollarSign,
   Wallet,
+  Gift,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -31,6 +33,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useStore } from "@/lib/store-context";
 
 type UserRole = "owner" | "manager" | "staff";
 
@@ -97,6 +100,12 @@ const reportsItems: MenuItem[] = [
     allowedRoles: ["owner", "manager"],
   },
   {
+    title: "Service Profitability",
+    url: "/reports/service-profitability",
+    icon: BarChart3,
+    allowedRoles: ["owner"],
+  },
+  {
     title: "Staff Performance",
     url: "/reports/staff-performance",
     icon: Users,
@@ -123,11 +132,18 @@ const settingsItems: MenuItem[] = [
     icon: Settings,
     allowedRoles: ["owner"],
   },
+  {
+    title: "Promotions",
+    url: "/settings/promotions",
+    icon: Gift,
+    allowedRoles: ["owner"],
+  },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { currentStore } = useStore();
   
   const userRole = (user?.role as UserRole) || "staff";
   
@@ -140,12 +156,12 @@ export function AppSidebar() {
   const visibleSettingsItems = filterByRole(settingsItems);
 
   const { data: payrollPeriods } = useQuery<PayrollPeriod[]>({
-    queryKey: ["/api/payroll/periods"],
+    queryKey: ["/api/payroll/periods", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/payroll/periods");
+      const res = await apiRequest("GET", `/api/payroll/periods?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: ["owner", "manager"].includes(userRole),
+    enabled: ["owner", "manager"].includes(userRole) && !!currentStore?.id,
   });
 
   const pendingPayrollCount = payrollPeriods?.filter(p => p.status === "pending").length || 0;

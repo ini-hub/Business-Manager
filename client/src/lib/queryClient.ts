@@ -43,13 +43,18 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const baseUrl = queryKey[0] as string;
     const secondParam = queryKey[1] as string | undefined;
+    const thirdParam = queryKey[2] as string | undefined;
     
     let url = baseUrl;
     if (secondParam) {
-      const separator = baseUrl.includes("?") ? "&" : "?";
-      // Use businessId for /api/stores, storeId for everything else
-      const paramName = baseUrl === "/api/stores" ? "businessId" : "storeId";
-      url = `${baseUrl}${separator}${paramName}=${secondParam}`;
+      if (thirdParam) {
+        url = `${baseUrl}/${secondParam}/${thirdParam}`;
+      } else {
+        const separator = baseUrl.includes("?") ? "&" : "?";
+        // Use businessId for /api/stores, storeId for everything else
+        const paramName = baseUrl === "/api/stores" ? "businessId" : "storeId";
+        url = `${baseUrl}${separator}${paramName}=${secondParam}`;
+      }
     }
 
     const res = await fetch(url, {

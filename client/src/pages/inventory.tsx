@@ -24,6 +24,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -46,12 +47,35 @@ import { insertInventorySchema, type Inventory, type InsertInventory } from "@sh
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link, useLocation } from "wouter";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 
 type FilterType = "all" | "product" | "service" | "low-stock";
 
 const LOW_STOCK_THRESHOLD = 5;
+
+const inventoryFormSchema = insertInventorySchema.refine(
+  (data) => data.costPrice > 0,
+  {
+    message: "Cost price must be greater than zero.",
+    path: ["costPrice"],
+  }
+).refine(
+  (data) => data.type === 'service' || (data.quantity !== undefined && data.quantity !== null && data.quantity >= 1),
+  {
+    message: "Products must have a quantity of at least 1.",
+    path: ["quantity"],
+  }
+).refine(data => {
+  if (data.commissionSplitOverride) {
+    return data.commissionSplitBusinessShare + data.commissionSplitStaffShare === 100;
+  }
+  return true;
+}, {
+  message: "Override split percentages must sum to exactly 100%",
+  path: ["commissionSplitStaffShare"]
+});
 
 export default function InventoryPage() {
   const { toast } = useToast();
@@ -65,7 +89,7 @@ export default function InventoryPage() {
   const [duplicateItem, setDuplicateItem] = useState<Inventory | null>(null);
   const [duplicatePayload, setDuplicatePayload] = useState<InsertInventory | null>(null);
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
-  const [filterType, setFilterType] = useState<FilterType>("all");
+  const [filterType, setFilterType] = useState<FilterType>("service");
   const [restockData, setRestockData] = useState({
     quantity: 1,
     unitCost: 0,
@@ -73,6 +97,8 @@ export default function InventoryPage() {
     newSellingPrice: undefined as number | undefined,
     updateSellingPrice: false,
     notes: "",
+    reason: "Restock" as "Restock" | "Return" | "Adjustment",
+    receiptUrl: "",
   });
 
   const { data: inventoryList = [], isLoading } = useQuery<Inventory[]>({
@@ -104,18 +130,24 @@ export default function InventoryPage() {
   }, [inventoryList]);
 
   const form = useForm<InsertInventory>({
-    resolver: zodResolver(insertInventorySchema),
+    resolver: zodResolver(inventoryFormSchema),
     defaultValues: {
       storeId: currentStore?.id || "",
       name: "",
       type: "product",
       costPrice: 0,
       sellingPrice: 0,
-      quantity: 0,
+      quantity: 1,
+      commissionSplitOverride: false,
+      commissionSplitBusinessShare: 80,
+      commissionSplitStaffShare: 20,
     },
   });
 
   const watchType = form.watch("type");
+  const watchCostPrice = form.watch("costPrice");
+  const watchSellingPrice = form.watch("sellingPrice");
+  const hasZeroMargin = watchCostPrice > 0 && watchCostPrice === watchSellingPrice;
 
   const createMutation = useMutation({
     mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", { ...data, storeId: currentStore?.id }),
@@ -189,6 +221,8 @@ export default function InventoryPage() {
         costStrategy: restockData.costStrategy,
         newSellingPrice: restockData.updateSellingPrice ? restockData.newSellingPrice : undefined,
         notes: restockData.notes || undefined,
+        reason: restockData.reason,
+        receiptUrl: restockData.receiptUrl || undefined,
       });
     },
     onSuccess: () => {
@@ -204,6 +238,8 @@ export default function InventoryPage() {
         newSellingPrice: undefined,
         updateSellingPrice: false,
         notes: "",
+        reason: "Restock",
+        receiptUrl: "",
       });
     },
     onError: (error: Error) => {
@@ -229,7 +265,7 @@ export default function InventoryPage() {
       type: "product",
       costPrice: 0,
       sellingPrice: 0,
-      quantity: 0,
+      quantity: 1,
     });
     setSelectedItem(null);
     setIsFormOpen(true);
@@ -247,6 +283,9 @@ export default function InventoryPage() {
       costPrice: item.costPrice,
       sellingPrice: item.sellingPrice,
       quantity: item.quantity,
+      commissionSplitOverride: (item as any).commissionSplitOverride ?? false,
+      commissionSplitBusinessShare: (item as any).commissionSplitBusinessShare ?? 80,
+      commissionSplitStaffShare: (item as any).commissionSplitStaffShare ?? 20,
     });
     setSelectedItem(item);
     setIsFormOpen(true);
@@ -279,6 +318,11 @@ export default function InventoryPage() {
   };
 
   const onSubmit = (data: InsertInventory) => {
+    if (data.sellingPrice < data.costPrice) {
+      form.setError("sellingPrice", { type: "manual", message: "Selling price cannot be less than cost price." });
+      return;
+    }
+
     if (selectedItem) {
       updateMutation.mutate(data);
     } else {
@@ -403,6 +447,8 @@ export default function InventoryPage() {
                   unitCost: item.costPrice, 
                   costStrategy: "keep",
                   newSellingPrice: item.sellingPrice,
+                  reason: "Restock",
+                  receiptUrl: "",
                   updateSellingPrice: false,
                   notes: "",
                 });
@@ -454,12 +500,7 @@ export default function InventoryPage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Inventory" description="Manage your products and services" />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to manage inventory.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Inventory" />
       </div>
     );
   }
@@ -685,6 +726,7 @@ export default function InventoryPage() {
                           {...field}
                           onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                           data-testid="input-quantity"
+                          min="1"
                         />
                       </FormControl>
                       <FormMessage />
@@ -692,13 +734,95 @@ export default function InventoryPage() {
                   )}
                 />
               )}
+              {watchType === "service" && (
+                <div className="border border-muted/80 p-3 rounded-lg bg-muted/10 space-y-3 animate-in fade-in duration-200">
+                  <FormField
+                    control={form.control}
+                    name="commissionSplitOverride"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background shadow-xs">
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-xs font-semibold">Override Standard Split</FormLabel>
+                          <FormDescription className="text-[10px]">
+                            Customise business & staff commission split for this service
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="switch-service-split-override"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+
+                  {form.watch("commissionSplitOverride") && (
+                    <div className="grid grid-cols-2 gap-4 pt-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <FormField
+                        control={form.control}
+                        name="commissionSplitBusinessShare"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-[11px]">Business Share (%)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                {...field}
+                                onChange={(e) => field.onChange(Number(e.target.value))}
+                                placeholder="80"
+                                data-testid="input-service-split-business"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="commissionSplitStaffShare"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-[11px]">Staff Share (%)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                {...field}
+                                onChange={(e) => field.onChange(Number(e.target.value))}
+                                placeholder="20"
+                                data-testid="input-service-split-staff"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              {watchSellingPrice < watchCostPrice && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Selling price cannot be less than cost price.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {hasZeroMargin && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-medium">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span>This item has 0% margin. You will break even on every sale.</span>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={closeForm}>
                   Cancel
                 </Button>
                 <Button
                   type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
+                  disabled={createMutation.isPending || updateMutation.isPending || watchSellingPrice < watchCostPrice}
                   data-testid="button-submit"
                 >
                   {createMutation.isPending || updateMutation.isPending
@@ -737,6 +861,37 @@ export default function InventoryPage() {
                   quantity: parseInt(e.target.value) || 1 
                 }))}
                 data-testid="input-restock-quantity"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="restock-reason">Reason</Label>
+              <Select
+                value={restockData.reason}
+                onValueChange={(value) => setRestockData(prev => ({ ...prev, reason: value as any }))}
+              >
+                <SelectTrigger id="restock-reason">
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Restock">Regular Restock</SelectItem>
+                  <SelectItem value="Return">Customer Return</SelectItem>
+                  <SelectItem value="Adjustment">Stock Adjustment/Correction</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="restock-receipt">Receipt/Invoice URL (optional)</Label>
+              <Input
+                id="restock-receipt"
+                placeholder="https://example.com/receipt.pdf"
+                value={restockData.receiptUrl}
+                onChange={(e) => setRestockData(prev => ({ 
+                  ...prev, 
+                  receiptUrl: e.target.value 
+                }))}
+                data-testid="input-restock-receipt-url"
               />
             </div>
 
@@ -920,6 +1075,8 @@ export default function InventoryPage() {
                     costStrategy: "keep",
                     newSellingPrice: duplicateItem.sellingPrice,
                     updateSellingPrice: false,
+                    reason: "Restock",
+                    receiptUrl: "",
                     notes: `Autoredirected restock from duplicate add`,
                   });
                   setIsRestockOpen(true);

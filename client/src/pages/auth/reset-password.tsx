@@ -6,22 +6,12 @@ import { Link, useLocation, useSearch } from "wouter";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, KeyRound, Eye, EyeOff, CheckCircle2 } from "lucide-react";
-
-// Password policy validator
-const validatePassword = (password: string) => {
-  return {
-    minLength: password.length >= 8,
-    hasUpper: /[A-Z]/.test(password),
-    hasLower: /[a-z]/.test(password),
-    hasNumber: /[0-9]/.test(password),
-    hasSpecial: /[^A-Za-z0-9]/.test(password),
-  };
-};
+import { Loader2, ArrowLeft, KeyRound, CheckCircle2 } from "lucide-react";
 
 const resetPasswordSchema = z.object({
   emailOrPhone: z.string().min(1, "Identifier is required"),
@@ -40,9 +30,8 @@ export default function ResetPassword() {
   const [, setLocation] = useLocation();
   const searchParams = new URLSearchParams(useSearch());
   const emailOrPhone = searchParams.get("emailOrPhone") || searchParams.get("email") || "";
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [isPasswordValid, setIsPasswordValid] = useState(false);
 
   const form = useForm<ResetPasswordFormData>({
     resolver: zodResolver(resetPasswordSchema),
@@ -55,7 +44,6 @@ export default function ResetPassword() {
   });
 
   const password = form.watch("password") || "";
-  const pwdPolicy = validatePassword(password);
 
   const resetMutation = useMutation({
     mutationFn: async (data: ResetPasswordFormData) => {
@@ -84,8 +72,7 @@ export default function ResetPassword() {
   });
 
   const onSubmit = (data: ResetPasswordFormData) => {
-    const passes = Object.values(pwdPolicy).every(Boolean);
-    if (!passes) {
+    if (!isPasswordValid) {
       toast({
         title: "Invalid password",
         description: "Your password does not meet the security checklist requirements.",
@@ -199,71 +186,22 @@ export default function ResetPassword() {
                   <FormItem>
                     <FormLabel>New Password</FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Create a strong password"
-                          className="pr-10"
-                          data-testid="input-password"
-                          {...field}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:bg-transparent"
-                          onClick={() => setShowPassword(!showPassword)}
-                          data-testid="button-toggle-password"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
+                      <PasswordInput
+                        placeholder="Create a strong password"
+                        data-testid="input-password"
+                        {...field}
+                      />
                     </FormControl>
                     
-                    {/* Password Policy Checklist */}
-                    <div className="mt-2 space-y-1.5 p-3 rounded-md bg-muted/40 border text-xs">
-                      <p className="font-semibold text-foreground mb-1">Password Checklist</p>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {pwdPolicy.minLength ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                        )}
-                        <span className={pwdPolicy.minLength ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>At least 8 characters</span>
+                    {password && (
+                      <div className="mt-2">
+                        <PasswordChecklist
+                          password={password}
+                          confirmPassword={form.watch("confirmPassword")}
+                          onValidationChange={setIsPasswordValid}
+                        />
                       </div>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {pwdPolicy.hasUpper ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                        )}
-                        <span className={pwdPolicy.hasUpper ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One uppercase letter (A-Z)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {pwdPolicy.hasLower ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                        )}
-                        <span className={pwdPolicy.hasLower ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One lowercase letter (a-z)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {pwdPolicy.hasNumber ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                        )}
-                        <span className={pwdPolicy.hasNumber ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One number (0-9)</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {pwdPolicy.hasSpecial ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0 ml-1.5 mr-1" />
-                        )}
-                        <span className={pwdPolicy.hasSpecial ? "text-emerald-600 dark:text-emerald-400 font-medium" : ""}>One special character (@,#,$...)</span>
-                      </div>
-                    </div>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -276,25 +214,11 @@ export default function ResetPassword() {
                   <FormItem>
                     <FormLabel>Confirm New Password</FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="Confirm new password"
-                          className="pr-10"
-                          data-testid="input-confirm-password"
-                          {...field}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:bg-transparent"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          data-testid="button-toggle-confirm-password"
-                        >
-                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
+                      <PasswordInput
+                        placeholder="Confirm new password"
+                        data-testid="input-confirm-password"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

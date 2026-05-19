@@ -18,9 +18,11 @@ import {
 import { useState } from "react";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
 
 export function StoreSelector() {
   const [open, setOpen] = useState(false);
+  const { user } = useAuth();
   const { stores, currentStore, setCurrentStore, isLoading } = useStore();
 
   if (isLoading) {
@@ -35,6 +37,14 @@ export function StoreSelector() {
   }
 
   if (stores.length === 0) {
+    if (user?.role === "staff") {
+      return (
+        <Button variant="outline" className="w-full justify-start text-muted-foreground" disabled>
+          <Building2 className="mr-2 h-4 w-4 text-muted-foreground/40" />
+          No stores available
+        </Button>
+      );
+    }
     return (
       <Link href="/settings/stores">
         <Button variant="outline" className="w-full justify-start" data-testid="button-add-first-store">
@@ -89,18 +99,22 @@ export function StoreSelector() {
                 </CommandItem>
               ))}
             </CommandGroup>
-            <CommandSeparator />
-            <CommandGroup>
-              <Link href="/settings/stores">
-                <CommandItem
-                  onSelect={() => setOpen(false)}
-                  data-testid="link-manage-stores"
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  Manage Stores
-                </CommandItem>
-              </Link>
-            </CommandGroup>
+            {user?.role !== "staff" && (
+              <>
+                <CommandSeparator />
+                <CommandGroup>
+                  <Link href="/settings/stores">
+                    <CommandItem
+                      onSelect={() => setOpen(false)}
+                      data-testid="link-manage-stores"
+                    >
+                      <Settings className="mr-2 h-4 w-4" />
+                      Manage Stores
+                    </CommandItem>
+                  </Link>
+                </CommandGroup>
+              </>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

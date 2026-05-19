@@ -33,6 +33,7 @@ import { Mail, Shield } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
@@ -398,12 +399,7 @@ export default function StaffPage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Staff" description="Manage your staff members and their contracts" />
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first to manage staff.
-          </AlertDescription>
-        </Alert>
+        <StoreRequiredAlert title="Store Required for Staff" />
       </div>
     );
   }
