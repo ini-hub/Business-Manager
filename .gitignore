@@ -26,6 +26,7 @@ fix-db-schema.js
 test-discounts.js
 test-*.js
 debug-*.js
+rename-db.js
 
 # Database seeding and demo scripts
 seed-clean-demo.js

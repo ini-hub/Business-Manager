@@ -936,3 +936,33 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = typeof notifications.$inferInsert;
+
+// Store Integrations table
+export const storeIntegrations = pgTable("store_integrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  provider: varchar("provider").notNull(), // 'flutterwave' | 'stripe' | 'paystack'
+  isActive: boolean("is_active").notNull().default(false),
+  publicKey: text("public_key"),
+  secretKey: text("secret_key"),
+  webhookSecret: text("webhook_secret"),
+  currency: text("currency").notNull().default("NGN"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const storeIntegrationsRelations = relations(storeIntegrations, ({ one }) => ({
+  store: one(stores, {
+    fields: [storeIntegrations.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const insertStoreIntegrationSchema = createInsertSchema(storeIntegrations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertStoreIntegration = z.infer<typeof insertStoreIntegrationSchema>;
+export type StoreIntegration = typeof storeIntegrations.$inferSelect;
+
