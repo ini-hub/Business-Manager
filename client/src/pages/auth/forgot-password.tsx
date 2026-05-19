@@ -13,7 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, Mail, CheckCircle2 } from "lucide-react";
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
+  emailOrPhone: z.string().min(1, "Email or phone number is required"),
 });
 
 type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
@@ -21,13 +21,14 @@ type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 export default function ForgotPassword() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [emailSent, setEmailSent] = useState(false);
-  const [sentEmail, setSentEmail] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [sentIdentifier, setSentIdentifier] = useState("");
+  const [maskedId, setMaskedId] = useState("");
 
   const form = useForm<ForgotPasswordFormData>({
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: {
-      email: "",
+      emailOrPhone: "",
     },
   });
 
@@ -37,17 +38,19 @@ export default function ForgotPassword() {
       return response.json();
     },
     onSuccess: (data, variables) => {
-      setSentEmail(variables.email);
-      setEmailSent(true);
+      setSentIdentifier(variables.emailOrPhone);
+      setMaskedId(data.maskedIdentifier || variables.emailOrPhone);
+      setCodeSent(true);
       toast({
         title: "Reset code sent",
         description: data.message,
       });
     },
     onError: (error: any) => {
+      const errorMsg = error.response?.data?.error || "Could not process request. Please try again.";
       toast({
         title: "Request failed",
-        description: error.error || "Could not process request. Please try again.",
+        description: errorMsg,
         variant: "destructive",
       });
     },
@@ -57,28 +60,30 @@ export default function ForgotPassword() {
     forgotMutation.mutate(data);
   };
 
-  if (emailSent) {
+  if (codeSent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/50 p-4">
-        <Card className="w-full max-w-md">
+        <Card className="w-full max-w-md relative">
           <CardHeader className="text-center">
-            <div className="mx-auto w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-              <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
+            <div className="mx-auto w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
+              <CheckCircle2 className="h-6 w-6 text-blue-500" />
             </div>
-            <CardTitle className="text-2xl">Check Your Email</CardTitle>
+            <CardTitle className="text-2xl font-bold">
+              Check Your Device
+            </CardTitle>
             <CardDescription>
-              We've sent a verification code to reset your password.
+              We've sent a 6-digit verification code to reset your password.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-center text-sm text-muted-foreground">
+          <CardContent className="text-center text-sm">
             <p>
-              If an account exists for <span className="font-medium text-foreground">{sentEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3")}</span>, you'll receive a code shortly.
+              If an account exists for <span className="font-medium text-blue-500">{maskedId}</span>, you'll receive a code shortly.
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button
               className="w-full"
-              onClick={() => setLocation(`/auth/reset-password?email=${encodeURIComponent(sentEmail)}`)}
+              onClick={() => setLocation(`/auth/reset-password?emailOrPhone=${encodeURIComponent(sentIdentifier)}`)}
               data-testid="button-continue-reset"
             >
               Enter Reset Code
@@ -87,12 +92,12 @@ export default function ForgotPassword() {
               variant="ghost"
               className="w-full"
               onClick={() => {
-                setEmailSent(false);
-                setSentEmail("");
+                setCodeSent(false);
+                setSentIdentifier("");
               }}
               data-testid="button-try-different"
             >
-              Try a different email
+              Try a different identifier
             </Button>
           </CardFooter>
         </Card>
@@ -110,12 +115,14 @@ export default function ForgotPassword() {
           </Button>
         </Link>
         <CardHeader className="text-center pt-12">
-          <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-            <Mail className="h-6 w-6 text-primary" />
+          <div className="mx-auto w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
+            <Mail className="h-6 w-6 text-blue-500" />
           </div>
-          <CardTitle className="text-2xl">Forgot Password?</CardTitle>
+          <CardTitle className="text-2xl font-bold">
+            Forgot Password?
+          </CardTitle>
           <CardDescription>
-            Enter your email address and we'll send you a code to reset your password.
+            Enter your email address or phone number and we'll send you a 6-digit code.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -123,16 +130,14 @@ export default function ForgotPassword() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
-                name="email"
+                name="emailOrPhone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
+                    <FormLabel>Email or Phone Number</FormLabel>
                     <FormControl>
                       <Input
-                        type="email"
-                        placeholder="you@example.com"
-                        autoComplete="email"
-                        data-testid="input-email"
+                        placeholder="you@example.com or +234..."
+                        data-testid="input-email-or-phone"
                         {...field}
                       />
                     </FormControl>
@@ -162,7 +167,7 @@ export default function ForgotPassword() {
         <CardFooter>
           <p className="text-sm text-center w-full text-muted-foreground">
             Remember your password?{" "}
-            <Link href="/auth/login" className="text-primary hover:underline" data-testid="link-login">
+            <Link href="/auth/login" className="text-blue-500 hover:underline" data-testid="link-login">
               Sign in
             </Link>
           </p>

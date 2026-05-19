@@ -6,3 +6,38 @@ vite.config.ts.*
 *.tar.gz
 .env
 .env.example
+.replit
+scratch/
+dist folders/
+.gemini/
+.agents/
+attached_assets/
+
+# Development log and error files
+*build_errors*.txt
+*.log
+
+# Database helper and one-off scripts
+add-org-missing-columns.js
+clear-db.js
+debug-db.js
+fix-all-schema-tables.js
+fix-db-schema.js
+test-discounts.js
+test-*.js
+debug-*.js
+
+# Database seeding and demo scripts
+seed-clean-demo.js
+seed-organisations.js
+seed-*.js
+seed-*.ts
+
+# Scratch test and developer confirmation scripts
+scratch_*
+validate_*.ts
+
+# Requirements
+*.md
+*.txt
+

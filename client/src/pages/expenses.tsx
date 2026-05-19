@@ -11,7 +11,8 @@ import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { DateRangeFilter } from "@/components/date-range-filter";
-import { endOfDay, startOfMonth, format } from "date-fns";
+import { BulkExpenseImport } from "@/components/bulk-expense-import";
+import { endOfDay, startOfDay, startOfMonth, format } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Form,
   FormControl,
@@ -34,7 +45,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { ExpenseWithCategory, ExpenseCategory } from "@shared/schema";
+import type { ExpenseWithCategory, ExpenseCategory, Inventory } from "@shared/schema";
 
 const expenseSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -42,6 +53,7 @@ const expenseSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
+  inventoryId: z.string().optional().nullable(),
 });
 
 type ExpenseFormValues = z.infer<typeof expenseSchema>;
@@ -53,12 +65,14 @@ export default function ExpensesPage() {
   const storeCurrency = currentStore?.currency || "NGN";
   
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>({
-    from: startOfMonth(new Date()),
+    from: startOfDay(new Date()),
     to: endOfDay(new Date())
   });
 
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<ExpenseCategory | null>(null);
+  const [expenseToDelete, setExpenseToDelete] = useState<ExpenseWithCategory | null>(null);
 
   const { data: expenses = [], isLoading: isLoadingExpenses } = useQuery<ExpenseWithCategory[]>({
     queryKey: [
@@ -85,6 +99,15 @@ export default function ExpensesPage() {
     },
     enabled: !!currentStore?.id,
   });
+  
+  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
+    queryKey: ["/api/inventory", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id,
+  });
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseSchema),
@@ -94,6 +117,7 @@ export default function ExpensesPage() {
       categoryId: "",
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
+      inventoryId: null,
     },
   });
 
@@ -101,7 +125,12 @@ export default function ExpensesPage() {
 
   const addExpenseMutation = useMutation({
     mutationFn: async (data: ExpenseFormValues) => {
-      await apiRequest("POST", "/api/expenses", { ...data, storeId: currentStore!.id });
+      const submissionData = {
+        ...data,
+        storeId: currentStore!.id,
+        inventoryId: data.inventoryId === "none" ? null : data.inventoryId
+      };
+      await apiRequest("POST", "/api/expenses", submissionData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
@@ -163,7 +192,14 @@ export default function ExpensesPage() {
       render: (e: ExpenseWithCategory) => (
         <div>
           <p className="font-medium">{e.title}</p>
-          <p className="text-xs text-muted-foreground truncate max-w-[200px]">{e.notes}</p>
+          <div className="flex items-center gap-1 mt-1">
+            {e.inventory && (
+              <Badge variant="secondary" className="text-[10px] h-4">
+                {e.inventory.name}
+              </Badge>
+            )}
+            <p className="text-xs text-muted-foreground truncate max-w-[200px]">{e.notes}</p>
+          </div>
         </div>
       ),
     },
@@ -191,11 +227,7 @@ export default function ExpensesPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {
-              if (confirm("Are you sure you want to delete this expense?")) {
-                deleteExpenseMutation.mutate(e.id);
-              }
-            }}
+            onClick={() => setExpenseToDelete(e)}
           >
             <Trash2 className="h-4 w-4 text-red-500" />
           </Button>
@@ -217,6 +249,7 @@ export default function ExpensesPage() {
         description="Track operational costs and overhead"
         actions={
           <div className="flex gap-2 items-center">
+            <BulkExpenseImport categories={categories} />
             <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} />
             
             {user?.role === "owner" && (
@@ -254,9 +287,7 @@ export default function ExpensesPage() {
                               variant="ghost"
                               size="icon"
                               onClick={() => {
-                                if (confirm("Delete this category?")) {
-                                  deleteCategoryMutation.mutate(c.id);
-                                }
+                                setCategoryToDelete(c);
                               }}
                             >
                               <Trash2 className="h-4 w-4 text-red-500" />
@@ -339,6 +370,31 @@ export default function ExpensesPage() {
                     />
                     <FormField
                       control={form.control}
+                      name="inventoryId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Related Service / Product (Optional)</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || "none"}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select an item" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {inventoryItems.map((item) => (
+                                <SelectItem key={item.id} value={item.id}>
+                                  {item.name} ({item.type})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
                       name="notes"
                       render={({ field }) => (
                         <FormItem>
@@ -392,6 +448,56 @@ export default function ExpensesPage() {
           />
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!categoryToDelete} onOpenChange={(open) => !open && setCategoryToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the category "{categoryToDelete?.name}". This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (categoryToDelete) {
+                  deleteCategoryMutation.mutate(categoryToDelete.id);
+                  setCategoryToDelete(null);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!expenseToDelete} onOpenChange={(open) => !open && setExpenseToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the expense "{expenseToDelete?.title}". This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (expenseToDelete) {
+                  deleteExpenseMutation.mutate(expenseToDelete.id);
+                  setExpenseToDelete(null);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

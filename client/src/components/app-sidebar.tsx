@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type UserRole = "owner" | "manager" | "staff";
 
@@ -93,7 +94,13 @@ const reportsItems: MenuItem[] = [
     title: "Profit & Loss",
     url: "/profit-loss",
     icon: TrendingUp,
-    allowedRoles: ["owner"],
+    allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Staff Performance",
+    url: "/reports/staff-performance",
+    icon: Users,
+    allowedRoles: ["owner", "manager"],
   },
   {
     title: "Expenses",
@@ -271,21 +278,39 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium truncate">{user?.email}</span>
-            <span className="text-xs text-muted-foreground capitalize">{userRole}</span>
-          </div>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleLogout}
-            data-testid="button-logout"
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
-        </div>
+      <SidebarFooter className="border-t border-sidebar-border p-3">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <div className="flex items-center gap-3 px-2 py-1.5 w-full">
+              <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 group hover:opacity-80 transition-opacity">
+                <Avatar className="h-9 w-9 border-2 border-primary/10 transition-transform group-hover:scale-105">
+                  <AvatarImage src={user?.profilePhotoUrl || ""} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                    {user?.name?.charAt(0) || user?.email?.charAt(0)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-semibold truncate text-foreground leading-tight">
+                    {user?.name || user?.email?.split('@')[0]}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground capitalize font-medium tracking-wide">
+                    {userRole}
+                  </span>
+                </div>
+              </Link>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handleLogout}
+                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                data-testid="button-logout"
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );

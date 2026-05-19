@@ -17,7 +17,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, getCurrencySymbol } from "@/lib/currency-utils";
 
 interface SalesTrendData {
   date: string;
@@ -34,6 +34,7 @@ interface RevenueByTypeData {
 interface ChartProps {
   storeId?: string;
   storeCurrency?: string;
+  queryString?: string;
 }
 
 const COLORS = [
@@ -61,10 +62,15 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart({ storeId, storeCurrency = "NGN" }: ChartProps) {
+export function SalesTrendChart({ storeId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
-    queryKey: ["/api/charts/sales-trends", storeId],
+    queryKey: ["/api/charts/sales-trends", storeId, queryString],
+    queryFn: async () => {
+      const res = await fetch(`/api/charts/sales-trends?storeId=${storeId}${queryString ? '&' + queryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
     enabled: !!storeId,
   });
 
@@ -129,7 +135,7 @@ export function SalesTrendChart({ storeId, storeCurrency = "NGN" }: ChartProps) 
               tick={{ fontSize: 12 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(value) => `$${value}`}
+              tickFormatter={(value) => `${getCurrencySymbol(storeCurrency)}${value}`}
               className="text-muted-foreground"
             />
             <Tooltip
@@ -166,10 +172,15 @@ export function SalesTrendChart({ storeId, storeCurrency = "NGN" }: ChartProps) 
   );
 }
 
-export function RevenueByItemChart({ storeId, storeCurrency = "NGN" }: ChartProps) {
+export function RevenueByItemChart({ storeId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
-    queryKey: ["/api/charts/revenue-by-type", storeId],
+    queryKey: ["/api/charts/revenue-by-type", storeId, queryString],
+    queryFn: async () => {
+      const res = await fetch(`/api/charts/revenue-by-type?storeId=${storeId}${queryString ? '&' + queryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
     enabled: !!storeId,
   });
 
@@ -215,7 +226,7 @@ export function RevenueByItemChart({ storeId, storeCurrency = "NGN" }: ChartProp
               tick={{ fontSize: 12 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(value) => `$${value}`}
+              tickFormatter={(value) => `${getCurrencySymbol(storeCurrency)}${value}`}
               className="text-muted-foreground"
             />
             <YAxis
@@ -263,10 +274,15 @@ export function RevenueByItemChart({ storeId, storeCurrency = "NGN" }: ChartProp
   );
 }
 
-export function RevenueBreakdownChart({ storeId, storeCurrency = "NGN" }: ChartProps) {
+export function RevenueBreakdownChart({ storeId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
-    queryKey: ["/api/charts/revenue-by-type", storeId],
+    queryKey: ["/api/charts/revenue-by-type", storeId, queryString],
+    queryFn: async () => {
+      const res = await fetch(`/api/charts/revenue-by-type?storeId=${storeId}${queryString ? '&' + queryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
     enabled: !!storeId,
   });
 

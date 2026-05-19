@@ -223,8 +223,8 @@ export default function AttendancePage() {
   // ─── Summary counts for a staff member in the current period ────────────────
   function getSummary(staffId: string) {
     let active = 0, passive = 0, absent = 0, offDay = 0, holiday = 0;
-    for (const [key, r] of recordMap) {
-      if (!key.startsWith(staffId + ":")) continue;
+    recordMap.forEach((r, key) => {
+      if (!key.startsWith(staffId + ":")) return;
       const dateStr = key.split(":")[1];
       if (r.status === "present") {
         if (activeStaffDays.has(`${staffId}:${dateStr}`)) {
@@ -236,7 +236,7 @@ export default function AttendancePage() {
       else if (r.status === "absent") absent++;
       else if (r.status === "off_day") offDay++;
       else if (r.status === "holiday") holiday++;
-    }
+    });
     return { active, passive, absent, offDay, holiday };
   }
 

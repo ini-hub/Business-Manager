@@ -11,6 +11,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { Separator } from "@/components/ui/separator";
 import { StoreProvider } from "@/lib/store-context";
 import { StoreSelector } from "@/components/store-selector";
+import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 
@@ -19,6 +20,7 @@ import Dashboard from "@/pages/dashboard";
 import Customers from "@/pages/customers";
 import CustomerDetails from "@/pages/customer-details";
 import StaffPage from "@/pages/staff";
+import StaffFormPage from "@/pages/staff-form";
 import AttendancePage from "@/pages/attendance";
 import InventoryPage from "@/pages/inventory";
 import InventoryDetails from "@/pages/inventory-details";
@@ -30,13 +32,20 @@ import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
 import SettingsStoresPage from "@/pages/settings-stores";
 import OnboardingWizard from "@/pages/onboarding";
+import StaffPerformancePage from "@/pages/staff-performance";
+import ProfilePage from "@/pages/profile";
+import StaffDashboard from "@/pages/staff-dashboard";
 import NotFound from "@/pages/not-found";
+import { GlobalSearch } from "@/components/global-search";
+import { NotificationSheet } from "@/components/notification-sheet";
 
 import Login from "@/pages/auth/login";
 import Signup from "@/pages/auth/signup";
 import VerifyOtp from "@/pages/auth/verify-otp";
 import ForgotPassword from "@/pages/auth/forgot-password";
 import ResetPassword from "@/pages/auth/reset-password";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { OfflineSyncManager } from "@/components/offline-sync-manager";
 
 function OnboardingRoute() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -58,6 +67,22 @@ function OnboardingRoute() {
 
   if (!isAuthenticated) return null;
   return <OnboardingWizard />;
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider defaultTheme="light" storageKey="ui-theme">
+        <TooltipProvider>
+          <ErrorBoundary>
+            <Router />
+          </ErrorBoundary>
+          <Toaster />
+          <OfflineSyncManager />
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
 }
 
 function Router() {
@@ -102,12 +127,12 @@ function AuthenticatedLayout() {
 
   const hasStores = !storesLoading && Array.isArray(stores) && stores.length > 0;
 
-  // Redirect to onboarding via useEffect (never call setLocation during render)
+  // Redirect to onboarding via useEffect
   useEffect(() => {
     if (!storesLoading && !hasStores && location !== "/onboarding") {
       setLocation("/onboarding");
     }
-  }, [storesLoading, hasStores, location]);
+  }, [storesLoading, hasStores, location, setLocation]);
 
   if (storesLoading) {
     return (
@@ -117,7 +142,6 @@ function AuthenticatedLayout() {
     );
   }
 
-  // Render nothing while redirect is in-flight
   if (!hasStores) return null;
 
   return (
@@ -131,18 +155,32 @@ function AuthenticatedLayout() {
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <Separator orientation="vertical" className="h-6" />
                 <div className="w-48">
+                  <OrgSwitcher />
+                </div>
+                <Separator orientation="vertical" className="h-6" />
+                <div className="w-48">
                   <StoreSelector />
                 </div>
               </div>
-              <ThemeToggle />
+              <div className="flex flex-1 items-center justify-center max-w-sm mx-auto">
+                <GlobalSearch />
+              </div>
+              <div className="flex items-center gap-2">
+                <NotificationSheet />
+                <ThemeToggle />
+              </div>
             </header>
             <main className="flex-1 overflow-auto p-6">
               <div className="mx-auto max-w-7xl">
                 <Switch>
-                  <Route path="/" component={Dashboard} />
+                  <Route path="/">
+                    {user?.role === "staff" ? <StaffDashboard /> : <Dashboard />}
+                  </Route>
                   <Route path="/customers" component={Customers} />
                   <Route path="/customers/:id" component={CustomerDetails} />
                   <Route path="/staff" component={StaffPage} />
+                  <Route path="/staff/new" component={StaffFormPage} />
+                  <Route path="/staff/:id/edit" component={StaffFormPage} />
                   <Route path="/staff/attendance" component={AttendancePage} />
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/:id" component={InventoryDetails} />
@@ -150,7 +188,9 @@ function AuthenticatedLayout() {
                   <Route path="/transactions" component={Transactions} />
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
+                  <Route path="/reports/staff-performance" component={StaffPerformancePage} />
                   <Route path="/payroll" component={PayrollPage} />
+                  <Route path="/profile" component={ProfilePage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
                   <Route path="/settings/stores" component={SettingsStoresPage} />
                   <Route component={NotFound} />
@@ -163,18 +203,3 @@ function AuthenticatedLayout() {
     </StoreProvider>
   );
 }
-
-function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light" storageKey="business-manager-theme">
-        <TooltipProvider>
-          <Router />
-          <Toaster />
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
-  );
-}
-
-export default App;

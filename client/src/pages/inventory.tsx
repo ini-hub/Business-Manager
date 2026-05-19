@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3 } from "lucide-react";
 import { z } from "zod";
@@ -37,6 +37,7 @@ import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
 import { ExportToolbar } from "@/components/export-toolbar";
+import { BulkImport } from "@/components/bulk-import";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -57,8 +58,12 @@ export default function InventoryPage() {
   const { currentStore } = useStore();
   const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [shouldRedirectBack, setShouldRedirectBack] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
+  const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
+  const [duplicateItem, setDuplicateItem] = useState<Inventory | null>(null);
+  const [duplicatePayload, setDuplicatePayload] = useState<InsertInventory | null>(null);
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [restockData, setRestockData] = useState({
@@ -136,7 +141,11 @@ export default function InventoryPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item updated successfully" });
+      const itemId = selectedItem?.id;
       closeForm();
+      if (shouldRedirectBack && itemId) {
+        setLocation(`/inventory/${itemId}`);
+      }
     },
     onError: (error: Error) => {
       toast({ 
@@ -246,8 +255,24 @@ export default function InventoryPage() {
   const closeForm = () => {
     setIsFormOpen(false);
     setSelectedItem(null);
+    setShouldRedirectBack(false);
     form.reset();
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (editId && inventoryList.length > 0) {
+      const item = inventoryList.find((i) => i.id === editId);
+      if (item) {
+        setShouldRedirectBack(true);
+        openEditForm(item);
+        // Clear query parameter from the URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
+  }, [inventoryList]);
 
   const navigateToDetails = (item: Inventory) => {
     setLocation(`/inventory/${item.id}`);
@@ -257,6 +282,15 @@ export default function InventoryPage() {
     if (selectedItem) {
       updateMutation.mutate(data);
     } else {
+      const existing = inventoryList.find(
+        (item) => item.name.toLowerCase().trim() === data.name.toLowerCase().trim()
+      );
+      if (existing) {
+        setDuplicateItem(existing);
+        setDuplicatePayload(data);
+        setIsDuplicateOpen(true);
+        return;
+      }
       createMutation.mutate(data);
     }
   };
@@ -437,6 +471,7 @@ export default function InventoryPage() {
         description={`Managing inventory for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
+            <BulkImport />
             <ExportToolbar
               data={filteredInventory as unknown as Record<string, unknown>[]}
               columns={exportColumns}
@@ -831,6 +866,83 @@ export default function InventoryPage() {
         isDestructive
         isLoading={deleteMutation.isPending}
       />
+
+      <Dialog open={isDuplicateOpen} onOpenChange={setIsDuplicateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              Duplicate Item Name
+            </DialogTitle>
+            <DialogDescription className="space-y-3 pt-2">
+              <p className="text-sm font-medium text-foreground">
+                An item named "{duplicateItem?.name}" already exists in your inventory.
+              </p>
+              <div className="rounded-lg bg-muted p-3 space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex justify-between">
+                  <span>Type:</span>
+                  <span className="font-semibold capitalize text-foreground">{duplicateItem?.type}</span>
+                </div>
+                {duplicateItem?.type === "product" && (
+                  <div className="flex justify-between">
+                    <span>Current Stock:</span>
+                    <span className="font-semibold text-foreground">{duplicateItem?.quantity} units</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Selling Price:</span>
+                  <span className="font-semibold text-foreground">{formatCurrency(duplicateItem?.sellingPrice || 0)}</span>
+                </div>
+              </div>
+              <p className="text-xs">
+                Would you like to restock this existing item, or would you prefer to close this and rename your new item?
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => setIsDuplicateOpen(false)}
+            >
+              Cancel
+            </Button>
+            {duplicateItem?.type === "product" && (
+              <Button
+                variant="outline"
+                className="border-amber-200 hover:bg-amber-50 dark:border-amber-900 dark:hover:bg-amber-950"
+                onClick={() => {
+                  setIsDuplicateOpen(false);
+                  setIsFormOpen(false); // Close the Add Item dialog
+                  setSelectedItem(duplicateItem);
+                  setRestockData({
+                    quantity: duplicatePayload?.quantity || 1,
+                    unitCost: duplicateItem.costPrice,
+                    costStrategy: "keep",
+                    newSellingPrice: duplicateItem.sellingPrice,
+                    updateSellingPrice: false,
+                    notes: `Autoredirected restock from duplicate add`,
+                  });
+                  setIsRestockOpen(true);
+                }}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Restock Existing
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                setIsDuplicateOpen(false);
+                toast({
+                  title: "Rename Your Item",
+                  description: "Please update the item name to create a new record.",
+                });
+              }}
+            >
+              Rename Name
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -9,6 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   Form,
   FormControl,
@@ -49,6 +52,8 @@ const businessFormSchema = z.object({
   address: z.string().optional(),
   phone: z.string().optional(),
   phoneCountryCode: z.string().default("+234"),
+  logoUrl: z.string().optional(),
+  businessUrl: z.string().optional(),
 });
 
 const storeFormSchema = z.object({
@@ -211,9 +216,11 @@ export default function SettingsStoresPage() {
     resolver: zodResolver(businessFormSchema),
     defaultValues: {
       name: business?.name || "",
-      address: business?.address || "",
-      phone: business?.phone || "",
-      phoneCountryCode: business?.phoneCountryCode || "+234",
+      address: (business as any)?.address || "",
+      phone: (business as any)?.phone || "",
+      phoneCountryCode: (business as any)?.phoneCountryCode || "+234",
+      logoUrl: (business as any)?.logoUrl || "",
+      businessUrl: (business as any)?.businessUrl || "",
     },
   });
 
@@ -239,6 +246,19 @@ export default function SettingsStoresPage() {
       storeForm.setValue("currency", countryInfo.currency);
     }
   }, [watchedCountry, storeForm]);
+
+  useEffect(() => {
+    if (business) {
+      businessForm.reset({
+        name: business.name || "",
+        address: (business as any).address || "",
+        phone: (business as any).phone || "",
+        phoneCountryCode: (business as any).phoneCountryCode || "+234",
+        logoUrl: (business as any).logoUrl || "",
+        businessUrl: (business as any).businessUrl || "",
+      });
+    }
+  }, [business, businessForm]);
 
   const handleBusinessSubmit = async (values: BusinessFormValues) => {
     try {
@@ -399,12 +419,16 @@ export default function SettingsStoresPage() {
           <Button
             variant="outline"
             onClick={() => {
-              businessForm.reset({
-                name: business?.name || "",
-                address: business?.address || "",
-                phone: business?.phone || "",
-                phoneCountryCode: business?.phoneCountryCode || "+234",
-              });
+              if (business) {
+                businessForm.reset({
+                  name: business.name || "",
+                  address: (business as any).address || "",
+                  phone: (business as any).phone || "",
+                  phoneCountryCode: (business as any).phoneCountryCode || "+234",
+                  logoUrl: (business as any).logoUrl || "",
+                  businessUrl: (business as any).businessUrl || "",
+                });
+              }
               setIsBusinessDialogOpen(true);
             }}
             data-testid="button-edit-business"
@@ -417,16 +441,16 @@ export default function SettingsStoresPage() {
           {business ? (
             <div className="space-y-2">
               <p className="font-medium text-lg" data-testid="text-business-name">{business.name}</p>
-              {business.address && (
+              {(business as any).address && (
                 <p className="flex items-center gap-2 text-muted-foreground">
                   <MapPin className="h-4 w-4" />
-                  {business.address}
+                  {(business as any).address}
                 </p>
               )}
-              {business.phone && (
+              {(business as any).phone && (
                 <p className="flex items-center gap-2 text-muted-foreground">
                   <Phone className="h-4 w-4" />
-                  {business.phoneCountryCode || "+234"} {business.phone}
+                  {(business as any).phoneCountryCode || "+234"} {(business as any).phone}
                 </p>
               )}
             </div>
@@ -437,6 +461,8 @@ export default function SettingsStoresPage() {
           )}
         </CardContent>
       </Card>
+
+      <BusinessSettingsSection />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
@@ -550,6 +576,46 @@ export default function SettingsStoresPage() {
           </DialogHeader>
           <Form {...businessForm}>
             <form onSubmit={businessForm.handleSubmit(handleBusinessSubmit)} className="space-y-4">
+              <div className="flex flex-col items-center gap-4 mb-4">
+                <Avatar className="h-20 w-20 border-2">
+                  <AvatarImage src={businessForm.watch("logoUrl") || ""} />
+                  <AvatarFallback className="bg-primary/10">
+                    <Building2 className="h-10 w-10 text-primary/40" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="w-full">
+                  <Label className="text-xs mb-1 block text-center">Business Logo</Label>
+                  <Input 
+                    type="file" 
+                    accept="image/*"
+                    className="cursor-pointer"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const maxSize = 2 * 1024 * 1024; // 2MB
+                        if (file.size > maxSize) {
+                          toast({
+                            title: "File too large",
+                            description: "Business logo must be smaller than 2MB.",
+                            variant: "destructive"
+                          });
+                          e.target.value = ""; // clear input
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          businessForm.setValue("logoUrl", reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                    Upload logo (JPG, PNG). Max size 2MB (Strictly enforced).
+                  </p>
+                </div>
+              </div>
+
               <FormField
                 control={businessForm.control}
                 name="name"
@@ -563,6 +629,31 @@ export default function SettingsStoresPage() {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={businessForm.control}
+                name="businessUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Business Website (Optional)</FormLabel>
+                    <FormControl>
+                      <div className="flex">
+                        <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted text-muted-foreground text-sm">
+                          https://
+                        </span>
+                        <Input 
+                          {...field} 
+                          placeholder="example.com" 
+                          className="rounded-l-none"
+                          data-testid="input-business-url" 
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={businessForm.control}
                 name="address"
@@ -964,5 +1055,98 @@ export default function SettingsStoresPage() {
         isDestructive
       />
     </div>
+  );
+}
+
+function BusinessSettingsSection() {
+  const { currentStore } = useStore();
+  const { toast } = useToast();
+  
+  const { data: settingsData, isLoading } = useQuery<any>({
+    queryKey: ["/api/settings", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("PUT", "/api/settings", { ...data, storeId: currentStore?.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", currentStore?.id] });
+      toast({ title: "Settings updated successfully" });
+    },
+  });
+
+  const [receiptPrefix, setReceiptPrefix] = useState("");
+  const [thankYouMessage, setThankYouMessage] = useState("");
+  const [lowStockThreshold, setLowStockThreshold] = useState(5);
+
+  useEffect(() => {
+    if (settingsData) {
+      setReceiptPrefix(settingsData.receiptPrefix || "RCP");
+      setThankYouMessage(settingsData.receiptThankYouMessage || "");
+      setLowStockThreshold(settingsData.lowStockThreshold || 5);
+    }
+  }, [settingsData]);
+
+  if (!currentStore) return null;
+  if (isLoading) return <Card className="p-8 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></Card>;
+
+  return (
+    <Card className="border-primary/20 shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-xl font-bold">
+          <Building2 className="h-6 w-6 text-primary" />
+          Store Receipt Branding
+        </CardTitle>
+        <CardDescription>Configure how your store appears on receipts and invoices for {currentStore.name}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="prefix" className="text-sm font-semibold">Receipt Number Prefix</Label>
+            <Input 
+              id="prefix" 
+              value={receiptPrefix} 
+              onChange={(e) => setReceiptPrefix(e.target.value.toUpperCase())} 
+              className="font-mono"
+            />
+            <p className="text-[10px] text-muted-foreground">E.g. RCP-2024-001</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="lowStock" className="text-sm font-semibold">Low Stock Threshold</Label>
+            <Input 
+              id="lowStock" 
+              type="number"
+              value={lowStockThreshold} 
+              onChange={(e) => setLowStockThreshold(parseInt(e.target.value))} 
+            />
+            <p className="text-[10px] text-muted-foreground">Alert when stock falls below this number</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="thank-you" className="text-sm font-semibold">Receipt Thank You Message</Label>
+          <Textarea 
+            id="thank-you" 
+            placeholder="Thank you for your patronage!" 
+            value={thankYouMessage}
+            onChange={(e) => setThankYouMessage(e.target.value)}
+            className="min-h-[100px]"
+          />
+          <p className="text-[10px] text-muted-foreground">This will appear at the bottom of all printed receipts</p>
+        </div>
+      </CardContent>
+      <Separator />
+      <CardContent className="pt-6 flex justify-end">
+        <Button 
+          onClick={() => updateSettingsMutation.mutate({ receiptPrefix, receiptThankYouMessage: thankYouMessage, lowStockThreshold })}
+          disabled={updateSettingsMutation.isPending}
+          className="gap-2"
+        >
+          {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
+          Save Business Settings
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

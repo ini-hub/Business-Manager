@@ -49,11 +49,14 @@ import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { ReceiptModal } from "@/components/receipt-modal";
 import type { Customer, Staff, Inventory, InsertCustomer } from "@shared/schema";
 import { insertCustomerSchema } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useAuth } from "@/hooks/useAuth";
+import { saveOfflineCheckout } from "@/lib/offline-db";
 import {
   Dialog,
   DialogContent,
@@ -71,6 +74,8 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+
 
 const newCustomerSchema = insertCustomerSchema.extend({
   mobileNumber: z.string().optional().default(""),
@@ -85,11 +90,13 @@ interface CartItem {
   leadStaffId?: string | null;
   assistingStaff1Id?: string | null;
   assistingStaff2Id?: string | null;
+  commissionSplit: "standard" | "equal";
   showAsst1?: boolean; // UI toggle
   showAsst2?: boolean; // UI toggle
 }
 
 export default function NewSale() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const { currentStore } = useStore();
   const [, setLocation] = useLocation();
@@ -101,6 +108,23 @@ export default function NewSale() {
   const [staffOpen, setStaffOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave">("cash");
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
+  const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
+
+  // Discount Module Version 1.2 Option B states
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [discountPercent, setDiscountPercent] = useState<number>(0);
+  const [discountReason, setDiscountReason] = useState<string>("");
+  const [applyDiscount, setApplyDiscount] = useState<boolean>(false);
+  const [discountApprovedBy, setDiscountApprovedBy] = useState<string>("");
+
+  const [supervisorEmail, setSupervisorEmail] = useState<string>("");
+  const [supervisorPassword, setSupervisorPassword] = useState<string>("");
+  const [supervisorOverrideOpen, setSupervisorOverrideOpen] = useState<boolean>(false);
+  const [isAuthorizingSupervisor, setIsAuthorizingSupervisor] = useState<boolean>(false);
+  const [effectiveDate, setEffectiveDate] = useState<string>(() => {
+    return new Date().toISOString().split("T")[0];
+  });
+  const [isDateModified, setIsDateModified] = useState<boolean>(false);
 
   const customerForm = useForm<InsertCustomer>({
     resolver: zodResolver(newCustomerSchema),
@@ -197,6 +221,7 @@ export default function NewSale() {
         leadStaffId: null,
         assistingStaff1Id: null,
         assistingStaff2Id: null,
+        commissionSplit: "standard",
         showAsst1: false,
         showAsst2: false,
       }];
@@ -274,27 +299,74 @@ export default function NewSale() {
         leadStaffId: item.inventory.type === "service" ? (item.leadStaffId || null) : null,
         assistingStaff1Id: item.inventory.type === "service" ? (item.assistingStaff1Id || null) : null,
         assistingStaff2Id: item.inventory.type === "service" ? (item.assistingStaff2Id || null) : null,
+        commissionSplit: item.commissionSplit,
       }));
 
-      return apiRequest("POST", "/api/sales/checkout", {
+      const checkoutPayload = {
         storeId: currentStore?.id,
-        customerId: selectedCustomer,
+        customerId: selectedCustomer || null,
         staffId: selectedStaff,
         items: orderData,
         paymentMethod,
-      });
+        discountAmount: discountAmount || undefined,
+        discountPercent: discountPercent || undefined,
+        discountReason: discountReason || undefined,
+        discountApprovedBy: discountApprovedBy || undefined,
+        effectiveDate: isDateModified ? effectiveDate : undefined,
+      };
+
+      if (!navigator.onLine) {
+        await saveOfflineCheckout(checkoutPayload, currentStore!.id);
+        return { offline: true };
+      }
+
+      try {
+        const response = await apiRequest("POST", "/api/sales/checkout", checkoutPayload);
+        return response.json();
+      } catch (error) {
+        const isNetworkError = error instanceof TypeError || 
+          (error as any).message?.toLowerCase().includes("failed to fetch") ||
+          (error as any).message?.toLowerCase().includes("networkerror") ||
+          (error as any).status === 503 ||
+          (error as any).status === 504;
+        if (isNetworkError) {
+          await saveOfflineCheckout(checkoutPayload, currentStore!.id);
+          return { offline: true };
+        }
+        throw error;
+      }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", currentStore?.id] });
-      toast({ title: "Sale completed successfully!" });
+    onSuccess: (data) => {
+      if (data.offline) {
+        toast({
+          title: "Checkout Queued Offline!",
+          description: "No network connection. The sale has been saved locally and will sync when you are back online.",
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/profit-loss", currentStore?.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", currentStore?.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+        toast({ title: "Sale completed successfully!" });
+      }
+
       setCart([]);
       setSelectedCustomer("");
       setSelectedStaff("");
       setPaymentMethod("cash");
-      setLocation("/transactions");
+      setApplyDiscount(false);
+      setDiscountAmount(0);
+      setDiscountPercent(0);
+      setDiscountReason("");
+      setDiscountApprovedBy("");
+      setEffectiveDate(new Date().toISOString().split("T")[0]);
+      setIsDateModified(false);
+      
+      // Open receipt modal only for physical online checkouts
+      if (!data.offline && data.checkoutIds && data.checkoutIds.length > 0) {
+        setReceiptCheckoutId(data.checkoutIds[0]);
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -307,7 +379,12 @@ export default function NewSale() {
 
   // Block checkout if any service item has no lead staff assigned
   const serviceItemsMissingLead = cart.filter(c => c.inventory.type === "service" && !c.leadStaffId);
-  const canCheckout = cart.length > 0 && selectedCustomer && selectedStaff && serviceItemsMissingLead.length === 0;
+  const canCheckout = 
+    cart.length > 0 && 
+    selectedCustomer && 
+    selectedStaff && 
+    serviceItemsMissingLead.length === 0 &&
+    (discountAmount === 0 || (discountReason !== "" && discountApprovedBy !== ""));
 
   if (!currentStore) {
     return (
@@ -613,6 +690,27 @@ export default function NewSale() {
                                 </Popover>
                               </div>
                             )}
+
+                            {/* Commission Split Override (only if assistants exist) */}
+                            {(item.assistingStaff1Id || item.assistingStaff2Id) && (
+                              <div className="pt-1 flex flex-col gap-1">
+                                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">Commission Split</p>
+                                <RadioGroup 
+                                  value={item.commissionSplit} 
+                                  onValueChange={(v) => updateStaffAssignment(item.inventory.id, "commissionSplit", v)}
+                                  className="flex gap-3"
+                                >
+                                  <div className="flex items-center space-x-1">
+                                    <RadioGroupItem value="standard" id={`split-std-${item.inventory.id}`} className="h-3 w-3" />
+                                    <Label htmlFor={`split-std-${item.inventory.id}`} className="text-[10px] font-normal cursor-pointer">Standard (80/20)</Label>
+                                  </div>
+                                  <div className="flex items-center space-x-1">
+                                    <RadioGroupItem value="equal" id={`split-eq-${item.inventory.id}`} className="h-3 w-3" />
+                                    <Label htmlFor={`split-eq-${item.inventory.id}`} className="text-[10px] font-normal cursor-pointer">Equal (50/50)</Label>
+                                  </div>
+                                </RadioGroup>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -622,9 +720,152 @@ export default function NewSale() {
               )}
             </CardContent>
             <Separator />
-            <CardFooter className="flex justify-between pt-4">
-              <span className="font-medium">Total</span>
-              <span className="text-xl font-bold font-mono">{formatCurrency(cartTotal)}</span>
+            <CardFooter className="flex flex-col gap-4 pt-4">
+              <div className="w-full flex justify-between items-center text-sm font-medium">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-mono">{formatCurrency(cartTotal)}</span>
+              </div>
+
+              {/* Standalone Option B Discount Panel */}
+              <div className="w-full border border-primary/10 rounded-lg p-3.5 bg-primary/5 space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-1.5">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
+                    Transaction Discount
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="apply-discount-toggle" className="text-xs font-medium cursor-pointer">
+                      Apply Discount?
+                    </Label>
+                    <Switch
+                      id="apply-discount-toggle"
+                      checked={applyDiscount}
+                      onCheckedChange={(checked) => {
+                        setApplyDiscount(checked);
+                        if (!checked) {
+                          setDiscountAmount(0);
+                          setDiscountPercent(0);
+                          setDiscountReason("");
+                          setDiscountApprovedBy("");
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {applyDiscount && (
+                  <div className="space-y-3 pt-2 border-t border-primary/10">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground uppercase font-medium">Amount Off</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={cartTotal}
+                          className="h-8 font-mono text-xs"
+                          placeholder="0.00"
+                          value={discountAmount || ""}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (isNaN(val) || val <= 0) {
+                              setDiscountAmount(0);
+                              setDiscountPercent(0);
+                              setDiscountApprovedBy("");
+                              return;
+                            }
+                            const amt = Math.min(cartTotal, Math.max(0, val));
+                            setDiscountAmount(amt);
+                            const pct = cartTotal > 0 ? (amt / cartTotal) * 100 : 0;
+                            setDiscountPercent(pct);
+                            
+                            // Check if authorization is required
+                            const requiresOverride = 
+                              user?.role === "staff" || 
+                              (user?.role === "manager" && pct > 20);
+                            if (requiresOverride) {
+                              setSupervisorOverrideOpen(true);
+                            } else {
+                              const displayName = user?.name || user?.email || "Owner";
+                              setDiscountApprovedBy(`${displayName} (${user?.role})`);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground uppercase font-medium">Target Total</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={cartTotal}
+                          className="h-8 font-mono text-xs"
+                          placeholder={cartTotal ? (cartTotal - discountAmount).toFixed(2) : "0.00"}
+                          value={discountAmount > 0 ? (cartTotal - discountAmount).toFixed(2) : ""}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (isNaN(val) || val >= cartTotal) {
+                              setDiscountAmount(0);
+                              setDiscountPercent(0);
+                              setDiscountApprovedBy("");
+                              return;
+                            }
+                            const target = Math.max(0, val);
+                            const amt = Math.max(0, cartTotal - target);
+                            setDiscountAmount(amt);
+                            const pct = cartTotal > 0 ? (amt / cartTotal) * 100 : 0;
+                            setDiscountPercent(pct);
+
+                            // Check if authorization is required
+                            const requiresOverride = 
+                              user?.role === "staff" || 
+                              (user?.role === "manager" && pct > 20);
+                            if (requiresOverride) {
+                              setSupervisorOverrideOpen(true);
+                            } else {
+                              const displayName = user?.name || user?.email || "Owner";
+                              setDiscountApprovedBy(`${displayName} (${user?.role})`);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {discountAmount > 0 && (
+                      <div className="space-y-2 pt-1 border-t border-primary/10">
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground uppercase font-medium">Reason for Discount <span className="text-red-500">*</span></Label>
+                          <select
+                            className="w-full h-8 px-2 rounded-md border bg-background text-xs"
+                            value={discountReason}
+                            onChange={(e) => setDiscountReason(e.target.value)}
+                            required
+                          >
+                            <option value="">Select a reason...</option>
+                            <option value="Negotiated">Negotiated</option>
+                            <option value="Loyalty">Loyalty</option>
+                            <option value="Promo">Promo</option>
+                            <option value="Error Correction">Error Correction</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+
+                        <div className="flex justify-between items-center text-[10px] bg-background p-2 rounded border border-primary/10">
+                          <span className="text-muted-foreground">Approved By:</span>
+                          <span className="font-semibold text-primary font-mono truncate max-w-[150px]" title={discountApprovedBy}>
+                            {discountApprovedBy || "Pending Override..."}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full flex justify-between items-center pt-2 border-t">
+                <span className="font-bold text-base text-foreground">Total Charged</span>
+                <span className="text-xl font-bold font-mono text-emerald-600">
+                  {formatCurrency(Math.max(0, cartTotal - discountAmount))}
+                </span>
+              </div>
             </CardFooter>
           </Card>
 
@@ -803,6 +1044,31 @@ export default function NewSale() {
                   </label>
                 </RadioGroup>
               </div>
+
+              {user?.role !== "staff" && (
+                <>
+                  <Separator className="my-4" />
+                  <div className="space-y-2">
+                    <Label htmlFor="effective-date" className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
+                      Effective Transaction Date
+                    </Label>
+                    <Input
+                      id="effective-date"
+                      type="date"
+                      value={effectiveDate}
+                      onChange={(e) => {
+                        setEffectiveDate(e.target.value);
+                        setIsDateModified(true);
+                      }}
+                      max={new Date().toISOString().split("T")[0]}
+                      className="bg-background text-sm cursor-pointer hover:border-primary/50 transition-colors"
+                    />
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      Backdate this transaction to record a past sale. Future dates are blocked.
+                    </p>
+                  </div>
+                </>
+              )}
             </CardContent>
             {serviceItemsMissingLead.length > 0 && (
               <div className="px-6 pb-2">
@@ -900,6 +1166,130 @@ export default function NewSale() {
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <ReceiptModal
+        checkoutId={receiptCheckoutId}
+        open={!!receiptCheckoutId}
+        onClose={() => setReceiptCheckoutId(null)}
+      />
+
+      <Dialog 
+        open={supervisorOverrideOpen} 
+        onOpenChange={(open) => {
+          if (!open) {
+            // Cancelling the override resets the discount
+            setApplyDiscount(false);
+            setDiscountAmount(0);
+            setDiscountPercent(0);
+            setDiscountApprovedBy("");
+            setSupervisorEmail("");
+            setSupervisorPassword("");
+          }
+          setSupervisorOverrideOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-md border-primary/20 shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary font-bold">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-ping shrink-0" />
+              Supervisor Override Required
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {user?.role === "staff" 
+                ? "Staff accounts cannot grant discounts. A Manager or Owner must input their credentials to authorize this adjustment."
+                : "Manager accounts can only authorize discounts up to 20%. An Owner must authorize this discount."
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Supervisor Email</Label>
+              <Input
+                type="email"
+                placeholder="supervisor@business.com"
+                className="text-xs h-9"
+                value={supervisorEmail}
+                onChange={(e) => setSupervisorEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Supervisor Password</Label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                className="text-xs h-9"
+                value={supervisorPassword}
+                onChange={(e) => setSupervisorPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              className="text-xs h-9"
+              onClick={() => {
+                setApplyDiscount(false);
+                setDiscountAmount(0);
+                setDiscountPercent(0);
+                setDiscountApprovedBy("");
+                setSupervisorEmail("");
+                setSupervisorPassword("");
+                setSupervisorOverrideOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="text-xs h-9"
+              disabled={isAuthorizingSupervisor || !supervisorEmail || !supervisorPassword}
+              onClick={async () => {
+                try {
+                  setIsAuthorizingSupervisor(true);
+                  const res = await fetch("/api/auth/supervisor-override", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: supervisorEmail, password: supervisorPassword }),
+                  });
+                  if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.error || "Invalid credentials.");
+                  }
+                  const resData = await res.json();
+                  const sup = resData.supervisor;
+                  
+                  // Enforce Owner check for discounts > 20%
+                  if (discountPercent > 20 && sup.role !== "owner") {
+                    throw new Error("Only an Owner can authorize discounts exceeding 20%.");
+                  }
+
+                  toast({
+                    title: "Override Authorized!",
+                    description: `Approved by ${sup.name} (${sup.role})`,
+                  });
+                  setDiscountApprovedBy(`${sup.name} (${sup.role})`);
+                  setSupervisorEmail("");
+                  setSupervisorPassword("");
+                  setSupervisorOverrideOpen(false);
+                } catch (err: any) {
+                  toast({
+                    title: "Authorization Failed",
+                    description: err.message || "Could not verify credentials.",
+                    variant: "destructive",
+                  });
+                } finally {
+                  setIsAuthorizingSupervisor(false);
+                }
+              }}
+            >
+              {isAuthorizingSupervisor ? "Authorizing..." : "Authorize"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

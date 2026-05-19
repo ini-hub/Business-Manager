@@ -47,6 +47,11 @@ export function getCurrencyByCode(code: string): CurrencyInfo | undefined {
   return currencies.find(c => c.code === code);
 }
 
+export function getCurrencySymbol(code: string): string {
+  const currency = getCurrencyByCode(code);
+  return currency?.symbol || code;
+}
+
 export function getCountryByCode(code: string): CountryInfo | undefined {
   return countries.find(c => c.code === code);
 }

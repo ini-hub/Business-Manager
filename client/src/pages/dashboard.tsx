@@ -11,6 +11,9 @@ import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/co
 import { useStore } from "@/lib/store-context";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { useEffect, useState } from "react";
+import { format } from "date-fns";
 
 interface DashboardStats {
   totalCustomers: number;
@@ -27,13 +30,58 @@ interface DashboardStats {
 export default function Dashboard() {
   const { currentStore } = useStore();
 
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const saved = sessionStorage.getItem("dashboard_date_range");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          from: parsed.from ? new Date(parsed.from) : undefined,
+          to: parsed.to ? new Date(parsed.to) : undefined,
+        };
+      } catch (e) {
+        // ignore parsing errors
+      }
+    }
+    return { from: undefined, to: undefined };
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem("dashboard_date_range", JSON.stringify(dateRange));
+  }, [dateRange]);
+
+  const queryParams = new URLSearchParams();
+  if (dateRange.from) queryParams.set("from", format(dateRange.from, "yyyy-MM-dd"));
+  if (dateRange.to) queryParams.set("to", format(dateRange.to, "yyyy-MM-dd"));
+  const queryString = queryParams.toString() ? `?${queryParams.toString()}` : "";
+
+  const deepLinkParams = new URLSearchParams();
+  if (dateRange.from) deepLinkParams.set("startDate", format(dateRange.from, "yyyy-MM-dd"));
+  if (dateRange.to) deepLinkParams.set("endDate", format(dateRange.to, "yyyy-MM-dd"));
+  const deepLinkQuery = deepLinkParams.toString() ? `?${deepLinkParams.toString()}` : "";
+
   const { data: stats, isLoading } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats", currentStore?.id],
+    queryKey: ["/api/dashboard/stats", currentStore?.id, queryString],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/stats?storeId=${currentStore?.id}${queryString ? '&' + queryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch dashboard stats");
+      return res.json();
+    },
     enabled: !!currentStore?.id,
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
     queryKey: ["/api/profit-loss", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const { data: topCustomers = [] } = useQuery<any[]>({
+    queryKey: ["/api/reports/top-customers", currentStore?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/top-customers?storeId=${currentStore?.id}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: !!currentStore?.id,
   });
 
@@ -65,12 +113,15 @@ export default function Dashboard() {
         title="Dashboard"
         description={`Overview for ${currentStore.name}`}
         actions={
-          <Button asChild data-testid="button-new-sale">
-            <Link href="/sales/new">
-              <ShoppingCart className="mr-2 h-4 w-4" />
-              New Sale
-            </Link>
-          </Button>
+          <div className="flex items-center gap-4">
+            <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} />
+            <Button asChild data-testid="button-new-sale">
+              <Link href="/sales/new">
+                <ShoppingCart className="mr-2 h-4 w-4" />
+                New Sale
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -80,12 +131,14 @@ export default function Dashboard() {
           value={stats?.totalCustomers ?? 0}
           icon={<Users className="h-4 w-4" />}
           isLoading={isLoading}
+          href="/customers"
         />
         <MetricCard
           title="Total Staff"
           value={stats?.totalStaff ?? 0}
           icon={<UserCog className="h-4 w-4" />}
           isLoading={isLoading}
+          href="/staff"
         />
         <MetricCard
           title="Inventory Items"
@@ -93,12 +146,14 @@ export default function Dashboard() {
           description={`${stats?.totalProducts ?? 0} products, ${stats?.totalServices ?? 0} services`}
           icon={<Package className="h-4 w-4" />}
           isLoading={isLoading}
+          href="/inventory"
         />
         <MetricCard
           title="Total Transactions"
           value={stats?.totalTransactions ?? 0}
           icon={<Receipt className="h-4 w-4" />}
           isLoading={isLoading}
+          href={`/transactions${deepLinkQuery}`}
         />
       </div>
 
@@ -110,6 +165,7 @@ export default function Dashboard() {
           trend="up"
           trendValue="All time"
           isLoading={isLoading}
+          href={`/profit-loss${deepLinkQuery}`}
         />
         <MetricCard
           title="Gross Profit"
@@ -118,15 +174,16 @@ export default function Dashboard() {
           trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}
           trendValue="All time"
           isLoading={isLoading}
+          href={`/profit-loss${deepLinkQuery}`}
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <SalesTrendChart storeId={currentStore.id} storeCurrency={storeCurrency} />
-        <RevenueByItemChart storeId={currentStore.id} storeCurrency={storeCurrency} />
+        <SalesTrendChart storeId={currentStore.id} storeCurrency={storeCurrency} queryString={queryString} />
+        <RevenueByItemChart storeId={currentStore.id} storeCurrency={storeCurrency} queryString={queryString} />
       </div>
 
-      <RevenueBreakdownChart storeId={currentStore.id} storeCurrency={storeCurrency} />
+      <RevenueBreakdownChart storeId={currentStore.id} storeCurrency={storeCurrency} queryString={queryString} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -243,6 +300,46 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <Users className="h-4 w-4" /> Top Customers
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topCustomers.length > 0 ? (
+              <div className="space-y-4">
+                {topCustomers.map((customer: any, index: number) => (
+                  <div
+                    key={customer.id}
+                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="font-medium text-sm">{customer.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {customer.transactionCount} orders
+                        </p>
+                      </div>
+                    </div>
+                    <p className="font-mono text-sm font-medium">
+                      {formatCurrency(customer.totalSpent)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <Users className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                <p className="text-sm text-muted-foreground">No customer data yet</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -274,7 +371,7 @@ export default function Dashboard() {
           </Link>
         </Card>
         <Card className="hover-elevate">
-          <Link href="/profit-loss">
+          <Link href={`/profit-loss${deepLinkQuery}`}>
             <CardContent className="flex flex-col items-center justify-center py-6">
               <TrendingUp className="h-8 w-8 text-primary mb-3" />
               <p className="font-medium">View Reports</p>

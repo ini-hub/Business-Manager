@@ -41,7 +41,7 @@ export function DateRangeFilter({
   dateRange,
   onDateRangeChange,
 }: DateRangeFilterProps) {
-  const [selectedPreset, setSelectedPreset] = useState("all");
+  const [selectedPreset, setSelectedPreset] = useState("today");
 
   const handlePresetChange = (value: string) => {
     setSelectedPreset(value);

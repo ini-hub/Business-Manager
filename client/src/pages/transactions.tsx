@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, Hash, AlertCircle, X } from "lucide-react";
+import { startOfDay, endOfDay } from "date-fns";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, Hash, AlertCircle, X, Printer, Ban, Edit } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,6 +11,19 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
@@ -20,15 +34,49 @@ import { DateRangeFilter, type DateRange } from "@/components/date-range-filter"
 import { ExportToolbar } from "@/components/export-toolbar";
 import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
-import type { TransactionWithRelations } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { ReceiptModal } from "@/components/receipt-modal";
+import { type TransactionWithRelations, VOID_REASON_PRESETS } from "@shared/schema";
 
 export default function Transactions() {
   const { currentStore } = useStore();
-  const [dateRange, setDateRange] = useState<DateRange>({
-    from: undefined,
-    to: undefined,
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const userRole = user?.role || "staff";
+  const canManage = userRole === "manager" || userRole === "owner";
+
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const startDateParam = params.get("startDate");
+    const endDateParam = params.get("endDate");
+    if (startDateParam && endDateParam) {
+      return {
+        from: startOfDay(new Date(startDateParam)),
+        to: endOfDay(new Date(endDateParam))
+      };
+    }
+    return {
+      from: startOfDay(new Date()),
+      to: endOfDay(new Date()),
+    };
   });
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionWithRelations | null>(null);
+
+  // Receipt Modal State
+  const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
+
+  // Void State
+  const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState<string>("");
+  const [customVoidReason, setCustomVoidReason] = useState("");
+
+  // Payment Status State
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [editPaymentMethod, setEditPaymentMethod] = useState("");
+  const [editPaymentStatus, setEditPaymentStatus] = useState("");
 
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id],
@@ -55,17 +103,19 @@ export default function Transactions() {
     }).format(value);
   };
 
-  const formatDualCurrency = (value: number) => {
+  const formatDualCurrency = (value: number, isVoided: boolean = false) => {
     const primaryAmount = formatCurrency(value, storeCurrency);
-    if (storeCurrency === "USD") {
-      return primaryAmount;
+    let usdAmount = null;
+    
+    if (storeCurrency !== "USD") {
+      const usdRate = 1500;
+      usdAmount = formatCurrency(value / usdRate, "USD");
     }
-    const usdRate = 1500;
-    const usdAmount = formatCurrency(value / usdRate, "USD");
+
     return (
-      <div className="flex flex-col">
+      <div className={`flex flex-col ${isVoided ? "opacity-50 line-through" : ""}`}>
         <span className="font-mono font-medium">{primaryAmount}</span>
-        <span className="text-xs text-muted-foreground font-mono">{usdAmount}</span>
+        {usdAmount && <span className="text-xs text-muted-foreground font-mono">{usdAmount}</span>}
       </div>
     );
   };
@@ -81,9 +131,76 @@ export default function Transactions() {
   };
 
   const totalAmount = filteredTransactions.reduce(
-    (sum, tx) => sum + (tx.checkout?.totalPrice ?? 0),
+    (sum, tx) => sum + (!tx.checkout?.isVoided ? (tx.checkout?.totalPrice ?? 0) : 0),
     0
   );
+  
+  const nonVoidedCount = filteredTransactions.filter(tx => !tx.checkout?.isVoided).length;
+
+  const voidMutation = useMutation({
+    mutationFn: async (params: { checkoutId: string; reason: string }) => {
+      const res = await apiRequest("POST", `/api/transactions/${params.checkoutId}/void`, { reason: params.reason });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      toast({ title: "Transaction voided successfully" });
+      setIsVoidDialogOpen(false);
+      setSelectedTransaction(null);
+      setVoidReason("");
+      setCustomVoidReason("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to void transaction", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const paymentMutation = useMutation({
+    mutationFn: async (params: { checkoutId: string; paymentMethod: string; paymentStatus: string }) => {
+      const res = await apiRequest("PATCH", `/api/transactions/${params.checkoutId}/payment-status`, {
+        paymentMethod: params.paymentMethod,
+        paymentStatus: params.paymentStatus,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+      toast({ title: "Payment status updated" });
+      setIsPaymentDialogOpen(false);
+      setSelectedTransaction(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update payment", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const handleVoidConfirm = () => {
+    if (!selectedTransaction?.checkout?.id) return;
+    const reasonToSubmit = voidReason === "Other" ? customVoidReason : voidReason;
+    if (!reasonToSubmit) {
+      toast({ title: "Reason required", description: "Please select or enter a void reason.", variant: "destructive" });
+      return;
+    }
+    voidMutation.mutate({ checkoutId: selectedTransaction.checkout.id, reason: reasonToSubmit });
+  };
+
+  const handlePaymentUpdateConfirm = () => {
+    if (!selectedTransaction?.checkout?.id) return;
+    paymentMutation.mutate({
+      checkoutId: selectedTransaction.checkout.id,
+      paymentMethod: editPaymentMethod,
+      paymentStatus: editPaymentStatus,
+    });
+  };
+
+  const openPaymentDialog = (tx: TransactionWithRelations) => {
+    setEditPaymentMethod(tx.checkout?.paymentMethod ?? "cash");
+    setEditPaymentStatus(tx.checkout?.paymentStatus ?? "completed");
+    setIsPaymentDialogOpen(true);
+  };
 
   const columns = [
     {
@@ -93,6 +210,18 @@ export default function Transactions() {
         <div className="flex items-center gap-2">
           <Calendar className="h-3 w-3 text-muted-foreground" />
           <span className="text-sm">{formatDate(tx.transactionDate)}</span>
+        </div>
+      ),
+    },
+    {
+      key: "receiptNumber",
+      header: "Receipt No.",
+      render: (tx: TransactionWithRelations) => (
+        <div className="flex flex-col gap-1 items-start">
+          <span className="font-mono text-sm">{tx.checkout?.receiptNumber}</span>
+          {tx.checkout?.isVoided && (
+             <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">VOID</Badge>
+          )}
         </div>
       ),
     },
@@ -128,11 +257,18 @@ export default function Transactions() {
       key: "paymentMethod",
       header: "Payment",
       render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <CreditCard className="h-3 w-3 text-muted-foreground" />
-          <Badge variant="secondary" className="capitalize">
-            {tx.checkout?.paymentMethod ?? "cash"}
-          </Badge>
+        <div className="flex flex-col gap-1 items-start">
+          <div className="flex items-center gap-2">
+            <CreditCard className="h-3 w-3 text-muted-foreground" />
+            <Badge variant="secondary" className="capitalize">
+              {tx.checkout?.paymentMethod ?? "cash"}
+            </Badge>
+          </div>
+          {tx.checkout?.paymentStatus === "pending" && !tx.checkout?.isVoided && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-amber-600 border-amber-300 bg-amber-50">
+              PENDING
+            </Badge>
+          )}
         </div>
       ),
     },
@@ -141,10 +277,23 @@ export default function Transactions() {
       header: "Amount",
       render: (tx: TransactionWithRelations) => (
         <div className="flex items-center gap-2">
-          {formatDualCurrency(tx.checkout?.totalPrice ?? 0)}
+          {formatDualCurrency(tx.checkout?.totalPrice ?? 0, tx.checkout?.isVoided)}
         </div>
       ),
     },
+    {
+      key: "actions",
+      header: "",
+      render: (tx: TransactionWithRelations) => (
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          onClick={(e) => { e.stopPropagation(); setReceiptCheckoutId(tx.checkout?.id || null); }}
+        >
+          <Printer className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      ),
+    }
   ];
 
   const exportColumns = [
@@ -157,6 +306,7 @@ export default function Transactions() {
     { key: "inventory.name", header: "Item Name" },
     { key: "inventory.type", header: "Item Type" },
     { key: "checkout.totalPrice", header: "Amount" },
+    { key: "checkout.isVoided", header: "Voided" },
   ];
 
   const exportData = filteredTransactions.map((tx) => ({
@@ -164,7 +314,10 @@ export default function Transactions() {
     transactionDate: new Date(tx.transactionDate).toLocaleString(),
     customer: tx.customer,
     inventory: tx.inventory,
-    checkout: tx.checkout,
+    checkout: {
+      ...tx.checkout,
+      isVoided: tx.checkout?.isVoided ? "Yes" : "No"
+    },
   }));
 
   if (!currentStore) {
@@ -201,13 +354,13 @@ export default function Transactions() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
-          title="Total Transactions"
-          value={filteredTransactions.length}
+          title="Valid Transactions"
+          value={nonVoidedCount}
           icon={<Receipt className="h-4 w-4" />}
           isLoading={isLoading}
         />
         <MetricCard
-          title="Total Revenue"
+          title="Valid Revenue"
           value={formatCurrency(totalAmount)}
           icon={<Coins className="h-4 w-4" />}
           isLoading={isLoading}
@@ -215,7 +368,7 @@ export default function Transactions() {
         <MetricCard
           title="Avg. Transaction"
           value={formatCurrency(
-            filteredTransactions.length > 0 ? totalAmount / filteredTransactions.length : 0
+            nonVoidedCount > 0 ? totalAmount / nonVoidedCount : 0
           )}
           icon={<Coins className="h-4 w-4" />}
           isLoading={isLoading}
@@ -244,8 +397,8 @@ export default function Transactions() {
             data={filteredTransactions}
             columns={columns}
             searchable
-            searchPlaceholder="Search transactions..."
-            searchKeys={["checkout.receiptNumber", "customer.name", "inventory.name"]}
+            searchPlaceholder="Search receipt, customer, item, payment..."
+            searchKeys={["checkout.receiptNumber", "customer.name", "inventory.name", "checkout.paymentMethod"]}
             isLoading={isLoading}
             emptyMessage="No transactions found. Complete your first sale to see records here."
             onRowClick={(tx) => setSelectedTransaction(tx)}
@@ -256,9 +409,14 @@ export default function Transactions() {
       <Dialog open={!!selectedTransaction} onOpenChange={(open) => !open && setSelectedTransaction(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5" />
-              Transaction Details
+            <DialogTitle className="flex items-center justify-between pr-6">
+              <div className="flex items-center gap-2">
+                <Receipt className="h-5 w-5" />
+                Transaction Details
+              </div>
+              {selectedTransaction?.checkout?.isVoided && (
+                <Badge variant="destructive">VOIDED</Badge>
+              )}
             </DialogTitle>
             <DialogDescription>
               Full details for this transaction
@@ -334,9 +492,21 @@ export default function Transactions() {
                     <CreditCard className="h-3 w-3" />
                     Payment Method
                   </p>
-                  <Badge variant="secondary" className="capitalize">
-                    {selectedTransaction.checkout?.paymentMethod ?? "cash"}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="capitalize">
+                      {selectedTransaction.checkout?.paymentMethod ?? "cash"}
+                    </Badge>
+                    {selectedTransaction.checkout?.paymentStatus === "pending" && (
+                      <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
+                        PENDING
+                      </Badge>
+                    )}
+                    {canManage && !selectedTransaction.checkout?.isVoided && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto" onClick={() => openPaymentDialog(selectedTransaction)}>
+                        <Edit className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -346,12 +516,158 @@ export default function Transactions() {
                 <p className="text-xs text-muted-foreground">
                   Total Amount
                 </p>
-                <div className="text-lg font-bold">
-                  {formatDualCurrency(selectedTransaction.checkout?.totalPrice ?? 0)}
+                <div className="text-lg font-bold flex items-center gap-2">
+                  <span className={selectedTransaction.checkout?.isVoided ? "line-through text-muted-foreground" : ""}>
+                    {formatCurrency(selectedTransaction.checkout?.totalPrice ?? 0)}
+                  </span>
                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2 pt-2">
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => {
+                    setReceiptCheckoutId(selectedTransaction.checkout?.id || null);
+                    setSelectedTransaction(null);
+                  }}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  View Receipt
+                </Button>
+                
+                {canManage && !selectedTransaction.checkout?.isVoided && (
+                  <Button 
+                    variant="destructive" 
+                    className="w-full justify-start"
+                    onClick={() => setIsVoidDialogOpen(true)}
+                  >
+                    <Ban className="mr-2 h-4 w-4" />
+                    Void Transaction
+                  </Button>
+                )}
+
+                {user?.role === "owner" && selectedTransaction.checkout?.isVoided && (
+                  <div className="mt-4 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-md">
+                    <h4 className="text-xs font-semibold text-red-800 dark:text-red-400 mb-1 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Void Log
+                    </h4>
+                    <div className="text-xs space-y-1 text-red-700 dark:text-red-300">
+                      <p><span className="font-medium">Date:</span> {selectedTransaction.checkout.voidedAt ? formatDate(selectedTransaction.checkout.voidedAt) : "Unknown"}</p>
+                      <p><span className="font-medium">Reason:</span> {selectedTransaction.checkout.voidReason || "None provided"}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Modal */}
+      <ReceiptModal
+        checkoutId={receiptCheckoutId}
+        open={!!receiptCheckoutId}
+        onClose={() => setReceiptCheckoutId(null)}
+      />
+
+      {/* Void Dialog */}
+      <AlertDialog open={isVoidDialogOpen} onOpenChange={setIsVoidDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void Transaction</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to void this transaction? This will reverse any revenue and restore product stock. If this is part of a paid payroll, it will create a deduction next period.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Reason for Voiding</Label>
+              <Select value={voidReason} onValueChange={setVoidReason}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  {VOID_REASON_PRESETS.map((reason) => (
+                    <SelectItem key={reason} value={reason}>{reason}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {voidReason === "Other" && (
+              <div className="space-y-2">
+                <Label>Custom Reason</Label>
+                <Input 
+                  placeholder="Please specify..." 
+                  value={customVoidReason}
+                  onChange={(e) => setCustomVoidReason(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voidMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleVoidConfirm} 
+              disabled={voidMutation.isPending || !voidReason || (voidReason === "Other" && !customVoidReason.trim())}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {voidMutation.isPending ? "Voiding..." : "Confirm Void"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Update Payment Dialog */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Update Payment Details</DialogTitle>
+            <DialogDescription>
+              Change how or if this transaction was paid.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Payment Method</Label>
+              <Select value={editPaymentMethod} onValueChange={setEditPaymentMethod}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="pos">POS / Card</SelectItem>
+                  <SelectItem value="flutterwave">Flutterwave</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Payment Status</Label>
+              <Select value={editPaymentStatus} onValueChange={setEditPaymentStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)} disabled={paymentMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handlePaymentUpdateConfirm} disabled={paymentMutation.isPending}>
+              {paymentMutation.isPending ? "Updating..." : "Save Changes"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

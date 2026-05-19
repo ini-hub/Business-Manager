@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Plus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, TrendingUp, TrendingDown, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,6 +46,21 @@ import { Link } from "wouter";
 import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
 import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  BarChart,
+  Bar
+} from "recharts";
 
 const customerFormSchema = insertCustomerSchema.extend({
   mobileNumber: z.string().optional().default(""),
@@ -64,6 +79,143 @@ export default function Customers() {
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
     enabled: !!currentStore?.id,
+  });
+
+  const { data: transactionsData = [], isLoading: isLoadingTxs } = useQuery<any[]>({
+    queryKey: ["/api/transactions", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  // Calculate Customer Analytics Metrics
+  const validTxs = transactionsData.filter((tx: any) => tx.checkout && !tx.checkout.isVoided);
+  
+  const visitsMap = new Map<string, { checkoutId: string, customerId: string, date: Date, items: { name: string, type: string }[] }>();
+  validTxs.forEach((tx: any) => {
+    if (!tx.checkoutId || !tx.customerId) return;
+    const date = new Date(tx.transactionDate || tx.checkout?.createdAt);
+    if (!visitsMap.has(tx.checkoutId)) {
+      visitsMap.set(tx.checkoutId, {
+        checkoutId: tx.checkoutId,
+        customerId: tx.customerId,
+        date,
+        items: []
+      });
+    }
+    if (tx.inventory) {
+      visitsMap.get(tx.checkoutId)!.items.push({
+        name: tx.inventory.name,
+        type: tx.inventory.type
+      });
+    }
+  });
+
+  const visits = Array.from(visitsMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const customerVisits = new Map<string, typeof visits>();
+  visits.forEach(v => {
+    if (!customerVisits.has(v.customerId)) {
+      customerVisits.set(v.customerId, []);
+    }
+    customerVisits.get(v.customerId)!.push(v);
+  });
+
+  const totalCustomersCount = customerVisits.size;
+  const returningCustomersCount = Array.from(customerVisits.values()).filter(vList => vList.length >= 2).length;
+  const retentionRate = totalCustomersCount > 0 ? Math.round((returningCustomersCount / totalCustomersCount) * 100) : 0;
+
+  let totalGapsMs = 0;
+  let gapCount = 0;
+  customerVisits.forEach((vList) => {
+    if (vList.length < 2) return;
+    for (let i = 1; i < vList.length; i++) {
+      const gap = vList[i].date.getTime() - vList[i - 1].date.getTime();
+      totalGapsMs += gap;
+      gapCount++;
+    }
+  });
+  const avgReturnDays = gapCount > 0 ? Math.round(totalGapsMs / gapCount / (1000 * 60 * 60 * 24)) : 0;
+
+  const now = new Date();
+  const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+  let newThisMonth = 0;
+  let newLastMonth = 0;
+
+  customerVisits.forEach(vList => {
+    const firstVisitDate = vList[0].date;
+    if (firstVisitDate >= startOfThisMonth) {
+      newThisMonth++;
+    } else if (firstVisitDate >= startOfLastMonth && firstVisitDate <= endOfLastMonth) {
+      newLastMonth++;
+    }
+  });
+
+  const acquisitionPercentChange = newLastMonth > 0 ? Math.round(((newThisMonth - newLastMonth) / newLastMonth) * 100) : 0;
+
+  const acquisitionDrivers = new Map<string, { name: string, type: string, count: number }>();
+  const retentionDrivers = new Map<string, { name: string, type: string, count: number }>();
+
+  customerVisits.forEach(vList => {
+    const firstVisit = vList[0];
+    firstVisit.items.forEach(item => {
+      const key = `${item.name}-${item.type}`;
+      if (!acquisitionDrivers.has(key)) {
+        acquisitionDrivers.set(key, { name: item.name, type: item.type, count: 0 });
+      }
+      acquisitionDrivers.get(key)!.count++;
+    });
+
+    for (let i = 1; i < vList.length; i++) {
+      vList[i].items.forEach(item => {
+        const key = `${item.name}-${item.type}`;
+        if (!retentionDrivers.has(key)) {
+          retentionDrivers.set(key, { name: item.name, type: item.type, count: 0 });
+        }
+        retentionDrivers.get(key)!.count++;
+      });
+    }
+  });
+
+  const topAcquisition = Array.from(acquisitionDrivers.values()).sort((a, b) => b.count - a.count).slice(0, 5);
+  const topRetention = Array.from(retentionDrivers.values()).sort((a, b) => b.count - a.count).slice(0, 5);
+
+  const monthlyTrendsMap = new Map<string, { monthLabel: string, newCount: number, returningCount: number, sortKey: number }>();
+  
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const label = d.toLocaleDateString('default', { month: 'short', year: '2-digit' });
+    const sortKey = d.getFullYear() * 12 + d.getMonth();
+    monthlyTrendsMap.set(label, { monthLabel: label, newCount: 0, returningCount: 0, sortKey });
+  }
+
+  customerVisits.forEach(vList => {
+    const firstMonthLabel = vList[0].date.toLocaleDateString('default', { month: 'short', year: '2-digit' });
+    if (monthlyTrendsMap.has(firstMonthLabel)) {
+      monthlyTrendsMap.get(firstMonthLabel)!.newCount++;
+    }
+
+    for (let i = 1; i < vList.length; i++) {
+      const monthLabel = vList[i].date.toLocaleDateString('default', { month: 'short', year: '2-digit' });
+      if (monthlyTrendsMap.has(monthLabel)) {
+        monthlyTrendsMap.get(monthLabel)!.returningCount++;
+      }
+    }
+  });
+
+  const trendData = Array.from(monthlyTrendsMap.values()).sort((a, b) => a.sortKey - b.sortKey);
+
+  let topLoyaltyCustomerName = "-";
+  let topLoyaltyVisitCount = 0;
+  customerVisits.forEach((vList, custId) => {
+    if (vList.length > topLoyaltyVisitCount) {
+      topLoyaltyVisitCount = vList.length;
+      const found = customers.find(c => c.id === custId);
+      if (found) {
+        topLoyaltyCustomerName = found.name;
+      }
+    }
   });
 
   const activeCustomers = customers.filter(c => !c.isArchived);
@@ -441,6 +593,9 @@ export default function Customers() {
           <TabsTrigger value="archived" data-testid="tab-archived-customers">
             Archived ({archivedCustomers.length})
           </TabsTrigger>
+          <TabsTrigger value="analytics" data-testid="tab-analytics-customers">
+            Analytics & Retention
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="active" className="mt-4">
           <DataTable
@@ -464,6 +619,221 @@ export default function Customers() {
             isLoading={isLoading}
             emptyMessage="No archived customers. Deleted customers will appear here."
           />
+        </TabsContent>
+        <TabsContent value="analytics" className="space-y-6 mt-4">
+          {isLoading || isLoadingTxs ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {[...Array(4)].map((_, i) => (
+                <Card key={i} className="border-primary/10">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <Skeleton className="h-4 w-[100px]" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-8 w-[60px] mb-2" />
+                    <Skeleton className="h-3 w-[120px]" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <>
+              {/* Key Indicators Row */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">New Customers (This Month)</CardTitle>
+                    <Users className="h-4 w-4 text-indigo-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold font-sans">{newThisMonth}</div>
+                    <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                      {acquisitionPercentChange >= 0 ? (
+                        <TrendingUp className="h-3 w-3 text-green-500 inline" />
+                      ) : (
+                        <TrendingDown className="h-3 w-3 text-rose-500 inline" />
+                      )}
+                      <span className={acquisitionPercentChange >= 0 ? "text-green-600 font-medium" : "text-rose-600 font-medium"}>
+                        {acquisitionPercentChange >= 0 ? "+" : ""}{acquisitionPercentChange}%
+                      </span>{" "}
+                      vs last month
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">Returning Customer Rate</CardTitle>
+                    <Percent className="h-4 w-4 text-emerald-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold font-sans">{retentionRate}%</div>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      <strong>{returningCustomersCount}</strong> out of {totalCustomersCount} active profiles
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">Avg. Days to Return</CardTitle>
+                    <Clock className="h-4 w-4 text-cyan-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold font-sans">{avgReturnDays} days</div>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Typical gap between checkouts for regulars
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">Top Loyalty Customer</CardTitle>
+                    <Award className="h-4 w-4 text-amber-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-base font-bold truncate mt-1">{topLoyaltyCustomerName}</div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Completed <strong>{topLoyaltyVisitCount}</strong> visits overall
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Trend Chart */}
+              <Card className="border-primary/10 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    <span>Acquisition vs Retention Over Time</span>
+                    <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">Last 6 Months</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={trendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted/40" />
+                        <XAxis
+                          dataKey="monthLabel"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                        <Tooltip
+                          cursor={{ fill: "hsl(var(--muted)/0.15)" }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-background/95 backdrop-blur-md border border-border/80 p-3 rounded-lg shadow-xl text-xs space-y-1.5 font-sans min-w-[150px]">
+                                  <p className="font-semibold text-foreground border-b border-border/60 pb-1 mb-1">{label}</p>
+                                  {payload.map((item: any, idx: number) => (
+                                    <p key={idx} className="flex justify-between gap-4 font-medium" style={{ color: item.color }}>
+                                      <span>{item.name}:</span>
+                                      <span className="font-mono font-bold">{item.value} visits</span>
+                                    </p>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="newCount" name="New Customers" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={25} />
+                        <Bar dataKey="returningCount" name="Returning Customers" fill="#10b981" radius={[4, 4, 0, 0]} barSize={25} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Drivers Breakdown */}
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Acquisition Drivers */}
+                <Card className="border-primary/10 shadow-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <ArrowUpRight className="h-4 w-4 text-indigo-500" />
+                      Top Acquisition Drivers
+                    </CardTitle>
+                    <p className="text-[11px] text-muted-foreground">What services or products bring in customers for their very first checkout</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-2">
+                    {topAcquisition.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic text-center py-6">No acquisition statistics available.</p>
+                    ) : (
+                      topAcquisition.map((item, idx) => {
+                        const maxVal = topAcquisition[0]?.count || 1;
+                        const percentage = Math.round((item.count / maxVal) * 100);
+                        return (
+                          <div key={idx} className="space-y-1.5">
+                            <div className="flex justify-between text-xs font-medium">
+                              <span className="truncate flex items-center gap-1.5">
+                                {item.type === "service" ? (
+                                  <Wrench className="h-3.5 w-3.5 text-indigo-400" />
+                                ) : (
+                                  <ShoppingBag className="h-3.5 w-3.5 text-amber-400" />
+                                )}
+                                {item.name}
+                              </span>
+                              <span className="text-muted-foreground">{item.count} checkouts</span>
+                            </div>
+                            <div className="w-full bg-indigo-50 dark:bg-muted/40 rounded-full h-1.5 overflow-hidden">
+                              <div className="bg-indigo-600 h-full rounded-full transition-all" style={{ width: `${percentage}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Retention Drivers */}
+                <Card className="border-primary/10 shadow-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <RotateCcw className="h-4 w-4 text-emerald-500" />
+                      Top Retention Drivers
+                    </CardTitle>
+                    <p className="text-[11px] text-muted-foreground">What services or products keep customers returning for subsequent checkouts</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-2">
+                    {topRetention.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic text-center py-6">No retention statistics available.</p>
+                    ) : (
+                      topRetention.map((item, idx) => {
+                        const maxVal = topRetention[0]?.count || 1;
+                        const percentage = Math.round((item.count / maxVal) * 100);
+                        return (
+                          <div key={idx} className="space-y-1.5">
+                            <div className="flex justify-between text-xs font-medium">
+                              <span className="truncate flex items-center gap-1.5">
+                                {item.type === "service" ? (
+                                  <Wrench className="h-3.5 w-3.5 text-emerald-400" />
+                                ) : (
+                                  <ShoppingBag className="h-3.5 w-3.5 text-amber-400" />
+                                )}
+                                {item.name}
+                              </span>
+                              <span className="text-muted-foreground">{item.count} return visits</span>
+                            </div>
+                            <div className="w-full bg-emerald-50 dark:bg-muted/40 rounded-full h-1.5 overflow-hidden">
+                              <div className="bg-emerald-600 h-full rounded-full transition-all" style={{ width: `${percentage}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
         </TabsContent>
       </Tabs>
 

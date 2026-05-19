@@ -7,7 +7,7 @@ async function throwIfResNotOk(res: Response) {
     // Try to parse JSON error response and extract just the message
     try {
       const jsonError = JSON.parse(text);
-      const errorMessage = jsonError.error || jsonError.message || text;
+      const errorMessage = jsonError.message || jsonError.error || text;
       throw new Error(errorMessage);
     } catch (parseError) {
       // If not JSON, use the text directly (without status code prefix)

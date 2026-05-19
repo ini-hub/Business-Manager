@@ -1,5 +1,11 @@
 import {
   businesses,
+  organisations,
+  organisationMembers,
+  type InsertOrganisation,
+  type Organisation,
+  type InsertOrganisationMember,
+  type OrganisationMember,
   stores,
   storeCounters,
   customers,
@@ -15,6 +21,7 @@ import {
   attendanceRecords,
   payrollPeriods,
   payrollEntries,
+  notifications,
   type Business,
   type InsertBusiness,
   type Store,
@@ -38,6 +45,8 @@ import {
   type ProfitLossWithInventory,
   type User,
   type UpsertUser,
+  type Notification,
+  type InsertNotification,
   type OtpCode,
   type InsertOtpCode,
   type UserRole,
@@ -65,6 +74,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, like, or, ilike, gt, gte, lte } from "drizzle-orm";
+import { broadcastNotification } from "./websocket";
 
 // Pagination types
 export interface PaginationOptions {
@@ -130,6 +140,7 @@ export interface IStorage {
   getStaffList(storeId: string, includeArchived?: boolean): Promise<Staff[]>;
   getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>>;
   getStaff(id: string): Promise<Staff | undefined>;
+  getStaffByUserId(userId: string): Promise<Staff | undefined>;
   getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined>;
   createStaff(staffMember: InsertStaff): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined>;
@@ -143,6 +154,7 @@ export interface IStorage {
   getInventory(storeId: string): Promise<Inventory[]>;
   getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
   getInventoryItem(id: string): Promise<Inventory | undefined>;
+  getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
@@ -190,8 +202,17 @@ export interface IStorage {
       inventoryId: string;
       quantity: number;
       customPrice?: number;
+      leadStaffId?: string | null;
+      assistingStaff1Id?: string | null;
+      assistingStaff2Id?: string | null;
+      commissionSplit?: "standard" | "equal";
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave";
+    discountAmount?: number;
+    discountPercent?: number;
+    discountReason?: string;
+    discountApprovedBy?: string;
+    effectiveDate?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 
   // Inventory Restock Events
@@ -228,7 +249,66 @@ export interface IStorage {
     totalRevenue: number;
     costOfGoodsSold: number;
     grossProfit: number;
+    discountsGiven: number;
+    discountsList: Array<{
+      receiptNumber: string;
+      discountAmount: number;
+      discountPercent: number;
+      discountReason: string | null;
+      discountApprovedBy: string | null;
+      createdAt: Date;
+    }>;
   }>;
+
+  // Void
+  voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string }>;
+
+  // Receipt
+  getReceiptPayload(checkoutId: string): Promise<{
+    business: { name: string } | null;
+    store: { name: string; currency: string; phone?: string | null; address?: string | null } | null;
+    settings: { receiptPrefix: string; receiptThankYouMessage?: string | null } | null;
+    checkout: any;
+    order: any;
+    inventory: any;
+    customer: any;
+    staff: any;
+    leadStaff: any;
+  } | null>;
+
+  // Update payment method/status post-checkout
+  updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean>;
+
+  // Payroll Expenses
+  getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]>;
+
+  // Staff Performance
+  getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
+
+  // Search
+  searchCustomers(storeId: string, query: string): Promise<Customer[]>;
+  searchInventory(storeId: string, query: string): Promise<Inventory[]>;
+  searchTransactions(storeId: string, query: string): Promise<any[]>;
+
+  getNotifications(userId: string): Promise<Notification[]>;
+  markNotificationAsRead(id: string): Promise<void>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getTopCustomers(storeId: string): Promise<any[]>;
+
+  // Platform & Organisations
+  getUserByIdentifier(emailOrPhone: string): Promise<User | undefined>;
+  getUserByActivationCode(code: string): Promise<User | undefined>;
+  getOrganisationsByUserId(userId: string): Promise<OrganisationMember[]>;
+  getOrganisationMember(userId: string, organisationId: string): Promise<OrganisationMember | undefined>;
+  createOrganisation(data: InsertOrganisation): Promise<Organisation>;
+  createOrganisationMember(data: InsertOrganisationMember): Promise<OrganisationMember>;
+  updateOrganisationMemberStatus(id: string, status: string, activatedAt?: Date): Promise<OrganisationMember>;
+  getOrganisationMembers(organisationId: string): Promise<(OrganisationMember & { user: User })[]>;
+  getOrganisationMemberById(id: string): Promise<OrganisationMember | undefined>;
+  getOrganisationBySlug(slug: string): Promise<Organisation | undefined>;
+  deleteOrganisationMember(id: string): Promise<void>;
+  updateOrganisationMember(id: string, data: Partial<OrganisationMember>): Promise<OrganisationMember>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -243,13 +323,129 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createUser(userData: { email: string; password: string; businessId: string; role?: UserRole; isVerified?: boolean }): Promise<User> {
+  async getUserByIdentifier(emailOrPhone: string): Promise<User | undefined> {
+    const clean = emailOrPhone.trim().toLowerCase();
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(or(eq(users.email, clean), eq(users.phone, clean)));
+    return user;
+  }
+
+  async getUserByActivationCode(code: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(
+        and(
+          eq(users.activationCode, code),
+          eq(users.activationCodeUsed, false),
+          gt(users.activationCodeExpiry, new Date())
+        )
+      );
+    return user;
+  }
+
+  async getOrganisationsByUserId(userId: string): Promise<OrganisationMember[]> {
+    return await db
+      .select()
+      .from(organisationMembers)
+      .where(eq(organisationMembers.userId, userId));
+  }
+
+  async getOrganisationMember(userId: string, organisationId: string): Promise<OrganisationMember | undefined> {
+    const [member] = await db
+      .select()
+      .from(organisationMembers)
+      .where(and(eq(organisationMembers.userId, userId), eq(organisationMembers.organisationId, organisationId)));
+    return member;
+  }
+
+  async createOrganisation(data: InsertOrganisation): Promise<Organisation> {
+    const [org] = await db.insert(organisations).values(data).returning();
+    return org;
+  }
+
+  async createOrganisationMember(data: InsertOrganisationMember): Promise<OrganisationMember> {
+    const [member] = await db.insert(organisationMembers).values(data).returning();
+    return member;
+  }
+
+  async updateOrganisationMemberStatus(id: string, status: string, activatedAt?: Date): Promise<OrganisationMember> {
+    const updateData: Partial<OrganisationMember> = { status };
+    if (activatedAt) {
+      updateData.activatedAt = activatedAt;
+    }
+    const [member] = await db
+      .update(organisationMembers)
+      .set(updateData)
+      .where(eq(organisationMembers.id, id))
+      .returning();
+    if (!member) throw new Error("Organisation member not found.");
+    return member;
+  }
+
+  async getOrganisationMembers(organisationId: string): Promise<(OrganisationMember & { user: User })[]> {
+    const rows = await db
+      .select({
+        member: organisationMembers,
+        user: users,
+      })
+      .from(organisationMembers)
+      .innerJoin(users, eq(users.id, organisationMembers.userId))
+      .where(eq(organisationMembers.organisationId, organisationId));
+    
+    return rows.map(r => ({
+      ...r.member,
+      user: r.user,
+    }));
+  }
+
+  async getOrganisationMemberById(id: string): Promise<OrganisationMember | undefined> {
+    const [member] = await db.select().from(organisationMembers).where(eq(organisationMembers.id, id));
+    return member;
+  }
+
+  async getOrganisationBySlug(slug: string): Promise<Organisation | undefined> {
+    const [org] = await db.select().from(organisations).where(eq(organisations.slug, slug.trim().toLowerCase()));
+    return org;
+  }
+
+  async deleteOrganisationMember(id: string): Promise<void> {
+    await db.delete(organisationMembers).where(eq(organisationMembers.id, id));
+  }
+
+  async updateOrganisationMember(id: string, data: Partial<OrganisationMember>): Promise<OrganisationMember> {
+    const [member] = await db
+      .update(organisationMembers)
+      .set(data)
+      .where(eq(organisationMembers.id, id))
+      .returning();
+    if (!member) throw new Error("Organisation member not found.");
+    return member;
+  }
+
+  async createUser(userData: { 
+    email: string; 
+    password: string; 
+    businessId: string; 
+    role?: UserRole; 
+    isVerified?: boolean;
+    activationCode?: string;
+    activationCodeExpiry?: Date;
+    activationCodeUsed?: boolean;
+    createdByInvitation?: boolean;
+  }): Promise<User> {
     const [user] = await db.insert(users).values({
       email: userData.email,
       password: userData.password,
       businessId: userData.businessId,
       role: userData.role || "owner",
       isVerified: userData.isVerified ?? false,
+      activationCode: userData.activationCode,
+      activationCodeExpiry: userData.activationCodeExpiry,
+      activationCodeUsed: userData.activationCodeUsed ?? false,
+      createdByInvitation: userData.createdByInvitation ?? false,
     }).returning();
     return user;
   }
@@ -486,15 +682,22 @@ export class DatabaseStorage implements IStorage {
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
     // Generate customer number at save time to avoid gaps
     const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
+    const { birthday, ...rest } = customer;
     const [newCustomer] = await db.insert(customers).values({
-      ...customer,
+      ...rest,
       customerNumber,
+      birthday: birthday ? new Date(birthday) : null,
     }).returning();
     return newCustomer;
   }
 
   async updateCustomer(id: string, customerData: Partial<InsertCustomer>): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set(customerData).where(eq(customers.id, id)).returning();
+    const { birthday, ...rest } = customerData;
+    const updateData: any = { ...rest };
+    if (birthday !== undefined) {
+      updateData.birthday = birthday ? new Date(birthday) : null;
+    }
+    const [updated] = await db.update(customers).set(updateData).where(eq(customers.id, id)).returning();
     return updated;
   }
 
@@ -610,6 +813,11 @@ export class DatabaseStorage implements IStorage {
     return staffMember;
   }
 
+  async getStaffByUserId(userId: string): Promise<Staff | undefined> {
+    const [result] = await db.select().from(staff).where(eq(staff.userId, userId));
+    return result;
+  }
+
   async getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined> {
     const [result] = await db
       .select()
@@ -673,8 +881,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteStaff(id: string): Promise<boolean> {
-    const result = await db.delete(staff).where(eq(staff.id, id)).returning();
-    return result.length > 0;
+    return await db.transaction(async (tx) => {
+      // 1. Clear manager staff reference in stores
+      await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.managerStaffId, id));
+
+      // 2. Clear staff references in inventoryRestockEvents
+      await tx.update(inventoryRestockEvents).set({ staffId: null }).where(eq(inventoryRestockEvents.staffId, id));
+
+      // 3. Delete attendance records for this staff member
+      await tx.delete(attendanceRecords).where(eq(attendanceRecords.staffId, id));
+
+      // 4. Delete payroll entries for this staff member
+      await tx.delete(payrollEntries).where(eq(payrollEntries.staffId, id));
+
+      // 5. Finally delete the staff record itself
+      const result = await tx.delete(staff).where(eq(staff.id, id)).returning();
+      return result.length > 0;
+    });
   }
 
   async archiveStaff(id: string): Promise<Staff | undefined> {
@@ -688,7 +911,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async hasStaffCheckouts(id: string): Promise<boolean> {
-    const result = await db.select({ count: count() }).from(checkouts).where(eq(checkouts.staffId, id));
+    const result = await db.select({ count: count() })
+      .from(checkouts)
+      .where(
+        or(
+          eq(checkouts.staffId, id),
+          eq(checkouts.leadStaffId, id),
+          eq(checkouts.assistingStaff1Id, id),
+          eq(checkouts.assistingStaff2Id, id)
+        )
+      );
     return result[0].count > 0;
   }
 
@@ -742,6 +974,17 @@ export class DatabaseStorage implements IStorage {
     return item;
   }
 
+  async getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined> {
+    const [item] = await db
+      .select()
+      .from(inventory)
+      .where(and(
+        eq(inventory.storeId, storeId),
+        sql`lower(${inventory.name}) = ${name.toLowerCase().trim()}`
+      ));
+    return item;
+  }
+
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {
     const [newItem] = await db.insert(inventory).values(item).returning();
     return newItem;
@@ -791,28 +1034,61 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(transactions.transactionDate));
 
     const result: TransactionWithRelations[] = [];
+    const seenReceipts = new Set<string>();
 
     for (const tx of txs) {
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      
-      let staffMem = undefined;
-      if (checkout) {
-        const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-        staffMem = foundStaff;
+      if (!checkout) continue;
+
+      const receiptNum = checkout.receiptNumber;
+      if (seenReceipts.has(receiptNum)) continue; // Already grouped!
+      seenReceipts.add(receiptNum);
+
+      // Get all checkout line items for this transaction
+      const matchedCheckouts = await db.select().from(checkouts)
+        .where(eq(checkouts.receiptNumber, receiptNum));
+
+      // Get all inventory items for this transaction
+      const matchedInventoryItems: Inventory[] = [];
+      for (const ch of matchedCheckouts) {
+        const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
+        if (order) {
+          const [invItem] = await db.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+          if (invItem) {
+            matchedInventoryItems.push(invItem);
+          }
+        }
       }
+
+      // Create a virtual inventory item representing all items
+      const virtualInventoryName = matchedInventoryItems.map(item => item.name).join(", ");
+      const virtualInventoryType = matchedInventoryItems.some(item => item.type === "service") ? "service" : "product";
+
+      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
 
       result.push({
         ...tx,
         customer,
-        inventory: inventoryItem,
-        checkout: checkout ? { ...checkout, staff: staffMem } : checkout as any,
+        inventory: {
+          id: matchedInventoryItems[0]?.id || tx.inventoryId,
+          storeId: tx.storeId,
+          name: virtualInventoryName || "Unknown Item",
+          type: virtualInventoryType,
+          quantity: matchedInventoryItems[0]?.quantity || 0,
+          costPrice: matchedInventoryItems[0]?.costPrice || 0,
+          sellingPrice: checkout.totalCharged, // Standalone total charged
+        },
+        checkout: {
+          ...checkout,
+          totalPrice: checkout.totalCharged, // Represent transaction amount as totalCharged
+          staff: foundStaff,
+        },
         store,
       });
     }
-
+    result.sort((a, b) => b.checkout.receiptNumber.localeCompare(a.checkout.receiptNumber));
     return result;
   }
 
@@ -820,66 +1096,91 @@ export class DatabaseStorage implements IStorage {
     const { page, limit, search } = options;
     const offset = (page - 1) * limit;
 
-    // Get total count
-    const [countResult] = await db.select({ count: count() })
-      .from(transactions)
-      .where(eq(transactions.storeId, storeId));
-    const total = countResult.count;
+    // Get all checkouts for counting unique transactions
+    const uniqueReceiptsQuery = await db
+      .select({ receiptNumber: checkouts.receiptNumber })
+      .from(checkouts)
+      .where(eq(checkouts.storeId, storeId))
+      .groupBy(checkouts.receiptNumber);
+    const total = uniqueReceiptsQuery.length;
 
-    // Get paginated transactions
-    const txs = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.storeId, storeId))
-      .orderBy(desc(transactions.transactionDate))
+    // Select the unique receipt numbers for this page
+    const paginatedReceipts = await db
+      .select({ 
+        receiptNumber: checkouts.receiptNumber,
+        maxDate: sql<Date>`max(${checkouts.createdAt})`
+      })
+      .from(checkouts)
+      .where(eq(checkouts.storeId, storeId))
+      .groupBy(checkouts.receiptNumber)
+      .orderBy(desc(checkouts.receiptNumber))
       .limit(limit)
       .offset(offset);
 
-    // Fetch related data in batch for performance
-    const customerIds = Array.from(new Set(txs.map(tx => tx.customerId)));
-    const inventoryIds = Array.from(new Set(txs.map(tx => tx.inventoryId)));
-    const checkoutIds = Array.from(new Set(txs.map(tx => tx.checkoutId)));
-    const storeIds = Array.from(new Set(txs.map(tx => tx.storeId)));
+    const data: TransactionWithRelations[] = [];
 
-    const allCustomers = await db.select().from(customers).where(sql`${customers.id} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`);
-    const allInventory = await db.select().from(inventory).where(sql`${inventory.id} IN (${sql.join(inventoryIds.map(id => sql`${id}`), sql`, `)})`);
-    const allCheckouts = await db.select().from(checkouts).where(sql`${checkouts.id} IN (${sql.join(checkoutIds.map(id => sql`${id}`), sql`, `)})`);
-    const allStores = await db.select().from(stores).where(sql`${stores.id} IN (${sql.join(storeIds.map(id => sql`${id}`), sql`, `)})`);
+    for (const r of paginatedReceipts) {
+      // Find one checkout with this receiptNumber to get customer & transaction link
+      const matchedCheckouts = await db.select().from(checkouts)
+        .where(eq(checkouts.receiptNumber, r.receiptNumber));
+      if (matchedCheckouts.length === 0) continue;
 
-    const staffIds = Array.from(new Set(allCheckouts.map(c => c.staffId).filter(Boolean)));
-    const allStaff = staffIds.length > 0 
-      ? await db.select().from(staff).where(sql`${staff.id} IN (${sql.join(staffIds.map(id => sql`${id}`), sql`, `)})`)
-      : [];
+      const primaryCheckout = matchedCheckouts[0];
+      const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, primaryCheckout.id));
+      if (!tx) continue;
 
-    const customerMap = new Map(allCustomers.map(c => [c.id, c]));
-    const inventoryMap = new Map(allInventory.map(i => [i.id, i]));
-    const storeMap = new Map(allStores.map(s => [s.id, s]));
-    const staffMap = new Map(allStaff.map(s => [s.id, s]));
-    
-    const checkoutMap = new Map(allCheckouts.map(c => [
-      c.id, 
-      { ...c, staff: staffMap.get(c.staffId) }
-    ]));
+      // Get all inventory items
+      const matchedInventoryItems: Inventory[] = [];
+      for (const ch of matchedCheckouts) {
+        const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
+        if (order) {
+          const [invItem] = await db.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+          if (invItem) {
+            matchedInventoryItems.push(invItem);
+          }
+        }
+      }
 
-    const data: TransactionWithRelations[] = txs.map(tx => ({
-      ...tx,
-      customer: customerMap.get(tx.customerId)!,
-      inventory: inventoryMap.get(tx.inventoryId)!,
-      checkout: checkoutMap.get(tx.checkoutId) as any,
-      store: storeMap.get(tx.storeId)!,
-    }));
+      const virtualInventoryName = matchedInventoryItems.map(item => item.name).join(", ");
+      const virtualInventoryType = matchedInventoryItems.some(item => item.type === "service") ? "service" : "product";
 
-    // Apply search filter on fetched data if provided
+      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, primaryCheckout.staffId));
+
+      data.push({
+        ...tx,
+        customer,
+        inventory: {
+          id: matchedInventoryItems[0]?.id || tx.inventoryId,
+          storeId: tx.storeId,
+          name: virtualInventoryName || "Unknown Item",
+          type: virtualInventoryType,
+          quantity: matchedInventoryItems[0]?.quantity || 0,
+          costPrice: matchedInventoryItems[0]?.costPrice || 0,
+          sellingPrice: primaryCheckout.totalCharged,
+        },
+        checkout: {
+          ...primaryCheckout,
+          totalPrice: primaryCheckout.totalCharged,
+          staff: foundStaff,
+        },
+        store,
+      });
+    }
+
+    // Apply search filter if provided
     let filteredData = data;
     if (search) {
       const searchLower = search.toLowerCase();
       filteredData = data.filter(tx => 
         tx.customer?.name?.toLowerCase().includes(searchLower) ||
-        tx.inventory?.name?.toLowerCase().includes(searchLower)
+        tx.inventory?.name?.toLowerCase().includes(searchLower) ||
+        tx.checkout?.receiptNumber?.toLowerCase().includes(searchLower)
       );
     }
 
-    const totalPages = Math.ceil(total / limit);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
 
     return {
       data: filteredData,
@@ -906,24 +1207,56 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(transactions.transactionDate));
 
     const result: TransactionWithRelations[] = [];
+    const seenReceipts = new Set<string>();
 
     for (const tx of txs) {
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      
-      let staffMem = undefined;
-      if (checkout) {
-        const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-        staffMem = foundStaff;
+      if (!checkout) continue;
+
+      const receiptNum = checkout.receiptNumber;
+      if (seenReceipts.has(receiptNum)) continue;
+      seenReceipts.add(receiptNum);
+
+      // Get all checkout line items for this transaction
+      const matchedCheckouts = await db.select().from(checkouts)
+        .where(eq(checkouts.receiptNumber, receiptNum));
+
+      // Get all inventory items
+      const matchedInventoryItems: Inventory[] = [];
+      for (const ch of matchedCheckouts) {
+        const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
+        if (order) {
+          const [invItem] = await db.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+          if (invItem) {
+            matchedInventoryItems.push(invItem);
+          }
+        }
       }
+
+      const virtualInventoryName = matchedInventoryItems.map(item => item.name).join(", ");
+      const virtualInventoryType = matchedInventoryItems.some(item => item.type === "service") ? "service" : "product";
+
+      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
 
       result.push({
         ...tx,
         customer,
-        inventory: inventoryItem,
-        checkout: checkout ? { ...checkout, staff: staffMem } : checkout as any,
+        inventory: {
+          id: matchedInventoryItems[0]?.id || tx.inventoryId,
+          storeId: tx.storeId,
+          name: virtualInventoryName || "Unknown Item",
+          type: virtualInventoryType,
+          quantity: matchedInventoryItems[0]?.quantity || 0,
+          costPrice: matchedInventoryItems[0]?.costPrice || 0,
+          sellingPrice: checkout.totalCharged,
+        },
+        checkout: {
+          ...checkout,
+          totalPrice: checkout.totalCharged,
+          staff: foundStaff,
+        },
         store,
       });
     }
@@ -988,39 +1321,62 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Dashboard Stats
-  async getDashboardStats(storeId: string) {
-    const allCustomers = await db.select().from(customers).where(eq(customers.storeId, storeId));
+  async getDashboardStats(storeId: string, startDate?: string, endDate?: string) {
+    const storeEq = eq(customers.storeId, storeId);
+    
+    // Customers (filtered by date)
+    let customerConditions: any[] = [storeEq];
+    if (startDate) customerConditions.push(gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) customerConditions.push(lte(customers.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const matchedCustomers = await db.select().from(customers).where(and(...customerConditions));
+
+    // Staff and Inventory (totals)
     const allStaff = await db.select().from(staff).where(eq(staff.storeId, storeId));
     const allInventory = await db.select().from(inventory).where(eq(inventory.storeId, storeId));
-    const allTransactions = await db.select().from(transactions).where(eq(transactions.storeId, storeId));
-    const plData = await db.select().from(profitLoss).where(eq(profitLoss.storeId, storeId));
-
     const products = allInventory.filter((i) => i.type === "product");
     const services = allInventory.filter((i) => i.type === "service");
-    const lowStockItems = products.filter((p) => p.quantity <= 5);
 
-    const totalRevenue = plData.reduce((sum, pl) => sum + pl.totalRevenue, 0);
-    const totalProfit = plData.reduce((sum, pl) => sum + pl.totalGrossProfit, 0);
+    // Low stock items
+    const lowStockThresholdResult = await db.select().from(settings).where(eq(settings.storeId, storeId));
+    const lowStockThreshold = lowStockThresholdResult[0]?.lowStockThreshold || 5;
+    const lowStockItems = products.filter((p) => p.quantity <= lowStockThreshold);
+
+    // Transactions (filtered by date and excluding voided)
+    let txConditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.isVoided, false),
+      eq(checkouts.paymentStatus, "completed")
+    ];
+    if (startDate) txConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) txConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const matchedCheckouts = await db.select().from(checkouts).where(and(...txConditions));
+
+    // Revenue and Profit (filtered by date using getProfitLossSummary)
+    const plSummary = await this.getProfitLossSummary(storeId, startDate, endDate);
 
     return {
-      totalCustomers: allCustomers.length,
+      totalCustomers: matchedCustomers.length,
       totalStaff: allStaff.length,
       totalInventory: allInventory.length,
       totalProducts: products.length,
       totalServices: services.length,
-      totalTransactions: allTransactions.length,
-      totalRevenue,
-      totalProfit,
+      totalTransactions: matchedCheckouts.length,
+      totalRevenue: plSummary.totalRevenue,
+      totalProfit: plSummary.grossProfit,
       lowStockItems,
     };
   }
 
-  // Chart Data - Sales Trends (last 30 days)
-  async getSalesTrends(storeId: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
+  // Chart Data - Sales Trends
+  async getSalesTrends(storeId: string, startDate?: string, endDate?: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
+    const conditions: any[] = [eq(transactions.storeId, storeId)];
+    if (startDate) conditions.push(gte(transactions.transactionDate, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) conditions.push(lte(transactions.transactionDate, new Date(endDate + "T23:59:59.999Z")));
+
     const allTransactions = await db
       .select()
       .from(transactions)
-      .where(eq(transactions.storeId, storeId))
+      .where(and(...conditions))
       .orderBy(transactions.transactionDate);
 
     const allCheckouts = await db.select().from(checkouts).where(eq(checkouts.storeId, storeId));
@@ -1049,15 +1405,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Chart Data - Revenue by Type (Product vs Service)
-  async getRevenueByType(storeId: string): Promise<{ name: string; value: number; type: string }[]> {
-    const plData = await this.getProfitLoss(storeId);
+  async getRevenueByType(storeId: string, startDate?: string, endDate?: string): Promise<{ name: string; value: number; type: string }[]> {
+    const conditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
+    ];
+    if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
 
-    const result = plData.map(pl => ({
-      name: pl.inventory?.name ?? "Unknown",
-      value: pl.totalRevenue,
-      type: pl.inventory?.type ?? "unknown",
-    }));
+    const rows = await db
+      .select({
+        inventoryName: inventory.name,
+        inventoryType: inventory.type,
+        revenue: orders.totalPrice,
+      })
+      .from(orders)
+      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .where(and(...conditions));
 
+    const grouped = new Map<string, { name: string; value: number; type: string }>();
+    
+    for (const row of rows) {
+      const existing = grouped.get(row.inventoryName) || { name: row.inventoryName, value: 0, type: row.inventoryType };
+      existing.value += row.revenue;
+      grouped.set(row.inventoryName, existing);
+    }
+
+    const result = Array.from(grouped.values());
     return result.sort((a, b) => b.value - a.value).slice(0, 10);
   }
 
@@ -1073,14 +1449,36 @@ export class DatabaseStorage implements IStorage {
       leadStaffId?: string | null;
       assistingStaff1Id?: string | null;
       assistingStaff2Id?: string | null;
+      commissionSplit?: "standard" | "equal";
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave";
+    discountAmount?: number;
+    discountPercent?: number;
+    discountReason?: string;
+    discountApprovedBy?: string;
+    effectiveDate?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
     const checkoutIds: string[] = [];
+    const lowStockItems: Array<{ name: string; quantity: number }> = [];
 
     try {
       // Use database transaction for atomicity
       await db.transaction(async (tx) => {
+        let txDate: Date;
+        if (data.effectiveDate) {
+          const parts = data.effectiveDate.split("-");
+          if (parts.length === 3) {
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1; // 0-indexed
+            const day = parseInt(parts[2], 10);
+            txDate = new Date(year, month, day, 0, 0, 0, 0); // Strictly midnight local time
+          } else {
+            txDate = new Date(data.effectiveDate);
+            txDate.setHours(0, 0, 0, 0);
+          }
+        } else {
+          txDate = new Date(); // Carry now time when unchanged
+        }
         // Validate customer exists
         const [customer] = await tx.select().from(customers).where(eq(customers.id, data.customerId));
         if (!customer) {
@@ -1093,7 +1491,30 @@ export class DatabaseStorage implements IStorage {
           throw new Error("Please select a valid staff member to complete this sale.");
         }
 
-        // Process each item within the transaction
+        // Get store settings for low stock threshold
+        const storeSettings = await this.getSettings(data.storeId);
+        const lowStockThreshold = storeSettings?.lowStockThreshold ?? 5;
+
+        // 1. Calculate Gross Cart Total first
+        let grossCartTotal = 0;
+        for (const item of data.items) {
+          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
+          if (inventoryItem) {
+            const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
+            grossCartTotal += unitPrice * item.quantity;
+          }
+        }
+        if (grossCartTotal === 0) grossCartTotal = 1;
+
+        // 2. Generate a single transaction receipt number for the entire checkout
+        const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
+
+        // 3. Define transaction-level discount variables
+        const totalDiscount = data.discountAmount || 0;
+        const discountPct = data.discountPercent || (grossCartTotal > 0 ? (totalDiscount / grossCartTotal) * 100 : 0);
+        const totalCharged = Math.max(1, grossCartTotal - totalDiscount);
+
+        // 4. Process each item within the transaction
         for (const item of data.items) {
           // Get inventory item with lock for update (prevents race conditions)
           const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
@@ -1107,7 +1528,7 @@ export class DatabaseStorage implements IStorage {
             throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
           }
 
-          // Calculate total price (use custom price if provided)
+          // Calculate total price (use custom price if provided, full list value)
           const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
           const totalPrice = unitPrice * item.quantity;
 
@@ -1119,21 +1540,26 @@ export class DatabaseStorage implements IStorage {
             totalPrice,
           }).returning();
 
-          // Generate receipt number
-          const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
-
-          // Create checkout (include lead + assisting staff if provided)
+          // Create checkout with standalone Option B transaction-level fields
           const [checkout] = await tx.insert(checkouts).values({
             storeId: data.storeId,
             staffId: data.staffId,
             leadStaffId: item.leadStaffId || null,
             assistingStaff1Id: item.assistingStaff1Id || null,
             assistingStaff2Id: item.assistingStaff2Id || null,
+            commissionSplit: item.commissionSplit || "standard",
             orderId: order.id,
             receiptNumber,
-            totalPrice,
+            totalPrice, // Represents the gross list value of this line item
             paymentMethod: data.paymentMethod,
             paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
+            subtotal: grossCartTotal,
+            discountAmount: totalDiscount,
+            discountPercent: discountPct,
+            discountReason: data.discountReason || null,
+            discountApprovedBy: data.discountApprovedBy || null,
+            totalCharged: totalCharged,
+            createdAt: txDate, // Explicitly set to the dynamic business/effective date
           }).returning();
 
           checkoutIds.push(checkout.id);
@@ -1144,13 +1570,20 @@ export class DatabaseStorage implements IStorage {
             customerId: data.customerId,
             inventoryId: item.inventoryId,
             checkoutId: checkout.id,
+            transactionDate: txDate, // Explicitly set to the dynamic business/effective date
           });
 
           // Update inventory quantity for products (atomic decrement)
           if (inventoryItem.type === "product") {
+            const newQuantity = inventoryItem.quantity - item.quantity;
             await tx.update(inventory)
-              .set({ quantity: inventoryItem.quantity - item.quantity })
+              .set({ quantity: newQuantity })
               .where(eq(inventory.id, item.inventoryId));
+            
+            // Check for low stock
+            if (newQuantity <= lowStockThreshold) {
+              lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
+            }
           }
 
           // Update profit/loss record
@@ -1185,6 +1618,11 @@ export class DatabaseStorage implements IStorage {
           }
         }
       });
+
+      // Notify managers about low stock items
+      for (const item of lowStockItems) {
+        await this.notifyManagers(data.storeId, "low_stock", `Low stock alert: ${item.name} has only ${item.quantity} units left.`);
+      }
 
       return { success: true, message: "Sale completed successfully", checkoutIds };
     } catch (error) {
@@ -1430,9 +1868,45 @@ export class DatabaseStorage implements IStorage {
     }
     if (status === "paid") {
       setData.paidAt = new Date();
+      
+      // Validation: Ensure no overlapping paid periods for any staff in this store
+      const period = await this.getPayrollPeriod(id);
+      if (!period) throw new Error("Period not found");
+
+      const overlaps = await db.select()
+        .from(payrollPeriods)
+        .where(and(
+          eq(payrollPeriods.storeId, period.storeId),
+          eq(payrollPeriods.status, "paid"),
+          sql`${payrollPeriods.id} != ${id}`,
+          sql`(${payrollPeriods.startDate}::DATE, ${payrollPeriods.endDate}::DATE) OVERLAPS (${period.startDate}::DATE, ${period.endDate}::DATE)`
+        ));
+      
+      if (overlaps.length > 0) {
+        throw new Error(`This period overlaps with an existing Paid period: ${overlaps[0].startDate} to ${overlaps[0].endDate}`);
+      }
     }
     const [updated] = await db.update(payrollPeriods).set(setData).where(eq(payrollPeriods.id, id)).returning();
     return updated;
+  }
+
+  async deletePayrollPeriod(id: string): Promise<boolean> {
+    const period = await this.getPayrollPeriod(id);
+    if (!period) return false;
+    
+    // Only allow deletion of pending or approved periods
+    if (period.status === "paid") {
+      throw new Error("You cannot delete a payroll period that has already been marked as Paid.");
+    }
+
+    await db.transaction(async (tx) => {
+      // Delete entries first
+      await tx.delete(payrollEntries).where(eq(payrollEntries.periodId, id));
+      // Delete the period
+      await tx.delete(payrollPeriods).where(eq(payrollPeriods.id, id));
+    });
+
+    return true;
   }
 
   // Payroll Entries
@@ -1522,12 +1996,71 @@ export class DatabaseStorage implements IStorage {
     }
 
     // Loop through each distinct marked or transaction date in the period interval
-    const allDateStrs = Array.from(new Set([...checkoutsByDate.keys(), ...attendanceByDateStaff.keys()])).sort();
+    const allDateStrs = Array.from(new Set([
+      ...Array.from(checkoutsByDate.keys()), 
+      ...Array.from(attendanceByDateStaff.keys())
+    ])).sort();
 
     for (const dateStr of allDateStrs) {
       if (dateStr < period.startDate || dateStr > period.endDate) continue;
 
       const dayCheckouts = checkoutsByDate.get(dateStr) || [];
+      
+      // Group dayCheckouts by receiptNumber to allocate pro-rata discounts with rounding correction
+      const checkoutsByReceipt = new Map<string, typeof dayCheckouts>();
+      for (const row of dayCheckouts) {
+        if (!checkoutsByReceipt.has(row.checkout.receiptNumber)) {
+          checkoutsByReceipt.set(row.checkout.receiptNumber, []);
+        }
+        checkoutsByReceipt.get(row.checkout.receiptNumber)!.push(row);
+      }
+
+      // Calculate effective prices for all checkouts
+      const effectivePrices = new Map<string, number>(); // checkoutId -> effectivePrice
+
+      for (const [receiptNo, rows] of Array.from(checkoutsByReceipt.entries())) {
+        const firstRow = rows[0];
+        const totalDiscount = firstRow.checkout.discountAmount || 0;
+        const subtotal = firstRow.checkout.subtotal || 1;
+
+        if (totalDiscount <= 0) {
+          for (const row of rows) {
+            effectivePrices.set(row.checkout.id, row.checkout.totalPrice);
+          }
+        } else {
+          // Calculate initial pro-rata shares
+          let sumShares = 0;
+          const shares = new Map<string, number>();
+
+          for (const row of rows) {
+            // Round to 2 decimal places
+            const share = Math.round((row.checkout.totalPrice / subtotal) * totalDiscount * 100) / 100;
+            shares.set(row.checkout.id, share);
+            sumShares += share;
+          }
+
+          // Remainder rounding correction
+          const remainder = Math.round((totalDiscount - sumShares) * 100) / 100;
+          if (remainder !== 0) {
+            // Find row with highest totalPrice
+            let maxRow = rows[0];
+            for (const row of rows) {
+              if (row.checkout.totalPrice > maxRow.checkout.totalPrice) {
+                maxRow = row;
+              }
+            }
+            const currentShare = shares.get(maxRow.checkout.id) || 0;
+            shares.set(maxRow.checkout.id, Math.round((currentShare + remainder) * 100) / 100);
+          }
+
+          // Compute effective prices
+          for (const row of rows) {
+            const share = shares.get(row.checkout.id) || 0;
+            effectivePrices.set(row.checkout.id, Math.max(0, row.checkout.totalPrice - share));
+          }
+        }
+      }
+
       const dayServiceCheckouts = dayCheckouts.filter(c => c.inventoryItem.type === "service");
 
       // Identify all distinct staff assigned to any service line items that day
@@ -1535,7 +2068,8 @@ export class DatabaseStorage implements IStorage {
       let totalDailyServiceRevenue = 0;
 
       for (const row of dayServiceCheckouts) {
-        totalDailyServiceRevenue += row.order.totalPrice;
+        const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
+        totalDailyServiceRevenue += effectivePrice;
         const leadId = row.checkout.leadStaffId || row.checkout.staffId;
         dailyActiveStaffIds.add(leadId);
         if (row.checkout.assistingStaff1Id) dailyActiveStaffIds.add(row.checkout.assistingStaff1Id);
@@ -1546,12 +2080,12 @@ export class DatabaseStorage implements IStorage {
       const dayAttendance = attendanceByDateStaff.get(dateStr) || new Map<string, string>();
 
       // Update active/passive day counts per staff member for this day
-      for (const [staffId, totals] of staffTotals) {
+      staffTotals.forEach((totals, staffId) => {
         const isAssigned = dailyActiveStaffIds.has(staffId);
         const status = dayAttendance.get(staffId);
 
         // Exclude off days and holidays entirely per spec
-        if (status === "off_day" || status === "holiday") continue;
+        if (status === "off_day" || status === "holiday") return;
 
         if (isAssigned) {
           // If assigned to service, automatically Active Day
@@ -1560,7 +2094,7 @@ export class DatabaseStorage implements IStorage {
           // Present but not assigned -> Passive Day
           totals.passiveDays++;
         }
-      }
+      });
 
       // If no service revenue, skip commission math
       if (totalDailyServiceRevenue <= 0 || activeStaffCount === 0) continue;
@@ -1572,15 +2106,26 @@ export class DatabaseStorage implements IStorage {
 
       // Distribute pool across service items proportionally
       for (const row of dayServiceCheckouts) {
-        const serviceWeight = row.order.totalPrice / totalDailyServiceRevenue;
+        const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
+        const serviceWeight = totalDailyServiceRevenue > 0 ? (effectivePrice / totalDailyServiceRevenue) : 0;
         const perServicePool = serviceWeight * dailyCommissionPool;
 
         const leadId = row.checkout.leadStaffId || row.checkout.staffId;
         const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
         const staffCount = 1 + assistants.length;
 
-        const leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
-        const asstShare = 0.2;
+        let leadShare: number;
+        let asstShare: number;
+
+        if (row.checkout.commissionSplit === "equal") {
+          leadShare = 1 / staffCount;
+          asstShare = 1 / staffCount;
+          console.log(`[Payroll] EQUAL split for service ${row.inventoryItem.name}: staffCount=${staffCount}, share=${leadShare.toFixed(3)}`);
+        } else {
+          leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
+          asstShare = 0.2;
+          console.log(`[Payroll] STANDARD split for service ${row.inventoryItem.name}: staffCount=${staffCount}, lead=${leadShare}, asst=${asstShare}`);
+        }
 
         // Add lead share
         if (staffTotals.has(leadId)) {
@@ -1599,11 +2144,17 @@ export class DatabaseStorage implements IStorage {
     // Upsert payroll entries for each active staff member
     const results: PayrollEntryWithStaff[] = [];
 
-    for (const [staffId, totals] of staffTotals) {
+    for (const [staffId, totals] of Array.from(staffTotals.entries())) {
       const activeTransport = totals.activeDays * activeTransportRate;
       const passiveTransport = totals.passiveDays * passiveTransportRate;
       const totalTransport = activeTransport + passiveTransport;
-      const netPay = totalTransport + totals.grossCommission;
+      const staffMember = staffMap.get(staffId)!;
+      let netPay = totalTransport + totals.grossCommission;
+
+      // Handle Fixed Payment Method
+      if (staffMember.paymentMethod === "fixed") {
+        netPay = staffMember.payPerMonth;
+      }
 
       const [entry] = await db.insert(payrollEntries)
         .values({
@@ -1634,7 +2185,6 @@ export class DatabaseStorage implements IStorage {
         })
         .returning();
 
-      const staffMember = staffMap.get(staffId)!;
       results.push({ ...entry, staff: staffMember });
     }
 
@@ -1692,7 +2242,10 @@ export class DatabaseStorage implements IStorage {
       checkoutsByDate.get(dateStr)!.push(row);
     }
 
-    const allDateStrs = Array.from(new Set([...checkoutsByDate.keys(), ...attendanceMap.keys()])).sort();
+    const allDateStrs = Array.from(new Set([
+      ...Array.from(checkoutsByDate.keys()), 
+      ...Array.from(attendanceMap.keys())
+    ])).sort();
 
     const dailySummaryLines: DailySummaryLine[] = [];
     const breakdownList: CommissionBreakdown[] = [];
@@ -1755,8 +2308,18 @@ export class DatabaseStorage implements IStorage {
           const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
           const staffCount = 1 + assistants.length;
 
-          const leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
-          const asstShare = 0.2;
+          let leadShare: number;
+          let asstShare: number;
+
+          if (row.checkout.commissionSplit === "equal") {
+            leadShare = 1 / staffCount;
+            asstShare = 1 / staffCount;
+            console.log(`[Drilldown] EQUAL split for service ${row.inventoryItem.name}: staffCount=${staffCount}, share=${leadShare.toFixed(3)}`);
+          } else {
+            leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
+            asstShare = 0.2;
+            console.log(`[Drilldown] STANDARD split for service ${row.inventoryItem.name}: staffCount=${staffCount}, lead=${leadShare}, asst=${asstShare}`);
+          }
 
           let role: "lead" | "assistant_1" | "assistant_2" = "lead";
           let share = leadShare;
@@ -1851,16 +2414,42 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select({
       expense: expenses,
       category: expenseCategories,
+      inventory: inventory,
     })
-    .from(expenses)
-    .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
-    .where(and(...conditions))
-    .orderBy(desc(expenses.date), desc(expenses.createdAt));
+      .from(expenses)
+      .leftJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+      .leftJoin(inventory, eq(expenses.inventoryId, inventory.id))
+      .where(and(...conditions))
+      .orderBy(desc(expenses.date));
 
     return rows.map(r => ({
       ...r.expense,
-      category: r.category,
-    }));
+      category: r.category!,
+      inventory: r.inventory || undefined,
+    })) as ExpenseWithCategory[];
+  }
+
+  async getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {
+    const conditions: any[] = [
+      eq(payrollPeriods.storeId, storeId),
+      eq(payrollPeriods.status, "paid")
+    ];
+    if (startDate) conditions.push(gte(payrollPeriods.endDate, startDate));
+    if (endDate) conditions.push(lte(payrollPeriods.startDate, endDate));
+    
+    const paidPeriods = await db.select().from(payrollPeriods).where(and(...conditions));
+    const payrollDetails = [];
+
+    for (const period of paidPeriods) {
+      const entries = await db.select().from(payrollEntries).where(eq(payrollEntries.periodId, period.id));
+      const periodTotal = entries.reduce((sum, entry) => sum + entry.netPay, 0);
+      
+      payrollDetails.push({
+        label: `Payroll — ${new Date(period.startDate).toLocaleDateString()} to ${new Date(period.endDate).toLocaleDateString()}`,
+        amount: periodTotal
+      });
+    }
+    return payrollDetails;
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {
@@ -1878,11 +2467,21 @@ export class DatabaseStorage implements IStorage {
     totalRevenue: number;
     costOfGoodsSold: number;
     grossProfit: number;
+    discountsGiven: number;
+    discountsList: Array<{
+      receiptNumber: string;
+      discountAmount: number;
+      discountPercent: number;
+      discountReason: string | null;
+      discountApprovedBy: string | null;
+      createdAt: Date;
+    }>;
   }> {
     // Build checkout date filter conditions
     const conditions: any[] = [
       eq(checkouts.storeId, storeId),
       eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
     ];
     if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
     if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
@@ -1915,7 +2514,329 @@ export class DatabaseStorage implements IStorage {
 
     const totalRevenue = serviceRevenue + productRevenue;
     const grossProfit = totalRevenue - costOfGoodsSold;
-    return { serviceRevenue, productRevenue, totalRevenue, costOfGoodsSold, grossProfit };
+
+    // Fetch unique transaction discounts in the period
+    const discountConditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
+      gt(checkouts.discountAmount, 0),
+    ];
+    if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+    const uniqueTxDiscounts = await db
+      .select({
+        receiptNumber: checkouts.receiptNumber,
+        discountAmount: checkouts.discountAmount,
+        discountPercent: checkouts.discountPercent,
+        discountReason: checkouts.discountReason,
+        discountApprovedBy: checkouts.discountApprovedBy,
+        createdAt: checkouts.createdAt,
+        subtotal: sql<number>`sum(${checkouts.totalPrice})`,
+      })
+      .from(checkouts)
+      .where(and(...discountConditions))
+      .groupBy(
+        checkouts.receiptNumber,
+        checkouts.discountAmount,
+        checkouts.discountPercent,
+        checkouts.discountReason,
+        checkouts.discountApprovedBy,
+        checkouts.createdAt
+      );
+
+    const discountsGiven = uniqueTxDiscounts.reduce((sum, d) => sum + (d.discountAmount || 0), 0);
+
+    return { 
+      serviceRevenue, 
+      productRevenue, 
+      totalRevenue, 
+      costOfGoodsSold, 
+      grossProfit, 
+      discountsGiven,
+      discountsList: uniqueTxDiscounts
+    };
+  }
+
+  // ─── Void a checkout ───────────────────────────────────────────────────────
+  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await db.transaction(async (tx) => {
+        // Fetch the checkout
+        const [primaryCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, checkoutId));
+        if (!primaryCheckout) throw new Error("Transaction not found.");
+
+        // Find all checkouts with the same receiptNumber
+        const matchedCheckouts = await tx.select().from(checkouts)
+          .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
+
+        for (const checkout of matchedCheckouts) {
+          if (checkout.isVoided) continue; // Already voided
+
+          // Mark as voided
+          await tx.update(checkouts)
+            .set({ isVoided: true, voidedAt: new Date(), voidedByUserId, voidReason: reason })
+            .where(eq(checkouts.id, checkout.id));
+
+          // Fetch the order
+          const [order] = await tx.select().from(orders).where(eq(orders.id, checkout.orderId));
+          if (!order) continue;
+
+          // Fetch inventory item
+          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+          if (!inventoryItem) continue;
+
+          // Restore stock for product-type items
+          if (inventoryItem.type === "product") {
+            await tx.update(inventory)
+              .set({ quantity: inventoryItem.quantity + order.quantity })
+              .where(eq(inventory.id, inventoryItem.id));
+          }
+
+          // Reverse the P&L record
+          const [existingPL] = await tx.select().from(profitLoss)
+            .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, checkout.storeId)));
+          if (existingPL) {
+            const revenue = order.totalPrice;
+            const profit = revenue - inventoryItem.costPrice * order.quantity;
+            await tx.update(profitLoss)
+              .set({
+                totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - order.quantity),
+                quantityRemaining: inventoryItem.quantity + order.quantity,
+                totalRevenue: Math.max(0, existingPL.totalRevenue - revenue),
+                totalGrossProfit: existingPL.totalGrossProfit - profit,
+              })
+              .where(eq(profitLoss.id, existingPL.id));
+          }
+        }
+      });
+
+      // Fetch checkout details for notification
+      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
+      if (checkout) {
+        await this.notifyManagers(checkout.storeId, "void_transaction", `Transaction ${checkout.receiptNumber} was voided.`);
+      }
+
+      return { success: true, message: "Transaction voided successfully." };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not void transaction.";
+      return { success: false, message };
+    }
+  }
+
+  // ─── Get receipt payload ───────────────────────────────────────────────────
+  async getReceiptPayload(checkoutId: string) {
+    const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
+    if (!primaryCheckout) return null;
+
+    // Get all checkouts in the same transaction
+    const matchedCheckouts = await db.select().from(checkouts)
+      .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
+
+    const items = [];
+    for (const ch of matchedCheckouts) {
+      const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
+      const [inventoryItem] = order ? await db.select().from(inventory).where(eq(inventory.id, order.inventoryId)) : [null];
+      const [leadStaffMember] = ch.leadStaffId
+        ? await db.select().from(staff).where(eq(staff.id, ch.leadStaffId))
+        : [null];
+      items.push({
+        checkout: ch,
+        order,
+        inventory: inventoryItem,
+        leadStaff: leadStaffMember,
+      });
+    }
+
+    const [store] = await db.select().from(stores).where(eq(stores.id, primaryCheckout.storeId));
+    const [business] = store ? await db.select().from(businesses).where(eq(businesses.id, store.businessId)) : [null];
+    const [storeSettings] = await db.select().from(settings).where(eq(settings.storeId, primaryCheckout.storeId));
+    const [staffMember] = await db.select().from(staff).where(eq(staff.id, primaryCheckout.staffId));
+
+    // Find transaction for customer
+    const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, checkoutId));
+    const [customer] = tx ? await db.select().from(customers).where(eq(customers.id, tx.customerId)) : [null];
+
+    return {
+      business: business ? { name: business.name } : null,
+      store: store ? { name: store.name, currency: store.currency, phone: store.phone, address: store.address } : null,
+      settings: storeSettings ? { receiptPrefix: storeSettings.receiptPrefix || "RCP", receiptThankYouMessage: storeSettings.receiptThankYouMessage } : null,
+      checkout: primaryCheckout,
+      order: items[0]?.order || null,
+      inventory: items[0]?.inventory || null,
+      customer,
+      staff: staffMember,
+      leadStaff: items[0]?.leadStaff || null,
+      items, // Group of all items in this transaction
+    };
+  }
+
+  // ─── Update checkout payment method/status ─────────────────────────────────
+  async updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean> {
+    const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
+    if (!primaryCheckout) return false;
+
+    const result = await db.update(checkouts)
+      .set({ paymentMethod, paymentStatus })
+      .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
+    const activeStaff = await db.select().from(staff).where(and(eq(staff.storeId, storeId), eq(staff.isArchived, false)));
+    
+    // Checkouts in range
+    const checkoutConditions = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
+    ];
+    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+    const rows = await db.select({
+      checkout: checkouts,
+      order: orders,
+      inventoryItem: inventory,
+    })
+      .from(orders)
+      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .where(and(...checkoutConditions));
+
+    // Attendance in range
+    const attendanceConditions = [eq(attendanceRecords.storeId, storeId)];
+    if (startDate) attendanceConditions.push(gte(attendanceRecords.date, startDate));
+    if (endDate) attendanceConditions.push(lte(attendanceRecords.date, endDate));
+    
+    const attendanceList = await db.select().from(attendanceRecords).where(and(...attendanceConditions));
+
+    return activeStaff.map(s => {
+      const staffCheckouts = rows.filter(r => 
+        r.checkout.leadStaffId === s.id || 
+        r.checkout.staffId === s.id || 
+        r.checkout.assistingStaff1Id === s.id || 
+        r.checkout.assistingStaff2Id === s.id
+      );
+
+      const leadCheckouts = rows.filter(r => r.checkout.leadStaffId === s.id || (r.checkout.staffId === s.id && !r.checkout.leadStaffId));
+      
+      const totalRevenue = leadCheckouts.reduce((sum, r) => sum + r.order.totalPrice, 0);
+      const servicesCount = leadCheckouts.filter(r => r.inventoryItem.type === "service").length;
+      const productsCount = leadCheckouts.filter(r => r.inventoryItem.type === "product").length;
+
+      const staffAttendance = attendanceList.filter(a => a.staffId === s.id);
+      const presentDays = staffAttendance.filter(a => a.status === "present").length;
+      const absentDays = staffAttendance.filter(a => a.status === "absent").length;
+
+      return {
+        id: s.id,
+        name: s.name,
+        role: s.role,
+        totalRevenue,
+        servicesCount,
+        productsCount,
+        presentDays,
+        absentDays,
+      };
+    });
+  }
+
+  async searchCustomers(storeId: string, query: string): Promise<Customer[]> {
+    return db.select()
+      .from(customers)
+      .where(and(eq(customers.storeId, storeId), ilike(customers.name, `%${query}%`)))
+      .limit(10);
+  }
+
+  async searchInventory(storeId: string, query: string): Promise<Inventory[]> {
+    return db.select()
+      .from(inventory)
+      .where(and(eq(inventory.storeId, storeId), ilike(inventory.name, `%${query}%`)))
+      .limit(10);
+  }
+
+  async searchTransactions(storeId: string, query: string): Promise<any[]> {
+    return db.select()
+      .from(checkouts)
+      .where(and(eq(checkouts.storeId, storeId), or(ilike(checkouts.receiptNumber, `%${query}%`), ilike(checkouts.paymentReference, `%${query}%`))))
+      .limit(10);
+  }
+
+  async getNotifications(userId: string): Promise<Notification[]> {
+    return db.select()
+      .from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(50);
+  }
+
+  async markNotificationAsRead(id: string): Promise<void> {
+    await db.update(notifications)
+      .set({ isRead: true })
+      .where(eq(notifications.id, id));
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    await db.update(notifications)
+      .set({ isRead: true })
+      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  }
+
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(data).returning();
+    
+    // Broadcast the notification in real-time to all active WebSocket connections
+    try {
+      broadcastNotification(notification);
+    } catch (err) {
+      console.error("Failed to broadcast notification over WebSocket:", err);
+    }
+
+    return notification;
+  }
+
+  async getTopCustomers(storeId: string): Promise<any[]> {
+    return db.select({
+      id: customers.id,
+      name: customers.name,
+      customerNumber: customers.customerNumber,
+      totalSpent: sql<number>`sum(${checkouts.totalPrice})`,
+      transactionCount: sql<number>`count(${checkouts.id})`,
+    })
+      .from(customers)
+      .innerJoin(transactions, eq(customers.id, transactions.customerId))
+      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .where(and(eq(customers.storeId, storeId), eq(checkouts.isVoided, false)))
+      .groupBy(customers.id, customers.name, customers.customerNumber)
+      .orderBy(desc(sql`sum(${checkouts.totalPrice})`))
+      .limit(10);
+  }
+
+  async notifyManagers(storeId: string, type: string, message: string): Promise<void> {
+    // Get store to find businessId
+    const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
+    if (!store) return;
+
+    // Find all owners and managers for this business
+    const managers = await db.select().from(users).where(
+      and(
+        eq(users.businessId, store.businessId),
+        or(eq(users.role, "owner"), eq(users.role, "manager"))
+      )
+    );
+
+    // Create notification for each
+    for (const mgr of managers) {
+      await this.createNotification({
+        storeId,
+        userId: mgr.id,
+        type,
+        message,
+      });
+    }
   }
 }
 

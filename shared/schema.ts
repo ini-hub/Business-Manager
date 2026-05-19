@@ -11,30 +11,46 @@ const trimmedString = (minLength = 1, message = "This field is required") =>
 const optionalTrimmedString = () =>
   z.string().optional().transform(s => s?.trim() || undefined);
 
-// Businesses table - top level organization
-export const businesses = pgTable("businesses", {
+// Organisations / Businesses Table (top level organization)
+export const organisations = pgTable("organisations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  slug: text("slug").unique(),
+  logoUrl: text("logo_url"),
+  receiptPrefix: text("receipt_prefix").default("EXB"),
   address: text("address"),
   phone: text("phone"),
-  phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
-  email: text("email"),
+  phoneCountryCode: text("phone_country_code").default("+234"),
+  businessUrl: text("business_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const businessesRelations = relations(businesses, ({ many }) => ({
+export const organisationsRelations = relations(organisations, ({ many }) => ({
   stores: many(stores),
+  members: many(organisationMembers),
 }));
 
-export const insertBusinessSchema = createInsertSchema(businesses).omit({ id: true, createdAt: true }).extend({
+export type InsertOrganisation = typeof organisations.$inferInsert;
+export type Organisation = typeof organisations.$inferSelect;
+
+// Keep businesses as backward-compatible alias to organisations
+export const businesses = organisations;
+export const businessesRelations = organisationsRelations;
+export type InsertBusiness = InsertOrganisation;
+export type Business = Organisation;
+
+export const insertOrganisationSchema = createInsertSchema(organisations).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   name: trimmedString(1, "Business name is required"),
-  address: optionalTrimmedString(),
-  phone: optionalTrimmedString(),
+  slug: optionalTrimmedString(),
+  logoUrl: z.string().optional(),
+  receiptPrefix: z.string().optional(),
+  address: z.string().optional(),
+  phone: z.string().optional(),
   phoneCountryCode: z.string().default("+234"),
-  email: optionalTrimmedString(),
+  businessUrl: z.string().optional(),
 });
-export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
-export type Business = typeof businesses.$inferSelect;
+export const insertBusinessSchema = insertOrganisationSchema;
 
 // Stores table - individual store locations
 export const stores = pgTable("stores", {
@@ -48,7 +64,7 @@ export const stores = pgTable("stores", {
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
   commissionRate: real("commission_rate").notNull().default(0.30), // Default 30% service commission
-  managerStaffId: varchar("manager_staff_id"), // References staff.id - manager for this store
+  managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
@@ -107,7 +123,10 @@ export const customers = pgTable("customers", {
   mobileNumber: text("mobile_number"), // Optional
   countryCode: text("country_code").default("+234"), // Default to Nigeria
   address: text("address").notNull(),
+  birthday: timestamp("birthday"),
+  loyaltyPoints: integer("loyalty_points").notNull().default(0),
   isArchived: boolean("is_archived").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
 ]);
@@ -126,6 +145,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
   countryCode: z.string().default("NG"),
   mobileNumber: z.string().transform(s => s.trim()).optional().default(""),
   address: z.string().transform(s => s.trim()).default(""),
+  birthday: z.string().optional().nullable(),
 });
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
@@ -149,6 +169,8 @@ export const staff = pgTable("staff", {
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
   role: text("role").notNull().default("staff"), // manager or staff
+  paymentMethod: text("payment_method").notNull().default("hybrid"), // fixed or hybrid
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
   unique("staff_email_unique").on(table.storeId, table.email),
@@ -173,6 +195,7 @@ export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isAr
   countryCode: z.string().default("NG"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
   role: z.enum(staffRoleEnum).default("staff"),
+  paymentMethod: z.enum(["fixed", "hybrid"]).default("hybrid"),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 export type Staff = typeof staff.$inferSelect;
@@ -305,13 +328,25 @@ export const checkouts = pgTable("checkouts", {
   orderId: varchar("order_id").notNull().references(() => orders.id),
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
   totalPrice: real("total_price").notNull(),
-  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave
+  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos, pending
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
   paymentReference: text("payment_reference"), // For Flutterwave transaction reference
+  commissionSplit: text("commission_split").notNull().default("standard"), // standard or equal
+  // Void fields
+  isVoided: boolean("is_voided").notNull().default(false),
+  voidedAt: timestamp("voided_at"),
+  voidedByUserId: varchar("voided_by_user_id").references(() => users.id),
+  voidReason: text("void_reason"),
+  // New transaction-level Discount Option B columns
+  subtotal: real("subtotal").notNull().default(0),
+  discountAmount: real("discount_amount").notNull().default(0),
+  discountPercent: real("discount_percent").notNull().default(0),
+  discountReason: text("discount_reason"),
+  discountApprovedBy: text("discount_approved_by"),
+  totalCharged: real("total_charged").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => [
-  unique("checkout_store_receipt_unique").on(table.storeId, table.receiptNumber),
-]);
+  systemCreatedAt: timestamp("system_created_at").notNull().defaultNow(),
+});
 
 export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
   store: one(stores, {
@@ -417,9 +452,22 @@ export type StoreWithBusiness = Store & {
 export type TransactionWithRelations = Transaction & {
   customer: Customer;
   inventory: Inventory;
-  checkout: Checkout & { staff?: Staff };
+  checkout: Checkout & {
+    staff?: Staff;
+    voidedByUser?: User | null;
+  };
   store: Store;
 };
+
+// Void reason presets
+export const VOID_REASON_PRESETS = [
+  "Error",
+  "Duplicate Entry",
+  "Customer Request",
+  "Stock Correction",
+  "Other",
+] as const;
+export type VoidReasonPreset = typeof VOID_REASON_PRESETS[number];
 
 export type CheckoutWithRelations = Checkout & {
   staff: Staff;
@@ -436,7 +484,7 @@ export type ProfitLossWithInventory = ProfitLoss & {
 export const sessions = pgTable(
   "sessions",
   {
-    sid: varchar("sid").primaryKey(),
+    sid: text("sid").primaryKey(),
     sess: jsonb("sess").notNull(),
     expire: timestamp("expire").notNull(),
   },
@@ -447,24 +495,79 @@ export const sessions = pgTable(
 export const userRoleEnum = ["owner", "manager", "staff"] as const;
 export type UserRole = typeof userRoleEnum[number];
 
-// User storage table with custom auth
+// User storage table with platform-level auth
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").notNull().unique(),
-  password: varchar("password").notNull(), // Hashed password
-  businessId: varchar("business_id").references(() => businesses.id),
-  role: text("role").notNull().default("owner"), // owner, manager, staff
-  isVerified: boolean("is_verified").notNull().default(false),
+  name: text("name"), // Display name
+  email: text("email").unique(), // Nullable for phone-only users
+  phone: text("phone").unique(), // Nullable for email-only users
+  password: text("password"), // Legacy hashed password field
+  passwordHash: text("password_hash"), // Specified hashed password field
+  businessId: varchar("business_id"), // Legacy reference
+  role: text("role").notNull().default("owner"), // Legacy role
+  isVerified: boolean("is_verified").notNull().default(false), // Legacy isVerified
+  isEmailVerified: boolean("is_email_verified").notNull().default(false),
+  isPhoneVerified: boolean("is_phone_verified").notNull().default(false),
+  profilePhotoUrl: text("profile_photo_url"),
+  
+  // Custom specifications fields
+  activationCode: text("activation_code"),
+  activationCodeExpiry: timestamp("activation_code_expiry"),
+  activationCodeUsed: boolean("activation_code_used").notNull().default(false),
+  createdByInvitation: boolean("created_by_invitation").notNull().default(false),
+  otpCode: text("otp_code"),
+  otpExpiry: timestamp("otp_expiry"),
+  otpAttempts: integer("otp_attempts").notNull().default(0),
+  loginAttempts: integer("login_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+  lastLoginAt: timestamp("last_login_at"),
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const usersRelations = relations(users, ({ one }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   business: one(businesses, {
     fields: [users.businessId],
     references: [businesses.id],
   }),
+  notifications: many(notifications),
+  organisationMembers: many(organisationMembers),
 }));
+
+// Organisation Members Table
+export const organisationMembers = pgTable("organisation_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  organisationId: varchar("organisation_id").notNull().references(() => organisations.id),
+  role: text("role").notNull().default("staff"), // 'owner', 'manager', 'staff'
+  staffId: text("staff_id"), // e.g. "EXB-001" internal label
+  status: text("status").notNull().default("pending"), // 'pending', 'partial', 'active', 'locked', 'deactivated'
+  invitedByUserId: varchar("invited_by_user_id").references(() => users.id),
+  activatedAt: timestamp("activated_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  unique("org_member_user_org_unique").on(table.userId, table.organisationId),
+]);
+
+export const organisationMembersRelations = relations(organisationMembers, ({ one }) => ({
+  user: one(users, {
+    fields: [organisationMembers.userId],
+    references: [users.id],
+  }),
+  organisation: one(organisations, {
+    fields: [organisationMembers.organisationId],
+    references: [organisations.id],
+  }),
+  invitedBy: one(users, {
+    fields: [organisationMembers.invitedByUserId],
+    references: [users.id],
+  }),
+}));
+
+export type InsertOrganisationMember = typeof organisationMembers.$inferInsert;
+export type OrganisationMember = typeof organisationMembers.$inferSelect;
 
 // Password complexity validation schema
 export const passwordSchema = z.string()
@@ -476,8 +579,8 @@ export const passwordSchema = z.string()
   .regex(/^\S*$/, "Password must not contain spaces");
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true }).extend({
-  email: z.string().email("Invalid email address"),
-  password: passwordSchema,
+  email: z.string().email("Invalid email address").optional(),
+  password: passwordSchema.optional(),
   role: z.enum(userRoleEnum).default("owner"),
 });
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -523,20 +626,21 @@ export type SignupRequest = z.infer<typeof signupSchema>;
 
 // Login schema
 export const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  emailOrPhone: z.string().min(1, "Email or phone number is required"),
   password: z.string().min(1, "Password is required"),
+  stayLoggedIn: z.boolean().optional(),
 });
 export type LoginRequest = z.infer<typeof loginSchema>;
 
 // Forgot password schema
 export const forgotPasswordSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  emailOrPhone: z.string().min(1, "Email or phone number is required"),
 });
 export type ForgotPasswordRequest = z.infer<typeof forgotPasswordSchema>;
 
 // Reset password schema
 export const resetPasswordSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  emailOrPhone: z.string().min(1, "Email or phone number is required"),
   otp: z.string().length(6, "OTP must be 6 digits"),
   password: passwordSchema,
   confirmPassword: z.string(),
@@ -548,7 +652,7 @@ export type ResetPasswordRequest = z.infer<typeof resetPasswordSchema>;
 
 // OTP verification schema
 export const verifyOtpSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  emailOrPhone: z.string().min(1, "Email or phone number is required"),
   otp: z.string().length(6, "OTP must be 6 digits"),
 });
 export type VerifyOtpRequest = z.infer<typeof verifyOtpSchema>;
@@ -568,6 +672,11 @@ export const settings = pgTable("settings", {
   commissionRate: real("commission_rate").notNull().default(0.30),
   defaultPayrollPeriod: text("default_payroll_period").notNull().default("monthly"), // weekly, biweekly, monthly
   maxAssistingStaff: integer("max_assisting_staff").notNull().default(2),
+  // Receipt settings
+  receiptPrefix: text("receipt_prefix").notNull().default("RCP"),
+  receiptThankYouMessage: text("receipt_thank_you_message"),
+  // Low stock threshold
+  lowStockThreshold: integer("low_stock_threshold").notNull().default(5),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -769,6 +878,7 @@ export const expenses = pgTable("expenses", {
   title: text("title").notNull(),
   amount: real("amount").notNull().default(0),
   categoryId: varchar("category_id").notNull().references(() => expenseCategories.id),
+  inventoryId: varchar("inventory_id").references(() => inventory.id),
   date: text("date").notNull(), // ISO Date YYYY-MM-DD
   notes: text("notes"),
   receiptUrl: text("receipt_url"),
@@ -786,6 +896,10 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
     fields: [expenses.categoryId],
     references: [expenseCategories.id],
   }),
+  inventory: one(inventory, {
+    fields: [expenses.inventoryId],
+    references: [inventory.id],
+  }),
 }));
 
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true, updatedAt: true, isAutoGenerated: true });
@@ -794,4 +908,31 @@ export type Expense = typeof expenses.$inferSelect;
 
 export type ExpenseWithCategory = Expense & {
   category: ExpenseCategory;
+  inventory?: Inventory | null;
 };
+
+// Notifications table
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => stores.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  type: text("type").notNull(), // 'low_stock', 'void_transaction', 'payroll_period', 'system'
+  message: text("message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  archivedAt: timestamp("archived_at"),
+});
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+  store: one(stores, {
+    fields: [notifications.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;

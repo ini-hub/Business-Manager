@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
 
 interface MetricCardProps {
   title: string;
@@ -12,6 +13,7 @@ interface MetricCardProps {
   trendValue?: string;
   isLoading?: boolean;
   className?: string;
+  href?: string;
 }
 
 export function MetricCard({
@@ -23,24 +25,10 @@ export function MetricCard({
   trendValue,
   isLoading = false,
   className,
+  href,
 }: MetricCardProps) {
-  if (isLoading) {
-    return (
-      <Card className={className}>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-4" />
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-8 w-20 mb-1" />
-          <Skeleton className="h-3 w-32" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className={className}>
+  const content = (
+    <>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
@@ -76,6 +64,37 @@ export function MetricCard({
           </div>
         )}
       </CardContent>
+    </>
+  );
+
+  if (isLoading) {
+    return (
+      <Card className={className}>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-4" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-8 w-20 mb-1" />
+          <Skeleton className="h-3 w-32" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (href) {
+    return (
+      <Link href={href} className="block no-underline">
+        <Card className={cn(className, "hover:border-primary/50 hover:shadow-md transition-all cursor-pointer")}>
+          {content}
+        </Card>
+      </Link>
+    );
+  }
+
+  return (
+    <Card className={className}>
+      {content}
     </Card>
   );
 }

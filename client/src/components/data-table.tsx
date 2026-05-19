@@ -10,7 +10,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
+} from "lucide-react";
 
 interface Column<T> {
   key: keyof T | string;
@@ -44,11 +60,30 @@ export function DataTable<T extends { id: string }>({
 }: DataTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSizeState, setPageSizeState] = useState(pageSize);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(null);
+
+  const handleHeaderClick = (columnKey: string) => {
+    if (sortColumn === columnKey) {
+      if (sortDirection === "asc") {
+        setSortDirection("desc");
+      } else if (sortDirection === "desc") {
+        setSortColumn(null);
+        setSortDirection(null);
+      } else {
+        setSortDirection("asc");
+      }
+    } else {
+      setSortColumn(columnKey);
+      setSortDirection("asc");
+    }
+    setCurrentPage(1);
+  };
 
   const filteredData = searchable && searchKeys.length > 0
     ? data.filter((item) =>
         searchKeys.some((keyPath) => {
-          // Allow resolving nested keys like "checkout.receiptNumber"
           let value: any = item;
           const parts = keyPath.split(".");
           for (const part of parts) {
@@ -67,12 +102,58 @@ export function DataTable<T extends { id: string }>({
       )
     : data;
 
-  const totalPages = Math.ceil(filteredData.length / pageSize);
-  const startIndex = (currentPage - 1) * pageSize;
-  const paginatedData = filteredData.slice(startIndex, startIndex + pageSize);
+  const sortedData = [...filteredData].sort((a, b) => {
+    if (!sortColumn || !sortDirection) return 0;
+
+    let valA: any = a;
+    const partsA = sortColumn.split(".");
+    for (const part of partsA) {
+      valA = valA?.[part];
+      if (valA === undefined || valA === null) break;
+    }
+
+    let valB: any = b;
+    const partsB = sortColumn.split(".");
+    for (const part of partsB) {
+      valB = valB?.[part];
+      if (valB === undefined || valB === null) break;
+    }
+
+    if (valA === undefined || valA === null) return sortDirection === "asc" ? 1 : -1;
+    if (valB === undefined || valB === null) return sortDirection === "asc" ? -1 : 1;
+
+    if (typeof valA === "string" && typeof valB === "string") {
+      return sortDirection === "asc"
+        ? valA.localeCompare(valB)
+        : valB.localeCompare(valA);
+    }
+
+    if (typeof valA === "number" && typeof valB === "number") {
+      return sortDirection === "asc" ? valA - valB : valB - valA;
+    }
+
+    const strA = String(valA);
+    const strB = String(valB);
+    return sortDirection === "asc" ? strA.localeCompare(strB) : strB.localeCompare(strA);
+  });
+
+  const totalPages = Math.ceil(sortedData.length / pageSizeState);
+  const startIndex = (currentPage - 1) * pageSizeState;
+  const paginatedData = sortedData.slice(startIndex, startIndex + pageSizeState);
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  const renderSortIcon = (columnKey: string) => {
+    if (sortColumn !== columnKey) {
+      return <ArrowUpDown className="ml-1.5 h-3.5 w-3.5 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity" />;
+    }
+    return sortDirection === "asc" ? (
+      <ArrowUp className="ml-1.5 h-3.5 w-3.5 text-primary" />
+    ) : (
+      <ArrowDown className="ml-1.5 h-3.5 w-3.5 text-primary" />
+    );
   };
 
   if (isLoading) {
@@ -133,8 +214,15 @@ export function DataTable<T extends { id: string }>({
           <TableHeader>
             <TableRow>
               {columns.map((column) => (
-                <TableHead key={String(column.key)} className={column.className}>
-                  {column.header}
+                <TableHead
+                  key={String(column.key)}
+                  className={`${column.className || ""} cursor-pointer select-none group hover:bg-muted/50 transition-colors py-3`}
+                  onClick={() => handleHeaderClick(String(column.key))}
+                >
+                  <div className="flex items-center">
+                    <span>{column.header}</span>
+                    {renderSortIcon(String(column.key))}
+                  </div>
                 </TableHead>
               ))}
             </TableRow>
@@ -167,15 +255,41 @@ export function DataTable<T extends { id: string }>({
           </TableBody>
         </Table>
       </div>
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-sm text-muted-foreground">
-            Showing {startIndex + 1} to {Math.min(startIndex + pageSize, filteredData.length)} of {filteredData.length} results
+      
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-2">
+        <div className="flex items-center gap-4">
+          <p className="text-xs text-muted-foreground">
+            Showing {sortedData.length === 0 ? 0 : startIndex + 1} to {Math.min(startIndex + pageSizeState, sortedData.length)} of {sortedData.length} results
           </p>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Page Size:</span>
+            <Select
+              value={String(pageSizeState)}
+              onValueChange={(val) => {
+                setPageSizeState(Number(val));
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="h-7 w-[65px] text-xs">
+                <SelectValue placeholder={String(pageSizeState)} />
+              </SelectTrigger>
+              <SelectContent>
+                {[5, 10, 30, 50, 100].map((size) => (
+                  <SelectItem key={size} value={String(size)} className="text-xs">
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        
+        {totalPages > 1 && (
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="icon"
+              className="h-8 w-8"
               onClick={() => goToPage(1)}
               disabled={currentPage === 1}
               data-testid="button-first-page"
@@ -185,18 +299,20 @@ export function DataTable<T extends { id: string }>({
             <Button
               variant="outline"
               size="icon"
+              className="h-8 w-8"
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage === 1}
               data-testid="button-prev-page"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="px-4 text-sm">
+            <span className="px-3 text-xs font-medium">
               Page {currentPage} of {totalPages}
             </span>
             <Button
               variant="outline"
               size="icon"
+              className="h-8 w-8"
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage === totalPages}
               data-testid="button-next-page"
@@ -206,6 +322,7 @@ export function DataTable<T extends { id: string }>({
             <Button
               variant="outline"
               size="icon"
+              className="h-8 w-8"
               onClick={() => goToPage(totalPages)}
               disabled={currentPage === totalPages}
               data-testid="button-last-page"
@@ -213,8 +330,8 @@ export function DataTable<T extends { id: string }>({
               <ChevronsRight className="h-4 w-4" />
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

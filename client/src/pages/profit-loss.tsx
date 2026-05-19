@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet } from "lucide-react";
+import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,16 +15,29 @@ import { DateRangeFilter } from "@/components/date-range-filter";
 import { Separator } from "@/components/ui/separator";
 import type { ProfitLossWithInventory } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
-import { endOfDay, startOfMonth, subMonths, format } from "date-fns";
+import { endOfDay, startOfDay, startOfMonth, subMonths, format } from "date-fns";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function ProfitLossPage() {
   const { currentStore } = useStore();
   const { user } = useAuth();
   const storeCurrency = currentStore?.currency || "NGN";
+  const [discountsCollapsed, setDiscountsCollapsed] = useState(true);
 
-  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>({
-    from: startOfMonth(new Date()),
-    to: endOfDay(new Date())
+  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const startDateParam = params.get("startDate");
+    const endDateParam = params.get("endDate");
+    if (startDateParam && endDateParam) {
+      return {
+        from: startOfDay(new Date(startDateParam)),
+        to: endOfDay(new Date(endDateParam))
+      };
+    }
+    return {
+      from: startOfDay(new Date()),
+      to: endOfDay(new Date())
+    };
   });
 
   const { data: profitLossData = [], isLoading: isLoadingPL } = useQuery<ProfitLossWithInventory[]>({
@@ -56,14 +69,14 @@ export default function ProfitLossPage() {
 
   const isLoading = isLoadingPL || isLoadingSummary;
 
-  if (user?.role !== "owner") {
+  if (user?.role === "staff") {
     return (
       <div className="space-y-6">
         <PageHeader title="Profit & Loss Report" />
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            You do not have permission to view Profit & Loss reports. This page is restricted to Owners.
+            You do not have permission to view Profit & Loss reports.
           </AlertDescription>
         </Alert>
       </div>
@@ -199,6 +212,7 @@ export default function ProfitLossPage() {
   }));
 
   const opProfit = summary?.operatingProfit ?? 0;
+  const isOwner = user?.role === "owner";
 
   return (
     <div className="space-y-6">
@@ -238,98 +252,272 @@ export default function ProfitLossPage() {
           description="Revenue − Cost of Goods Sold"
           isLoading={isLoading}
         />
-        <MetricCard
-          title="Total Expenses"
-          value={formatCurrency(summary?.totalExpenses ?? 0)}
-          icon={<Wallet className="h-4 w-4 text-amber-600" />}
-          description="Operational + Payroll"
-          isLoading={isLoading}
-        />
-        <MetricCard
-          title="Operating Profit"
-          value={formatCurrency(opProfit)}
-          icon={opProfit >= 0 ? <TrendingUp className="h-4 w-4 text-green-600" /> : <TrendingDown className="h-4 w-4 text-red-600" />}
-          description="Gross Profit − Total Expenses"
-          isLoading={isLoading}
-        />
+        {isOwner && (
+          <MetricCard
+            title="Total Expenses"
+            value={formatCurrency(summary?.totalExpenses ?? 0)}
+            icon={<Wallet className="h-4 w-4 text-amber-600" />}
+            description="Operational + Payroll"
+            isLoading={isLoading}
+          />
+        )}
+        {isOwner && (
+          <MetricCard
+            title="Operating Profit"
+            value={formatCurrency(opProfit)}
+            icon={opProfit >= 0 ? <TrendingUp className="h-4 w-4 text-green-600" /> : <TrendingDown className="h-4 w-4 text-red-600" />}
+            description="Gross Profit − Total Expenses"
+            isLoading={isLoading}
+          />
+        )}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-primary/20 shadow-sm">
-          <CardHeader className="bg-muted/30 pb-4">
-            <CardTitle>Income Statement</CardTitle>
-            <CardDescription>
-              {dateRange?.from && dateRange?.to ? (
-                `Period: ${format(dateRange.from, 'MMM d, yyyy')} to ${format(dateRange.to, 'MMM d, yyyy')}`
-              ) : "All time"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-4">
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Service Revenue</span>
-              <span className="font-mono">{formatCurrency(summary?.serviceRevenue ?? 0)}</span>
-            </div>
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Product Sales</span>
-              <span className="font-mono">{formatCurrency(summary?.productRevenue ?? 0)}</span>
-            </div>
-            <div className="flex justify-between items-center font-medium pt-2 border-t">
-              <span>Total Revenue</span>
-              <span className="font-mono text-emerald-600">{formatCurrency(summary?.totalRevenue ?? 0)}</span>
-            </div>
-            
-            <div className="flex justify-between items-center text-sm pt-4">
-              <span className="text-muted-foreground">Cost of Goods/Services Sold</span>
-              <span className="font-mono text-amber-600">− {formatCurrency(summary?.costOfGoodsSold ?? 0)}</span>
-            </div>
-            
-            <div className="flex justify-between items-center font-bold text-lg pt-2 border-t">
-              <span>GROSS PROFIT</span>
-              <span className="font-mono text-blue-600">{formatCurrency(summary?.grossProfit ?? 0)}</span>
-            </div>
+      <Tabs defaultValue="income" className="w-full">
+        <TabsList className={`grid w-full mb-6 ${isOwner ? "grid-cols-4" : "grid-cols-2"}`}>
+          <TabsTrigger value="income">Income Statement</TabsTrigger>
+          {isOwner && <TabsTrigger value="expenses">Expense Details</TabsTrigger>}
+          {isOwner && <TabsTrigger value="discounts">Discounts Report</TabsTrigger>}
+          <TabsTrigger value="breakdown">Item-by-Item Breakdown (All Time)</TabsTrigger>
+        </TabsList>
 
-            <Separator className="my-4" />
+        <TabsContent value="income" className="space-y-6 mt-0 border-none p-0">
+          <Card className="border-primary/20 shadow-sm max-w-3xl mx-auto">
+            <CardHeader className="bg-muted/30 pb-4">
+              <CardTitle>Income Statement</CardTitle>
+              <CardDescription>
+                {dateRange?.from && dateRange?.to ? (
+                  `Period: ${format(dateRange.from, 'MMM d, yyyy')} to ${format(dateRange.to, 'MMM d, yyyy')}`
+                ) : "All time"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Service Revenue</span>
+                <span className="font-mono">{formatCurrency(summary?.serviceRevenue ?? 0)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Product Sales</span>
+                <span className="font-mono">{formatCurrency(summary?.productRevenue ?? 0)}</span>
+              </div>
+              <div className="flex justify-between items-center font-medium pt-2 border-t">
+                <span>Total Revenue</span>
+                <span className="font-mono text-emerald-600">{formatCurrency(summary?.totalRevenue ?? 0)}</span>
+              </div>
+              
+              <div className="flex justify-between items-center text-sm pt-4">
+                <span className="text-muted-foreground">Cost of Goods/Services Sold</span>
+                <span className="font-mono text-amber-600">− {formatCurrency(summary?.costOfGoodsSold ?? 0)}</span>
+              </div>
+              
+              <div className="flex justify-between items-center font-bold text-lg pt-2 border-t">
+                <span>GROSS PROFIT</span>
+                <span className="font-mono text-blue-600">{formatCurrency(summary?.grossProfit ?? 0)}</span>
+              </div>
 
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Operational Expenses</span>
-              <span className="font-mono">− {formatCurrency(summary?.totalOperationalExpenses ?? 0)}</span>
-            </div>
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Payroll Expenses</span>
-              <span className="font-mono">− {formatCurrency(summary?.totalPayrollExpenses ?? 0)}</span>
-            </div>
-            <div className="flex justify-between items-center font-medium pt-2 border-t">
-              <span>Total Expenses</span>
-              <span className="font-mono text-red-600">− {formatCurrency(summary?.totalExpenses ?? 0)}</span>
-            </div>
+              {isOwner && (
+                <>
+                  <Separator className="my-4" />
 
-            <div className="flex justify-between items-center font-bold text-xl pt-4 border-t mt-4">
-              <span>OPERATING PROFIT</span>
-              <span className={`font-mono ${opProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {formatCurrency(opProfit)}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+                  {/* Collapsible Discounts Given Row */}
+                  <div className="border border-muted rounded-lg overflow-hidden bg-muted/10 my-3">
+                    <button
+                      onClick={() => setDiscountsCollapsed(!discountsCollapsed)}
+                      className="w-full flex justify-between items-center text-sm p-3 hover:bg-muted/20 transition-colors font-medium"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">Discounts Given</span>
+                        <Badge variant="outline" className="text-xs bg-red-500/10 text-red-500 border-red-500/20 font-normal font-mono">
+                          {summary?.discountsList?.length || 0} tx
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 font-mono text-red-500">
+                        <span>− {formatCurrency(summary?.discountsGiven ?? 0)}</span>
+                        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${!discountsCollapsed ? "rotate-180" : ""}`} />
+                      </div>
+                    </button>
+                    {!discountsCollapsed && (
+                      <div className="border-t border-muted bg-muted/5 divide-y divide-muted/50 max-h-60 overflow-y-auto">
+                        {summary?.discountsList?.length > 0 ? (
+                          summary.discountsList.map((d: any, idx: number) => (
+                            <div key={idx} className="p-3 text-xs flex flex-col gap-1.5">
+                              <div className="flex justify-between items-center">
+                                <span className="font-mono font-medium text-foreground">{d.receiptNumber}</span>
+                                <span className="font-mono text-red-500 font-semibold">
+                                  − {formatCurrency(d.discountAmount)} ({d.discountPercent.toFixed(0)}%)
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-muted-foreground">
+                                <span>Approved by: <span className="text-foreground font-medium">{d.discountApprovedBy || "N/A"}</span></span>
+                                <span>{d.createdAt ? format(new Date(d.createdAt), "MMM d, h:mm a") : ""}</span>
+                              </div>
+                              {d.discountReason && (
+                                <div className="text-[11px] text-muted-foreground bg-muted/20 p-1.5 rounded italic mt-0.5">
+                                  "{d.discountReason}"
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="p-4 text-center text-muted-foreground text-xs">
+                            No discounts recorded in this period.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Item-by-Item Breakdown (All Time)</CardTitle>
-            <CardDescription>Historical gross profit per inventory item</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              data={profitLossData}
-              columns={columns}
-              searchable
-              searchPlaceholder="Search items..."
-              searchKeys={["inventoryId"]}
-              isLoading={isLoadingPL}
-              emptyMessage="No historical data available."
-            />
-          </CardContent>
-        </Card>
-      </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Operational Expenses</span>
+                    <span className="font-mono">− {formatCurrency(summary?.totalOperationalExpenses ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Payroll Expenses</span>
+                    <span className="font-mono">− {formatCurrency(summary?.totalPayrollExpenses ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center font-medium pt-2 border-t">
+                    <span>Total Expenses</span>
+                    <span className="font-mono text-red-600">− {formatCurrency(summary?.totalExpenses ?? 0)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center font-bold text-xl pt-4 border-t mt-4">
+                    <span>OPERATING PROFIT</span>
+                    <span className={`font-mono ${opProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {formatCurrency(opProfit)}
+                    </span>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {isOwner && (
+          <TabsContent value="expenses" className="space-y-6 mt-0 border-none p-0">
+            <Card className="max-w-3xl mx-auto">
+              <CardHeader>
+                <CardTitle>Expense Detail</CardTitle>
+                <CardDescription>Breakdown of costs for the selected period</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div>
+                  <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Operational Expenses</h4>
+                  <div className="space-y-2">
+                    {summary?.expensesGrouped?.length > 0 ? (
+                      summary.expensesGrouped.map((eg: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center text-sm">
+                          <span>{eg.category}</span>
+                          <span className="font-mono">{formatCurrency(eg.amount)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">No operational expenses found.</p>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Payroll Expenses</h4>
+                  <div className="space-y-2">
+                    {summary?.payrollDetails?.length > 0 ? (
+                      summary.payrollDetails.map((pd: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center text-sm">
+                          <span>{pd.label}</span>
+                          <span className="font-mono">{formatCurrency(pd.amount)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">No paid payroll periods found.</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {isOwner && (
+          <TabsContent value="discounts" className="space-y-6 mt-0 border-none p-0">
+            <Card className="max-w-4xl mx-auto border-primary/20 shadow-sm">
+              <CardHeader className="bg-muted/30">
+                <CardTitle>Discounts Given Report</CardTitle>
+                <CardDescription>Comprehensive audit log of all transaction-level basket discounts in the period</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6">
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-muted/50 text-muted-foreground uppercase text-xs tracking-wider border-b">
+                      <tr>
+                        <th className="p-3">Date</th>
+                        <th className="p-3">Receipt No</th>
+                        <th className="p-3 text-right">Subtotal</th>
+                        <th className="p-3 text-right">Discount</th>
+                        <th className="p-3 text-right">Charged</th>
+                        <th className="p-3">Approved By</th>
+                        <th className="p-3">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {summary?.discountsList?.length > 0 ? (
+                        summary.discountsList.map((d: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-muted/10 transition-colors">
+                            <td className="p-3 font-mono text-xs">
+                              {d.createdAt ? format(new Date(d.createdAt), "yyyy-MM-dd HH:mm") : "N/A"}
+                            </td>
+                            <td className="p-3 font-medium font-mono text-xs">{d.receiptNumber}</td>
+                            <td className="p-3 text-right font-mono text-xs">{formatCurrency(d.subtotal || 0)}</td>
+                            <td className="p-3 text-right font-mono text-xs text-red-500 font-medium">
+                              − {formatCurrency(d.discountAmount)} ({d.discountPercent.toFixed(0)}%)
+                            </td>
+                            <td className="p-3 text-right font-mono text-xs text-emerald-600 font-semibold">
+                              {formatCurrency((d.subtotal || 0) - d.discountAmount)}
+                            </td>
+                            <td className="p-3">
+                              <Badge variant="outline" className="text-xs uppercase bg-muted font-normal">
+                                {d.discountApprovedBy || "N/A"}
+                              </Badge>
+                            </td>
+                            <td className="p-3 max-w-[200px] truncate text-xs text-muted-foreground italic" title={d.discountReason}>
+                              {d.discountReason || "No reason given"}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-muted-foreground text-sm">
+                            No discounts recorded in the selected period.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        <TabsContent value="breakdown" className="space-y-6 mt-0 border-none p-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Item-by-Item Breakdown (All Time)</CardTitle>
+              <CardDescription>Historical gross profit per inventory item</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                data={profitLossData}
+                columns={columns}
+                searchable
+                searchPlaceholder="Search items..."
+                searchKeys={["inventoryId"]}
+                isLoading={isLoadingPL}
+                emptyMessage="No historical data available."
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

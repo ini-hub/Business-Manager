@@ -16,12 +16,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
-import type { Inventory, RestockEvent, Staff, User as UserType } from "@shared/schema";
+import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -45,6 +62,57 @@ export default function InventoryDetails() {
     updateSellingPrice: false,
     notes: "",
   });
+  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  const form = useForm<InsertInventory>({
+    resolver: zodResolver(insertInventorySchema),
+    defaultValues: {
+      storeId: currentStore?.id || "",
+      name: "",
+      type: "product",
+      costPrice: 0,
+      sellingPrice: 0,
+      quantity: 0,
+    },
+  });
+
+  const watchType = form.watch("type");
+
+  const updateMutation = useMutation({
+    mutationFn: (data: InsertInventory) =>
+      apiRequest("PATCH", `/api/inventory/${inventoryId}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      toast({ title: "Item updated successfully" });
+      setIsEditOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Couldn't Update Item", 
+        description: getUserFriendlyError(error, "updating this item"), 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const openEditDialog = () => {
+    if (inventory) {
+      form.reset({
+        storeId: inventory.storeId,
+        name: inventory.name,
+        type: inventory.type as "product" | "service",
+        costPrice: inventory.costPrice,
+        sellingPrice: inventory.sellingPrice,
+        quantity: inventory.quantity,
+      });
+      setIsEditOpen(true);
+    }
+  };
+
+  const onSubmit = (data: InsertInventory) => {
+    updateMutation.mutate(data);
+  };
 
   const { data: inventory, isLoading: itemLoading } = useQuery<Inventory>({
     queryKey: ["inventory-detail", inventoryId],
@@ -280,7 +348,7 @@ export default function InventoryDetails() {
               Restock
             </Button>
           )}
-          <Button variant="outline" onClick={() => setLocation(`/inventory?edit=${inventoryId}`)} data-testid="button-edit">
+          <Button variant="outline" onClick={openEditDialog} data-testid="button-edit">
             <Edit className="h-4 w-4 mr-2" />
             Edit
           </Button>
@@ -558,6 +626,132 @@ export default function InventoryDetails() {
               {restockMutation.isPending ? "Updating..." : "Add Stock"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Edit Item
+            </DialogTitle>
+            <DialogDescription>
+              Update the inventory item details below.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Item Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Widget Pro" {...field} data-testid="input-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-type">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="product">Product</SelectItem>
+                        <SelectItem value="service">Service</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="costPrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Cost Price ({currencyInfo?.symbol || "₦"})</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          data-testid="input-cost"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="sellingPrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Selling Price ({currencyInfo?.symbol || "₦"})</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          data-testid="input-selling"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              {watchType === "product" && (
+                <FormField
+                  control={form.control}
+                  name="quantity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Quantity in Stock</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          {...field}
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                          data-testid="input-quantity"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              <div className="flex justify-end gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsEditOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={updateMutation.isPending}
+                  data-testid="button-submit"
+                >
+                  {updateMutation.isPending ? "Saving..." : "Update Item"}
+                </Button>
+              </div>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

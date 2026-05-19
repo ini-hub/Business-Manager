@@ -12,17 +12,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -31,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useLocation } from "wouter";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -38,31 +28,25 @@ import { BulkOperations } from "@/components/bulk-operations";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStaffSchema, type Staff, type InsertStaff, staffRoleEnum } from "@shared/schema";
+import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
 import { Mail, Shield } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
-import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
+import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
-import { z } from "zod";
-
-const staffFormSchema = insertStaffSchema.extend({
-  mobileNumber: z.string().min(1, "Mobile number is required"),
-  staffNumber: z.string().optional().default(""),
-});
 
 export default function StaffPage() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const userRole = user?.role || "staff";
   const isOwner = userRole === "owner";
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isPermanentDeleteOpen, setIsPermanentDeleteOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [transferTargetStoreId, setTransferTargetStoreId] = useState<string>("");
@@ -75,55 +59,6 @@ export default function StaffPage() {
 
   const activeStaff = staffList.filter(s => !s.isArchived);
   const archivedStaff = staffList.filter(s => s.isArchived);
-
-  const form = useForm<InsertStaff>({
-    resolver: zodResolver(staffFormSchema),
-    defaultValues: {
-      storeId: currentStore?.id || "",
-      name: "",
-      email: "",
-      staffNumber: "",
-      countryCode: "NG",
-      mobileNumber: "",
-      payPerMonth: 0,
-      signedContract: false,
-      role: "staff",
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (data: InsertStaff) => apiRequest("POST", "/api/staff", { ...data, storeId: currentStore?.id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Staff member created successfully" });
-      closeForm();
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Add Staff Member", 
-        description: getUserFriendlyError(error, "staff"), 
-        variant: "destructive" 
-      });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: (data: InsertStaff) =>
-      apiRequest("PATCH", `/api/staff/${selectedStaff?.id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
-      toast({ title: "Staff member updated successfully" });
-      closeForm();
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Update Staff Member", 
-        description: getUserFriendlyError(error, "staff"), 
-        variant: "destructive" 
-      });
-    },
-  });
 
   const archiveMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/staff/${selectedStaff?.id}`),
@@ -165,6 +100,8 @@ export default function StaffPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Staff member permanently deleted" });
+      setIsPermanentDeleteOpen(false);
+      setSelectedStaff(null);
     },
     onError: (error: Error) => {
       toast({ 
@@ -196,70 +133,11 @@ export default function StaffPage() {
   });
 
   const otherStores = stores.filter(s => s.id !== currentStore?.id);
-
   const storeCurrency = currentStore?.currency || "NGN";
   const currencyInfo = getCurrencyByCode(storeCurrency);
   
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);
-  };
-
-  const openCreateForm = () => {
-    form.reset({
-      storeId: currentStore?.id || "",
-      name: "",
-      email: "",
-      staffNumber: "",
-      countryCode: "NG",
-      mobileNumber: "",
-      payPerMonth: 0,
-      signedContract: false,
-      role: "staff",
-    });
-    setSelectedStaff(null);
-    setIsFormOpen(true);
-  };
-
-  const openEditForm = (staff: Staff) => {
-    let countryCode = staff.countryCode || "NG";
-    if (countryCode.startsWith("+")) {
-      const country = countryCodes.find(c => c.dialCode === countryCode);
-      countryCode = country?.code || "NG";
-    }
-    form.reset({
-      storeId: staff.storeId,
-      name: staff.name,
-      email: staff.email || "",
-      staffNumber: staff.staffNumber,
-      countryCode,
-      mobileNumber: staff.mobileNumber,
-      payPerMonth: staff.payPerMonth,
-      signedContract: staff.signedContract,
-      role: (staff.role as "manager" | "staff") || "staff",
-    });
-    setSelectedStaff(staff);
-    setIsFormOpen(true);
-  };
-
-  const closeForm = () => {
-    setIsFormOpen(false);
-    setSelectedStaff(null);
-    form.reset();
-  };
-
-  const onSubmit = (data: InsertStaff) => {
-    const countryCode = data.countryCode || "NG";
-    const validation = validatePhoneNumber(data.mobileNumber, countryCode);
-    if (!validation.valid) {
-      form.setError("mobileNumber", { message: validation.error });
-      return;
-    }
-    
-    if (selectedStaff) {
-      updateMutation.mutate(data);
-    } else {
-      createMutation.mutate(data);
-    }
   };
 
   const activeColumns = useMemo(() => {
@@ -303,10 +181,9 @@ export default function StaffPage() {
       },
     ];
 
-    // Owner-only columns: role, pay, contract, archive actions
     if (isOwner) {
       return [
-        ...baseColumns.slice(0, 3), // staffNumber, name, email
+        ...baseColumns.slice(0, 3),
         {
           key: "role",
           header: "Role",
@@ -317,7 +194,16 @@ export default function StaffPage() {
             </Badge>
           ),
         },
-        baseColumns[3], // mobileNumber
+        {
+          key: "paymentMethod",
+          header: "Model",
+          render: (staff: Staff) => (
+            <Badge variant="outline" className="capitalize">
+              {staff.paymentMethod}
+            </Badge>
+          ),
+        },
+        baseColumns[3],
         {
           key: "payPerMonth",
           header: "Monthly Pay",
@@ -355,9 +241,8 @@ export default function StaffPage() {
                 size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
-                  openEditForm(staff);
+                  setLocation(`/staff/${staff.id}/edit`);
                 }}
-                data-testid={`button-edit-${staff.id}`}
                 title="Edit staff member"
               >
                 <Edit className="h-4 w-4" />
@@ -372,7 +257,6 @@ export default function StaffPage() {
                     setTransferTargetStoreId("");
                     setIsTransferOpen(true);
                   }}
-                  data-testid={`button-transfer-${staff.id}`}
                   title="Transfer to another store"
                 >
                   <ArrowRightLeft className="h-4 w-4" />
@@ -386,7 +270,6 @@ export default function StaffPage() {
                   setSelectedStaff(staff);
                   setIsDeleteOpen(true);
                 }}
-                data-testid={`button-archive-${staff.id}`}
                 title="Archive staff member"
               >
                 <Archive className="h-4 w-4" />
@@ -397,7 +280,6 @@ export default function StaffPage() {
       ];
     }
 
-    // Manager view: limited columns (no role, pay, contract, archive)
     return [
       ...baseColumns,
       {
@@ -411,9 +293,8 @@ export default function StaffPage() {
               size="icon"
               onClick={(e) => {
                 e.stopPropagation();
-                openEditForm(staff);
+                setLocation(`/staff/${staff.id}/edit`);
               }}
-              data-testid={`button-edit-${staff.id}`}
             >
               <Edit className="h-4 w-4" />
             </Button>
@@ -421,7 +302,7 @@ export default function StaffPage() {
         ),
       },
     ];
-  }, [isOwner, formatCurrency]);
+  }, [isOwner, formatCurrency, setLocation, otherStores.length]);
 
   const archivedColumns = [
     {
@@ -475,7 +356,6 @@ export default function StaffPage() {
               restoreMutation.mutate(staff.id);
             }}
             title="Restore staff member"
-            data-testid={`button-restore-${staff.id}`}
           >
             <RotateCcw className="h-4 w-4" />
           </Button>
@@ -484,11 +364,10 @@ export default function StaffPage() {
             size="icon"
             onClick={(e) => {
               e.stopPropagation();
-              if (confirm("Permanently delete this staff member? This cannot be undone.")) {
-                permanentDeleteMutation.mutate(staff.id);
-              }
+              setSelectedStaff(staff);
+              setIsPermanentDeleteOpen(true);
             }}
-            data-testid={`button-delete-permanent-${staff.id}`}
+            title="Permanently delete staff member"
           >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
@@ -505,6 +384,7 @@ export default function StaffPage() {
         { key: "staffNumber", header: "Staff Number" },
         { key: "mobileNumber", header: "Mobile Number" },
         { key: "payPerMonth", header: "Pay Per Month" },
+        { key: "paymentMethod", header: "Payment Method" },
         { key: "signedContract", header: "Signed Contract" },
       ]
     : [
@@ -546,24 +426,18 @@ export default function StaffPage() {
               <BulkOperations
                 entityType="staff"
                 data={activeStaff as unknown as Record<string, unknown>[]}
-                columns={[
-                  { key: "name", header: "Name" },
-                  { key: "email", header: "Email" },
-                  { key: "role", header: "Role" },
-                  { key: "staffNumber", header: "Staff Number" },
-                  { key: "mobileNumber", header: "Mobile Number" },
-                  { key: "payPerMonth", header: "Pay Per Month" },
-                  { key: "signedContract", header: "Signed Contract" },
-                ]}
+                columns={exportColumns}
                 isLoading={isLoading}
                 storeId={currentStore.id}
               />
             )}
             {isOwner && (
-              <Button onClick={openCreateForm} data-testid="button-add-staff">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Staff
-              </Button>
+              <Link href="/staff/new">
+                <Button data-testid="button-add-staff">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Staff
+                </Button>
+              </Link>
             )}
           </div>
         }
@@ -571,14 +445,8 @@ export default function StaffPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="active" data-testid="tab-active-staff">
-            Active ({activeStaff.length})
-          </TabsTrigger>
-          {isOwner && (
-            <TabsTrigger value="archived" data-testid="tab-archived-staff">
-              Archived ({archivedStaff.length})
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="active">Active ({activeStaff.length})</TabsTrigger>
+          {isOwner && <TabsTrigger value="archived">Archived ({archivedStaff.length})</TabsTrigger>}
         </TabsList>
         <TabsContent value="active" className="mt-4">
           <DataTable
@@ -604,204 +472,26 @@ export default function StaffPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedStaff ? "Edit Staff Member" : "Add New Staff Member"}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedStaff
-                ? "Update the staff member information below."
-                : "Fill in the details to add a new staff member."}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Jane Smith" {...field} data-testid="input-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="email" 
-                        placeholder="jane@example.com" 
-                        {...field} 
-                        data-testid="input-email" 
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Required for staff login. Staff will use "Forgot Password" to set up their account.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {isOwner && (
-                <FormField
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Role</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "staff"}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-role">
-                            <SelectValue placeholder="Select role" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="staff">Staff</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Managers can access store management and reports. Staff can only access sales.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <FormField
-                  control={form.control}
-                  name="countryCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Country</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "NG"}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-country-code">
-                            <SelectValue placeholder="Select country" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className="max-h-[300px]">
-                          {countryCodes.map((country) => (
-                            <SelectItem key={country.code} value={country.code}>
-                              {country.name} ({country.dialCode})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="mobileNumber"
-                  render={({ field }) => (
-                    <FormItem className="sm:col-span-2">
-                      <FormLabel>Mobile Number</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="8012345678" 
-                          {...field} 
-                          data-testid="input-mobile" 
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Enter number without country code
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              {isOwner && (
-                <FormField
-                  control={form.control}
-                  name="payPerMonth"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Monthly Pay ({currencyInfo?.symbol || "₦"})</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          data-testid="input-pay"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Enter amount in {storeCurrency}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              {isOwner && (
-                <FormField
-                  control={form.control}
-                  name="signedContract"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Contract Signed</FormLabel>
-                        <FormDescription>
-                          Has this staff member signed their employment contract?
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          data-testid="switch-contract"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              )}
-              <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={closeForm}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending || updateMutation.isPending
-                    ? "Saving..."
-                    : selectedStaff
-                    ? "Update Staff"
-                    : "Add Staff"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
       <ConfirmDialog
         open={isDeleteOpen}
         onOpenChange={setIsDeleteOpen}
         title="Archive Staff Member"
         description={`Are you sure you want to archive "${selectedStaff?.name}"? You can restore them later from the Archived tab.`}
         confirmText="Archive"
-        onConfirm={() => archiveMutation.mutate()}
         isDestructive
+        onConfirm={() => archiveMutation.mutate()}
         isLoading={archiveMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={isPermanentDeleteOpen}
+        onOpenChange={setIsPermanentDeleteOpen}
+        title="Permanently delete this staff member?"
+        description="This cannot be undone."
+        confirmText="Delete"
+        isDestructive
+        onConfirm={() => permanentDeleteMutation.mutate(selectedStaff!.id)}
+        isLoading={permanentDeleteMutation.isPending}
       />
 
       <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
@@ -809,46 +499,31 @@ export default function StaffPage() {
           <DialogHeader>
             <DialogTitle>Transfer Staff Member</DialogTitle>
             <DialogDescription>
-              Transfer "{selectedStaff?.name}" to another store. A new staff ID will be assigned.
+              Move "{selectedStaff?.name}" to another store you own.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Select Target Store</label>
-              <Select 
-                value={transferTargetStoreId} 
-                onValueChange={setTransferTargetStoreId}
-              >
-                <SelectTrigger data-testid="select-transfer-store">
-                  <SelectValue placeholder="Choose a store..." />
+              <Select onValueChange={setTransferTargetStoreId} value={transferTargetStoreId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a store" />
                 </SelectTrigger>
                 <SelectContent>
-                  {otherStores.map((store) => (
-                    <SelectItem key={store.id} value={store.id}>
-                      {store.name} ({store.code})
-                    </SelectItem>
+                  {otherStores.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTransferOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (selectedStaff && transferTargetStoreId) {
-                  transferMutation.mutate({ 
-                    staffId: selectedStaff.id, 
-                    targetStoreId: transferTargetStoreId 
-                  });
-                }
-              }}
+            <Button variant="outline" onClick={() => setIsTransferOpen(false)}>Cancel</Button>
+            <Button 
               disabled={!transferTargetStoreId || transferMutation.isPending}
-              data-testid="button-confirm-transfer"
+              onClick={() => transferMutation.mutate({ staffId: selectedStaff!.id, targetStoreId: transferTargetStoreId })}
             >
-              {transferMutation.isPending ? "Transferring..." : "Transfer"}
+              {transferMutation.isPending ? "Transferring..." : "Confirm Transfer"}
             </Button>
           </DialogFooter>
         </DialogContent>

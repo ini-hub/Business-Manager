@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { format, parseISO } from "date-fns";
@@ -9,10 +9,12 @@ import {
   CheckCircle2,
   Lock,
   Plus,
+  ChevronLeft,
   ChevronRight,
   AlertCircle,
   Download,
   Users,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -23,6 +25,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
@@ -45,7 +57,16 @@ export default function PayrollPage() {
   const isOwner = userRole === "owner";
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
+  const [selectedPeriodId, setSelectedPeriodIdRaw] = useState<string | null>(
+    () => sessionStorage.getItem("payroll_selected_period")
+  );
+
+  // Wrap setter to also persist to sessionStorage
+  const setSelectedPeriodId = (id: string | null) => {
+    setSelectedPeriodIdRaw(id);
+    if (id) sessionStorage.setItem("payroll_selected_period", id);
+    else sessionStorage.removeItem("payroll_selected_period");
+  };
   const [periodType, setPeriodType] = useState<PayrollPeriodType>("monthly");
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -57,6 +78,10 @@ export default function PayrollPage() {
     const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
     return format(last, "yyyy-MM-dd");
   });
+  const [periodToDelete, setPeriodToDelete] = useState<string | null>(null);
+
+  const [periodsPage, setPeriodsPage] = useState(1);
+  const [entriesPage, setEntriesPage] = useState(1);
 
   const storeCurrency = currentStore?.currency || "NGN";
   const fmt = (v: number) => formatCurrencyUtil(v, storeCurrency);
@@ -69,6 +94,25 @@ export default function PayrollPage() {
     },
     enabled: !!currentStore?.id,
   });
+
+  // Reset periods pagination when currentStore or periods change
+  useEffect(() => {
+    setPeriodsPage(1);
+  }, [currentStore?.id, periods.length]);
+
+  // Reset entries pagination when selectedPeriodId changes
+  useEffect(() => {
+    setEntriesPage(1);
+  }, [selectedPeriodId]);
+
+  // Auto-select the most recent period if none is selected or persisted selection no longer exists
+  useEffect(() => {
+    if (periods.length === 0) return;
+    const exists = selectedPeriodId && periods.some(p => p.id === selectedPeriodId);
+    if (!exists) {
+      setSelectedPeriodId(periods[0].id);
+    }
+  }, [periods]);
 
   const { data: entries = [], isLoading: entriesLoading } = useQuery<PayrollEntryWithStaff[]>({
     queryKey: ["/api/payroll/periods/entries", selectedPeriodId],
@@ -134,7 +178,27 @@ export default function PayrollPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/periods", currentStore?.id] });
       toast({ title: "Payroll marked as paid and locked" });
     },
-    onError: () => toast({ title: "Could not mark as paid", variant: "destructive" }),
+    onError: (err: any) => {
+      const errorMessage = err.message || "Could not mark as paid";
+      toast({ 
+        title: "Action Prevented", 
+        description: errorMessage, 
+        variant: "destructive" 
+      });
+    },
+  });
+  
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/payroll/periods/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/periods", currentStore?.id] });
+      if (selectedPeriodId) setSelectedPeriodId(null);
+      toast({ title: "Payroll period deleted" });
+    },
+    onError: (err: Error) => toast({ title: err.message || "Could not delete payroll", variant: "destructive" }),
   });
 
   const grandTotal = entries.reduce((sum, e) => sum + (e.netPay || 0), 0);
@@ -207,31 +271,105 @@ export default function PayrollPage() {
               </CardContent>
             </Card>
           ) : (
-            periods.map(p => {
-              const cfg = STATUS_CONFIG[p.status as keyof typeof STATUS_CONFIG];
-              const isSelected = selectedPeriodId === p.id;
-              return (
-                <div
-                  key={p.id}
-                  className={`p-4 rounded-lg border cursor-pointer transition-all ${isSelected ? "border-primary bg-primary/5 shadow-sm" : "hover:border-muted-foreground/30 hover:bg-muted/30"}`}
-                  onClick={() => setSelectedPeriodId(p.id)}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium capitalize">{p.periodType}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {format(parseISO(p.startDate), "MMM d")} – {format(parseISO(p.endDate), "MMM d, yyyy")}
-                      </p>
+            <div className="space-y-3">
+              {periods.slice((periodsPage - 1) * 5, periodsPage * 5).map(p => {
+                const cfg = STATUS_CONFIG[p.status as keyof typeof STATUS_CONFIG];
+                const isSelected = selectedPeriodId === p.id;
+                return (
+                  <div
+                    key={p.id}
+                    className={`p-4 rounded-lg border cursor-pointer transition-all ${isSelected ? "border-primary bg-primary/5 shadow-sm" : "hover:border-muted-foreground/30 hover:bg-muted/30"}`}
+                    onClick={() => setSelectedPeriodId(p.id)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium capitalize">{p.periodType}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {format(parseISO(p.startDate), "MMM d")} – {format(parseISO(p.endDate), "MMM d, yyyy")}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className={`text-xs ${cfg.color} ${cfg.bg} border`}>
+                        {cfg.label}
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className={`text-xs ${cfg.color} ${cfg.bg} border`}>
-                      {cfg.label}
-                    </Badge>
+                    {p.status !== "paid" && isOwner && (
+                      <div className="flex justify-end mt-2 pt-2 border-t border-dashed">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 px-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPeriodToDelete(p.id);
+                          }}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+
+              {periods.length > 5 && (
+                <div className="flex items-center justify-between pt-2 border-t border-dashed mt-2 bg-background/50 p-2 rounded-lg border">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs bg-background"
+                    onClick={() => setPeriodsPage(prev => Math.max(1, prev - 1))}
+                    disabled={periodsPage === 1}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+                    Prev
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground font-medium">
+                    Page {periodsPage} of {Math.ceil(periods.length / 5)}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 text-xs bg-background"
+                    onClick={() => setPeriodsPage(prev => Math.min(Math.ceil(periods.length / 5), prev + 1))}
+                    disabled={periodsPage >= Math.ceil(periods.length / 5)}
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
                 </div>
-              );
-            })
+              )}
+            </div>
           )}
         </div>
+
+        {/* Delete Confirmation Modal */}
+        <AlertDialog open={!!periodToDelete} onOpenChange={(open) => !open && setPeriodToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Payroll Period?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will remove all calculated earnings and transport allowances for this cycle. 
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (periodToDelete) {
+                    deleteMutation.mutate(periodToDelete);
+                    setPeriodToDelete(null);
+                  }
+                }}
+              >
+                Delete Period
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Period detail */}
         <div className="lg:col-span-2 space-y-4">
@@ -341,7 +479,7 @@ export default function PayrollPage() {
                         <div></div>
                       </div>
 
-                      {entries.map(entry => (
+                      {entries.slice((entriesPage - 1) * 5, entriesPage * 5).map(entry => (
                         <div key={entry.id} className="grid grid-cols-7 gap-2 py-3 border-b last:border-0 hover:bg-muted/20 rounded-lg px-1 transition-colors group">
                           <div className="col-span-2 flex items-center gap-2 min-w-0">
                             <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
@@ -370,6 +508,34 @@ export default function PayrollPage() {
                         </div>
                       ))}
                     </div>
+
+                    {entries.length > 5 && (
+                      <div className="flex items-center justify-between pt-4 mt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-3 text-xs"
+                          onClick={() => setEntriesPage(prev => Math.max(1, prev - 1))}
+                          disabled={entriesPage === 1}
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+                          Prev
+                        </Button>
+                        <span className="text-xs text-muted-foreground font-medium">
+                          Page {entriesPage} of {Math.ceil(entries.length / 5)}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-3 text-xs"
+                          onClick={() => setEntriesPage(prev => Math.min(Math.ceil(entries.length / 5), prev + 1))}
+                          disabled={entriesPage >= Math.ceil(entries.length / 5)}
+                        >
+                          Next
+                          <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                   <Separator />
                   <CardFooter className="justify-between pt-4">
