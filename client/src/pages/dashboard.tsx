@@ -69,11 +69,13 @@ export default function Dashboard() {
       return res.json();
     },
     enabled: !!currentStore?.id,
+    refetchInterval: 30000, // Dashboard stats refresh every 30 seconds
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
     queryKey: ["/api/profit-loss", currentStore?.id],
     enabled: !!currentStore?.id,
+    refetchInterval: 30000, // Profit/Loss trend data refresh every 30 seconds
   });
 
   const { data: topCustomers = [] } = useQuery<any[]>({
@@ -84,6 +86,7 @@ export default function Dashboard() {
       return res.json();
     },
     enabled: !!currentStore?.id,
+    refetchInterval: 30000, // Top customers metric refresh every 30 seconds
   });
 
   const storeCurrency = currentStore?.currency || "NGN";
@@ -297,7 +300,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <Users className="h-4 w-4" /> Top Customers

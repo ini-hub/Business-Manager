@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { User, Lock, Camera, Shield, CheckCircle2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { getUserFriendlyError } from "@/lib/error-utils";
 
 export default function ProfilePage() {
@@ -117,10 +118,14 @@ export default function ProfilePage() {
 
         <div className="space-y-6">
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="grid w-full mb-6 grid-cols-2">
-              <TabsTrigger value="general">General Information</TabsTrigger>
-              <TabsTrigger value="security">Security & Password</TabsTrigger>
-            </TabsList>
+            <PolymorphicTabsList
+              tabs={[
+                { value: "general", label: "General Information" },
+                { value: "security", label: "Security & Password" },
+              ]}
+              variant="default"
+              className="mb-6"
+            />
 
             <TabsContent value="general" className="space-y-6 mt-0 border-none p-0">
               <Card id="general" className="border-primary/10">

@@ -15,6 +15,7 @@ import { Link } from "wouter";
 import type { Customer, TransactionWithRelations } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import {
   Table,
   TableBody,
@@ -183,6 +184,19 @@ export default function CustomerDetails() {
     );
   }
 
+  const detailTabItems: TabItem[] = [
+    {
+      value: "transactions",
+      label: `Transaction History (${transactions.length})`,
+      icon: <Receipt className="h-3.5 w-3.5" />,
+    },
+    {
+      value: "credit",
+      label: `Borrow Book Ledger (${creditEntries.length})`,
+      icon: <BookOpen className="h-3.5 w-3.5 text-amber-500" />,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -265,16 +279,7 @@ export default function CustomerDetails() {
             </CardHeader>
             <CardContent className="pt-6">
               <Tabs defaultValue="transactions" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 bg-muted/50 p-1 mb-6">
-                  <TabsTrigger value="transactions" className="text-xs font-semibold py-2">
-                    <Receipt className="h-3.5 w-3.5 mr-2" />
-                    Transaction History ({transactions.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="credit" className="text-xs font-semibold py-2">
-                    <BookOpen className="h-3.5 w-3.5 mr-2 text-amber-500" />
-                    Borrow Book Ledger ({creditEntries.length})
-                  </TabsTrigger>
-                </TabsList>
+                <PolymorphicTabsList tabs={detailTabItems} variant="default" className="mb-6" />
 
                 <TabsContent value="transactions" className="space-y-4">
                   {transactionsLoading ? (
@@ -314,73 +319,75 @@ export default function CustomerDetails() {
                     </div>
                   ) : (
                     <div className="rounded-md border bg-background overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Receipt / Date</TableHead>
-                            <TableHead className="text-right">Owed</TableHead>
-                            <TableHead className="text-right">Paid Back</TableHead>
-                            <TableHead className="text-right">Outstanding</TableHead>
-                            <TableHead>Due Date</TableHead>
-                            <TableHead>Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {creditEntries.map((entry) => (
-                            <TableRow key={entry.id}>
-                              <TableCell>
-                                <div className="flex flex-col">
-                                  <span className="font-semibold text-xs text-primary">
-                                    {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone"}
-                                  </span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {new Date(entry.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right font-medium text-xs">
-                                ₦{entry.amountOwed.toLocaleString()}
-                              </TableCell>
-                              <TableCell className="text-right font-medium text-xs text-emerald-600">
-                                ₦{(entry.amountPaidUpfront + (entry.totalRepayments || 0)).toLocaleString()}
-                              </TableCell>
-                              <TableCell className="text-right font-bold text-xs text-amber-500">
-                                ₦{entry.outstandingBalance.toLocaleString()}
-                              </TableCell>
-                              <TableCell className="text-xs">
-                                {entry.dueDate ? (
-                                  <span>{new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</span>
-                                ) : (
-                                  <span className="text-muted-foreground">None</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    entry.status === "settled" ? "outline" :
-                                    entry.status === "overdue" ? "destructive" :
-                                    entry.status === "written_off" ? "secondary" : "default"
-                                  }
-                                  className={`text-[10px] py-0 px-1.5 font-semibold ${
-                                    entry.status === "settled" ? "border-emerald-500 text-emerald-500 bg-emerald-500/5" :
-                                    entry.status === "owing" ? "border-amber-500 text-amber-500 bg-amber-500/5" :
-                                    entry.status === "partial" ? "border-blue-500 text-blue-500 bg-blue-500/5" :
-                                    entry.status === "written_off" ? "border-rose-500 text-rose-500 bg-rose-500/5" : ""
-                                  }`}
-                                >
-                                  {
-                                    entry.status === "written_off" ? "Written Off" :
-                                    entry.status === "owing" ? "Owing" :
-                                    entry.status === "partial" ? "Partial" :
-                                    entry.status === "overdue" ? "Overdue" :
-                                    entry.status === "settled" ? "Settled" : entry.status
-                                  }
-                                </Badge>
-                              </TableCell>
+                      <div className="overflow-x-auto">
+                        <Table className="min-w-[800px]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Receipt / Date</TableHead>
+                              <TableHead className="text-right">Owed</TableHead>
+                              <TableHead className="text-right">Paid Back</TableHead>
+                              <TableHead className="text-right">Outstanding</TableHead>
+                              <TableHead>Due Date</TableHead>
+                              <TableHead>Status</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                          </TableHeader>
+                          <TableBody>
+                            {creditEntries.map((entry) => (
+                              <TableRow key={entry.id}>
+                                <TableCell>
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold text-xs text-primary">
+                                      {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone"}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {new Date(entry.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right font-medium text-xs">
+                                  ₦{entry.amountOwed.toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-right font-medium text-xs text-emerald-600">
+                                  ₦{(entry.amountPaidUpfront + (entry.totalRepayments || 0)).toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-right font-bold text-xs text-amber-500">
+                                  ₦{entry.outstandingBalance.toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {entry.dueDate ? (
+                                    <span>{new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">None</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={
+                                      entry.status === "settled" ? "outline" :
+                                      entry.status === "overdue" ? "destructive" :
+                                      entry.status === "written_off" ? "secondary" : "default"
+                                    }
+                                    className={`text-[10px] py-0 px-1.5 font-semibold ${
+                                      entry.status === "settled" ? "border-emerald-500 text-emerald-500 bg-emerald-500/5" :
+                                      entry.status === "owing" ? "border-amber-500 text-amber-500 bg-amber-500/5" :
+                                      entry.status === "partial" ? "border-blue-500 text-blue-500 bg-blue-500/5" :
+                                      entry.status === "written_off" ? "border-rose-500 text-rose-500 bg-rose-500/5" : ""
+                                    }`}
+                                  >
+                                    {
+                                      entry.status === "written_off" ? "Written Off" :
+                                      entry.status === "owing" ? "Owing" :
+                                      entry.status === "partial" ? "Partial" :
+                                      entry.status === "overdue" ? "Overdue" :
+                                      entry.status === "settled" ? "Settled" : entry.status
+                                    }
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   )}
                 </TabsContent>

@@ -26,7 +26,7 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
   const segments = location.split("/").filter(Boolean);
 
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="space-y-1">
         {segments.length > 0 && (
           <div className="flex items-center text-xs text-muted-foreground mb-2">
@@ -53,7 +53,7 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
           <p className="text-sm text-muted-foreground">{description}</p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">{actions}</div>}
     </div>
   );
 }

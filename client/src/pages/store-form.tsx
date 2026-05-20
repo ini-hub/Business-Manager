@@ -32,7 +32,7 @@ import { z } from "zod";
 import { useEffect } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { countries, currencies } from "@/lib/currency-utils";
-import { countryCodes } from "@/lib/phone-utils";
+import { deduplicatedCountryCodes } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store, Staff } from "@shared/schema";
 
@@ -258,7 +258,7 @@ export default function StoreFormPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent className="max-h-[300px]">
-                            {countryCodes.map((cc) => (
+                            {deduplicatedCountryCodes.map((cc) => (
                               <SelectItem key={cc.dialCode} value={cc.dialCode}>
                                 {cc.dialCode} ({cc.name})
                               </SelectItem>

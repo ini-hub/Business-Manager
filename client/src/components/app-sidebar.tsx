@@ -36,6 +36,8 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useStore } from "@/lib/store-context";
+import { OrgSwitcher } from "@/components/org-switcher";
+import { StoreSelector } from "@/components/store-selector";
 
 type UserRole = "owner" | "manager" | "staff";
 
@@ -189,6 +191,18 @@ export function AppSidebar() {
           <div className="flex flex-col">
             <span className="text-base font-semibold">Business Manager</span>
             <span className="text-xs text-muted-foreground">Management System</span>
+          </div>
+        </div>
+        
+        {/* Mobile Switchers Panel - Visible only on small devices */}
+        <div className="flex flex-col gap-3 mt-4 pt-3 border-t border-sidebar-border md:hidden animate-fade-in">
+          <div className="w-full">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Organization</span>
+            <OrgSwitcher />
+          </div>
+          <div className="w-full">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Store Selector</span>
+            <StoreSelector />
           </div>
         </div>
       </SidebarHeader>

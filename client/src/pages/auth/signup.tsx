@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, ArrowLeft } from "lucide-react";
-import { countryCodes } from "@/lib/phone-utils";
+import { deduplicatedCountryCodes } from "@/lib/phone-utils";
 
 const passwordSchema = z
   .string()
@@ -314,8 +314,8 @@ export default function Signup() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {countryCodes.map((country) => (
-                            <SelectItem key={`${country.code}-${country.name}`} value={country.dialCode}>
+                          {deduplicatedCountryCodes.map((country) => (
+                            <SelectItem key={country.dialCode} value={country.dialCode}>
                               {country.dialCode}
                             </SelectItem>
                           ))}

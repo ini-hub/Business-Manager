@@ -22,8 +22,9 @@ import {
   CartesianGrid,
   Legend
 } from "recharts";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 
 const CustomTooltip = ({ active, payload, label, selectedMetric, formatCurrency }: any) => {
   if (active && payload && payload.length) {
@@ -201,6 +202,14 @@ export default function StaffPerformancePage() {
     { key: "absentDays", header: "Days Absent" },
   ];
 
+  const metricTabItems: TabItem[] = [
+    { value: "revenue", label: "Revenue" },
+    { value: "services", label: "Services" },
+    { value: "products", label: "Products" },
+    { value: "attendance", label: "Attendance" },
+    { value: "performance", label: "Performance" },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -271,13 +280,7 @@ export default function StaffPerformancePage() {
                       <h3 className="font-semibold text-sm leading-none tracking-tight">Staff Metrics Visualization</h3>
                       <p className="text-xs text-muted-foreground mt-1">Select a tab below to compare staff contributions</p>
                     </div>
-                    <TabsList className="grid grid-cols-5 w-full xl:w-auto bg-muted/40 p-0.5 rounded-lg border border-border/40">
-                      <TabsTrigger value="revenue" className="text-xs py-1.5">Revenue</TabsTrigger>
-                      <TabsTrigger value="services" className="text-xs py-1.5">Services</TabsTrigger>
-                      <TabsTrigger value="products" className="text-xs py-1.5">Products</TabsTrigger>
-                      <TabsTrigger value="attendance" className="text-xs py-1.5">Attendance</TabsTrigger>
-                      <TabsTrigger value="performance" className="text-xs py-1.5">Performance</TabsTrigger>
-                    </TabsList>
+                    <PolymorphicTabsList tabs={metricTabItems} variant="solid" className="w-full xl:w-auto" />
                   </div>
 
                   <div className="h-[320px] w-full">

@@ -160,12 +160,12 @@ function AuthenticatedLayout() {
             <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
               <div className="flex items-center gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
-                <Separator orientation="vertical" className="h-6" />
-                <div className="w-48">
+                <Separator orientation="vertical" className="hidden md:block h-6" />
+                <div className="hidden md:block w-48">
                   <OrgSwitcher />
                 </div>
-                <Separator orientation="vertical" className="h-6" />
-                <div className="w-48">
+                <Separator orientation="vertical" className="hidden md:block h-6" />
+                <div className="hidden md:block w-48">
                   <StoreSelector />
                 </div>
               </div>

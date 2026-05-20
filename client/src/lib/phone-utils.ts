@@ -56,6 +56,28 @@ export const countryCodes: CountryCode[] = [
   { code: "US", name: "United States", dialCode: "+1", minLength: 10, maxLength: 10, pattern: /^[2-9]\d{9}$/ },
 ];
 
+export const deduplicatedCountryCodes: CountryCode[] = (() => {
+  const seen = new Set<string>();
+  const list: CountryCode[] = [];
+  
+  const ordered = [...countryCodes].sort((a, b) => {
+    if (a.dialCode === b.dialCode) {
+      if (a.code === "US") return -1;
+      if (b.code === "US") return 1;
+    }
+    return 0;
+  });
+  
+  for (const cc of ordered) {
+    if (!seen.has(cc.dialCode)) {
+      seen.add(cc.dialCode);
+      list.push(cc);
+    }
+  }
+  
+  return list.sort((a, b) => a.name.localeCompare(b.name));
+})();
+
 export function getCountryByCode(code: string): CountryCode | undefined {
   return countryCodes.find(c => c.code === code);
 }

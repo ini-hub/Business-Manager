@@ -82,6 +82,7 @@ export default function Transactions() {
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id],
     enabled: !!currentStore?.id,
+    refetchInterval: 20000, // Refetch transactions list in background every 20 seconds
   });
 
   const filteredTransactions = useMemo(() => {

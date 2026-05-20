@@ -236,49 +236,51 @@ export default function PayrollDetailPage() {
               ) : breakdown.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-8">No service commissions found for this staff member in this period.</p>
               ) : (
-                <>
-                  {/* Header */}
-                  <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground font-medium py-2 border-b">
-                    <div className="col-span-2">Date</div>
-                    <div className="col-span-1 text-center">Receipt</div>
-                    <div className="col-span-3">Service</div>
-                    <div className="col-span-2 text-center">Role</div>
-                    <div className="col-span-1 text-right">Price</div>
-                    <div className="col-span-1 text-right">Pool</div>
-                    <div className="col-span-1 text-right">Share</div>
-                    <div className="col-span-1 text-right">Earned</div>
-                  </div>
+                <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="min-w-[800px]">
+                    {/* Header */}
+                    <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground font-medium py-2 border-b">
+                      <div className="col-span-2">Date</div>
+                      <div className="col-span-1 text-center">Receipt</div>
+                      <div className="col-span-3">Service</div>
+                      <div className="col-span-2 text-center">Role</div>
+                      <div className="col-span-1 text-right">Price</div>
+                      <div className="col-span-1 text-right">Pool</div>
+                      <div className="col-span-1 text-right">Share</div>
+                      <div className="col-span-1 text-right">Earned</div>
+                    </div>
 
-                  {/* Rows */}
-                  {breakdown.map((b, i) => {
-                    const roleCfg = ROLE_CONFIG[b.role];
-                    return (
-                      <div
-                        key={`${b.checkoutId}-${i}`}
-                        className="grid grid-cols-12 gap-2 py-2.5 border-b last:border-0 text-sm hover:bg-muted/20 rounded-md px-1 transition-colors"
-                      >
-                        <div className="col-span-2 text-xs text-muted-foreground self-center">
-                          {format(parseISO(b.transactionDate), "MMM d")}
+                    {/* Rows */}
+                    {breakdown.map((b, i) => {
+                      const roleCfg = ROLE_CONFIG[b.role];
+                      return (
+                        <div
+                          key={`${b.checkoutId}-${i}`}
+                          className="grid grid-cols-12 gap-2 py-2.5 border-b last:border-0 text-sm hover:bg-muted/20 rounded-md px-1 transition-colors"
+                        >
+                          <div className="col-span-2 text-xs text-muted-foreground self-center">
+                            {format(parseISO(b.transactionDate), "MMM d")}
+                          </div>
+                          <div className="col-span-1 text-xs font-mono text-muted-foreground self-center truncate">
+                            {b.receiptNumber.split("-").slice(-1)[0]}
+                          </div>
+                          <div className="col-span-3 font-medium self-center truncate text-xs" title={b.inventoryName}>
+                            {b.inventoryName}
+                          </div>
+                          <div className="col-span-2 text-center self-center">
+                            <Badge variant="outline" className={`text-xs ${roleCfg.color} border`}>
+                              {roleCfg.label}
+                            </Badge>
+                          </div>
+                          <div className="col-span-1 text-right font-mono text-xs self-center">{fmtCur(b.serviceAmount)}</div>
+                          <div className="col-span-1 text-right font-mono text-xs text-muted-foreground self-center">{fmtCur(b.commissionPool)}</div>
+                          <div className="col-span-1 text-right text-xs text-muted-foreground self-center">{(b.share * 100).toFixed(0)}%</div>
+                          <div className="col-span-1 text-right font-semibold font-mono text-xs self-center">{fmtCur(b.earned)}</div>
                         </div>
-                        <div className="col-span-1 text-xs font-mono text-muted-foreground self-center truncate">
-                          {b.receiptNumber.split("-").slice(-1)[0]}
-                        </div>
-                        <div className="col-span-3 font-medium self-center truncate text-xs" title={b.inventoryName}>
-                          {b.inventoryName}
-                        </div>
-                        <div className="col-span-2 text-center self-center">
-                          <Badge variant="outline" className={`text-xs ${roleCfg.color} border`}>
-                            {roleCfg.label}
-                          </Badge>
-                        </div>
-                        <div className="col-span-1 text-right font-mono text-xs self-center">{fmtCur(b.serviceAmount)}</div>
-                        <div className="col-span-1 text-right font-mono text-xs text-muted-foreground self-center">{fmtCur(b.commissionPool)}</div>
-                        <div className="col-span-1 text-right text-xs text-muted-foreground self-center">{(b.share * 100).toFixed(0)}%</div>
-                        <div className="col-span-1 text-right font-semibold font-mono text-xs self-center">{fmtCur(b.earned)}</div>
-                      </div>
-                    );
-                  })}
-                </>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </CardContent>
             {breakdown.length > 0 && (

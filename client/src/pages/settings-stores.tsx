@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -618,6 +619,15 @@ export default function SettingsStoresPage() {
     );
   }
 
+  const tabItems: TabItem[] = [
+    { value: "stores", label: "Stores Management", icon: <Store className="h-4 w-4" /> },
+    { value: "business", label: "Business Details", icon: <Building2 className="h-4 w-4" /> },
+    { value: "roles", label: "Roles & Permissions", icon: <ShieldCheck className="h-4 w-4" />, testId: "tab-roles-permissions" },
+    { value: "bulk", label: "Bulk Operations", icon: <Database className="h-4 w-4" />, testId: "tab-bulk-operations" },
+    { value: "payments", label: "Payment Gateways", icon: <CreditCard className="h-4 w-4" /> },
+    { value: "borrow-book", label: "Borrow Book Reminders", icon: <BookOpen className="h-4 w-4" /> },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -626,32 +636,7 @@ export default function SettingsStoresPage() {
       />
 
       <Tabs defaultValue="stores" className="w-full space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 bg-muted/50 p-1 rounded-xl gap-1">
-          <TabsTrigger value="stores" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
-            <Store className="h-4 w-4" />
-            Stores Management
-          </TabsTrigger>
-          <TabsTrigger value="business" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
-            <Building2 className="h-4 w-4" />
-            Business Details
-          </TabsTrigger>
-          <TabsTrigger value="roles" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm animate-fade-in" data-testid="tab-roles-permissions">
-            <ShieldCheck className="h-4 w-4" />
-            Roles & Permissions
-          </TabsTrigger>
-          <TabsTrigger value="bulk" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm animate-fade-in" data-testid="tab-bulk-operations">
-            <Database className="h-4 w-4" />
-            Bulk Operations
-          </TabsTrigger>
-          <TabsTrigger value="payments" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
-            <CreditCard className="h-4 w-4" />
-            Payment Gateways
-          </TabsTrigger>
-          <TabsTrigger value="borrow-book" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
-            <BookOpen className="h-4 w-4" />
-            Borrow Book Reminders
-          </TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList tabs={tabItems} variant="default" />
 
         <TabsContent value="stores" className="space-y-6 mt-0">
           <Card>

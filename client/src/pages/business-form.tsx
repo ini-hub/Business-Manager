@@ -28,7 +28,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useEffect } from "react";
 import { useStore } from "@/lib/store-context";
-import { countryCodes } from "@/lib/phone-utils";
+import { deduplicatedCountryCodes } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
@@ -249,7 +249,7 @@ export default function BusinessFormPage() {
                             <SelectValue placeholder="+234" />
                           </SelectTrigger>
                           <SelectContent className="max-h-[300px]">
-                            {countryCodes.map((cc) => (
+                            {deduplicatedCountryCodes.map((cc) => (
                               <SelectItem key={cc.dialCode} value={cc.dialCode}>
                                 {cc.dialCode} ({cc.name})
                               </SelectItem>

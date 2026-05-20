@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog,
@@ -436,11 +437,14 @@ export default function InventoryDetails() {
       </div>
 
       <Tabs defaultValue="overview" className="w-full space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-3">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="restock-history">Restock History</TabsTrigger>
-          <TabsTrigger value="sustaining-costs">Sustaining Costs</TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList
+          tabs={[
+            { value: "overview", label: "Overview" },
+            { value: "restock-history", label: "Restock History" },
+            { value: "sustaining-costs", label: "Sustaining Costs" },
+          ]}
+          variant="default"
+        />
 
         <TabsContent value="overview" className="space-y-6 mt-0">
           <div className="grid gap-6 md:grid-cols-3">

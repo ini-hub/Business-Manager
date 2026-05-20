@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { analyticsApi } from "@/services/AnalyticsApiService";
 import { endOfDay, startOfDay, startOfMonth, subMonths, format } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 
 export default function ProfitLossPage() {
   const { currentStore } = useStore();
@@ -187,6 +188,13 @@ export default function ProfitLossPage() {
   const opProfit = summary?.operatingProfit ?? 0;
   const isOwner = user?.role === "owner";
 
+  const plTabItems: TabItem[] = [
+    { value: "income", label: "Income Statement" },
+    { value: "expenses", label: "Expense Details", visible: isOwner },
+    { value: "discounts", label: "Discounts Report", visible: isOwner },
+    { value: "breakdown", label: "Item-by-Item Breakdown (All Time)" },
+  ];
+
   return (
     <PageContainer
       title="Profit & Loss Statement"
@@ -250,12 +258,7 @@ export default function ProfitLossPage() {
       </div>
 
       <Tabs defaultValue="income" className="w-full">
-        <TabsList className={`grid w-full mb-6 ${isOwner ? "grid-cols-4" : "grid-cols-2"}`}>
-          <TabsTrigger value="income">Income Statement</TabsTrigger>
-          {isOwner && <TabsTrigger value="expenses">Expense Details</TabsTrigger>}
-          {isOwner && <TabsTrigger value="discounts">Discounts Report</TabsTrigger>}
-          <TabsTrigger value="breakdown">Item-by-Item Breakdown (All Time)</TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList tabs={plTabItems} variant="default" className="mb-6" />
 
         <TabsContent value="income" className="space-y-6 mt-0 border-none p-0">
           <Card className="border-primary/20 shadow-sm max-w-3xl mx-auto">
@@ -435,8 +438,8 @@ export default function ProfitLossPage() {
                 <CardDescription>Comprehensive audit log of all transaction-level basket discounts in the period</CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
-                <div className="rounded-md border overflow-hidden">
-                  <table className="w-full text-sm text-left">
+                <div className="rounded-md border overflow-hidden overflow-x-auto">
+                  <table className="w-full text-sm text-left min-w-[800px]">
                     <thead className="bg-muted/50 text-muted-foreground uppercase text-xs tracking-wider border-b">
                       <tr>
                         <th className="p-3">Date</th>

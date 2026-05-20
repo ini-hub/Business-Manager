@@ -588,7 +588,7 @@ export default function NewSale() {
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <div id="pos-cart-section" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="text-base font-medium flex items-center gap-2">
@@ -1483,6 +1483,23 @@ export default function NewSale() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Mobile/Tablet Floating Cart Navigator */}
+      {cart.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 xl:hidden">
+          <Button
+            onClick={() => {
+              const cartElement = document.getElementById("pos-cart-section");
+              if (cartElement) {
+                cartElement.scrollIntoView({ behavior: "smooth" });
+              }
+            }}
+            className="flex items-center gap-2 rounded-full shadow-xl bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-6 text-sm font-semibold transition-all hover:scale-105 active:scale-95 duration-200"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            <span>View Cart ({cart.length}) — {formatCurrency(cartTotal)}</span>
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

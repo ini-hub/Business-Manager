@@ -112,6 +112,11 @@ export async function registerRoutes(
   // Setup authentication
   await setupAuth(app);
 
+  // Health check endpoint (no auth required, used by hosting providers)
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString(), uptime: process.uptime() });
+  });
+
   // Initialize dynamic OOP Router Registry
   const registry = new RouterRegistry([
     new AuthController(),
@@ -276,13 +281,13 @@ export async function registerRoutes(
         password: hashedPassword,
         businessId: organisation.id, // For backward compatibility
         role: "owner", // For backward compatibility
-        isVerified: false,
+        isVerified: true, // Auto-verify (OTP disabled for now)
       });
 
       // Update remaining fields on the user
       await storage.updateUser(user.id, {
         passwordHash: hashedPassword,
-        isEmailVerified: false,
+        isEmailVerified: true, // Auto-verify (OTP disabled for now)
         otpCode,
         otpExpiry,
       });
@@ -524,22 +529,15 @@ export async function registerRoutes(
       await storage.updateUser(user.id, { loginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() });
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "login");
 
-      // Check if email is verified. If not, trigger OTP validation
-      if (user.email && !user.isEmailVerified) {
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        await storage.updateUser(user.id, {
-          otpCode,
-          otpExpiry,
-        });
-
-        await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
-
-        return res.json({
-          status: "email_verification_required",
-          email: user.email,
-        });
-      }
+      // OTP email verification is currently disabled — all new users are auto-verified on signup.
+      // When re-enabling, uncomment the block below:
+      // if (user.email && !user.isEmailVerified) {
+      //   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      //   const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+      //   await storage.updateUser(user.id, { otpCode, otpExpiry });
+      //   await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
+      //   return res.json({ status: "email_verification_required", email: user.email });
+      // }
 
       // Fetch user organizations
       const members = await storage.getOrganisationsByUserId(user.id);
