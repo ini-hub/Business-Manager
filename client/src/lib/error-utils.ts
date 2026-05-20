@@ -86,6 +86,10 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
     return message;
   }
 
+  if (message.toLowerCase().includes("cannot be sold for ₦0") || message.toLowerCase().includes("only active promotions can apply")) {
+    return "Items cannot be priced at ₦0 during checkout unless covered by an active promotion.";
+  }
+
   if (context) {
     return `Something went wrong while ${context}. Please try again.`;
   }

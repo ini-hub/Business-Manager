@@ -1,13 +1,4 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { PolymorphicConfirmModal } from "./oop-ui/PolymorphicConfirmModal";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -16,7 +7,7 @@ interface ConfirmDialogProps {
   description: string;
   confirmText?: string;
   cancelText?: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   isDestructive?: boolean;
   isLoading?: boolean;
 }
@@ -33,26 +24,17 @@ export function ConfirmDialog({
   isLoading = false,
 }: ConfirmDialogProps) {
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isLoading} data-testid="button-cancel">
-            {cancelText}
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            disabled={isLoading}
-            className={isDestructive ? "bg-destructive text-destructive-foreground" : ""}
-            data-testid="button-confirm"
-          >
-            {isLoading ? "Processing..." : confirmText}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <PolymorphicConfirmModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      onConfirm={onConfirm}
+      confirmText={confirmText}
+      cancelText={cancelText}
+      isDestructive={isDestructive}
+      isPending={isLoading}
+      variant={isDestructive ? "danger" : "info"}
+    />
   );
 }

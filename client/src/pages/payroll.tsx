@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -460,88 +461,99 @@ export default function PayrollPage() {
                     <p className="text-sm text-muted-foreground">No payroll data yet. Click "Calculate" to compute commissions.</p>
                   </CardContent>
                 </Card>
-              ) : (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium">Staff Hybrid Breakdown</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1">
-                      {/* Table header */}
-                      <div className="grid grid-cols-7 gap-2 text-xs text-muted-foreground font-medium py-2 border-b">
-                        <div className="col-span-2">Staff</div>
-                        <div className="text-center">Active/Passive</div>
-                        <div className="text-right">Transport</div>
-                        <div className="text-right">Commission</div>
-                        <div className="text-right">Net Pay</div>
-                        <div></div>
-                      </div>
-
-                      {entries.slice((entriesPage - 1) * 5, entriesPage * 5).map(entry => (
-                        <div key={entry.id} className="grid grid-cols-7 gap-2 py-3 border-b last:border-0 hover:bg-muted/20 rounded-lg px-1 transition-colors group">
-                          <div className="col-span-2 flex items-center gap-2 min-w-0">
-                            <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                              {entry.staff.name.charAt(0)}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-medium text-sm truncate">{entry.staff.name}</p>
-                              <p className="text-xs text-muted-foreground font-mono">{entry.staff.staffNumber}</p>
-                            </div>
+              ) : (() => {
+                  const columns = [
+                    {
+                      key: "staffName",
+                      header: "Staff",
+                      render: (entry: PayrollEntryWithStaff) => (
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                            {entry.staff.name.charAt(0)}
                           </div>
-                          <div className="text-center text-xs self-center">
-                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold" title="Active Days">{entry.activeDays}A</span>
-                            <span className="text-muted-foreground"> / </span>
-                            <span className="text-amber-600 dark:text-amber-400 font-semibold" title="Passive Days">{entry.passiveDays}P</span>
-                          </div>
-                          <div className="text-right text-sm font-mono self-center">{fmt(entry.totalTransport)}</div>
-                          <div className="text-right text-sm font-mono self-center">{fmt(entry.grossCommission)}</div>
-                          <div className="text-right font-bold text-sm font-mono self-center text-primary">{fmt(entry.netPay)}</div>
-                          <div className="self-center flex items-center justify-end">
-                            <Link href={`/payroll/${selectedPeriodId}/staff/${entry.staffId}`}>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                              </Button>
-                            </Link>
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{entry.staff.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{entry.staff.staffNumber}</p>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      )
+                    },
+                    {
+                      key: "daysSummary",
+                      header: "Active/Passive",
+                      render: (entry: PayrollEntryWithStaff) => (
+                        <div className="text-center text-xs font-semibold">
+                          <span className="text-emerald-600 dark:text-emerald-400" title="Active Days">{entry.activeDays}A</span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span className="text-amber-600 dark:text-amber-400" title="Passive Days">{entry.passiveDays}P</span>
+                        </div>
+                      )
+                    },
+                    {
+                      key: "totalTransport",
+                      header: "Transport",
+                      render: (entry: PayrollEntryWithStaff) => <span className="font-mono text-sm">{fmt(entry.totalTransport)}</span>
+                    },
+                    {
+                      key: "grossCommission",
+                      header: "Commission",
+                      render: (entry: PayrollEntryWithStaff) => <span className="font-mono text-sm">{fmt(entry.grossCommission)}</span>
+                    },
+                    {
+                      key: "netPay",
+                      header: "Net Pay",
+                      render: (entry: PayrollEntryWithStaff) => <span className="font-mono font-bold text-sm text-primary">{fmt(entry.netPay)}</span>
+                    },
+                    {
+                      key: "actions",
+                      header: "",
+                      render: (entry: PayrollEntryWithStaff) => (
+                        <Link href={`/payroll/${selectedPeriodId}/staff/${entry.staffId}`}>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs font-semibold text-primary">
+                            Details
+                          </Button>
+                        </Link>
+                      )
+                    }
+                  ];
 
-                    {entries.length > 5 && (
-                      <div className="flex items-center justify-between pt-4 mt-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-3 text-xs"
-                          onClick={() => setEntriesPage(prev => Math.max(1, prev - 1))}
-                          disabled={entriesPage === 1}
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                          Prev
-                        </Button>
-                        <span className="text-xs text-muted-foreground font-medium">
-                          Page {entriesPage} of {Math.ceil(entries.length / 5)}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-3 text-xs"
-                          onClick={() => setEntriesPage(prev => Math.min(Math.ceil(entries.length / 5), prev + 1))}
-                          disabled={entriesPage >= Math.ceil(entries.length / 5)}
-                        >
-                          Next
-                          <ChevronRight className="h-3.5 w-3.5 ml-1" />
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                  <Separator />
-                  <CardFooter className="justify-between pt-4">
-                    <span className="font-semibold text-sm">Grand Total</span>
-                    <span className="text-xl font-bold font-mono text-primary">{fmt(grandTotal)}</span>
-                  </CardFooter>
-                </Card>
-              )}
+                  const tableData = entries.map((e) => ({
+                    ...e,
+                    staffName: e.staff.name,
+                    netPay: e.netPay || 0
+                  }));
+
+                  const filterConfigs = [
+                    { key: "staffName", label: "Staff", type: "select" as const },
+                    { key: "netPay", label: "Amount", type: "range" as const, currencySymbol: storeCurrency === "USD" ? "$" : "₦" }
+                  ];
+
+                  return (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Staff Hybrid Breakdown</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <DataTable
+                          data={tableData}
+                          columns={columns}
+                          searchable
+                          searchPlaceholder="Search staff name..."
+                          searchKeys={["staffName"]}
+                          isLoading={entriesLoading}
+                          emptyMessage="No staff computed for this period."
+                          filterConfigs={filterConfigs}
+                          pageSize={5}
+                        />
+                      </CardContent>
+                      <Separator />
+                      <CardFooter className="justify-between pt-4">
+                        <span className="font-semibold text-sm">Grand Total</span>
+                        <span className="text-xl font-bold font-mono text-primary">{fmt(grandTotal)}</span>
+                      </CardFooter>
+                    </Card>
+                  );
+                })()}
             </>
           )}
         </div>

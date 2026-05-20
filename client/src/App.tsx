@@ -30,6 +30,7 @@ import ProfitLossPage from "@/pages/profit-loss";
 import ExpensesPage from "@/pages/expenses";
 import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
+import BorrowBookPage from "@/pages/borrow-book";
 import SettingsStoresPage from "@/pages/settings-stores";
 import PromotionsPage from "@/pages/settings/promotions";
 import OnboardingWizard from "@/pages/onboarding";
@@ -42,6 +43,8 @@ import { GlobalSearch } from "@/components/global-search";
 import { NotificationSheet } from "@/components/notification-sheet";
 
 import StoreFormPage from "@/pages/store-form";
+import BusinessFormPage from "@/pages/business-form";
+import RoleFormPage from "@/pages/role-form";
 
 import Login from "@/pages/auth/login";
 import Signup from "@/pages/auth/signup";
@@ -192,6 +195,7 @@ function AuthenticatedLayout() {
                   <Route path="/transactions" component={Transactions} />
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
+                  <Route path="/borrow-book" component={BorrowBookPage} />
                   <Route path="/reports/staff-performance" component={StaffPerformancePage} />
                   <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
                   <Route path="/payroll" component={PayrollPage} />
@@ -205,6 +209,18 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/settings/stores/:id/edit">
                     {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
+                  </Route>
+                  <Route path="/settings/business/new">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <BusinessFormPage />}
+                  </Route>
+                  <Route path="/settings/business/edit">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <BusinessFormPage />}
+                  </Route>
+                  <Route path="/settings/roles/new">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
+                  </Route>
+                  <Route path="/settings/roles/:id/edit">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
                   </Route>
                   <Route path="/settings/promotions">
                     {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}

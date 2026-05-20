@@ -444,28 +444,56 @@ export default function StaffPage() {
           <TabsTrigger value="active">Active ({activeStaff.length})</TabsTrigger>
           {isOwner && <TabsTrigger value="archived">Archived ({archivedStaff.length})</TabsTrigger>}
         </TabsList>
-        <TabsContent value="active" className="mt-4">
-          <DataTable
-            data={activeStaff}
-            columns={activeColumns}
-            searchable
-            searchPlaceholder="Search active staff..."
-            searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
-            isLoading={isLoading}
-            emptyMessage="No active staff members found. Add your first staff member to get started."
-          />
-        </TabsContent>
-        <TabsContent value="archived" className="mt-4">
-          <DataTable
-            data={archivedStaff}
-            columns={archivedColumns}
-            searchable
-            searchPlaceholder="Search archived staff..."
-            searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
-            isLoading={isLoading}
-            emptyMessage="No archived staff members. Deleted staff will appear here."
-          />
-        </TabsContent>
+        {(() => {
+          const filterConfigs = [
+            { 
+              key: "role", 
+              label: "Role", 
+              type: "select" as const,
+              valueMapper: (val: any) => String(val).charAt(0).toUpperCase() + String(val).slice(1)
+            },
+            { key: "status", label: "Status", type: "select" as const }
+          ];
+
+          const activeTableData = activeStaff.map((s) => ({
+            ...s,
+            status: s.signedContract ? "Active" : "Pending"
+          }));
+
+          const archivedTableData = archivedStaff.map((s) => ({
+            ...s,
+            status: "Deactivated"
+          }));
+
+          return (
+            <>
+              <TabsContent value="active" className="mt-4">
+                <DataTable
+                  data={activeTableData}
+                  columns={activeColumns}
+                  searchable
+                  searchPlaceholder="Search active staff..."
+                  searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
+                  isLoading={isLoading}
+                  emptyMessage="No active staff members found. Add your first staff member to get started."
+                  filterConfigs={filterConfigs}
+                />
+              </TabsContent>
+              <TabsContent value="archived" className="mt-4">
+                <DataTable
+                  data={archivedTableData}
+                  columns={archivedColumns}
+                  searchable
+                  searchPlaceholder="Search archived staff..."
+                  searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
+                  isLoading={isLoading}
+                  emptyMessage="No archived staff members. Deleted staff will appear here."
+                  filterConfigs={filterConfigs}
+                />
+              </TabsContent>
+            </>
+          );
+        })()}
       </Tabs>
 
       <ConfirmDialog

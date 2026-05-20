@@ -13,6 +13,9 @@ import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { PageContainer } from "@/components/oop-ui/PageContainer";
+import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
+import { analyticsApi } from "@/services/AnalyticsApiService";
 
 interface ServiceProfitabilityItem {
   id: string;
@@ -59,16 +62,7 @@ export default function ServiceProfitabilityPage() {
 
   const { data: report, isLoading } = useQuery<ServiceProfitabilityReport>({
     queryKey: ["service-profitability-report", currentStore?.id, startDateStr, endDateStr],
-    queryFn: async () => {
-      const paramsObj: any = { storeId: currentStore!.id };
-      if (startDateStr) paramsObj.startDate = startDateStr;
-      if (endDateStr) paramsObj.endDate = endDateStr;
-      
-      const url = `/api/reports/service-profitability?` + new URLSearchParams(paramsObj);
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch service profitability report");
-      return res.json();
-    },
+    queryFn: () => analyticsApi.getServiceProfitability(currentStore!.id, startDateStr, endDateStr),
     enabled: !!currentStore?.id,
   });
 
@@ -171,52 +165,44 @@ export default function ServiceProfitabilityPage() {
     },
   ];
 
-  if (!currentStore) {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Service & Product Profitability" description="Comprehensive analysis of direct margins, COGS, and item-specific sustaining costs" />
-        <StoreRequiredAlert title="Store Required for Service Profitability" />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Service & Product Profitability"
-        description="Comprehensive analysis of direct margins, COGS, and item-specific sustaining costs"
-        actions={
-          <DateRangeFilter
-            dateRange={dateRange}
-            onDateRangeChange={setDateRange}
-          />
-        }
-      />
-
+    <PageContainer
+      title="Service & Product Profitability"
+      description="Comprehensive analysis of direct margins, COGS, and item-specific sustaining costs"
+      storeRequired
+      currentStore={currentStore}
+      actions={
+        <DateRangeFilter
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+        />
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
+        <PolymorphicMetricCard
           title="Total Sustained Revenue"
           value={formatCurrency(report?.totalRevenue ?? 0)}
-          icon={<Coins className="h-4 w-4 text-green-600" />}
+          icon={<Coins className="h-5 w-5 text-green-600 animate-pulse" />}
           isLoading={isLoading}
         />
-        <MetricCard
+        <PolymorphicMetricCard
           title="Total Cost of Goods (COGS)"
           value={formatCurrency(report?.totalCogs ?? 0)}
-          icon={<ShoppingCart className="h-4 w-4 text-amber-600" />}
+          icon={<ShoppingCart className="h-5 w-5 text-amber-600" />}
           isLoading={isLoading}
         />
-        <MetricCard
+        <PolymorphicMetricCard
           title="Total Sustaining Costs"
           value={formatCurrency(report?.totalSustainingCosts ?? 0)}
-          icon={<Wallet className="h-4 w-4 text-red-500" />}
+          icon={<Wallet className="h-5 w-5 text-red-500" />}
           isLoading={isLoading}
         />
-        <MetricCard
+        <PolymorphicMetricCard
           title="Net Consolidated Profit"
           value={formatCurrency(report?.netProfit ?? 0)}
-          icon={<BarChart3 className="h-4 w-4 text-primary" />}
-          description={`Margin: ${(report?.netProfitMargin ?? 0).toFixed(1)}%`}
+          trend={(report?.netProfit ?? 0) >= 0 ? "up" : "down"}
+          trendValue={`Margin: ${(report?.netProfitMargin ?? 0).toFixed(1)}%`}
+          icon={<BarChart3 className="h-5 w-5 text-primary" />}
           isLoading={isLoading}
         />
       </div>
@@ -249,6 +235,6 @@ export default function ServiceProfitabilityPage() {
           />
         </CardContent>
       </Card>
-    </div>
+    </PageContainer>
   );
 }

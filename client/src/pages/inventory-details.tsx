@@ -26,6 +26,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import {
   Select,
@@ -39,11 +40,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { inventoryApi } from "@/services/InventoryApiService";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
 
-const LOW_STOCK_THRESHOLD = 5;
+
 
 const inventoryEditFormSchema = insertInventorySchema.refine(
   (data) => data.costPrice > 0,
@@ -53,7 +55,9 @@ const inventoryEditFormSchema = insertInventorySchema.refine(
   }
 ).refine(data => {
   if (data.commissionSplitOverride) {
-    return data.commissionSplitBusinessShare + data.commissionSplitStaffShare === 100;
+    const businessShare = data.commissionSplitBusinessShare ?? 0;
+    const staffShare = data.commissionSplitStaffShare ?? 0;
+    return businessShare + staffShare === 100;
   }
   return true;
 }, {
@@ -150,13 +154,16 @@ export default function InventoryDetails() {
 
   const { data: inventory, isLoading: itemLoading } = useQuery<Inventory>({
     queryKey: ["inventory-detail", inventoryId],
-    queryFn: async () => {
-      const res = await fetch(`/api/inventory/${inventoryId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch inventory item");
-      return res.json();
-    },
+    queryFn: () => inventoryApi.getInventoryItem(inventoryId!),
     enabled: !!inventoryId,
   });
+
+  const { data: settingsData } = useQuery<any>({
+    queryKey: ["/api/settings", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const lowStockThreshold = settingsData?.lowStockThreshold ?? 5;
 
   const [period, setPeriod] = useState<"30" | "90" | "365" | "all">("all");
 
@@ -184,11 +191,7 @@ export default function InventoryDetails() {
 
   const { data: restockHistory = [], isLoading: historyLoading } = useQuery<RestockEventWithStaff[]>({
     queryKey: ["inventory-restock-history", inventoryId],
-    queryFn: async () => {
-      const res = await fetch(`/api/inventory/${inventoryId}/restock-history`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch restock history");
-      return res.json();
-    },
+    queryFn: () => inventoryApi.getRestockHistory(inventoryId!),
     enabled: !!inventoryId,
   });
 
@@ -260,7 +263,7 @@ export default function InventoryDetails() {
     if (item.quantity === 0) {
       return <Badge variant="destructive">Out of Stock</Badge>;
     }
-    if (item.quantity <= LOW_STOCK_THRESHOLD) {
+    if (item.quantity <= lowStockThreshold) {
       return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100">Low Stock</Badge>;
     }
     return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">In Stock</Badge>;

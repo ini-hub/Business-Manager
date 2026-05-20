@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { bulkUploadApi } from "@/services/BulkUploadApiService";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -75,12 +76,8 @@ export function BulkExpenseImport({ categories }: { categories: any[] }) {
   };
 
   const importMutation = useMutation({
-    mutationFn: (expenses: any[]) => apiRequest("POST", "/api/expenses/bulk", { 
-      storeId: currentStore?.id, 
-      expenses 
-    }),
-    onSuccess: async (res) => {
-      const data = await res.json();
+    mutationFn: (expenses: any[]) => bulkUploadApi.uploadExpenses(expenses, currentStore!.id),
+    onSuccess: (data) => {
       toast({ 
         title: "Import Complete", 
         description: `Successfully imported ${data.success} expenses. ${data.failed} failed.` 

@@ -321,6 +321,35 @@ export default function Transactions() {
     },
   }));
 
+  const tableData = useMemo(() => {
+    return filteredTransactions.map((tx) => ({
+      ...tx,
+      status: tx.checkout?.isVoided ? "Void" : (tx.checkout?.paymentStatus === "pending" ? "Pending" : "Paid"),
+      paymentMethod: tx.checkout?.paymentMethod || "cash",
+      staffName: tx.checkout?.staff?.name || "Unknown",
+      amount: tx.checkout?.totalPrice ?? 0
+    }));
+  }, [filteredTransactions]);
+
+  const filterConfigs = [
+    { key: "status", label: "Status", type: "select" as const },
+    { 
+      key: "paymentMethod", 
+      label: "Payment Method", 
+      type: "select" as const,
+      valueMapper: (val: any) => {
+        if (!val) return "Unknown";
+        const str = String(val).toLowerCase();
+        if (str === "cash") return "Cash";
+        if (str === "transfer" || str === "bank transfer") return "Transfer";
+        if (str === "pos" || str === "card") return "POS";
+        return String(val).charAt(0).toUpperCase() + String(val).slice(1);
+      }
+    },
+    { key: "staffName", label: "Staff", type: "select" as const },
+    { key: "amount", label: "Amount", type: "range" as const, currencySymbol: storeCurrency === "USD" ? "$" : "₦" }
+  ];
+
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -390,14 +419,15 @@ export default function Transactions() {
         </CardHeader>
         <CardContent>
           <DataTable
-            data={filteredTransactions}
+            data={tableData}
             columns={columns}
             searchable
             searchPlaceholder="Search receipt, customer, item, payment..."
-            searchKeys={["checkout.receiptNumber", "customer.name", "inventory.name", "checkout.paymentMethod"]}
+            searchKeys={["checkout.receiptNumber", "customer.name", "inventory.name", "paymentMethod"]}
             isLoading={isLoading}
             emptyMessage="No transactions found. Complete your first sale to see records here."
             onRowClick={(tx) => setSelectedTransaction(tx)}
+            filterConfigs={filterConfigs}
           />
         </CardContent>
       </Card>

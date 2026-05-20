@@ -599,29 +599,69 @@ export default function Customers() {
             Analytics & Retention
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="active" className="mt-4">
-          <DataTable
-            data={activeCustomers}
-            columns={activeColumns}
-            searchable
-            searchPlaceholder="Search active customers..."
-            searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
-            isLoading={isLoading}
-            emptyMessage="No active customers found. Add your first customer to get started."
-            onRowClick={navigateToCustomerDetails}
-          />
-        </TabsContent>
-        <TabsContent value="archived" className="mt-4">
-          <DataTable
-            data={archivedCustomers}
-            columns={archivedColumns}
-            searchable
-            searchPlaceholder="Search archived customers..."
-            searchKeys={["name", "customerNumber", "mobileNumber"]}
-            isLoading={isLoading}
-            emptyMessage="No archived customers. Deleted customers will appear here."
-          />
-        </TabsContent>
+        {(() => {
+          const customerSpends = (() => {
+            const spends = new Map<string, number>();
+            const processedCheckouts = new Set<string>();
+            
+            validTxs.forEach((tx: any) => {
+              if (!tx.customerId || !tx.checkout || !tx.checkout.id) return;
+              if (processedCheckouts.has(tx.checkout.id)) return;
+              processedCheckouts.add(tx.checkout.id);
+              
+              const current = spends.get(tx.customerId) || 0;
+              spends.set(tx.customerId, current + (tx.checkout.totalPrice || 0));
+            });
+            return spends;
+          })();
+
+          const filterConfigs = [
+            { key: "createdAt", label: "Date Added", type: "date-range" as const },
+            { key: "totalSpend", label: "Total Spend", type: "range" as const, currencySymbol: currentStore?.currency === "USD" ? "$" : "₦" }
+          ];
+
+          const activeTableData = activeCustomers.map((c) => ({
+            ...c,
+            totalSpend: customerSpends.get(c.id) || 0,
+            createdAt: c.createdAt
+          }));
+
+          const archivedTableData = archivedCustomers.map((c) => ({
+            ...c,
+            totalSpend: customerSpends.get(c.id) || 0,
+            createdAt: c.createdAt
+          }));
+
+          return (
+            <>
+              <TabsContent value="active" className="mt-4">
+                <DataTable
+                  data={activeTableData}
+                  columns={activeColumns}
+                  searchable
+                  searchPlaceholder="Search active customers..."
+                  searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
+                  isLoading={isLoading}
+                  emptyMessage="No active customers found. Add your first customer to get started."
+                  onRowClick={navigateToCustomerDetails}
+                  filterConfigs={filterConfigs}
+                />
+              </TabsContent>
+              <TabsContent value="archived" className="mt-4">
+                <DataTable
+                  data={archivedTableData}
+                  columns={archivedColumns}
+                  searchable
+                  searchPlaceholder="Search archived customers..."
+                  searchKeys={["name", "customerNumber", "mobileNumber"]}
+                  isLoading={isLoading}
+                  emptyMessage="No archived customers. Deleted customers will appear here."
+                  filterConfigs={filterConfigs}
+                />
+              </TabsContent>
+            </>
+          );
+        })()}
         <TabsContent value="analytics" className="space-y-6 mt-4">
           {isLoading || isLoadingTxs ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

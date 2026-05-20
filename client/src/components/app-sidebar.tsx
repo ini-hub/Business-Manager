@@ -13,7 +13,9 @@ import {
   CalendarDays,
   DollarSign,
   Wallet,
+  Wallet2,
   Gift,
+  BookOpen,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -89,6 +91,12 @@ const salesItems: MenuItem[] = [
     url: "/transactions",
     icon: Receipt,
     allowedRoles: ["owner", "manager", "staff"],
+  },
+  {
+    title: "Borrow Book",
+    url: "/borrow-book",
+    icon: BookOpen,
+    allowedRoles: ["owner", "manager"],
   },
 ];
 

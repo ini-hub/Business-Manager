@@ -20,6 +20,7 @@ import {
   Link2,
   Gift,
   Sparkles,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -109,7 +110,9 @@ export default function NewSale() {
   const [searchTerm, setSearchTerm] = useState("");
   const [customerOpen, setCustomerOpen] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave" | "credit">("cash");
+  const [creditUpfrontPaid, setCreditUpfrontPaid] = useState<number>(0);
+  const [creditDueDate, setCreditDueDate] = useState<string>("");
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
   const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
 
@@ -404,6 +407,8 @@ export default function NewSale() {
         discountReason: discountReason || undefined,
         discountApprovedBy: discountApprovedBy || undefined,
         effectiveDate: isDateModified ? effectiveDate : undefined,
+        creditUpfrontPaid: paymentMethod === "credit" ? creditUpfrontPaid : undefined,
+        creditDueDate: paymentMethod === "credit" ? (creditDueDate || undefined) : undefined,
       };
 
       if (!navigator.onLine) {
@@ -451,6 +456,8 @@ export default function NewSale() {
       setDiscountPercent(0);
       setDiscountReason("");
       setDiscountApprovedBy("");
+      setCreditUpfrontPaid(0);
+      setCreditDueDate("");
       setEffectiveDate(new Date().toISOString().split("T")[0]);
       setIsDateModified(false);
       
@@ -460,9 +467,13 @@ export default function NewSale() {
       }
     },
     onError: (error: Error) => {
+      const isZeroPriceError = error.message?.toLowerCase().includes("cannot be sold for ₦0") || 
+                              error.message?.toLowerCase().includes("only active promotions can apply");
       toast({
-        title: "Couldn't Complete Sale",
-        description: getUserFriendlyError(error, "processing this sale"),
+        title: isZeroPriceError ? "Invalid Item Price" : "Couldn't Complete Sale",
+        description: isZeroPriceError 
+          ? "Items cannot be priced at ₦0 during checkout unless covered by an active promotion." 
+          : getUserFriendlyError(error, "processing this sale"),
         variant: "destructive",
       });
     },
@@ -1119,7 +1130,7 @@ export default function NewSale() {
                 </Label>
                 <RadioGroup
                   value={paymentMethod}
-                  onValueChange={(value) => setPaymentMethod(value as "cash" | "transfer" | "flutterwave")}
+                  onValueChange={(value) => setPaymentMethod(value as "cash" | "transfer" | "flutterwave" | "credit")}
                   className="grid grid-cols-1 gap-2"
                 >
                   <label
@@ -1161,8 +1172,69 @@ export default function NewSale() {
                       <p className="text-xs text-muted-foreground">Generate Flutterwave payment link</p>
                     </div>
                   </label>
+                  <label
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                      paymentMethod === "credit" ? "border-primary bg-primary/5" : "hover-elevate"
+                    )}
+                  >
+                    <RadioGroupItem value="credit" id="credit" data-testid="radio-credit" />
+                    <BookOpen className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium text-sm">Credit (Owe)</p>
+                      <p className="text-xs text-muted-foreground">Borrow Book entry (needs customer)</p>
+                    </div>
+                  </label>
                 </RadioGroup>
               </div>
+
+              {paymentMethod === "credit" && (
+                <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-3 animate-in fade-in-50 duration-200">
+                  <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                    <BookOpen className="h-3.5 w-3.5" />
+                    Borrow Book Details
+                  </h4>
+                  
+                  {!selectedCustomer ? (
+                    <p className="text-xs text-destructive flex items-center gap-1 font-medium bg-destructive/5 p-2 rounded border border-destructive/10">
+                      ⚠️ You must select a customer first to sell on credit.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="credit-upfront" className="text-xs font-medium text-muted-foreground">Amount Paid Upfront (₦)</Label>
+                        <Input
+                          id="credit-upfront"
+                          type="number"
+                          placeholder="e.g. 1000 (leave 0 if none)"
+                          value={creditUpfrontPaid || ""}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setCreditUpfrontPaid(Math.max(0, Math.min(val, finalCartTotal)));
+                          }}
+                          className="bg-background"
+                        />
+                        <div className="flex justify-between items-center text-[10px] text-muted-foreground px-0.5">
+                          <span>Total Cart: ₦{finalCartTotal.toLocaleString()}</span>
+                          <span className="font-semibold text-primary">Outstanding Debt: ₦{(finalCartTotal - creditUpfrontPaid).toLocaleString()}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="credit-due" className="text-xs font-medium text-muted-foreground">Due Date (Expected Repayment)</Label>
+                        <Input
+                          id="credit-due"
+                          type="date"
+                          min={new Date().toISOString().split("T")[0]}
+                          value={creditDueDate}
+                          onChange={(e) => setCreditDueDate(e.target.value)}
+                          className="bg-background"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {user?.role !== "staff" && (
                 <>

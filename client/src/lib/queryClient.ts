@@ -73,9 +73,9 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchInterval: 10000, // Poll in the background every 10 seconds to keep data live
+      refetchOnWindowFocus: true, // Auto-refetch when returning/refocusing the tab
+      staleTime: 5000, // Data becomes stale after 5 seconds
       retry: false,
     },
     mutations: {

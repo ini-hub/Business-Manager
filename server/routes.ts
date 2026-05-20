@@ -36,14 +36,21 @@ import {
   staff,
   customRoles,
   insertCustomRoleSchema,
+  insertStoreIntegrationSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
 import { eq, and, gte, lte, gt, count } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
 import { auditLogger } from "./audit";
+import { bulkUploadService } from "./services/BulkUploadService";
+import { analyticsService } from "./services/AnalyticsService";
 import passport from "passport";
 import { initWebSocketServer } from "./websocket";
+import { RouterRegistry } from "./controllers/RouterRegistry";
+import { AuthController } from "./controllers/AuthController";
+import { InventoryController } from "./controllers/InventoryController";
+import { CreditController } from "./controllers/CreditController";
 
 // Default OTP code for development (no email integration)
 const DEFAULT_OTP = "123456";
@@ -105,37 +112,13 @@ export async function registerRoutes(
   // Setup authentication
   await setupAuth(app);
 
-  // ========== USER PROFILE ==========
-  app.patch("/api/auth/user/profile", isAuthenticated, async (req, res) => {
-    try {
-      const userId = (req as any).user.id;
-      const { name, profilePhotoUrl } = req.body;
-      const updated = await storage.updateUser(userId, { name, profilePhotoUrl });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ error: "Could not update profile." });
-    }
-  });
-
-  app.post("/api/auth/user/change-password", isAuthenticated, async (req, res) => {
-    try {
-      const userId = (req as any).user.id;
-      const { currentPassword, newPassword } = req.body;
-      
-      const user = await storage.getUser(userId);
-      if (!user) return res.status(404).json({ error: "User not found." });
-
-      const isMatch = user.password ? await bcrypt.compare(currentPassword, user.password) : false;
-      if (!isMatch) return res.status(400).json({ error: "Incorrect current password." });
-
-      const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-      await storage.updateUser(userId, { password: hashedPassword });
-      
-      res.json({ message: "Password updated successfully." });
-    } catch (error) {
-      res.status(500).json({ error: "Could not change password." });
-    }
-  });
+  // Initialize dynamic OOP Router Registry
+  const registry = new RouterRegistry([
+    new AuthController(),
+    new InventoryController(),
+    new CreditController(),
+  ]);
+  app.use("/api", registry.registerAll());
 
 
   // ========== MULTI-TENANCY HELPERS ==========
@@ -159,10 +142,7 @@ export async function registerRoutes(
     }
     return true;
   }
-  // ========== HEALTH CHECK ==========
-  app.get("/api/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
+
 
   // ========== CUSTOM AUTH ROUTES ==========
 
@@ -2405,30 +2385,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
-      const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
-
-      for (let i = 0; i < data.length; i++) {
-        try {
-          const row = data[i];
-          const parsed = insertStaffSchema.parse({
-            storeId,
-            name: row.name,
-            staffNumber: row.staffNumber,
-            mobileNumber: row.mobileNumber,
-            payPerMonth: parseFloat(row.payPerMonth) || 0,
-            signedContract: row.signedContract === "true" || row.signedContract === true,
-          });
-          await storage.createStaff(parsed);
-          result.success++;
-        } catch (error) {
-          result.failed++;
-          const message = error instanceof z.ZodError
-            ? error.errors.map(e => e.message).join(", ")
-            : "Invalid data";
-          result.errors.push({ row: i + 2, message });
-        }
-      }
-
+      const result = await bulkUploadService.importStaff(data, storeId);
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "We couldn't import your staff. Please try again." });
@@ -2436,48 +2393,6 @@ export async function registerRoutes(
   });
 
   // ========== INVENTORY ==========
-  app.get("/api/inventory", async (req, res) => {
-    try {
-      const storeId = req.query.storeId as string;
-      if (!storeId) {
-        return res.status(400).json({ error: "Please select a store first." });
-      }
-      if (!(await checkStoreAccess(storeId, req, res))) return;
-
-      // Support both paginated and non-paginated queries
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
-
-      if (page > 0 && limit > 0) {
-        const search = req.query.search as string;
-        const result = await storage.getInventoryPaginated(storeId, { page, limit, search });
-        return res.json(result);
-      }
-
-      const items = await storage.getInventory(storeId);
-      res.json(items);
-    } catch (error) {
-      res.status(500).json({ error: "We couldn't load your inventory. Please try again." });
-    }
-  });
-
-  app.get("/api/inventory/:id", async (req, res) => {
-    try {
-      const item = await storage.getInventoryItem(req.params.id);
-      if (!item) {
-        return res.status(404).json({ error: "Inventory item not found." });
-      }
-
-      // Verify user has access to this item's store
-      if (!await verifyRecordStoreAccess(req, item.storeId)) {
-        return res.status(403).json({ error: "You don't have access to this inventory item." });
-      }
-
-      res.json(item);
-    } catch (error) {
-      res.status(500).json({ error: "We couldn't load item information. Please try again." });
-    }
-  });
 
   app.post("/api/inventory", async (req, res) => {
     try {
@@ -2797,118 +2712,8 @@ export async function registerRoutes(
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
-      // 1. Fetch all inventory items for this store
-      const items = await storage.getInventory(storeId);
-
-      // 2. Fetch completed checkouts and their orders in the range
-      const checkoutConditions: any[] = [
-        eq(checkouts.storeId, storeId),
-        eq(checkouts.paymentStatus, "completed"),
-        eq(checkouts.isVoided, false),
-      ];
-      if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-      if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-      const sales = await db.select({
-        inventoryId: orders.inventoryId,
-        quantity: orders.quantity,
-        totalPrice: orders.totalPrice,
-      })
-        .from(orders)
-        .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
-        .where(and(...checkoutConditions));
-
-      // 3. Fetch all expenses linked to specific items in the period
-      const allLinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "linked");
-
-      // 4. Group calculations per item
-      const itemSummaries = items.map(item => {
-        const itemSales = sales.filter(s => s.inventoryId === item.id);
-        const revenue = itemSales.reduce((sum, s) => sum + s.totalPrice, 0);
-        const quantitySold = itemSales.reduce((sum, s) => sum + s.quantity, 0);
-        const cogs = quantitySold * (item.costPrice ?? 0);
-        const grossProfit = revenue - cogs;
-        const grossProfitMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-
-        const itemExpenses = allLinkedExpenses.filter(e => e.inventoryId === item.id);
-        const sustainingCosts = itemExpenses.reduce((sum, e) => sum + e.amount, 0);
-        const netProfit = grossProfit - sustainingCosts;
-        const netProfitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
-        const status = netProfit > 0 ? "profit" : netProfit < 0 ? "loss" : "breakeven";
-
-        return {
-          id: item.id,
-          name: item.name,
-          type: item.type,
-          revenue,
-          quantitySold,
-          cogs,
-          grossProfit,
-          grossProfitMargin,
-          sustainingCosts,
-          netProfit,
-          netProfitMargin,
-          status,
-        };
-      });
-
-      const services = itemSummaries.filter(s => s.type === "service");
-      const products = itemSummaries.filter(s => s.type === "product");
-
-      // 5. General overheads (unlinked expenses) grouped by category
-      const unlinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "general");
-      const overheadsByCategory: Record<string, number> = {};
-      unlinkedExpenses.forEach(e => {
-        if (e.category?.isSystem && e.category?.name === "Payroll") return;
-        const catName = e.category?.name || "Uncategorized";
-        overheadsByCategory[catName] = (overheadsByCategory[catName] || 0) + e.amount;
-      });
-      const generalOverheads = Object.entries(overheadsByCategory).map(([category, amount]) => ({
-        category,
-        amount
-      }));
-      const totalGeneralOverhead = unlinkedExpenses.reduce((sum, e) => {
-        if (e.category?.isSystem && e.category?.name === "Payroll") return sum;
-        return sum + e.amount;
-      }, 0);
-
-      // 6. Paid payroll periods in range
-      const payrollDetails = await storage.getPaidPayrollExpenses(storeId, startDate, endDate);
-      const totalPayroll = payrollDetails.reduce((sum, p) => sum + p.amount, 0);
-
-      // 7. Discounts given in range
-      const discountConditions: any[] = [
-        eq(checkouts.storeId, storeId),
-        eq(checkouts.paymentStatus, "completed"),
-        eq(checkouts.isVoided, false),
-        gt(checkouts.discountAmount, 0),
-      ];
-      if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-      if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-      const uniqueTxDiscounts = await db
-        .select({
-          discountAmount: checkouts.discountAmount,
-        })
-        .from(checkouts)
-        .where(and(...discountConditions));
-      const totalDiscounts = uniqueTxDiscounts.reduce((sum, d) => sum + (d.discountAmount || 0), 0);
-
-      // Final dynamic calculations
-      const totalNetProfit = itemSummaries.reduce((sum, s) => sum + s.netProfit, 0);
-      const operatingProfit = totalNetProfit - totalGeneralOverhead - totalPayroll - totalDiscounts;
-
-      res.json({
-        services,
-        products,
-        generalOverheads,
-        totalGeneralOverhead,
-        payrollDetails,
-        totalPayroll,
-        totalDiscounts,
-        totalNetProfit,
-        operatingProfit
-      });
+      const summary = await analyticsService.getServiceProfitability(storeId, startDate, endDate);
+      res.json(summary);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Could not calculate service profitability report." });
@@ -3082,48 +2887,8 @@ export async function registerRoutes(
       if (!storeId) return res.status(400).json({ error: "Please select a store first." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      // Get revenue/COGS via a proper join: orders → checkouts (date+status filter) → inventory (type+cost)
-      const { serviceRevenue, productRevenue, totalRevenue, costOfGoodsSold, grossProfit, discountsGiven, discountsList } =
-        await storage.getProfitLossSummary(storeId, startDate, endDate);
-
-      const expenseList = await storage.getExpenses(storeId, startDate, endDate, "general");
-
-      let totalOperationalExpenses = 0;
-      const expensesByCategory: Record<string, number> = {};
-
-      expenseList.forEach(e => {
-        // Exclude system Payroll category if it exists, as we will calculate it precisely below
-        if (e.category?.isSystem && e.category?.name === "Payroll") return;
-        
-        totalOperationalExpenses += e.amount;
-        const catName = e.category?.name || "Uncategorized";
-        expensesByCategory[catName] = (expensesByCategory[catName] || 0) + e.amount;
-      });
-
-      const expensesGrouped = Object.entries(expensesByCategory).map(([category, amount]) => ({ category, amount }));
-
-      // Fetch overlapping paid payroll periods via storage
-      const payrollDetails = await storage.getPaidPayrollExpenses(storeId, startDate, endDate);
-      const totalPayrollExpenses = payrollDetails.reduce((sum, p) => sum + p.amount, 0);
-
-      const totalExpenses = totalOperationalExpenses + totalPayrollExpenses + discountsGiven;
-      const operatingProfit = grossProfit - totalExpenses;
-
-      res.json({
-        serviceRevenue,
-        productRevenue,
-        totalRevenue,
-        costOfGoodsSold,
-        grossProfit,
-        discountsGiven,
-        discountsList,
-        totalOperationalExpenses,
-        totalPayrollExpenses,
-        totalExpenses,
-        operatingProfit,
-        expensesGrouped,
-        payrollDetails,
-      });
+      const summary = await analyticsService.getProfitLossSummary(storeId, startDate, endDate);
+      res.json(summary);
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Could not calculate profit/loss summary." });
@@ -3272,12 +3037,14 @@ export async function registerRoutes(
         commissionSplit: z.enum(["standard", "equal"]).optional().default("standard"),
       })
     ),
-    paymentMethod: z.enum(["cash", "transfer", "flutterwave"]).default("cash"),
+    paymentMethod: z.enum(["cash", "transfer", "flutterwave", "credit"]).default("cash"),
     discountAmount: z.number().min(0).optional(),
     discountPercent: z.number().min(0).optional(),
     discountReason: z.string().optional(),
     discountApprovedBy: z.string().optional(),
     effectiveDate: z.string().optional(),
+    creditUpfrontPaid: z.number().min(0).optional(),
+    creditDueDate: z.string().optional(),
   });
 
   app.post("/api/sales/checkout", async (req, res) => {
@@ -3296,6 +3063,8 @@ export async function registerRoutes(
         discountReason: data.discountReason,
         discountApprovedBy: data.discountApprovedBy,
         effectiveDate: data.effectiveDate,
+        creditUpfrontPaid: data.creditUpfrontPaid,
+        creditDueDate: data.creditDueDate,
       });
 
       if (!result.success) {
@@ -3721,60 +3490,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
-      // Pre-load all expense categories to resolve by name
-      const categories = await storage.getExpenseCategories(storeId);
-      const catMap = new Map(categories.map(c => [c.name.toLowerCase().trim(), c.id]));
-
-      const results = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
-
-      for (let i = 0; i < rawExpenses.length; i++) {
-        const expense = rawExpenses[i];
-        const rowNum = i + 1;
-        try {
-          if (!expense.description || !expense.amount) {
-             results.failed++;
-             results.errors.push({ row: rowNum, message: `Missing description or amount.` });
-             continue;
-          }
-
-          let categoryId = expense.categoryId;
-          const rawCat = expense.category || expense.categoryName || "";
-          const catLower = rawCat.toLowerCase().trim();
-          
-          if (!categoryId && catLower) {
-            if (catMap.has(catLower)) {
-              categoryId = catMap.get(catLower);
-            } else {
-              const newCat = await storage.createExpenseCategory({
-                storeId,
-                name: rawCat.trim(),
-                description: `Automatically created during bulk upload`,
-              });
-              categoryId = newCat.id;
-              catMap.set(catLower, newCat.id);
-            }
-          }
-
-          if (!categoryId) {
-             results.failed++;
-             results.errors.push({ row: rowNum, message: `Category is required (specify a category name or ID).` });
-             continue;
-          }
-
-          await storage.createExpense({
-            description: expense.description,
-            amount: Number(expense.amount),
-            categoryId,
-            storeId,
-            date: expense.date ? new Date(expense.date) : new Date(),
-          });
-          results.success++;
-        } catch (err: any) {
-          results.failed++;
-          results.errors.push({ row: rowNum, message: err.message });
-        }
-      }
-
+      const results = await bulkUploadService.importExpenses(rawExpenses, storeId);
       res.json(results);
     } catch (error) {
       res.status(500).json({ error: "Bulk expense import failed." });

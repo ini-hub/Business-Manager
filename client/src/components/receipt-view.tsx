@@ -43,6 +43,14 @@ interface ReceiptPayload {
   }>;
   customer: { name: string; customerNumber: string } | null;
   staff: { name: string } | null;
+  creditEntry?: {
+    id: string;
+    amountOwed: number;
+    amountPaidUpfront: number;
+    outstandingBalance: number;
+    dueDate?: string | null;
+    status: string;
+  } | null;
 }
 
 interface ReceiptViewProps {
@@ -55,12 +63,13 @@ function paymentLabel(method: string) {
     transfer: "Bank Transfer",
     pos: "POS / Card",
     flutterwave: "Flutterwave",
+    credit: "Credit (Owe)",
   };
   return map[method] ?? method;
 }
 
 export function ReceiptView({ payload }: ReceiptViewProps) {
-  const { business, store, settings, checkout, items = [], customer, staff } = payload;
+  const { business, store, settings, checkout, items = [], customer, staff, creditEntry } = payload;
   const currency = store?.currency ?? "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
   const isVoided = checkout?.isVoided;
@@ -168,7 +177,27 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
         <span className="text-gray-500">Payment Method:</span>
         <span>{paymentLabel(checkout?.paymentMethod ?? "")}</span>
       </div>
-      {checkout?.paymentStatus === "pending" && (
+
+      {checkout?.paymentMethod === "credit" && creditEntry && (
+        <>
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-gray-500">Upfront Paid:</span>
+            <span>{fmt(creditEntry.amountPaidUpfront || 0)}</span>
+          </div>
+          <div className="flex justify-between text-xs mb-1 font-bold">
+            <span className="text-gray-500">Pending Balance:</span>
+            <span className="text-amber-600">{fmt(creditEntry.outstandingBalance || 0)}</span>
+          </div>
+          {creditEntry.dueDate && (
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-500">Repayment Due:</span>
+              <span>{format(new Date(creditEntry.dueDate), "dd MMM yyyy")}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {checkout?.paymentStatus === "pending" && checkout?.paymentMethod !== "credit" && (
         <div className="flex justify-between text-xs text-amber-600 font-semibold">
           <span>Payment Status:</span>
           <span>⚠ PENDING</span>

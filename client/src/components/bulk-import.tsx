@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { inventoryApi } from "@/services/InventoryApiService";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -68,12 +69,8 @@ export function BulkImport() {
   };
 
   const importMutation = useMutation({
-    mutationFn: (items: any[]) => apiRequest("POST", "/api/inventory/bulk-import", { 
-      storeId: currentStore?.id, 
-      items 
-    }),
-    onSuccess: async (res) => {
-      const data = await res.json();
+    mutationFn: (items: any[]) => inventoryApi.importCatalog(items, currentStore!.id),
+    onSuccess: (data) => {
       toast({ 
         title: "Import Complete", 
         description: `Successfully imported ${data.success} items. ${data.failed} failed.` 

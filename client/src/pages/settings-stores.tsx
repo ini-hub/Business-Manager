@@ -41,7 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins, User, UserPlus, CreditCard, Lock, Check, ShieldCheck, Database, Upload, Download, FileText, Settings2, Trash } from "lucide-react";
+import { Plus, Building2, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins, User, UserPlus, CreditCard, Lock, Check, ShieldCheck, Database, Upload, Download, FileText, Settings2, Trash, BookOpen } from "lucide-react";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store as StoreType, Staff, InsertStaff } from "@shared/schema";
 import { insertStaffSchema } from "@shared/schema";
@@ -130,65 +130,13 @@ export default function SettingsStoresPage() {
     enabled: !!business,
   });
 
-  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<any>(null);
-  const [roleName, setRoleName] = useState("");
-  const [roleDesc, setRoleDesc] = useState("");
-  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
-
   const openAddRole = () => {
-    setEditingRole(null);
-    setRoleName("");
-    setRoleDesc("");
-    setSelectedPermissions([]);
-    setIsRoleDialogOpen(true);
+    setLocation("/settings/roles/new");
   };
 
   const openEditRole = (role: any) => {
-    setEditingRole(role);
-    setRoleName(role.name);
-    setRoleDesc(role.description || "");
-    setSelectedPermissions(role.permissions || []);
-    setIsRoleDialogOpen(true);
+    setLocation(`/settings/roles/${role.id}/edit`);
   };
-
-  const createCustomRoleMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/custom-roles", data);
-      return res.json();
-    },
-    onSuccess: () => {
-      refetchCustomRoles();
-      toast({ title: "Custom role created successfully." });
-      setIsRoleDialogOpen(false);
-    },
-    onError: (err: any) => {
-      toast({
-        title: "Failed to create role",
-        description: getUserFriendlyError(err),
-        variant: "destructive",
-      });
-    }
-  });
-
-  const updateCustomRoleMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      const res = await apiRequest("PATCH", `/api/custom-roles/${id}`, data);
-      return res.json();
-    },
-    onSuccess: () => {
-      refetchCustomRoles();
-      toast({ title: "Custom role updated successfully." });
-      setIsRoleDialogOpen(false);
-    },
-    onError: (err: any) => {
-      toast({
-        title: "Failed to update role",
-        description: getUserFriendlyError(err),
-        variant: "destructive",
-      });
-    }
-  });
 
   const deleteCustomRoleMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -207,29 +155,6 @@ export default function SettingsStoresPage() {
       });
     }
   });
-
-  const handleRoleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!roleName) return;
-
-    const data = {
-      name: roleName,
-      description: roleDesc,
-      permissions: selectedPermissions,
-    };
-
-    if (editingRole) {
-      updateCustomRoleMutation.mutate({ id: editingRole.id, data });
-    } else {
-      createCustomRoleMutation.mutate(data);
-    }
-  };
-
-  const togglePermission = (perm: string) => {
-    setSelectedPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
-    );
-  };
 
   // CSV Template, Exports, & Bulk Imports States
   const downloadCSVTemplate = (type: string) => {
@@ -701,7 +626,7 @@ export default function SettingsStoresPage() {
       />
 
       <Tabs defaultValue="stores" className="w-full space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 bg-muted/50 p-1 rounded-xl gap-1">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 bg-muted/50 p-1 rounded-xl gap-1">
           <TabsTrigger value="stores" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
             <Store className="h-4 w-4" />
             Stores Management
@@ -721,6 +646,10 @@ export default function SettingsStoresPage() {
           <TabsTrigger value="payments" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
             <CreditCard className="h-4 w-4" />
             Payment Gateways
+          </TabsTrigger>
+          <TabsTrigger value="borrow-book" className="flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs md:text-sm">
+            <BookOpen className="h-4 w-4" />
+            Borrow Book Reminders
           </TabsTrigger>
         </TabsList>
 
@@ -843,19 +772,7 @@ export default function SettingsStoresPage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  if (business) {
-                    businessForm.reset({
-                      name: business.name || "",
-                      address: (business as any).address || "",
-                      phone: (business as any).phone || "",
-                      phoneCountryCode: (business as any).phoneCountryCode || "+234",
-                      logoUrl: (business as any).logoUrl || "",
-                      businessUrl: (business as any).businessUrl || "",
-                      commissionSplitBusinessShare: (business as any).commissionSplitBusinessShare ?? 80,
-                      commissionSplitStaffShare: (business as any).commissionSplitStaffShare ?? 20,
-                    });
-                  }
-                  setIsBusinessDialogOpen(true);
+                  setLocation(business ? "/settings/business/edit" : "/settings/business/new");
                 }}
                 data-testid="button-edit-business"
               >
@@ -1188,199 +1105,24 @@ export default function SettingsStoresPage() {
             <StoreIntegrationsSection />
           )}
         </TabsContent>
+
+        <TabsContent value="borrow-book" className="space-y-6 mt-0">
+          {!currentStore ? (
+            <Card className="p-8 border-dashed flex flex-col items-center justify-center text-center space-y-3">
+              <BookOpen className="h-10 w-10 text-muted-foreground/50" />
+              <div>
+                <CardTitle className="text-base font-semibold">No Active Store Location Selected</CardTitle>
+                <CardDescription className="max-w-sm mt-1">
+                  You need to select or create a store location first under the <strong>Stores Management</strong> tab to configure debt reminder policies.
+                </CardDescription>
+              </div>
+            </Card>
+          ) : (
+            <BorrowBookSettingsSection />
+          )}
+        </TabsContent>
       </Tabs>
 
-      <Dialog open={isBusinessDialogOpen} onOpenChange={setIsBusinessDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{business ? "Edit Business" : "Set Up Business"}</DialogTitle>
-            <DialogDescription>
-              Enter your business information. This will appear across all your stores.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...businessForm}>
-            <form onSubmit={businessForm.handleSubmit(handleBusinessSubmit)} className="space-y-4">
-              <div className="flex flex-col items-center gap-4 mb-4">
-                <Avatar className="h-20 w-20 border-2">
-                  <AvatarImage src={businessForm.watch("logoUrl") || ""} />
-                  <AvatarFallback className="bg-primary/10">
-                    <Building2 className="h-10 w-10 text-primary/40" />
-                  </AvatarFallback>
-                </Avatar>
-                <div className="w-full">
-                  <Label className="text-xs mb-1 block text-center">Business Logo</Label>
-                  <Input 
-                    type="file" 
-                    accept="image/*"
-                    className="cursor-pointer"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const maxSize = 2 * 1024 * 1024; // 2MB
-                        if (file.size > maxSize) {
-                          toast({
-                            title: "File too large",
-                            description: "Business logo must be smaller than 2MB.",
-                            variant: "destructive"
-                          });
-                          e.target.value = ""; // clear input
-                          return;
-                        }
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          businessForm.setValue("logoUrl", reader.result as string);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                  />
-                  <p className="text-[10px] text-muted-foreground mt-1 text-center">
-                    Upload logo (JPG, PNG). Max size 2MB (Strictly enforced).
-                  </p>
-                </div>
-              </div>
-
-              <FormField
-                control={businessForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Business Name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="My Business" data-testid="input-business-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={businessForm.control}
-                name="businessUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Business Website (Optional)</FormLabel>
-                    <FormControl>
-                      <div className="flex">
-                        <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted text-muted-foreground text-sm">
-                          https://
-                        </span>
-                        <Input 
-                          {...field} 
-                          placeholder="example.com" 
-                          className="rounded-l-none"
-                          data-testid="input-business-url" 
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={businessForm.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address (Optional)</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} placeholder="123 Main St, City" data-testid="input-business-address" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormItem>
-                <FormLabel>Phone (Optional)</FormLabel>
-                <div className="flex gap-2">
-                  <FormField
-                    control={businessForm.control}
-                    name="phoneCountryCode"
-                    render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value || "+234"}>
-                        <SelectTrigger className="w-[120px]" data-testid="select-business-phone-country">
-                          <SelectValue placeholder="+234" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[300px]">
-                          {countryCodes.map((cc) => (
-                            <SelectItem key={cc.dialCode} value={cc.dialCode}>
-                              {cc.dialCode} ({cc.name})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  <FormField
-                    control={businessForm.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <FormControl>
-                        <Input {...field} placeholder="Phone number" className="flex-1" data-testid="input-business-phone" />
-                      </FormControl>
-                    )}
-                  />
-                </div>
-              </FormItem>
-
-              <div className="border border-muted/80 p-3 rounded-lg bg-muted/10 space-y-3">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Default Hybrid Commission Split</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={businessForm.control}
-                    name="commissionSplitBusinessShare"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Business Share (%)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            {...field}
-                            onChange={(e) => field.onChange(Number(e.target.value))}
-                            placeholder="80"
-                            data-testid="input-business-split-business"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={businessForm.control}
-                    name="commissionSplitStaffShare"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-xs">Staff Share (%)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            {...field}
-                            onChange={(e) => field.onChange(Number(e.target.value))}
-                            placeholder="20"
-                            data-testid="input-business-split-staff"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <p className="text-[10px] text-muted-foreground">Standard split applies to checkouts unless overriden at the store or service level. Must total 100%.</p>
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsBusinessDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" data-testid="button-save-business">
-                  Save
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
 
 
 
@@ -1520,62 +1262,6 @@ export default function SettingsStoresPage() {
         isDestructive
       />
 
-      {/* Custom Roles Dialog */}
-      <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingRole ? "Edit Custom Role" : "Create Custom Role"}</DialogTitle>
-            <DialogDescription>
-              Define name, description, and assign modular permissions for staff roles.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleRoleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="role-name">Role Name</Label>
-              <Input
-                id="role-name"
-                value={roleName}
-                onChange={(e) => setRoleName(e.target.value)}
-                placeholder="e.g. Frontdesk"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="role-desc">Description</Label>
-              <Textarea
-                id="role-desc"
-                value={roleDesc}
-                onChange={(e) => setRoleDesc(e.target.value)}
-                placeholder="e.g. Handles appointments and client registration"
-              />
-            </div>
-            <div className="space-y-2.5">
-              <Label>Modular Permissions</Label>
-              <div className="grid grid-cols-2 gap-2 border p-3 rounded-lg bg-muted/10">
-                {["Dashboard", "Sales & Checkout", "Customers", "Staff & Payroll", "Inventory & Catalog", "Expenses & Reports", "Settings"].map((perm) => (
-                  <label key={perm} className="flex items-center gap-2 text-xs font-medium cursor-pointer p-1 hover:bg-muted/40 rounded transition-colors">
-                    <input
-                      type="checkbox"
-                      className="rounded border-muted text-primary focus:ring-primary h-3.5 w-3.5"
-                      checked={selectedPermissions.includes(perm)}
-                      onChange={() => togglePermission(perm)}
-                    />
-                    {perm}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsRoleDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                {editingRole ? "Save Changes" : "Create Role"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {/* Bulk Progress Dialog */}
       <Dialog open={isImportingProgressOpen} onOpenChange={setIsImportingProgressOpen}>
@@ -1725,6 +1411,151 @@ function BusinessSettingsSection() {
         >
           {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
           Save Business Settings
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BorrowBookSettingsSection() {
+  const { currentStore } = useStore();
+  const { toast } = useToast();
+  
+  const { data: settingsData, isLoading } = useQuery<any>({
+    queryKey: ["/api/settings", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("PUT", "/api/settings", { ...data, storeId: currentStore?.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", currentStore?.id] });
+      toast({ title: "Borrow Book settings updated successfully" });
+    },
+  });
+
+  const [daysBefore, setDaysBefore] = useState(2);
+  const [onDueDate, setOnDueDate] = useState(true);
+  const [daysAfter, setDaysAfter] = useState(3);
+  const [repeatDays, setRepeatDays] = useState(7);
+  const [stopDays, setStopDays] = useState(30);
+  const [language, setLanguage] = useState("both");
+
+  useEffect(() => {
+    if (settingsData) {
+      setDaysBefore(settingsData.borrowBookReminderDaysBefore ?? 2);
+      setOnDueDate(settingsData.borrowBookReminderOnDueDate ?? true);
+      setDaysAfter(settingsData.borrowBookReminderDaysAfter ?? 3);
+      setRepeatDays(settingsData.borrowBookReminderRepeatDays ?? 7);
+      setStopDays(settingsData.borrowBookReminderStopDays ?? 30);
+      setLanguage(settingsData.borrowBookReminderLanguage ?? "both");
+    }
+  }, [settingsData]);
+
+  if (!currentStore) return null;
+  if (isLoading) return <Card className="p-8 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></Card>;
+
+  return (
+    <Card className="border-primary/20 shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-xl font-bold">
+          <BookOpen className="h-6 w-6 text-amber-500" />
+          Borrow Book Reminder Settings
+        </CardTitle>
+        <CardDescription>Configure automated WhatsApp & SMS notifications to gently remind customers of their outstanding balance</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="days-before" className="text-sm font-semibold">Days Before Due Date</Label>
+            <Input 
+              id="days-before" 
+              type="number"
+              value={daysBefore} 
+              onChange={(e) => setDaysBefore(parseInt(e.target.value) || 0)} 
+            />
+            <p className="text-[10px] text-muted-foreground">Send first gentle warning reminder N days before due date</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="language" className="text-sm font-semibold">Reminder Language Dialect</Label>
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger id="language" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="english">Standard English Dialect</SelectItem>
+                <SelectItem value="pidgin">Nigerian Pidgin Dialect</SelectItem>
+                <SelectItem value="both">Bilingual (English + Pidgin)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">Select dialect style for messaging templates</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between p-4 bg-muted/40 border rounded-lg">
+          <div className="space-y-0.5">
+            <Label htmlFor="on-due-date" className="text-sm font-semibold">Reminder On Due Date</Label>
+            <p className="text-[10px] text-muted-foreground">Send an urgent collection notification exactly on the expected due date</p>
+          </div>
+          <Switch 
+            id="on-due-date" 
+            checked={onDueDate} 
+            onCheckedChange={setOnDueDate} 
+          />
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="days-after" className="text-sm font-semibold">First Overdue Delay (Days)</Label>
+            <Input 
+              id="days-after" 
+              type="number"
+              value={daysAfter} 
+              onChange={(e) => setDaysAfter(parseInt(e.target.value) || 0)} 
+            />
+            <p className="text-[10px] text-muted-foreground">Days after due date before sending first overdue reminder</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="repeat-days" className="text-sm font-semibold">Follow-Up Frequency (Days)</Label>
+            <Input 
+              id="repeat-days" 
+              type="number"
+              value={repeatDays} 
+              onChange={(e) => setRepeatDays(parseInt(e.target.value) || 0)} 
+            />
+            <p className="text-[10px] text-muted-foreground">Interval in days between repeat overdue notifications</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="stop-days" className="text-sm font-semibold">Auto-Silence Threshold (Days)</Label>
+            <Input 
+              id="stop-days" 
+              type="number"
+              value={stopDays} 
+              onChange={(e) => setStopDays(parseInt(e.target.value) || 0)} 
+            />
+            <p className="text-[10px] text-muted-foreground">Stop sending automated reminders after N days from due date</p>
+          </div>
+        </div>
+      </CardContent>
+      <Separator />
+      <CardContent className="pt-6 flex justify-end">
+        <Button 
+          onClick={() => updateSettingsMutation.mutate({ 
+            borrowBookReminderDaysBefore: daysBefore, 
+            borrowBookReminderOnDueDate: onDueDate, 
+            borrowBookReminderDaysAfter: daysAfter, 
+            borrowBookReminderRepeatDays: repeatDays, 
+            borrowBookReminderStopDays: stopDays, 
+            borrowBookReminderLanguage: language 
+          })}
+          disabled={updateSettingsMutation.isPending}
+          className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+        >
+          {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
+          Save Ledger Settings
         </Button>
       </CardContent>
     </Card>

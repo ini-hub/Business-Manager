@@ -80,10 +80,18 @@ import {
   customRoles,
   type CustomRole,
   type InsertCustomRole,
+  creditEntries,
+  repayments,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, like, or, ilike, gt, gte, lte } from "drizzle-orm";
 import { broadcastNotification } from "./websocket";
+import { payrollService } from "./services/PayrollService";
+import { CommissionSplitCalculator as OOPCommissionSplitCalculator } from "./services/CommissionService";
+import { UserRepository } from "./repositories/UserRepository";
+import { InventoryRepository } from "./repositories/InventoryRepository";
+import { ExpenseRepository } from "./repositories/ExpenseRepository";
+import { CreditRepository } from "./repositories/CreditRepository";
 
 // Pagination types
 export interface PaginationOptions {
@@ -347,41 +355,32 @@ export interface IStorage {
   getStoreIntegrationByProvider(storeId: string, provider: string): Promise<StoreIntegration | undefined>;
   upsertStoreIntegration(data: InsertStoreIntegration & { storeId: string; provider: string }): Promise<StoreIntegration>;
   deleteStoreIntegration(id: string): Promise<void>;
+  
+  // Credit & Debt
+  creditRepo: CreditRepository;
 }
 
 export class DatabaseStorage implements IStorage {
+  private userRepo = new UserRepository();
+  private inventoryRepo = new InventoryRepository();
+  private expenseRepo = new ExpenseRepository();
+  public readonly creditRepo = new CreditRepository();
+
   // Users & Auth
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    return this.userRepo.getUser(id);
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
-    return user;
+    return this.userRepo.getUserByEmail(email);
   }
 
   async getUserByIdentifier(emailOrPhone: string): Promise<User | undefined> {
-    const clean = emailOrPhone.trim().toLowerCase();
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(or(eq(users.email, clean), eq(users.phone, clean)));
-    return user;
+    return this.userRepo.getUserByIdentifier(emailOrPhone);
   }
 
   async getUserByActivationCode(code: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(
-        and(
-          eq(users.activationCode, code),
-          eq(users.activationCodeUsed, false),
-          gt(users.activationCodeExpiry, new Date())
-        )
-      );
-    return user;
+    return this.userRepo.getUserByActivationCode(code);
   }
 
   async getOrganisationsByUserId(userId: string): Promise<any[]> {
@@ -484,41 +483,15 @@ export class DatabaseStorage implements IStorage {
     activationCodeUsed?: boolean;
     createdByInvitation?: boolean;
   }): Promise<User> {
-    const [user] = await db.insert(users).values({
-      email: userData.email,
-      password: userData.password,
-      businessId: userData.businessId,
-      role: userData.role || "owner",
-      isVerified: userData.isVerified ?? false,
-      activationCode: userData.activationCode,
-      activationCodeExpiry: userData.activationCodeExpiry,
-      activationCodeUsed: userData.activationCodeUsed ?? false,
-      createdByInvitation: userData.createdByInvitation ?? false,
-    }).returning();
-    return user;
+    return this.userRepo.createUser(userData);
   }
 
   async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
-    const [user] = await db.update(users).set({
-      ...data,
-      updatedAt: new Date(),
-    }).where(eq(users.id, id)).returning();
-    return user;
+    return this.userRepo.updateUser(id, data);
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
+    return this.userRepo.upsertUser(userData);
   }
 
   // OTP Codes
@@ -1003,83 +976,35 @@ export class DatabaseStorage implements IStorage {
 
   // Inventory
   async getInventory(storeId: string): Promise<Inventory[]> {
-    return await db.select().from(inventory).where(eq(inventory.storeId, storeId));
+    return this.inventoryRepo.getInventory(storeId);
   }
 
   async getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
-    const { page, limit, search } = options;
-    const offset = (page - 1) * limit;
-
-    const conditions = [eq(inventory.storeId, storeId)];
-    if (search) {
-      conditions.push(
-        or(
-          ilike(inventory.name, `%${search}%`),
-          ilike(inventory.type, `%${search}%`)
-        )!
-      );
-    }
-
-    const [countResult] = await db.select({ count: count() })
-      .from(inventory)
-      .where(and(...conditions));
-    const total = countResult.count;
-
-    const data = await db.select()
-      .from(inventory)
-      .where(and(...conditions))
-      .orderBy(asc(inventory.name))
-      .limit(limit)
-      .offset(offset);
-
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
-    };
+    return this.inventoryRepo.getInventoryPaginated(storeId, options);
   }
 
   async getInventoryItem(id: string): Promise<Inventory | undefined> {
-    const [item] = await db.select().from(inventory).where(eq(inventory.id, id));
-    return item;
+    return this.inventoryRepo.getInventoryItem(id);
   }
 
   async getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined> {
-    const [item] = await db
-      .select()
-      .from(inventory)
-      .where(and(
-        eq(inventory.storeId, storeId),
-        sql`lower(${inventory.name}) = ${name.toLowerCase().trim()}`
-      ));
-    return item;
+    return this.inventoryRepo.getInventoryItemByName(storeId, name);
   }
 
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {
-    const [newItem] = await db.insert(inventory).values(item).returning();
-    return newItem;
+    return this.inventoryRepo.createInventoryItem(item);
   }
 
   async updateInventoryItem(id: string, itemData: Partial<InsertInventory>): Promise<Inventory | undefined> {
-    const [updated] = await db.update(inventory).set(itemData).where(eq(inventory.id, id)).returning();
-    return updated;
+    return this.inventoryRepo.updateInventoryItem(id, itemData);
   }
 
   async deleteInventoryItem(id: string): Promise<boolean> {
-    const result = await db.delete(inventory).where(eq(inventory.id, id)).returning();
-    return result.length > 0;
+    return this.inventoryRepo.deleteInventoryItem(id);
   }
 
   async hasInventoryTransactions(id: string): Promise<boolean> {
-    const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.inventoryId, id));
-    return result[0].count > 0;
+    return this.inventoryRepo.hasInventoryTransactions(id);
   }
 
   // Orders
@@ -1156,6 +1081,9 @@ export class DatabaseStorage implements IStorage {
           quantity: matchedInventoryItems[0]?.quantity || 0,
           costPrice: matchedInventoryItems[0]?.costPrice || 0,
           sellingPrice: checkout.totalCharged, // Standalone total charged
+          commissionSplitBusinessShare: matchedInventoryItems[0]?.commissionSplitBusinessShare ?? 80,
+          commissionSplitStaffShare: matchedInventoryItems[0]?.commissionSplitStaffShare ?? 20,
+          commissionSplitOverride: matchedInventoryItems[0]?.commissionSplitOverride ?? false,
         },
         checkout: {
           ...checkout,
@@ -1236,6 +1164,9 @@ export class DatabaseStorage implements IStorage {
           quantity: matchedInventoryItems[0]?.quantity || 0,
           costPrice: matchedInventoryItems[0]?.costPrice || 0,
           sellingPrice: primaryCheckout.totalCharged,
+          commissionSplitBusinessShare: matchedInventoryItems[0]?.commissionSplitBusinessShare ?? 80,
+          commissionSplitStaffShare: matchedInventoryItems[0]?.commissionSplitStaffShare ?? 20,
+          commissionSplitOverride: matchedInventoryItems[0]?.commissionSplitOverride ?? false,
         },
         checkout: {
           ...primaryCheckout,
@@ -1328,6 +1259,9 @@ export class DatabaseStorage implements IStorage {
           quantity: matchedInventoryItems[0]?.quantity || 0,
           costPrice: matchedInventoryItems[0]?.costPrice || 0,
           sellingPrice: checkout.totalCharged,
+          commissionSplitBusinessShare: matchedInventoryItems[0]?.commissionSplitBusinessShare ?? 80,
+          commissionSplitStaffShare: matchedInventoryItems[0]?.commissionSplitStaffShare ?? 20,
+          commissionSplitOverride: matchedInventoryItems[0]?.commissionSplitOverride ?? false,
         },
         checkout: {
           ...checkout,
@@ -1528,12 +1462,14 @@ export class DatabaseStorage implements IStorage {
       assistingStaff2Id?: string | null;
       commissionSplit?: "standard" | "equal";
     }>;
-    paymentMethod: "cash" | "transfer" | "flutterwave";
+    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit";
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
     discountApprovedBy?: string;
     effectiveDate?: string;
+    creditUpfrontPaid?: number;
+    creditDueDate?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
     const checkoutIds: string[] = [];
     const lowStockItems: Array<{ name: string; quantity: number }> = [];
@@ -1807,6 +1743,37 @@ export class DatabaseStorage implements IStorage {
               quantityRemaining: inventoryItem.quantity - item.quantity,
               totalRevenue: revenue,
               totalGrossProfit: profit,
+            });
+          }
+        }
+
+        // If payment method is credit, create a single credit entry for the receipt
+        if (data.paymentMethod === "credit") {
+          const upfrontPaid = data.creditUpfrontPaid || 0;
+          const outstanding = Math.max(0, totalCharged - upfrontPaid);
+          const creditStatus = outstanding <= 0 ? "settled" : "owing";
+
+          const [creditEntry] = await tx.insert(creditEntries).values({
+            storeId: data.storeId,
+            customerId: data.customerId,
+            amountOwed: totalCharged,
+            amountPaidUpfront: upfrontPaid,
+            outstandingBalance: outstanding,
+            dueDate: data.creditDueDate ? new Date(data.creditDueDate) : null,
+            description: `Checkout Receipt #${receiptNumber}`,
+            linkedTransactionId: checkoutIds[0], // link to first checkout record
+            status: creditStatus,
+            notes: `Auto-generated from POS checkout #${receiptNumber}`,
+          }).returning();
+
+          // If there is a positive upfront payment, record it as the first repayment!
+          if (upfrontPaid > 0) {
+            await tx.insert(repayments).values({
+              creditEntryId: creditEntry.id,
+              amountReceived: upfrontPaid,
+              paymentMethod: "cash", // default cash for upfront
+              notes: `Upfront payment during checkout #${receiptNumber}`,
+              recordedByStaffId: data.staffId,
             });
           }
         }
@@ -2119,480 +2086,17 @@ export class DatabaseStorage implements IStorage {
     return rows.map(r => ({ ...r.entry, staff: r.staffMember! }));
   }
 
-  // CommissionSplitCalculator class implementing clean OOP design pattern
-  // Follows strict override priority: Service -> Store -> Business -> Fallback.
-  CommissionSplitCalculator = class {
-    private businessStaffShare: number;
-    private storeStaffShare: number;
-    private storeOverride: boolean;
+  CommissionSplitCalculator = OOPCommissionSplitCalculator;
 
-    constructor(business: any, store: any) {
-      this.businessStaffShare = business?.commissionSplitStaffShare ?? 20;
-      this.storeStaffShare = store?.commissionSplitStaffShare ?? 20;
-      this.storeOverride = store?.commissionSplitOverride ?? false;
-    }
-
-    public getStaffRate(item: any): number {
-      if (item?.commissionSplitOverride) {
-        return (item.commissionSplitStaffShare ?? 20) / 100;
-      }
-      if (this.storeOverride) {
-        return this.storeStaffShare / 100;
-      }
-      return this.businessStaffShare / 100;
-    }
-  }
-
-  // Option 4 Hybrid Model Commission Calculation Engine
   async calculatePayrollForPeriod(periodId: string): Promise<PayrollEntryWithStaff[]> {
-    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
-    if (!period) throw new Error("Payroll period not found");
-    if (period.status === "paid") throw new Error("Cannot recalculate a paid payroll period.");
-
-    const store = await this.getStore(period.storeId);
-    if (!store) throw new Error("Store not found");
-    const business = await this.getBusinessById(store.businessId);
-    const splitCalculator = new this.CommissionSplitCalculator(business, store);
-
-    // Fetch store settings snapshot or current settings
-    const storeSettings = await this.getSettings(period.storeId);
-    const activeTransportRate = storeSettings.activeDayTransport ?? 1000;
-    const passiveTransportRate = storeSettings.passiveDayTransport ?? 500;
-    const baseCommissionRate = storeSettings.commissionRate ?? 0.30;
-
-    // Snapshot settings on the period if pending/approved to ensure historical stability
-    await db.update(payrollPeriods)
-      .set({ settingsSnapshot: storeSettings })
-      .where(eq(payrollPeriods.id, periodId));
-
-    // Get all staff for quick lookup
-    const allStaff = await db.select().from(staff).where(eq(staff.storeId, period.storeId));
-    const activeStaffList = allStaff.filter(s => !s.isArchived);
-    const staffMap = new Map(allStaff.map(s => [s.id, s]));
-
-    // Fetch all checkouts in period date range
-    const periodCheckouts = await db.select({
-      checkout: checkouts,
-      order: orders,
-      inventoryItem: inventory,
-    })
-      .from(checkouts)
-      .innerJoin(orders, eq(checkouts.orderId, orders.id))
-      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
-      .where(and(
-        eq(checkouts.storeId, period.storeId),
-        gte(checkouts.createdAt, new Date(period.startDate + "T00:00:00.000Z")),
-        lte(checkouts.createdAt, new Date(period.endDate + "T23:59:59.999Z")),
-      ));
-
-    // Fetch attendance records in period date range
-    const attendanceList = await db.select()
-      .from(attendanceRecords)
-      .where(and(
-        eq(attendanceRecords.storeId, period.storeId),
-        gte(attendanceRecords.date, period.startDate),
-        lte(attendanceRecords.date, period.endDate),
-      ));
-
-    // Group checkouts by discrete local date string YYYY-MM-DD
-    const checkoutsByDate = new Map<string, typeof periodCheckouts>();
-    for (const row of periodCheckouts) {
-      const dateStr = row.checkout.createdAt.toISOString().split("T")[0];
-      if (!checkoutsByDate.has(dateStr)) checkoutsByDate.set(dateStr, []);
-      checkoutsByDate.get(dateStr)!.push(row);
-    }
-
-    // Group attendance by date -> staffId -> status
-    const attendanceByDateStaff = new Map<string, Map<string, string>>();
-    for (const rec of attendanceList) {
-      if (!attendanceByDateStaff.has(rec.date)) attendanceByDateStaff.set(rec.date, new Map());
-      attendanceByDateStaff.get(rec.date)!.set(rec.staffId, rec.status);
-    }
-
-    // Prepare per-staff summary accumulation
-    const staffTotals = new Map<string, {
-      activeDays: number;
-      passiveDays: number;
-      grossCommission: number;
-    }>();
-
-    for (const s of activeStaffList) {
-      staffTotals.set(s.id, { activeDays: 0, passiveDays: 0, grossCommission: 0 });
-    }
-
-    // Loop through each distinct marked or transaction date in the period interval
-    const allDateStrs = Array.from(new Set([
-      ...Array.from(checkoutsByDate.keys()), 
-      ...Array.from(attendanceByDateStaff.keys())
-    ])).sort();
-
-    for (const dateStr of allDateStrs) {
-      if (dateStr < period.startDate || dateStr > period.endDate) continue;
-
-      const dayCheckouts = checkoutsByDate.get(dateStr) || [];
-      
-      // Group dayCheckouts by receiptNumber to allocate pro-rata discounts with rounding correction
-      const checkoutsByReceipt = new Map<string, typeof dayCheckouts>();
-      for (const row of dayCheckouts) {
-        if (!checkoutsByReceipt.has(row.checkout.receiptNumber)) {
-          checkoutsByReceipt.set(row.checkout.receiptNumber, []);
-        }
-        checkoutsByReceipt.get(row.checkout.receiptNumber)!.push(row);
-      }
-
-      // Calculate effective prices for all checkouts
-      const effectivePrices = new Map<string, number>(); // checkoutId -> effectivePrice
-
-      for (const [receiptNo, rows] of Array.from(checkoutsByReceipt.entries())) {
-        const firstRow = rows[0];
-        const totalDiscount = firstRow.checkout.discountAmount || 0;
-        const subtotal = firstRow.checkout.subtotal || 1;
-
-        if (totalDiscount <= 0) {
-          for (const row of rows) {
-            effectivePrices.set(row.checkout.id, row.checkout.totalPrice);
-          }
-        } else {
-          // Calculate initial pro-rata shares
-          let sumShares = 0;
-          const shares = new Map<string, number>();
-
-          for (const row of rows) {
-            // Round to 2 decimal places
-            const share = Math.round((row.checkout.totalPrice / subtotal) * totalDiscount * 100) / 100;
-            shares.set(row.checkout.id, share);
-            sumShares += share;
-          }
-
-          // Remainder rounding correction
-          const remainder = Math.round((totalDiscount - sumShares) * 100) / 100;
-          if (remainder !== 0) {
-            // Find row with highest totalPrice
-            let maxRow = rows[0];
-            for (const row of rows) {
-              if (row.checkout.totalPrice > maxRow.checkout.totalPrice) {
-                maxRow = row;
-              }
-            }
-            const currentShare = shares.get(maxRow.checkout.id) || 0;
-            shares.set(maxRow.checkout.id, Math.round((currentShare + remainder) * 100) / 100);
-          }
-
-          // Compute effective prices
-          for (const row of rows) {
-            const share = shares.get(row.checkout.id) || 0;
-            effectivePrices.set(row.checkout.id, Math.max(0, row.checkout.totalPrice - share));
-          }
-        }
-      }
-
-      const dayServiceCheckouts = dayCheckouts.filter(c => c.inventoryItem.type === "service");
-
-      // Identify all distinct staff assigned to any service line items that day
-      const dailyActiveStaffIds = new Set<string>();
-      let totalDailyServiceRevenue = 0;
-
-      for (const row of dayServiceCheckouts) {
-        const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
-        totalDailyServiceRevenue += effectivePrice;
-        const leadId = row.checkout.leadStaffId || row.checkout.staffId;
-        dailyActiveStaffIds.add(leadId);
-        if (row.checkout.assistingStaff1Id) dailyActiveStaffIds.add(row.checkout.assistingStaff1Id);
-        if (row.checkout.assistingStaff2Id) dailyActiveStaffIds.add(row.checkout.assistingStaff2Id);
-      }
-
-      const activeStaffCount = dailyActiveStaffIds.size;
-      const dayAttendance = attendanceByDateStaff.get(dateStr) || new Map<string, string>();
-
-      // Update active/passive day counts per staff member for this day
-      staffTotals.forEach((totals, staffId) => {
-        const isAssigned = dailyActiveStaffIds.has(staffId);
-        const status = dayAttendance.get(staffId);
-
-        // Exclude off days and holidays entirely per spec
-        if (status === "off_day" || status === "holiday") return;
-
-        if (isAssigned) {
-          // If assigned to service, automatically Active Day
-          totals.activeDays++;
-        } else if (status === "present") {
-          // Present but not assigned -> Passive Day
-          totals.passiveDays++;
-        }
-      });
-
-      // If no service revenue, skip commission math
-      if (totalDailyServiceRevenue <= 0 || activeStaffCount === 0) continue;
-
-      // Distribute pool across service items proportionally with dynamic overrides
-      const transportRatio = totalDailyServiceRevenue > 0 ? (activeStaffCount * activeTransportRate) / totalDailyServiceRevenue : 0;
-
-      for (const row of dayServiceCheckouts) {
-        const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
-        const serviceCommissionable = Math.max(0, effectivePrice * (1 - transportRatio));
-        const serviceRate = splitCalculator.getStaffRate(row.inventoryItem);
-        const perServicePool = serviceCommissionable * serviceRate;
-
-        const leadId = row.checkout.leadStaffId || row.checkout.staffId;
-        const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
-        const staffCount = 1 + assistants.length;
-
-        let leadShare: number;
-        let asstShare: number;
-
-        if (row.checkout.commissionSplit === "equal") {
-          leadShare = 1 / staffCount;
-          asstShare = 1 / staffCount;
-          console.log(`[Payroll] EQUAL split for service ${row.inventoryItem.name}: staffCount=${staffCount}, share=${leadShare.toFixed(3)}`);
-        } else {
-          leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
-          asstShare = 0.2;
-          console.log(`[Payroll] STANDARD split for service ${row.inventoryItem.name}: staffCount=${staffCount}, lead=${leadShare}, asst=${asstShare}`);
-        }
-
-        // Add lead share
-        if (staffTotals.has(leadId)) {
-          staffTotals.get(leadId)!.grossCommission += perServicePool * leadShare;
-        }
-
-        // Add assistant shares
-        for (const asstId of assistants) {
-          if (staffTotals.has(asstId)) {
-            staffTotals.get(asstId)!.grossCommission += perServicePool * asstShare;
-          }
-        }
-      }
-    }
-
-    // Upsert payroll entries for each active staff member
-    const results: PayrollEntryWithStaff[] = [];
-
-    for (const [staffId, totals] of Array.from(staffTotals.entries())) {
-      const activeTransport = totals.activeDays * activeTransportRate;
-      const passiveTransport = totals.passiveDays * passiveTransportRate;
-      const totalTransport = activeTransport + passiveTransport;
-      const staffMember = staffMap.get(staffId)!;
-      let netPay = totalTransport + totals.grossCommission;
-
-      // Handle Fixed Payment Method
-      if (staffMember.paymentMethod === "fixed") {
-        netPay = staffMember.payPerMonth;
-      }
-
-      const [entry] = await db.insert(payrollEntries)
-        .values({
-          periodId,
-          storeId: period.storeId,
-          staffId,
-          activeDays: totals.activeDays,
-          passiveDays: totals.passiveDays,
-          activeTransport,
-          passiveTransport,
-          totalTransport,
-          grossCommission: totals.grossCommission,
-          netPay,
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [payrollEntries.periodId, payrollEntries.staffId],
-          set: {
-            activeDays: totals.activeDays,
-            passiveDays: totals.passiveDays,
-            activeTransport,
-            passiveTransport,
-            totalTransport,
-            grossCommission: totals.grossCommission,
-            netPay,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
-
-      results.push({ ...entry, staff: staffMember });
-    }
-
-    return results.sort((a, b) => b.netPay - a.netPay);
+    return await payrollService.calculatePayrollForPeriod(periodId);
   }
 
-  // Option 4 Hybrid Model Drill-down for one staff member
   async getPayrollDrillDown(periodId: string, staffId: string): Promise<{
     dailySummary: DailySummaryLine[];
     transactions: CommissionBreakdown[];
   }> {
-    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
-    if (!period) throw new Error("Payroll period not found");
-
-    // Use settings snapshot if present, else fall back to current store settings
-    const storeSettings = (period.settingsSnapshot as Settings | null) ?? (await this.getSettings(period.storeId));
-    const activeTransportRate = storeSettings.activeDayTransport ?? 1000;
-    const passiveTransportRate = storeSettings.passiveDayTransport ?? 500;
-    const baseCommissionRate = storeSettings.commissionRate ?? 0.30;
-
-    // Fetch all checkouts in period
-    const periodCheckouts = await db.select({
-      checkout: checkouts,
-      order: orders,
-      inventoryItem: inventory,
-      txn: transactions,
-    })
-      .from(checkouts)
-      .innerJoin(orders, eq(checkouts.orderId, orders.id))
-      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
-      .innerJoin(transactions, eq(transactions.checkoutId, checkouts.id))
-      .where(and(
-        eq(checkouts.storeId, period.storeId),
-        gte(checkouts.createdAt, new Date(period.startDate + "T00:00:00.000Z")),
-        lte(checkouts.createdAt, new Date(period.endDate + "T23:59:59.999Z")),
-      ));
-
-    // Fetch attendance for this staff member in period
-    const attendanceList = await db.select()
-      .from(attendanceRecords)
-      .where(and(
-        eq(attendanceRecords.storeId, period.storeId),
-        eq(attendanceRecords.staffId, staffId),
-        gte(attendanceRecords.date, period.startDate),
-        lte(attendanceRecords.date, period.endDate),
-      ));
-
-    const attendanceMap = new Map(attendanceList.map(a => [a.date, a.status]));
-
-    // Group checkouts by date to compute daily pools
-    const checkoutsByDate = new Map<string, typeof periodCheckouts>();
-    for (const row of periodCheckouts) {
-      const dateStr = row.txn.transactionDate.toISOString().split("T")[0];
-      if (!checkoutsByDate.has(dateStr)) checkoutsByDate.set(dateStr, []);
-      checkoutsByDate.get(dateStr)!.push(row);
-    }
-
-    const allDateStrs = Array.from(new Set([
-      ...Array.from(checkoutsByDate.keys()), 
-      ...Array.from(attendanceMap.keys())
-    ])).sort();
-
-    const dailySummaryLines: DailySummaryLine[] = [];
-    const breakdownList: CommissionBreakdown[] = [];
-
-    for (const dateStr of allDateStrs) {
-      if (dateStr < period.startDate || dateStr > period.endDate) continue;
-
-      const dayCheckouts = checkoutsByDate.get(dateStr) || [];
-      const dayServiceCheckouts = dayCheckouts.filter(c => c.inventoryItem.type === "service");
-
-      const dailyActiveStaffIds = new Set<string>();
-      let totalDailyServiceRevenue = 0;
-
-      for (const row of dayServiceCheckouts) {
-        totalDailyServiceRevenue += row.order.totalPrice;
-        const leadId = row.checkout.leadStaffId || row.checkout.staffId;
-        dailyActiveStaffIds.add(leadId);
-        if (row.checkout.assistingStaff1Id) dailyActiveStaffIds.add(row.checkout.assistingStaff1Id);
-        if (row.checkout.assistingStaff2Id) dailyActiveStaffIds.add(row.checkout.assistingStaff2Id);
-      }
-
-      const activeStaffCount = dailyActiveStaffIds.size;
-      const isAssigned = dailyActiveStaffIds.has(staffId);
-      const status = attendanceMap.get(dateStr);
-
-      if (status === "off_day" || status === "holiday") continue;
-
-      let dayType: "Active" | "Passive" | "Absent" = "Absent";
-      let transport = 0;
-
-      if (isAssigned) {
-        dayType = "Active";
-        transport = activeTransportRate;
-      } else if (status === "present") {
-        dayType = "Passive";
-        transport = passiveTransportRate;
-      } else {
-        continue;
-      }
-
-      // Calculate daily commission pool
-      let commissionEarned = 0;
-      const servicesWorkedNames: string[] = [];
-
-      if (totalDailyServiceRevenue > 0 && activeStaffCount > 0 && isAssigned) {
-        const commissionable = Math.max(0, totalDailyServiceRevenue - (activeStaffCount * activeTransportRate));
-        const dailyCommissionPool = commissionable * baseCommissionRate;
-
-        for (const row of dayServiceCheckouts) {
-          const leadId = row.checkout.leadStaffId || row.checkout.staffId;
-          const isLead = leadId === staffId;
-          const isAsst1 = row.checkout.assistingStaff1Id === staffId;
-          const isAsst2 = row.checkout.assistingStaff2Id === staffId;
-
-          if (!isLead && !isAsst1 && !isAsst2) continue;
-
-          const serviceWeight = row.order.totalPrice / totalDailyServiceRevenue;
-          const perServicePool = serviceWeight * dailyCommissionPool;
-
-          const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
-          const staffCount = 1 + assistants.length;
-
-          let leadShare: number;
-          let asstShare: number;
-
-          if (row.checkout.commissionSplit === "equal") {
-            leadShare = 1 / staffCount;
-            asstShare = 1 / staffCount;
-            console.log(`[Drilldown] EQUAL split for service ${row.inventoryItem.name}: staffCount=${staffCount}, share=${leadShare.toFixed(3)}`);
-          } else {
-            leadShare = staffCount === 1 ? 1.0 : staffCount === 2 ? 0.8 : 0.6;
-            asstShare = 0.2;
-            console.log(`[Drilldown] STANDARD split for service ${row.inventoryItem.name}: staffCount=${staffCount}, lead=${leadShare}, asst=${asstShare}`);
-          }
-
-          let role: "lead" | "assistant_1" | "assistant_2" = "lead";
-          let share = leadShare;
-
-          if (isLead) {
-            role = "lead";
-            share = leadShare;
-            servicesWorkedNames.push(`${row.inventoryItem.name} (Lead)`);
-          } else if (isAsst1) {
-            role = "assistant_1";
-            share = asstShare;
-            servicesWorkedNames.push(`${row.inventoryItem.name} (Asst 1)`);
-          } else if (isAsst2) {
-            role = "assistant_2";
-            share = asstShare;
-            servicesWorkedNames.push(`${row.inventoryItem.name} (Asst 2)`);
-          }
-
-          const earned = perServicePool * share;
-          commissionEarned += earned;
-
-          breakdownList.push({
-            checkoutId: row.checkout.id,
-            receiptNumber: row.checkout.receiptNumber,
-            transactionDate: row.txn.transactionDate.toISOString(),
-            inventoryName: row.inventoryItem.name,
-            inventoryType: row.inventoryItem.name,
-            serviceAmount: row.order.totalPrice,
-            commissionPool: perServicePool,
-            role,
-            share,
-            earned,
-          });
-        }
-      }
-
-      dailySummaryLines.push({
-        date: dateStr,
-        dayType,
-        transport,
-        servicesWorked: servicesWorkedNames.length > 0 ? servicesWorkedNames.join(", ") : "—",
-        commissionEarned,
-        dailyTotal: transport + commissionEarned,
-      });
-    }
-
-    return {
-      dailySummary: dailySummaryLines.sort((a, b) => a.date.localeCompare(b.date)),
-      transactions: breakdownList.sort((a, b) => a.transactionDate.localeCompare(b.transactionDate)),
-    };
+    return await payrollService.getPayrollDrillDown(periodId, staffId);
   }
 
   // Settings CRUD
@@ -2699,25 +2203,15 @@ export class DatabaseStorage implements IStorage {
 
   // Expense Categories CRUD
   async getExpenseCategories(storeId: string): Promise<ExpenseCategory[]> {
-    return db.select().from(expenseCategories).where(eq(expenseCategories.storeId, storeId)).orderBy(asc(expenseCategories.name));
+    return this.expenseRepo.getExpenseCategories(storeId);
   }
 
   async createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory> {
-    const [inserted] = await db.insert(expenseCategories).values(data).returning();
-    return inserted;
+    return this.expenseRepo.createExpenseCategory(data);
   }
 
   async deleteExpenseCategory(id: string): Promise<void> {
-    const associatedExpenses = await db.select()
-      .from(expenses)
-      .where(eq(expenses.categoryId, id))
-      .limit(1);
-
-    if (associatedExpenses.length > 0) {
-      throw new Error("conflict:Cannot delete expense category. It may be in use.");
-    }
-
-    await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
+    return this.expenseRepo.deleteExpenseCategory(id);
   }
 
   // Expenses CRUD
@@ -2728,83 +2222,23 @@ export class DatabaseStorage implements IStorage {
     type?: "all" | "general" | "linked" | "service" | "product",
     inventoryId?: string
   ): Promise<ExpenseWithCategory[]> {
-    let conditions = [eq(expenses.storeId, storeId)];
-    if (startDate) conditions.push(gte(expenses.date, startDate));
-    if (endDate) conditions.push(lte(expenses.date, endDate));
-    if (inventoryId && inventoryId !== "none" && inventoryId !== "all") {
-      conditions.push(eq(expenses.inventoryId, inventoryId));
-    }
-
-    const rows = await db.select({
-      expense: expenses,
-      category: expenseCategories,
-      inventory: inventory,
-    })
-      .from(expenses)
-      .leftJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
-      .leftJoin(inventory, eq(expenses.inventoryId, inventory.id))
-      .where(and(...conditions))
-      .orderBy(desc(expenses.date));
-
-    let mapped = rows.map(r => ({
-      ...r.expense,
-      category: r.category!,
-      inventory: r.inventory || undefined,
-    })) as ExpenseWithCategory[];
-
-    if (type && type !== "all") {
-      if (type === "general") {
-        mapped = mapped.filter(e => !e.inventoryId);
-      } else if (type === "linked") {
-        mapped = mapped.filter(e => !!e.inventoryId);
-      } else if (type === "service") {
-        mapped = mapped.filter(e => e.inventory?.type === "service");
-      } else if (type === "product") {
-        mapped = mapped.filter(e => e.inventory?.type === "product");
-      }
-    }
-
-    return mapped;
+    return this.expenseRepo.getExpenses(storeId, startDate, endDate, type, inventoryId);
   }
 
   async updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense> {
-    const [updated] = await db.update(expenses)
-      .set(data)
-      .where(eq(expenses.id, id))
-      .returning();
-    return updated;
+    return this.expenseRepo.updateExpense(id, data);
   }
 
   async getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {
-    const conditions: any[] = [
-      eq(payrollPeriods.storeId, storeId),
-      eq(payrollPeriods.status, "paid")
-    ];
-    if (startDate) conditions.push(gte(payrollPeriods.endDate, startDate));
-    if (endDate) conditions.push(lte(payrollPeriods.startDate, endDate));
-    
-    const paidPeriods = await db.select().from(payrollPeriods).where(and(...conditions));
-    const payrollDetails = [];
-
-    for (const period of paidPeriods) {
-      const entries = await db.select().from(payrollEntries).where(eq(payrollEntries.periodId, period.id));
-      const periodTotal = entries.reduce((sum, entry) => sum + entry.netPay, 0);
-      
-      payrollDetails.push({
-        label: `Payroll — ${new Date(period.startDate).toLocaleDateString()} to ${new Date(period.endDate).toLocaleDateString()}`,
-        amount: periodTotal
-      });
-    }
-    return payrollDetails;
+    return this.expenseRepo.getPaidPayrollExpenses(storeId, startDate, endDate);
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {
-    const [inserted] = await db.insert(expenses).values(data).returning();
-    return inserted;
+    return this.expenseRepo.createExpense(data);
   }
 
   async deleteExpense(id: string): Promise<void> {
-    await db.delete(expenses).where(eq(expenses.id, id));
+    return this.expenseRepo.deleteExpense(id);
   }
 
   async getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
@@ -3004,6 +2438,11 @@ export class DatabaseStorage implements IStorage {
     const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, checkoutId));
     const [customer] = tx ? await db.select().from(customers).where(eq(customers.id, tx.customerId)) : [null];
 
+    const [creditEntry] = await db
+      .select()
+      .from(creditEntries)
+      .where(eq(creditEntries.linkedTransactionId, checkoutId));
+
     return {
       business: business ? { name: business.name } : null,
       store: store ? { name: store.name, currency: store.currency, phone: store.phone, address: store.address } : null,
@@ -3015,6 +2454,7 @@ export class DatabaseStorage implements IStorage {
       staff: staffMember,
       leadStaff: items[0]?.leadStaff || null,
       items, // Group of all items in this transaction
+      creditEntry: creditEntry || null,
     };
   }
 
@@ -3098,10 +2538,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchInventory(storeId: string, query: string): Promise<Inventory[]> {
-    return db.select()
-      .from(inventory)
-      .where(and(eq(inventory.storeId, storeId), ilike(inventory.name, `%${query}%`)))
-      .limit(10);
+    return this.inventoryRepo.searchInventory(storeId, query);
   }
 
   async searchTransactions(storeId: string, query: string): Promise<any[]> {

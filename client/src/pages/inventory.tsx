@@ -53,8 +53,6 @@ import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/c
 
 type FilterType = "all" | "product" | "service" | "low-stock";
 
-const LOW_STOCK_THRESHOLD = 5;
-
 const inventoryFormSchema = insertInventorySchema.refine(
   (data) => data.costPrice > 0,
   {
@@ -69,7 +67,9 @@ const inventoryFormSchema = insertInventorySchema.refine(
   }
 ).refine(data => {
   if (data.commissionSplitOverride) {
-    return data.commissionSplitBusinessShare + data.commissionSplitStaffShare === 100;
+    const businessShare = data.commissionSplitBusinessShare ?? 0;
+    const staffShare = data.commissionSplitStaffShare ?? 0;
+    return businessShare + staffShare === 100;
   }
   return true;
 }, {
@@ -106,6 +106,13 @@ export default function InventoryPage() {
     enabled: !!currentStore?.id,
   });
 
+  const { data: settingsData } = useQuery<any>({
+    queryKey: ["/api/settings", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const lowStockThreshold = settingsData?.lowStockThreshold ?? 5;
+
   const filteredInventory = useMemo(() => {
     switch (filterType) {
       case "all":
@@ -116,18 +123,18 @@ export default function InventoryPage() {
         return inventoryList.filter((item) => item.type === "service");
       case "low-stock":
         return inventoryList.filter(
-          (item) => item.type === "product" && item.quantity <= LOW_STOCK_THRESHOLD
+          (item) => item.type === "product" && item.quantity <= lowStockThreshold
         );
       default:
         return inventoryList;
     }
-  }, [inventoryList, filterType]);
+  }, [inventoryList, filterType, lowStockThreshold]);
 
   const lowStockCount = useMemo(() => {
     return inventoryList.filter(
-      (item) => item.type === "product" && item.quantity <= LOW_STOCK_THRESHOLD
+      (item) => item.type === "product" && item.quantity <= lowStockThreshold
     ).length;
-  }, [inventoryList]);
+  }, [inventoryList, lowStockThreshold]);
 
   const form = useForm<InsertInventory>({
     resolver: zodResolver(inventoryFormSchema),
@@ -346,7 +353,7 @@ export default function InventoryPage() {
     if (item.quantity === 0) {
       return <Badge variant="destructive">Out of Stock</Badge>;
     }
-    if (item.quantity <= LOW_STOCK_THRESHOLD) {
+    if (item.quantity <= lowStockThreshold) {
       return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100">Low Stock</Badge>;
     }
     return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">In Stock</Badge>;
@@ -573,7 +580,7 @@ export default function InventoryPage() {
               Low Stock Alert
             </p>
             <p className="text-sm text-amber-700 dark:text-amber-300">
-              {lowStockCount} item{lowStockCount !== 1 ? "s" : ""} {lowStockCount !== 1 ? "are" : "is"} running low on stock (below {LOW_STOCK_THRESHOLD} units)
+              {lowStockCount} item{lowStockCount !== 1 ? "s" : ""} {lowStockCount !== 1 ? "are" : "is"} running low on stock (below {lowStockThreshold} units)
             </p>
           </div>
           <Button
@@ -611,16 +618,46 @@ export default function InventoryPage() {
         </TabsList>
       </Tabs>
 
-      <DataTable
-        data={filteredInventory}
-        columns={columns}
-        searchable
-        searchPlaceholder="Search inventory..."
-        searchKeys={["name"]}
-        isLoading={isLoading}
-        emptyMessage="No items found. Add your first item to get started."
-        onRowClick={navigateToDetails}
-      />
+      {(() => {
+        const tableData = filteredInventory.map((item) => {
+          const margin = item.sellingPrice > 0 
+            ? Math.round(((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100) 
+            : 0;
+          const stockStatus = item.type === "service" 
+            ? "In Stock" 
+            : (item.quantity === 0 ? "Out of Stock" : (item.quantity <= lowStockThreshold ? "Low Stock" : "In Stock"));
+          return {
+            ...item,
+            stockStatus,
+            margin
+          };
+        });
+
+        const filterConfigs = [
+          { 
+            key: "type", 
+            label: "Type", 
+            type: "select" as const,
+            valueMapper: (val: any) => String(val).charAt(0).toUpperCase() + String(val).slice(1)
+          },
+          { key: "stockStatus", label: "Stock Status", type: "select" as const },
+          { key: "margin", label: "Margin %", type: "range" as const }
+        ];
+
+        return (
+          <DataTable
+            data={tableData}
+            columns={columns}
+            searchable
+            searchPlaceholder="Search inventory..."
+            searchKeys={["name"]}
+            isLoading={isLoading}
+            emptyMessage="No items found. Add your first item to get started."
+            onRowClick={navigateToDetails}
+            filterConfigs={filterConfigs}
+          />
+        );
+      })()}
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-lg">

@@ -689,6 +689,15 @@ export const settings = pgTable("settings", {
   receiptThankYouMessage: text("receipt_thank_you_message"),
   // Low stock threshold
   lowStockThreshold: integer("low_stock_threshold").notNull().default(5),
+  // Borrow Book Reminder Settings
+  borrowBookReminderDaysBefore: integer("borrow_book_reminder_days_before").notNull().default(2),
+  borrowBookReminderOnDueDate: boolean("borrow_book_reminder_on_due_date").notNull().default(true),
+  borrowBookReminderDaysAfter: integer("borrow_book_reminder_days_after").notNull().default(3),
+  borrowBookReminderRepeatDays: integer("borrow_book_reminder_repeat_days").notNull().default(7),
+  borrowBookReminderStopDays: integer("borrow_book_reminder_stop_days").notNull().default(30),
+  borrowBookReminderLanguage: text("borrow_book_reminder_language").notNull().default("both"), // pidgin, english, both
+  whatsappGatewayConfigured: boolean("whatsapp_gateway_configured").notNull().default(false),
+  smsGatewayConfigured: boolean("sms_gateway_configured").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -702,6 +711,94 @@ export const settingsRelations = relations(settings, ({ one }) => ({
 export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Settings = typeof settings.$inferSelect;
+
+// ========== BORROW BOOK (CREDIT & DEBT) TABLES ==========
+
+export const creditEntries = pgTable("credit_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  amountOwed: real("amount_owed").notNull(),
+  amountPaidUpfront: real("amount_paid_upfront").notNull().default(0),
+  outstandingBalance: real("outstanding_balance").notNull(),
+  dueDate: timestamp("due_date"),
+  description: text("description"),
+  linkedTransactionId: varchar("linked_transaction_id").references(() => checkouts.id),
+  status: text("status").notNull().default("owing"), // owing, partial, overdue, settled, written_off, void
+  notes: text("notes"),
+  writeOffReason: text("write_off_reason"), // Bad Debt, Customer Unreachable, Goodwill, Error Correction, Other
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const repayments = pgTable("repayments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creditEntryId: varchar("credit_entry_id").notNull().references(() => creditEntries.id),
+  amountReceived: real("amount_received").notNull(),
+  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos
+  notes: text("notes"),
+  recordedByStaffId: varchar("recorded_by_staff_id").references(() => staff.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const reminderLogs = pgTable("reminder_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creditEntryId: varchar("credit_entry_id").notNull().references(() => creditEntries.id),
+  channel: text("channel").notNull(), // whatsapp, sms
+  type: text("type").notNull(), // manual, auto
+  status: text("status").notNull(), // sent, failed
+  messageContent: text("message_content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Relationships
+export const creditEntriesRelations = relations(creditEntries, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [creditEntries.storeId],
+    references: [stores.id],
+  }),
+  customer: one(customers, {
+    fields: [creditEntries.customerId],
+    references: [customers.id],
+  }),
+  checkout: one(checkouts, {
+    fields: [creditEntries.linkedTransactionId],
+    references: [checkouts.id],
+  }),
+  repayments: many(repayments),
+  reminderLogs: many(reminderLogs),
+}));
+
+export const repaymentsRelations = relations(repayments, ({ one }) => ({
+  creditEntry: one(creditEntries, {
+    fields: [repayments.creditEntryId],
+    references: [creditEntries.id],
+  }),
+  staff: one(staff, {
+    fields: [repayments.recordedByStaffId],
+    references: [staff.id],
+  }),
+}));
+
+export const reminderLogsRelations = relations(reminderLogs, ({ one }) => ({
+  creditEntry: one(creditEntries, {
+    fields: [reminderLogs.creditEntryId],
+    references: [creditEntries.id],
+  }),
+}));
+
+// Schemas & Types
+export const insertCreditEntrySchema = createInsertSchema(creditEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCreditEntry = z.infer<typeof insertCreditEntrySchema>;
+export type CreditEntry = typeof creditEntries.$inferSelect;
+
+export const insertRepaymentSchema = createInsertSchema(repayments).omit({ id: true, createdAt: true });
+export type InsertRepayment = z.infer<typeof insertRepaymentSchema>;
+export type Repayment = typeof repayments.$inferSelect;
+
+export const insertReminderLogSchema = createInsertSchema(reminderLogs).omit({ id: true, createdAt: true });
+export type InsertReminderLog = z.infer<typeof insertReminderLogSchema>;
+export type ReminderLog = typeof reminderLogs.$inferSelect;
 
 // ========== PAYROLL TABLES ==========
 

@@ -16,7 +16,10 @@ import { Link } from "wouter";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { Separator } from "@/components/ui/separator";
 import type { ProfitLossWithInventory } from "@shared/schema";
+import { PageContainer } from "@/components/oop-ui/PageContainer";
+import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { useAuth } from "@/hooks/useAuth";
+import { analyticsApi } from "@/services/AnalyticsApiService";
 import { endOfDay, startOfDay, startOfMonth, subMonths, format } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -54,14 +57,11 @@ export default function ProfitLossPage() {
       dateRange?.from?.toISOString(),
       dateRange?.to?.toISOString()
     ],
-    queryFn: async () => {
-      const params = new URLSearchParams({ storeId: currentStore!.id });
-      if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
-      if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
-      const res = await fetch(`/api/profit-loss/summary?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to fetch summary");
-      return res.json();
-    },
+    queryFn: () => analyticsApi.getProfitLossSummary(
+      currentStore!.id,
+      dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined,
+      dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined
+    ),
     enabled: !!currentStore?.id,
   });
 
@@ -71,31 +71,7 @@ export default function ProfitLossPage() {
 
   const isLoading = isLoadingPL || isLoadingSummary;
 
-  if (user?.role === "staff") {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Profit & Loss Report" />
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            You do not have permission to view Profit & Loss reports.
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
 
-  if (!currentStore) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Profit & Loss Report"
-          description="Analyze revenue and profit across all inventory items"
-        />
-        <StoreRequiredAlert title="Store Required for Reports" />
-      </div>
-    );
-  }
 
   const columns = [
     {
@@ -212,58 +188,62 @@ export default function ProfitLossPage() {
   const isOwner = user?.role === "owner";
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Profit & Loss Statement"
-        description={`Financial performance analysis for ${currentStore.name}`}
-        actions={
-          <div className="flex flex-col sm:flex-row gap-2 items-center">
-            <DateRangeFilter
-              dateRange={dateRange ?? { from: undefined, to: undefined }}
-              onDateRangeChange={(r) => setDateRange(
-                r.from && r.to ? { from: r.from, to: r.to } : undefined
-              )}
-            />
-            <ExportToolbar
-              data={exportData as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              filename={`profit-loss-${format(new Date(), "yyyy-MM-dd")}`}
-              title="Profit & Loss Detail"
-              disabled={isLoading}
-            />
-          </div>
-        }
-      />
-
+    <PageContainer
+      title="Profit & Loss Statement"
+      description={`Financial performance analysis for ${currentStore?.name}`}
+      storeRequired
+      currentStore={currentStore}
+      requiredRole="manager"
+      currentUserRole={user?.role}
+      actions={
+        <div className="flex flex-col sm:flex-row gap-2 items-center">
+          <DateRangeFilter
+            dateRange={dateRange ?? { from: undefined, to: undefined }}
+            onDateRangeChange={(r) => setDateRange(
+              r.from && r.to ? { from: r.from, to: r.to } : undefined
+            )}
+          />
+          <ExportToolbar
+            data={exportData as unknown as Record<string, unknown>[]}
+            columns={exportColumns}
+            filename={`profit-loss-${format(new Date(), "yyyy-MM-dd")}`}
+            title="Profit & Loss Detail"
+            disabled={isLoading}
+          />
+        </div>
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
+        <PolymorphicMetricCard
           title="Total Revenue"
           value={formatCurrency(summary?.totalRevenue ?? 0)}
-          icon={<Coins className="h-4 w-4 text-emerald-600" />}
+          icon={<Coins className="h-5 w-5 text-emerald-600" />}
           isLoading={isLoading}
         />
-        <MetricCard
+        <PolymorphicMetricCard
           title="Gross Profit"
           value={formatCurrency(summary?.grossProfit ?? 0)}
-          icon={(summary?.grossProfit ?? 0) >= 0 ? <TrendingUp className="h-4 w-4 text-blue-600" /> : <TrendingDown className="h-4 w-4 text-red-600" />}
-          description="Revenue − Cost of Goods Sold"
+          trend={(summary?.grossProfit ?? 0) >= 0 ? "up" : "down"}
+          trendValue="Gross margin"
+          icon={(summary?.grossProfit ?? 0) >= 0 ? <TrendingUp className="h-5 w-5 text-blue-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
           isLoading={isLoading}
         />
         {isOwner && (
-          <MetricCard
+          <PolymorphicMetricCard
             title="Total Expenses"
             value={formatCurrency(summary?.totalExpenses ?? 0)}
-            icon={<Wallet className="h-4 w-4 text-amber-600" />}
+            icon={<Wallet className="h-5 w-5 text-amber-600" />}
             description="Operational + Payroll"
             isLoading={isLoading}
           />
         )}
         {isOwner && (
-          <MetricCard
+          <PolymorphicMetricCard
             title="Operating Profit"
             value={formatCurrency(opProfit)}
-            icon={opProfit >= 0 ? <TrendingUp className="h-4 w-4 text-green-600" /> : <TrendingDown className="h-4 w-4 text-red-600" />}
-            description="Gross Profit − Total Expenses"
+            trend={opProfit >= 0 ? "up" : "down"}
+            trendValue="Operating margin"
+            icon={opProfit >= 0 ? <TrendingUp className="h-5 w-5 text-green-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
             isLoading={isLoading}
           />
         )}
@@ -528,6 +508,6 @@ export default function ProfitLossPage() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+    </PageContainer>
   );
 }
