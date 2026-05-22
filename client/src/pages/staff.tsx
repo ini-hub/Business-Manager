@@ -25,7 +25,6 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
-import { ExportToolbar } from "@/components/export-toolbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
@@ -411,22 +410,15 @@ export default function StaffPage() {
         description={`Managing staff for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
-            <ExportToolbar
+            <BulkOperations
+              entityType="staff"
               data={(activeTab === "active" ? activeStaff : archivedStaff) as unknown as Record<string, unknown>[]}
               columns={exportColumns}
-              filename={`staff-${activeTab}`}
-              title={`Staff Report (${activeTab})`}
-              disabled={isLoading}
+              isLoading={isLoading}
+              storeId={currentStore.id}
+              pdfTitle={`Staff Report (${activeTab})`}
+              showImportOption={isOwner}
             />
-            {isOwner && (
-              <BulkOperations
-                entityType="staff"
-                data={activeStaff as unknown as Record<string, unknown>[]}
-                columns={exportColumns}
-                isLoading={isLoading}
-                storeId={currentStore.id}
-              />
-            )}
             {isOwner && (
               <Link href="/staff/new">
                 <Button data-testid="button-add-staff">

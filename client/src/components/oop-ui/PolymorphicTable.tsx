@@ -406,6 +406,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   // Advanced filters state
   const [activeFilters, setActiveFilters] = useState<Record<string, any>>({});
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+  const [mobileDetailItem, setMobileDetailItem] = useState<T | null>(null);
 
   // Uncontrolled fallback for multiselect
   const [localSelectedIds, setLocalSelectedIds] = useState<(string | number)[]>([]);
@@ -741,7 +742,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
         </div>
       </div>
 
-      <div className="rounded-md border bg-card text-card-foreground">
+      <div className="hidden lg:block rounded-md border bg-card text-card-foreground">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30">
@@ -847,6 +848,127 @@ export function PolymorphicTable<T extends { id: string | number }>({
           </TableBody>
         </Table>
       </div>
+
+      {/* Mobile / Tablet View: Beautiful Card List */}
+      <div className="lg:hidden space-y-4">
+        {paginatedData.length === 0 ? (
+          <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground italic shadow-xs border-muted/80">
+            {hasActiveFilters || searchTerm ? (
+              <div className="flex flex-col items-center justify-center gap-2">
+                <span>No records match your filters.</span>
+                <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-primary hover:underline hover:bg-transparent font-semibold">
+                  Clear Filters
+                </Button>
+              </div>
+            ) : (
+              emptyMessage
+            )}
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {paginatedData.map((item) => {
+              const isSelected = currentSelectedIds.includes(item.id);
+              const actionsCol = columns.find(col => col.key === "actions");
+              const dataCols = columns.filter(col => col.key !== "actions");
+              const primaryCol = dataCols[0];
+              const otherCols = dataCols.slice(1);
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    if (onRowClick) {
+                      onRowClick(item);
+                    } else {
+                      setMobileDetailItem(item);
+                    }
+                  }}
+                  className={cn(
+                    "relative bg-card text-card-foreground border rounded-xl p-4 shadow-xs hover:border-primary/45 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3 group border-muted/80",
+                    isSelected && "border-primary/50 bg-primary/5"
+                  )}
+                >
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between gap-2 pr-8">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {multiselect && (
+                        <div
+                          className="shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectRow(item.id);
+                          }}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleSelectRow(item.id)}
+                            aria-label={`Select row ${item.id}`}
+                          />
+                        </div>
+                      )}
+                      <div className="font-bold text-sm text-foreground truncate min-w-0 leading-tight">
+                        {primaryCol ? formatCellValue(item, primaryCol) : `Record #${item.id}`}
+                      </div>
+                    </div>
+                    
+                    {/* Floating Actions button in card top-right */}
+                    {actionsCol && (
+                      <div 
+                        className="absolute top-3 right-3 z-10 shrink-0" 
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {formatCellValue(item, actionsCol)}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Card Body Key-Values */}
+                  {otherCols.length > 0 && (
+                    <div className="flex flex-col gap-2 pt-3 border-t border-muted/40">
+                      {otherCols.map((col) => (
+                        <div key={col.key} className="flex justify-between items-center min-w-0 gap-4">
+                          <span className="text-xs font-medium text-muted-foreground shrink-0">
+                            {col.header}
+                          </span>
+                          <div className="text-sm text-foreground font-semibold truncate text-right">
+                            {formatCellValue(item, col)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Mobile Row Details Dialog */}
+      <Dialog open={!!mobileDetailItem} onOpenChange={(open) => !open && setMobileDetailItem(null)}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader className="pb-3 border-b border-muted/20">
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              Detail Information
+            </DialogTitle>
+            <DialogDescription>
+              Core fields and status values for this entry.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 divide-y divide-muted/30">
+            {mobileDetailItem && columns.map((col) => {
+              if (col.key === "actions") return null;
+              return (
+                <div key={col.key} className="flex justify-between gap-4 py-2.5 first:pt-0">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{col.header}</span>
+                  <span className="text-xs font-bold text-foreground text-right">{formatCellValue(mobileDetailItem, col)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-2">
         <div className="flex items-center gap-4">

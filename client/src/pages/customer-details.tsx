@@ -52,6 +52,17 @@ export default function CustomerDetails() {
     enabled: !!customerId && !!currentStore?.id,
   });
 
+  const { data: bookings = [], isLoading: bookingsLoading } = useQuery<any[]>({
+    queryKey: ["/api/customers", customerId, "bookings"],
+    queryFn: async () => {
+      const res = await fetch(`/api/bookings?storeId=${currentStore?.id}&customerId=${customerId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data || [];
+    },
+    enabled: !!customerId && !!currentStore?.id,
+  });
+
   const formatCurrency = (value: number, currency: string = "NGN") => {
     return new Intl.NumberFormat("en-NG", {
       style: "currency",
@@ -194,6 +205,11 @@ export default function CustomerDetails() {
       value: "credit",
       label: `Borrow Book Ledger (${creditEntries.length})`,
       icon: <BookOpen className="h-3.5 w-3.5 text-amber-500" />,
+    },
+    {
+      value: "bookings",
+      label: `Bookings (${bookings.length})`,
+      icon: <Calendar className="h-3.5 w-3.5 text-blue-500" />,
     },
   ];
 
@@ -382,6 +398,64 @@ export default function CustomerDetails() {
                                       entry.status === "settled" ? "Settled" : entry.status
                                     }
                                   </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="bookings" className="space-y-4">
+                  {bookingsLoading ? (
+                    <div className="space-y-2">
+                      {[1, 2, 3].map((i) => (
+                        <Skeleton key={i} className="h-12 w-full" />
+                      ))}
+                    </div>
+                  ) : bookings.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center bg-background/50 rounded-lg border border-dashed border-border p-6">
+                      <Calendar className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                      <p className="text-sm text-muted-foreground">
+                        No bookings found for this customer.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border bg-background overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <Table className="min-w-[800px]">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Reference</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Date & Time</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-right">Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {bookings.map((booking: any) => (
+                              <TableRow key={booking.id}>
+                                <TableCell className="font-medium text-primary">
+                                  {booking.bookingRef}
+                                </TableCell>
+                                <TableCell className="capitalize">{booking.type}</TableCell>
+                                <TableCell>
+                                  {new Intl.DateTimeFormat("en-US", {
+                                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+                                  }).format(new Date(booking.scheduledAt))}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="secondary" className="capitalize">
+                                    {booking.status.replace("_", " ")}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button variant="ghost" size="sm" asChild>
+                                    <Link href={`/bookings/${booking.id}`}>View</Link>
+                                  </Button>
                                 </TableCell>
                               </TableRow>
                             ))}

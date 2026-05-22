@@ -32,13 +32,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
-import { ExportToolbar } from "@/components/export-toolbar";
-import { BulkImport } from "@/components/bulk-import";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -48,6 +47,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 
@@ -80,6 +80,7 @@ const inventoryFormSchema = insertInventorySchema.refine(
 export default function InventoryPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [shouldRedirectBack, setShouldRedirectBack] = useState(false);
@@ -89,7 +90,7 @@ export default function InventoryPage() {
   const [duplicateItem, setDuplicateItem] = useState<Inventory | null>(null);
   const [duplicatePayload, setDuplicatePayload] = useState<InsertInventory | null>(null);
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
-  const [filterType, setFilterType] = useState<FilterType>("service");
+  const [filterType, setFilterType] = useState<FilterType>("all");
   const [restockData, setRestockData] = useState({
     quantity: 1,
     unitCost: 0,
@@ -519,26 +520,14 @@ export default function InventoryPage() {
         description={`Managing inventory for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
-            <BulkImport />
-            <ExportToolbar
-              data={filteredInventory as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              filename="inventory-list"
-              title="Inventory Report"
-              disabled={isLoading}
-            />
             <BulkOperations
               entityType="inventory"
-              data={inventoryList as unknown as Record<string, unknown>[]}
-              columns={[
-                { key: "name", header: "Name" },
-                { key: "type", header: "Type" },
-                { key: "costPrice", header: "Cost Price" },
-                { key: "sellingPrice", header: "Selling Price" },
-                { key: "quantity", header: "Quantity" },
-              ]}
+              data={filteredInventory as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
               isLoading={isLoading}
               storeId={currentStore.id}
+              pdfTitle="Inventory Report"
+              showImportOption={user?.role !== "staff"}
             />
             <Button onClick={openCreateForm} data-testid="button-add-item">
               <Plus className="mr-2 h-4 w-4" />
@@ -596,26 +585,22 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <Tabs value={filterType} onValueChange={(v) => setFilterType(v as FilterType)}>
-        <TabsList>
-          <TabsTrigger value="all" data-testid="tab-all">
-            All ({inventoryList.length})
-          </TabsTrigger>
-          <TabsTrigger value="product" data-testid="tab-products">
-            Products ({inventoryList.filter((i) => i.type === "product").length})
-          </TabsTrigger>
-          <TabsTrigger value="service" data-testid="tab-services">
-            Services ({inventoryList.filter((i) => i.type === "service").length})
-          </TabsTrigger>
-          <TabsTrigger 
-            value="low-stock" 
-            data-testid="tab-low-stock"
-            className={lowStockCount > 0 ? "text-amber-600 dark:text-amber-400" : ""}
-          >
-            <AlertCircle className="mr-1 h-3 w-3" />
-            Low Stock ({lowStockCount})
-          </TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="all" value={filterType} onValueChange={(v) => setFilterType(v as FilterType)} className="w-full space-y-6">
+        <PolymorphicTabsList 
+          variant="default"
+          tabs={[
+            { value: "all", label: `All (${inventoryList.length})`, testId: "tab-all" },
+            { value: "product", label: `Products (${inventoryList.filter((i) => i.type === "product").length})`, testId: "tab-products" },
+            { value: "service", label: `Services (${inventoryList.filter((i) => i.type === "service").length})`, testId: "tab-services" },
+            { 
+              value: "low-stock", 
+              label: `Low Stock (${lowStockCount})`, 
+              icon: <AlertCircle className="mr-1 h-3 w-3" />,
+              testId: "tab-low-stock",
+              className: lowStockCount > 0 ? "text-amber-600 dark:text-amber-400" : "" 
+            }
+          ]} 
+        />
       </Tabs>
 
       {(() => {

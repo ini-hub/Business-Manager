@@ -37,6 +37,17 @@ export default function StaffDashboard() {
     enabled: !!user,
   });
 
+  const { data: bookingsData, isLoading: isBookingsLoading } = useQuery<any>({
+    queryKey: ["/api/bookings", currentStore?.id, "upcoming"],
+    queryFn: async () => {
+      const res = await fetch(`/api/bookings?storeId=${currentStore?.id}&status=confirmed,in_progress`);
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+    enabled: !!user && !!currentStore?.id,
+  });
+  const upcomingBookings = bookingsData?.data || [];
+
   const formatCurrency = (val: number) => formatCurrencyUtil(val, currency);
 
   if (isSummaryLoading) {
@@ -198,6 +209,47 @@ export default function StaffDashboard() {
                   Your shifts are managed by the store manager. Please contact them for schedule changes.
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Upcoming Bookings */}
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CalendarCheck className="h-4 w-4 text-primary" />
+                Upcoming Bookings
+              </CardTitle>
+              <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+                <Link href="/bookings">View All</Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {isBookingsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : upcomingBookings.length === 0 ? (
+                <div className="text-center py-4 border rounded bg-muted/20 border-dashed">
+                  <p className="text-xs text-muted-foreground">No upcoming bookings assigned.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {upcomingBookings.slice(0, 3).map((booking: any) => (
+                    <div key={booking.id} className="flex items-center justify-between p-3 border rounded-md bg-card">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-sm">{booking.customer?.name || "Unknown"}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(new Date(booking.scheduledAt), "MMM d, h:mm a")}
+                        </span>
+                      </div>
+                      <Badge variant="secondary" className="capitalize text-[10px]">
+                        {booking.status.replace("_", " ")}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

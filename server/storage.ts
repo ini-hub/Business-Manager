@@ -12,6 +12,8 @@ import {
   staff,
   inventory,
   orders,
+  bookings,
+  bookingItems,
   checkouts,
   transactions,
   profitLoss,
@@ -37,6 +39,10 @@ import {
   type InsertOrder,
   type Checkout,
   type InsertCheckout,
+  type Booking,
+  type InsertBooking,
+  type BookingItem,
+  type InsertBookingItem,
   type Transaction,
   type InsertTransaction,
   type ProfitLoss,
@@ -84,7 +90,7 @@ import {
   repayments,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, count, and, asc, like, or, ilike, gt, gte, lte } from "drizzle-orm";
+import { eq, sql, desc, count, and, asc, or, inArray, ilike, gt, gte, lte } from "drizzle-orm";
 import { broadcastNotification } from "./websocket";
 import { payrollService } from "./services/PayrollService";
 import { CommissionSplitCalculator as OOPCommissionSplitCalculator } from "./services/CommissionService";
@@ -191,6 +197,23 @@ export interface IStorage {
   getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
 
+  // Bookings
+  getBookings(storeId: string): Promise<Booking[]>;
+  getBookingsPaginated(storeId: string, options: PaginationOptions, filters?: {
+    status?: string[];
+    type?: string[];
+    staffId?: string;
+    customerId?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  }): Promise<PaginatedResult<Booking>>;
+  getBooking(id: string): Promise<Booking | undefined>;
+  getBookingItems(bookingId: string): Promise<BookingItem[]>;
+  createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking>;
+  updateBookingStatus(id: string, status: string): Promise<Booking | undefined>;
+  rescheduleBooking(id: string, scheduledAt: Date, reason: string): Promise<Booking | undefined>;
+
   // Profit & Loss
   getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]>;
   updateProfitLoss(inventoryId: string, storeId: string): Promise<void>;
@@ -226,12 +249,16 @@ export interface IStorage {
       assistingStaff2Id?: string | null;
       commissionSplit?: "standard" | "equal";
     }>;
-    paymentMethod: "cash" | "transfer" | "flutterwave";
+    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split";
+    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit", amount: number}>;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
     discountApprovedBy?: string;
     effectiveDate?: string;
+    creditUpfrontPaid?: number;
+    creditDueDate?: string;
+    bookingId?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 
   // Inventory Restock Events
@@ -270,6 +297,7 @@ export interface IStorage {
   // Expenses
   getExpenseCategories(storeId: string): Promise<ExpenseCategory[]>;
   createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory>;
+  updateExpenseCategory(id: string, name: string): Promise<ExpenseCategory>;
   deleteExpenseCategory(id: string): Promise<void>;
 
   getExpenses(
@@ -1015,7 +1043,14 @@ export class DatabaseStorage implements IStorage {
 
   // Checkouts
   async createCheckout(checkout: InsertCheckout): Promise<Checkout> {
-    const [newCheckout] = await db.insert(checkouts).values(checkout).returning();
+    const checkoutInsert = {
+      ...checkout,
+      splitPayments: checkout.splitPayments as Array<{
+        method: "cash" | "transfer" | "flutterwave" | "credit";
+        amount: number;
+      }> | null | undefined,
+    };
+    const [newCheckout] = await db.insert(checkouts).values(checkoutInsert).returning();
     return newCheckout;
   }
 
@@ -1093,7 +1128,7 @@ export class DatabaseStorage implements IStorage {
         store,
       });
     }
-    result.sort((a, b) => b.checkout.receiptNumber.localeCompare(a.checkout.receiptNumber));
+    result.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
     return result;
   }
 
@@ -1109,7 +1144,7 @@ export class DatabaseStorage implements IStorage {
       .groupBy(checkouts.receiptNumber);
     const total = uniqueReceiptsQuery.length;
 
-    // Select the unique receipt numbers for this page
+    // Select the unique receipt numbers for this page ordered by latest transaction time
     const paginatedReceipts = await db
       .select({ 
         receiptNumber: checkouts.receiptNumber,
@@ -1118,7 +1153,7 @@ export class DatabaseStorage implements IStorage {
       .from(checkouts)
       .where(eq(checkouts.storeId, storeId))
       .groupBy(checkouts.receiptNumber)
-      .orderBy(desc(checkouts.receiptNumber))
+      .orderBy(desc(sql`max(${checkouts.createdAt})`))
       .limit(limit)
       .offset(offset);
 
@@ -1177,6 +1212,9 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
+    // Sort chronologically (latest transactions first)
+    data.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+
     // Apply search filter if provided
     let filteredData = data;
     if (search) {
@@ -1205,6 +1243,185 @@ export class DatabaseStorage implements IStorage {
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
     const [newTransaction] = await db.insert(transactions).values(transaction).returning();
     return newTransaction;
+  }
+
+  async getBookings(storeId: string): Promise<Booking[]> {
+    return db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.storeId, storeId))
+      .orderBy(desc(bookings.createdAt));
+  }
+
+  async getBookingsPaginated(storeId: string, options: PaginationOptions, filters: {
+    status?: string[];
+    type?: string[];
+    staffId?: string;
+    customerId?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  } = {}): Promise<PaginatedResult<Booking>> {
+    const page = Math.max(1, options.page);
+    const limit = Math.max(1, options.limit);
+    const offset = (page - 1) * limit;
+
+    const conditions: any[] = [eq(bookings.storeId, storeId)];
+
+    if (filters.status?.length) {
+      conditions.push(inArray(bookings.status, filters.status));
+    }
+    if (filters.type?.length) {
+      conditions.push(inArray(bookings.type, filters.type));
+    }
+    if (filters.staffId) {
+      const staffId = filters.staffId;
+      conditions.push(or(eq(bookings.leadStaffId, staffId), eq(bookings.assistingStaffId, staffId)));
+    }
+    if (filters.customerId) {
+      conditions.push(eq(bookings.customerId, filters.customerId));
+    }
+    if (filters.startDate) {
+      conditions.push(gte(bookings.scheduledAt, new Date(filters.startDate + "T00:00:00.000Z")));
+    }
+    if (filters.endDate) {
+      conditions.push(lte(bookings.scheduledAt, new Date(filters.endDate + "T23:59:59.999Z")));
+    }
+
+    if (filters.search) {
+      const searchPattern = `%${filters.search.trim()}%`;
+      const bookingRefPattern = sql`LOWER(${bookings.bookingRef}) LIKE LOWER(${searchPattern})`;
+      const notesPattern = sql`LOWER(COALESCE(${bookings.notes}, '')) LIKE LOWER(${searchPattern})`;
+      conditions.push(or(bookingRefPattern, notesPattern));
+    }
+
+    const [countResult] = await db
+      .select({ total: count() })
+      .from(bookings)
+      .where(and(...conditions));
+
+    const total = Number(countResult?.total ?? 0);
+    const data = await db
+      .select()
+      .from(bookings)
+      .where(and(...conditions))
+      .orderBy(desc(bookings.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
+  }
+
+  async getBooking(id: string): Promise<Booking | undefined> {
+    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id));
+    return booking;
+  }
+
+  async getBookingItems(bookingId: string): Promise<BookingItem[]> {
+    return db
+      .select()
+      .from(bookingItems)
+      .where(eq(bookingItems.bookingId, bookingId));
+  }
+
+  async createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking> {
+    return db.transaction(async (tx) => {
+      const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, data.storeId));
+      const nextBookingNumber = counter?.nextBookingNumber ?? 1;
+      const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const bookingRef = `BKG-${datePart}-${String(nextBookingNumber).padStart(4, "0")}`;
+
+      const [booking] = await tx
+        .insert(bookings)
+        .values({
+          storeId: data.storeId,
+          customerId: data.customerId,
+          bookingRef,
+          type: data.type,
+          status: data.status,
+          scheduledAt: data.scheduledAt,
+          expectedReadyAt: data.expectedReadyAt,
+          leadStaffId: data.leadStaffId,
+          assistingStaffId: data.assistingStaffId,
+          depositAmount: data.depositAmount,
+          depositPaymentMethod: data.depositPaymentMethod,
+          subtotal: data.subtotal,
+          discountAmount: data.discountAmount,
+          discountPercent: data.discountPercent,
+          discountReason: data.discountReason,
+          discountApprovedBy: data.discountApprovedBy,
+          totalPrice: data.totalPrice,
+          reminderPreference: data.reminderPreference,
+          notes: data.notes,
+        })
+        .returning();
+
+      if (data.bookingItems?.length) {
+        const bookingItemRows = data.bookingItems.map((item) => ({
+          ...item,
+          bookingId: booking.id,
+        }));
+        await tx.insert(bookingItems).values(bookingItemRows);
+      }
+
+      await tx
+        .update(storeCounters)
+        .set({ nextBookingNumber: sql`${storeCounters.nextBookingNumber} + 1` })
+        .where(eq(storeCounters.storeId, data.storeId));
+
+      return booking;
+    });
+  }
+
+  async updateBookingStatus(id: string, status: string): Promise<Booking | undefined> {
+    const [booking] = await db
+      .update(bookings)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(bookings.id, id))
+      .returning();
+    return booking;
+  }
+
+  async rescheduleBooking(id: string, scheduledAt: Date, reason: string): Promise<Booking | undefined> {
+    const [existingBooking] = await db.select().from(bookings).where(eq(bookings.id, id));
+    if (!existingBooking) {
+      return undefined;
+    }
+
+    const history = Array.isArray(existingBooking.rescheduleHistory)
+      ? existingBooking.rescheduleHistory
+      : [];
+
+    history.push({
+      previousScheduledAt: existingBooking.scheduledAt,
+      reason,
+      changedAt: new Date().toISOString(),
+    });
+
+    const [updatedBooking] = await db
+      .update(bookings)
+      .set({
+        scheduledAt,
+        status: "rescheduled",
+        rescheduleReason: reason,
+        rescheduleHistory: JSON.stringify(history),
+        updatedAt: new Date(),
+      })
+      .where(eq(bookings.id, id))
+      .returning();
+
+    return updatedBooking;
   }
 
   async getTransactionsByCustomer(customerId: string): Promise<TransactionWithRelations[]> {
@@ -1462,7 +1679,8 @@ export class DatabaseStorage implements IStorage {
       assistingStaff2Id?: string | null;
       commissionSplit?: "standard" | "equal";
     }>;
-    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit";
+    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit";
+    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit", amount: number}>;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
@@ -1470,6 +1688,10 @@ export class DatabaseStorage implements IStorage {
     effectiveDate?: string;
     creditUpfrontPaid?: number;
     creditDueDate?: string;
+    bookingId?: string;
+    bookingDepositAmount?: number;
+    bookingDepositMethod?: string;
+    balanceCollectedToday?: number;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
     const checkoutIds: string[] = [];
     const lowStockItems: Array<{ name: string; quantity: number }> = [];
@@ -1644,9 +1866,54 @@ export class DatabaseStorage implements IStorage {
         const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
 
         // 3. Define transaction-level discount variables
-        const totalDiscount = data.discountAmount || 0;
-        const discountPct = data.discountPercent || (grossCartTotal > 0 ? (totalDiscount / grossCartTotal) * 100 : 0);
+        let totalDiscount = data.discountAmount || 0;
+        let discountPct = data.discountPercent || (grossCartTotal > 0 ? (totalDiscount / grossCartTotal) * 100 : 0);
+        
+        // Ensure totalDiscount does not exceed grossCartTotal
+        if (totalDiscount > grossCartTotal) {
+          totalDiscount = grossCartTotal;
+        }
+
         const totalCharged = Math.max(0, grossCartTotal - totalDiscount);
+        
+        // Validate booking deposit matching if a bookingId is provided
+        const bookingDepositAmount = data.bookingDepositAmount || 0;
+        const balanceCollectedToday = data.balanceCollectedToday ?? (totalCharged - bookingDepositAmount);
+
+        if (data.bookingId) {
+          const [booking] = await tx.select().from(bookings).where(eq(bookings.id, data.bookingId));
+          if (!booking) {
+            throw new Error("Invalid booking ID provided.");
+          }
+          if (booking.status === "completed") {
+            throw new Error(`This booking has already been converted to a sale.`);
+          }
+          if (Math.abs(Number(booking.depositAmount || 0) - bookingDepositAmount) > 0.01) {
+            throw new Error(`Deposit amount (₦${bookingDepositAmount}) does not match booking record (₦${booking.depositAmount}).`);
+          }
+        }
+
+        if (Math.abs(balanceCollectedToday - (totalCharged - bookingDepositAmount)) > 0.01) {
+          throw new Error("Balance calculation mismatch.");
+        }
+        
+        if (balanceCollectedToday < 0) {
+          throw new Error("Deposit cannot exceed total charge. Adjust items or issue a refund.");
+        }
+
+        // Validate Split Payments match balanceCollectedToday (if method is split)
+        if (data.paymentMethod === "split") {
+          if (!data.splitPayments || data.splitPayments.length === 0) {
+            throw new Error("Split payments array must be provided when paymentMethod is 'split'");
+          }
+          
+          const sumOfSplits = data.splitPayments.reduce((sum, p) => sum + p.amount, 0);
+          
+          // Tolerate minor floating point issues
+          if (Math.abs(sumOfSplits - balanceCollectedToday) > 0.01) {
+            throw new Error(`Sum of split payments (₦${sumOfSplits.toLocaleString()}) does not match the balance collected today (₦${balanceCollectedToday.toLocaleString()}).`);
+          }
+        }
 
         // 4. Process each item
         for (const item of processedItems) {
@@ -1662,6 +1929,10 @@ export class DatabaseStorage implements IStorage {
 
           const totalPrice = item.unitPrice * item.quantity;
 
+          // Compute how much of the global transaction discount applies to this item
+          const itemDiscountPortion = item.isPromoLine ? 0 : (totalDiscount * (totalPrice / grossCartTotal || 1));
+          const itemCharged = Math.max(0, totalPrice - itemDiscountPortion);
+
           // Create order
           const [order] = await tx.insert(orders).values({
             storeId: data.storeId,
@@ -1673,6 +1944,7 @@ export class DatabaseStorage implements IStorage {
           // Create checkout
           const [checkout] = await tx.insert(checkouts).values({
             storeId: data.storeId,
+            bookingId: data.bookingId || null,
             staffId: data.staffId,
             leadStaffId: item.leadStaffId || null,
             assistingStaff1Id: item.assistingStaff1Id || null,
@@ -1682,13 +1954,17 @@ export class DatabaseStorage implements IStorage {
             receiptNumber,
             totalPrice,
             paymentMethod: data.paymentMethod,
+            splitPayments: data.paymentMethod === "split" ? data.splitPayments : null,
             paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
             subtotal: grossCartTotal,
             discountAmount: item.isPromoLine ? 0 : totalDiscount,
             discountPercent: item.isPromoLine ? 0 : discountPct,
             discountReason: item.isPromoLine ? `Promo - ${item.promoName}` : (data.discountReason || null),
             discountApprovedBy: data.discountApprovedBy || null,
-            totalCharged: totalCharged,
+            totalCharged: itemCharged,
+            bookingDepositAmount,
+            bookingDepositMethod: data.bookingDepositMethod || null,
+            balanceCollectedToday: Math.max(0, itemCharged - bookingDepositAmount),
             createdAt: txDate,
           }).returning();
 
@@ -1700,6 +1976,7 @@ export class DatabaseStorage implements IStorage {
             customerId: data.customerId,
             inventoryId: item.inventoryId,
             checkoutId: checkout.id,
+            amount: itemCharged,
             transactionDate: txDate,
           });
 
@@ -1747,16 +2024,30 @@ export class DatabaseStorage implements IStorage {
           }
         }
 
-        // If payment method is credit, create a single credit entry for the receipt
+        // Determine the credit amount from the payment method or split payments
+        let creditAmount = 0;
+        let upfrontPaid = 0;
+
         if (data.paymentMethod === "credit") {
-          const upfrontPaid = data.creditUpfrontPaid || 0;
-          const outstanding = Math.max(0, totalCharged - upfrontPaid);
+          creditAmount = balanceCollectedToday;
+          upfrontPaid = data.creditUpfrontPaid || 0;
+        } else if (data.paymentMethod === "split" && data.splitPayments) {
+          const creditPayment = data.splitPayments.find(p => p.method === "credit");
+          if (creditPayment && creditPayment.amount > 0) {
+            creditAmount = creditPayment.amount;
+            upfrontPaid = 0;
+          }
+        }
+
+        // If there's a credit amount involved, create a single credit entry for the receipt
+        if (creditAmount > 0) {
+          const outstanding = Math.max(0, creditAmount - upfrontPaid);
           const creditStatus = outstanding <= 0 ? "settled" : "owing";
 
           const [creditEntry] = await tx.insert(creditEntries).values({
             storeId: data.storeId,
             customerId: data.customerId,
-            amountOwed: totalCharged,
+            amountOwed: creditAmount,
             amountPaidUpfront: upfrontPaid,
             outstandingBalance: outstanding,
             dueDate: data.creditDueDate ? new Date(data.creditDueDate) : null,
@@ -1776,6 +2067,13 @@ export class DatabaseStorage implements IStorage {
               recordedByStaffId: data.staffId,
             });
           }
+        }
+
+        // If this sale was converted from a booking, mark the booking as completed
+        if (data.bookingId) {
+          await tx.update(bookings)
+            .set({ status: "completed" })
+            .where(eq(bookings.id, data.bookingId));
         }
       });
 
@@ -1960,19 +2258,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertAttendanceRecord(data: InsertAttendanceRecord): Promise<AttendanceRecord> {
-    const [record] = await db.insert(attendanceRecords)
-      .values({ ...data, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: [attendanceRecords.storeId, attendanceRecords.staffId, attendanceRecords.date],
-        set: {
+    const existing = await db.select().from(attendanceRecords).where(
+      and(
+        eq(attendanceRecords.storeId, data.storeId),
+        eq(attendanceRecords.staffId, data.staffId),
+        eq(attendanceRecords.date, data.date)
+      )
+    );
+    if (existing.length > 0) {
+      const [updated] = await db.update(attendanceRecords)
+        .set({
           status: data.status,
           notes: data.notes ?? null,
           markedByUserId: data.markedByUserId ?? null,
           updatedAt: new Date(),
-        },
-      })
+        })
+        .where(eq(attendanceRecords.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [inserted] = await db.insert(attendanceRecords)
+      .values({ ...data, updatedAt: new Date() })
       .returning();
-    return record;
+    return inserted;
   }
 
   async bulkMarkAttendance(storeId: string, date: string, status: AttendanceStatus, staffIds: string[], markedByUserId?: string): Promise<AttendanceRecord[]> {
@@ -2208,6 +2516,10 @@ export class DatabaseStorage implements IStorage {
 
   async createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory> {
     return this.expenseRepo.createExpenseCategory(data);
+  }
+
+  async updateExpenseCategory(id: string, name: string): Promise<ExpenseCategory> {
+    return this.expenseRepo.updateExpenseCategory(id, name);
   }
 
   async deleteExpenseCategory(id: string): Promise<void> {

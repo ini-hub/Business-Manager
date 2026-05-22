@@ -28,6 +28,14 @@ export class ExpenseRepository extends BaseRepository<typeof expenses> {
     return inserted;
   }
 
+  async updateExpenseCategory(id: string, name: string): Promise<ExpenseCategory> {
+    const [updated] = await db.update(expenseCategories)
+      .set({ name })
+      .where(eq(expenseCategories.id, id))
+      .returning();
+    return updated;
+  }
+
   async deleteExpenseCategory(id: string): Promise<void> {
     const associatedExpenses = await db.select()
       .from(expenses)

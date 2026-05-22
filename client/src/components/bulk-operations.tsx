@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { exportToCSV } from "@/lib/export-utils";
+import { exportToCSV, exportToPDF } from "@/lib/export-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 
 interface BulkOperationsProps {
@@ -29,6 +29,8 @@ interface BulkOperationsProps {
   columns: { key: string; header: string }[];
   isLoading?: boolean;
   storeId?: string;
+  pdfTitle?: string;
+  showImportOption?: boolean;
 }
 
 interface ImportResult {
@@ -67,6 +69,8 @@ export function BulkOperations({
   columns,
   isLoading = false,
   storeId,
+  pdfTitle,
+  showImportOption = true,
 }: BulkOperationsProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +128,23 @@ export function BulkOperations({
     toast({
       title: "Export successful",
       description: `${data.length} ${config.label.toLowerCase()} exported to CSV.`,
+    });
+  };
+
+  const handleExportPDF = () => {
+    if (data.length === 0) {
+      toast({
+        title: "Nothing to Export",
+        description: `You don't have any ${config.label.toLowerCase()} yet. Add some first, then try exporting again.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    exportToPDF(data, columns, pdfTitle || `${config.label} List`, config.exportFilename);
+    toast({
+      title: "Export successful",
+      description: `${data.length} ${config.label.toLowerCase()} exported to PDF.`,
     });
   };
 
@@ -247,22 +268,30 @@ export function BulkOperations({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" disabled={isLoading} data-testid={`button-bulk-${entityType}`}>
             <FileText className="mr-2 h-4 w-4" />
-            Bulk Operations
+            {showImportOption ? "Bulk Operations" : "Export"}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={handleImportClick} data-testid={`button-import-${entityType}`}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import CSV
-          </DropdownMenuItem>
+          {showImportOption && (
+            <DropdownMenuItem onClick={handleImportClick} data-testid={`button-import-${entityType}`}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={handleExport} data-testid={`button-export-${entityType}`}>
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleDownloadTemplate} data-testid={`button-template-${entityType}`}>
-            <FileText className="mr-2 h-4 w-4" />
-            Download Template
+          <DropdownMenuItem onClick={handleExportPDF} data-testid={`button-export-pdf-${entityType}`}>
+            <Download className="mr-2 h-4 w-4" />
+            Export PDF
           </DropdownMenuItem>
+          {showImportOption && (
+            <DropdownMenuItem onClick={handleDownloadTemplate} data-testid={`button-template-${entityType}`}>
+              <FileText className="mr-2 h-4 w-4" />
+              Download Template
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

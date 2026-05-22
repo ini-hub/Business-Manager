@@ -7,18 +7,23 @@ interface ReceiptPayload {
   business: { name: string } | null;
   store: { name: string; currency: string; phone?: string | null; address?: string | null } | null;
   settings: { receiptPrefix: string; receiptThankYouMessage?: string | null } | null;
-  checkout: {
-    receiptNumber: string;
-    subtotal: number;
-    discountAmount: number;
-    discountPercent: number;
-    totalCharged: number;
-    paymentMethod: string;
-    paymentStatus: string;
-    isVoided: boolean;
-    voidReason?: string | null;
-    createdAt: string;
-  };
+    checkout: {
+      id: string;
+      receiptNumber: string;
+      subtotal: number;
+      discountAmount: number;
+      discountPercent: number;
+      totalCharged: number;
+      paymentMethod: string;
+      paymentStatus: string;
+      splitPayments?: Array<{ method: string; amount: number }> | null;
+      bookingDepositAmount?: number;
+      bookingDepositMethod?: string | null;
+      balanceCollectedToday?: number;
+      isVoided: boolean;
+      voidReason?: string | null;
+      createdAt: string;
+    };
   items: Array<{
     checkout: {
       id: string;
@@ -27,6 +32,7 @@ interface ReceiptPayload {
       discountAmount: number;
       discountPercent: number;
       totalCharged: number;
+      discountReason?: string | null;
     };
     order: {
       id: string;
@@ -73,6 +79,14 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
   const currency = store?.currency ?? "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
   const isVoided = checkout?.isVoided;
+
+  // Aggregate transaction-wide totals across all checkout items
+  const subtotal = checkout?.subtotal ?? 0;
+  const discountAmount = Math.max(...items.map(item => item.checkout?.discountAmount ?? 0), 0);
+  const discountPercent = Math.max(...items.map(item => item.checkout?.discountPercent ?? 0), 0);
+  const totalChargedSum = items.reduce((sum, item) => sum + (item.checkout?.totalCharged ?? 0), 0);
+  const bookingDepositAmount = checkout?.bookingDepositAmount ?? 0;
+  const balanceCollectedTodaySum = Math.max(0, totalChargedSum - bookingDepositAmount);
 
   return (
     <div
@@ -142,12 +156,21 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
         const qty = item.order?.quantity ?? 0;
         const totalPrice = item.checkout?.totalPrice ?? 0;
         const unitPrice = qty > 0 ? (totalPrice / qty) : 0;
+        const isPromo = item.checkout?.discountReason?.startsWith("Promo -");
+        const promoName = isPromo ? item.checkout?.discountReason?.replace("Promo - ", "") : "";
         return (
-          <div key={idx} className="grid grid-cols-12 text-xs mb-1">
-            <div className="col-span-5 truncate">{item.inventory?.name ?? "Unknown Item"}</div>
-            <div className="col-span-2 text-center">{qty}</div>
-            <div className="col-span-2 text-right">{fmt(unitPrice)}</div>
-            <div className="col-span-3 text-right">{fmt(totalPrice)}</div>
+          <div key={idx} className="mb-2">
+            <div className="grid grid-cols-12 text-xs">
+              <div className="col-span-5 truncate">{item.inventory?.name ?? "Unknown Item"}</div>
+              <div className="col-span-2 text-center">{qty}</div>
+              <div className="col-span-2 text-right">{fmt(unitPrice)}</div>
+              <div className="col-span-3 text-right">{fmt(totalPrice)}</div>
+            </div>
+            {isPromo && (
+              <div className="text-[10px] text-gray-500 pl-2 italic">
+                ↳ Promotion Applied: {promoName}
+              </div>
+            )}
           </div>
         );
       })}
@@ -157,26 +180,52 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
       {/* Totals */}
       <div className="flex justify-between text-xs mb-1">
         <span>Subtotal</span>
-        <span>{fmt(checkout?.subtotal ?? 0)}</span>
+        <span>{fmt(subtotal)}</span>
       </div>
-      {checkout?.discountAmount > 0 && (
+      {discountAmount > 0 && (
         <div className="flex justify-between text-xs mb-1 text-red-600">
-          <span>Discount ({checkout.discountPercent.toFixed(0)}%)</span>
-          <span>− {fmt(checkout.discountAmount)}</span>
+          <span>Discount ({discountPercent.toFixed(0)}%)</span>
+          <span>− {fmt(discountAmount)}</span>
         </div>
       )}
       <div className="flex justify-between font-bold text-sm">
         <span>TOTAL CHARGED</span>
-        <span>{fmt(checkout?.totalCharged ?? 0)}</span>
+        <span>{fmt(totalChargedSum)}</span>
       </div>
+      
+      {bookingDepositAmount > 0 && (
+        <>
+          <div className="flex justify-between text-xs mt-1 text-emerald-600">
+            <span>Deposit Paid ({checkout?.bookingDepositMethod || 'Booking'})</span>
+            <span>− {fmt(bookingDepositAmount)}</span>
+          </div>
+          <div className="flex justify-between font-bold text-sm mt-1">
+            <span>BALANCE COLLECTED</span>
+            <span>{fmt(balanceCollectedTodaySum)}</span>
+          </div>
+        </>
+      )}
 
       <div className="border-t border-dashed border-gray-400 my-2" />
 
       {/* Payment */}
       <div className="flex justify-between text-xs mb-1">
         <span className="text-gray-500">Payment Method:</span>
-        <span>{paymentLabel(checkout?.paymentMethod ?? "")}</span>
+        <span className={checkout?.paymentMethod === "split" ? "font-bold" : ""}>
+          {checkout?.paymentMethod === "deposit" ? "Deposit - Fully Covered" : paymentLabel(checkout?.paymentMethod ?? "")}
+        </span>
       </div>
+
+      {checkout?.paymentMethod === "split" && checkout?.splitPayments && Array.isArray(checkout.splitPayments) && (
+        <div className="mb-2 pl-2 border-l-2 border-gray-300">
+          {checkout.splitPayments.map((split: any, idx: number) => (
+            <div key={idx} className="flex justify-between text-xs mb-1">
+              <span className="text-gray-500 text-xs italic">- {paymentLabel(split.method)}:</span>
+              <span className="italic">{fmt(split.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {checkout?.paymentMethod === "credit" && creditEntry && (
         <>

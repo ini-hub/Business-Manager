@@ -106,6 +106,7 @@ export const storeCounters = pgTable("store_counters", {
   storeId: varchar("store_id").notNull().references(() => stores.id).unique(),
   nextCustomerNumber: integer("next_customer_number").notNull().default(1),
   nextTransactionNumber: integer("next_transaction_number").notNull().default(1),
+  nextBookingNumber: integer("next_booking_number").notNull().default(1),
 });
 
 export const storeCountersRelations = relations(storeCounters, ({ one }) => ({
@@ -231,6 +232,92 @@ export const inventoryRelations = relations(inventory, ({ one, many }) => ({
   profitLoss: many(profitLoss),
 }));
 
+export const bookingStatusEnum = ["pending", "confirmed", "in_progress", "completed", "cancelled", "no_show", "rescheduled"] as const;
+export type BookingStatus = typeof bookingStatusEnum[number];
+
+export const bookingTypeEnum = ["appointment", "order"] as const;
+export type BookingType = typeof bookingTypeEnum[number];
+
+export const reminderPreferenceEnum = ["whatsapp", "sms", "both", "none"] as const;
+export type ReminderPreference = typeof reminderPreferenceEnum[number];
+
+export const bookings = pgTable("bookings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  bookingRef: text("booking_ref").notNull().unique(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("pending"),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  expectedReadyAt: timestamp("expected_ready_at"),
+  leadStaffId: varchar("lead_staff_id").references(() => staff.id),
+  assistingStaffId: varchar("assisting_staff_id").references(() => staff.id),
+  depositAmount: real("deposit_amount").notNull().default(0),
+  depositPaymentMethod: text("deposit_payment_method"),
+  subtotal: real("subtotal").notNull().default(0),
+  discountAmount: real("discount_amount").notNull().default(0),
+  discountPercent: real("discount_percent").notNull().default(0),
+  discountReason: text("discount_reason"),
+  discountApprovedBy: text("discount_approved_by"),
+  totalPrice: real("total_price").notNull().default(0),
+  reminderPreference: text("reminder_preference").notNull().default("whatsapp"),
+  notes: text("notes"),
+  rescheduleReason: text("reschedule_reason"),
+  rescheduleHistory: jsonb("reschedule_history").notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const bookingItems = pgTable("booking_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  bookingId: varchar("booking_id").notNull().references(() => bookings.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: real("unit_price").notNull().default(0),
+  totalPrice: real("total_price").notNull().default(0),
+});
+
+export const bookingsRelations = relations(bookings, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [bookings.storeId],
+    references: [stores.id],
+  }),
+  customer: one(customers, {
+    fields: [bookings.customerId],
+    references: [customers.id],
+  }),
+  leadStaff: one(staff, {
+    fields: [bookings.leadStaffId],
+    references: [staff.id],
+    relationName: "bookingLeadStaff",
+  }),
+  assistingStaff: one(staff, {
+    fields: [bookings.assistingStaffId],
+    references: [staff.id],
+    relationName: "bookingAssistingStaff",
+  }),
+  items: many(bookingItems),
+}));
+
+export const bookingItemsRelations = relations(bookingItems, ({ one }) => ({
+  booking: one(bookings, {
+    fields: [bookingItems.bookingId],
+    references: [bookings.id],
+  }),
+  inventory: one(inventory, {
+    fields: [bookingItems.inventoryId],
+    references: [inventory.id],
+  }),
+}));
+
+export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, bookingRef: true, createdAt: true, updatedAt: true });
+export type InsertBooking = z.infer<typeof insertBookingSchema>;
+export type Booking = typeof bookings.$inferSelect;
+
+export const insertBookingItemSchema = createInsertSchema(bookingItems).omit({ id: true });
+export type InsertBookingItem = z.infer<typeof insertBookingItemSchema>;
+export type BookingItem = typeof bookingItems.$inferSelect;
+
 export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true }).extend({
   name: trimmedString(1, "Item name is required"),
   type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
@@ -338,9 +425,14 @@ export const checkouts = pgTable("checkouts", {
   assistingStaff1Id: varchar("assisting_staff1_id").references(() => staff.id), // Optional assisting staff #1
   assistingStaff2Id: varchar("assisting_staff2_id").references(() => staff.id), // Optional assisting staff #2
   orderId: varchar("order_id").notNull().references(() => orders.id),
+  bookingId: varchar("booking_id").references(() => bookings.id),
+  bookingDepositAmount: real("booking_deposit_amount").notNull().default(0),
+  bookingDepositMethod: text("booking_deposit_method"),
+  balanceCollectedToday: real("balance_collected_today").notNull().default(0),
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
   totalPrice: real("total_price").notNull(),
-  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos, pending
+  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave, credit, split
+  splitPayments: jsonb("split_payments").$type<Array<{method: "cash" | "transfer" | "flutterwave" | "credit", amount: number}>>(), // only populated if paymentMethod === "split"
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
   paymentReference: text("payment_reference"), // For Flutterwave transaction reference
   commissionSplit: text("commission_split").notNull().default("standard"), // standard or equal
@@ -388,6 +480,11 @@ export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
     fields: [checkouts.orderId],
     references: [orders.id],
   }),
+  booking: one(bookings, {
+    fields: [checkouts.bookingId],
+    references: [bookings.id],
+    relationName: "checkoutBooking",
+  }),
   transactions: many(transactions),
 }));
 
@@ -401,6 +498,7 @@ export const transactions = pgTable("transactions", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  amount: real("amount").notNull().default(0),
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   transactionDate: timestamp("transaction_date").notNull().defaultNow(),
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -21,6 +21,7 @@ import {
   Gift,
   Sparkles,
   BookOpen,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -40,6 +41,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -110,11 +118,40 @@ export default function NewSale() {
   const [searchTerm, setSearchTerm] = useState("");
   const [customerOpen, setCustomerOpen] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave" | "credit">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave" | "credit" | "split">("cash");
+  const [splitPayments, setSplitPayments] = useState<Array<{method: "cash" | "transfer" | "credit", amount: number}>>([
+    { method: "cash", amount: 0 },
+    { method: "transfer", amount: 0 }
+  ]);
   const [creditUpfrontPaid, setCreditUpfrontPaid] = useState<number>(0);
+
+  const updateSplitPayment = (index: number, field: "method" | "amount", value: string | number) => {
+    const newSplits = [...splitPayments];
+    newSplits[index] = { ...newSplits[index], [field]: value };
+    setSplitPayments(newSplits);
+  };
+
+  const removeSplitPayment = (index: number) => {
+    const newSplits = [...splitPayments];
+    newSplits.splice(index, 1);
+    setSplitPayments(newSplits);
+  };
   const [creditDueDate, setCreditDueDate] = useState<string>("");
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
   const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
+  
+  const searchParams = new URLSearchParams(window.location.search);
+  const bookingId = searchParams.get("bookingId");
+
+  const { data: bookingDetails } = useQuery<any>({
+    queryKey: ["/api/bookings", bookingId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/bookings/${bookingId}`);
+      if (!res.ok) throw new Error("Failed to fetch booking details");
+      return res.json();
+    },
+    enabled: !!bookingId,
+  });
 
   // Discount Module Version 1.2 Option B states
   const [discountAmount, setDiscountAmount] = useState<number>(0);
@@ -196,6 +233,64 @@ export default function NewSale() {
   const availableInventory = inventory.filter(
     (item) => item.type === "service" || item.quantity > 0
   );
+
+  useEffect(() => {
+    if (bookingDetails && inventory.length > 0 && cart.length === 0) {
+      if (bookingDetails.customerId) setSelectedCustomer(bookingDetails.customerId);
+      if (bookingDetails.leadStaffId) setSelectedStaff(bookingDetails.leadStaffId);
+      
+      if (bookingDetails.discountAmount > 0) {
+        setApplyDiscount(true);
+        setDiscountAmount(bookingDetails.discountAmount);
+        setDiscountPercent(bookingDetails.discountPercent || 0);
+        setDiscountReason(bookingDetails.discountReason || "");
+        
+        if (bookingDetails.discountApprovedBy) {
+          setDiscountApprovedBy(bookingDetails.discountApprovedBy);
+        } else {
+          const pct = bookingDetails.discountPercent || 0;
+          const requiresOverride = user?.role === "staff" || (user?.role === "manager" && pct > 20);
+          if (!requiresOverride) {
+            const displayName = user?.name || user?.email || "Owner";
+            setDiscountApprovedBy(`${displayName} (${user?.role})`);
+          } else {
+            setDiscountApprovedBy("");
+          }
+        }
+      }
+      
+      if (bookingDetails.items && bookingDetails.items.length > 0) {
+        const newCart: CartItem[] = bookingDetails.items.map((item: any) => {
+          const inv = inventory.find(i => i.id === item.inventoryId);
+          if (!inv) return null;
+          return {
+            inventory: inv,
+            quantity: item.quantity,
+            customPrice: item.unitPrice,
+            totalPrice: item.totalPrice,
+            leadStaffId: bookingDetails.leadStaffId || null,
+            assistingStaff1Id: null,
+            assistingStaff2Id: null,
+            commissionSplit: "standard",
+            showAsst1: false,
+            showAsst2: false,
+          };
+        }).filter(Boolean) as CartItem[];
+        setCart(newCart);
+      }
+    }
+  }, [bookingDetails, inventory]);
+
+  useEffect(() => {
+    if (bookingDetails?.status === "completed") {
+      toast({
+        title: "Booking Already Completed",
+        description: "This booking has already been converted to a sale.",
+        variant: "destructive",
+      });
+      setLocation(`/bookings/${bookingDetails.id}`);
+    }
+  }, [bookingDetails, setLocation, toast]);
 
   const filteredInventory = searchTerm
     ? availableInventory.filter((item) =>
@@ -283,6 +378,27 @@ export default function NewSale() {
           return c;
         })
         .filter(Boolean)
+    );
+  };
+
+  const setExactQuantity = (itemId: string, newQty: number) => {
+    setCart((prev) =>
+      prev
+        .map((c) => {
+          if (c.inventory.id === itemId) {
+            const maxQty = c.inventory.type === "service" ? 999 : c.inventory.quantity;
+            const validQty = Math.max(1, Math.min(newQty, maxQty));
+            if (newQty > maxQty) {
+              toast({
+                title: "Stock Limit Reached",
+                description: `Sorry, only ${maxQty} available right now.`,
+                variant: "destructive",
+              });
+            }
+            return { ...c, quantity: validQty, totalPrice: validQty * c.customPrice };
+          }
+          return c;
+        })
     );
   };
 
@@ -382,6 +498,10 @@ export default function NewSale() {
   });
 
   const finalCartTotal = Math.max(0, cartTotal - promoDiscount);
+  const bookingDepositAmount = bookingDetails?.depositAmount || 0;
+  const bookingDepositMethod = bookingDetails?.depositPaymentMethod || "";
+  const totalCharged = Math.max(0, finalCartTotal - discountAmount);
+  const balanceCollectedToday = Math.max(0, totalCharged - bookingDepositAmount);
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -396,12 +516,22 @@ export default function NewSale() {
         commissionSplit: item.commissionSplit,
       }));
 
+      // Re-read booking deposit values fresh inside the mutation to avoid stale closure
+      const freshDepositAmount = Number(bookingDetails?.depositAmount ?? 0);
+      const freshDepositMethod = bookingDetails?.depositPaymentMethod ?? "";
+      const freshCartSubtotal = cart.reduce((sum, item) => sum + (item.customPrice * item.quantity), 0);
+      const freshPromoDiscount = promoDiscount;
+      const freshFinalTotal = Math.max(0, freshCartSubtotal - freshPromoDiscount);
+      const freshTotalCharged = Math.max(0, freshFinalTotal - (discountAmount || 0));
+      const freshBalance = Math.max(0, freshTotalCharged - freshDepositAmount);
+
       const checkoutPayload = {
         storeId: currentStore?.id,
+        bookingId: bookingId || undefined,
         customerId: selectedCustomer || null,
         staffId: selectedStaff,
         items: orderData,
-        paymentMethod,
+        paymentMethod: freshBalance === 0 && freshDepositAmount > 0 ? "deposit" : paymentMethod,
         discountAmount: discountAmount || undefined,
         discountPercent: discountPercent || undefined,
         discountReason: discountReason || undefined,
@@ -409,6 +539,10 @@ export default function NewSale() {
         effectiveDate: isDateModified ? effectiveDate : undefined,
         creditUpfrontPaid: paymentMethod === "credit" ? creditUpfrontPaid : undefined,
         creditDueDate: paymentMethod === "credit" ? (creditDueDate || undefined) : undefined,
+        splitPayments: paymentMethod === "split" ? splitPayments.filter(s => s.amount > 0) : undefined,
+        bookingDepositAmount: freshDepositAmount > 0 ? freshDepositAmount : undefined,
+        bookingDepositMethod: freshDepositMethod || undefined,
+        balanceCollectedToday: freshBalance,
       };
 
       if (!navigator.onLine) {
@@ -481,12 +615,20 @@ export default function NewSale() {
 
   // Block checkout if any service item has no lead staff assigned
   const serviceItemsMissingLead = cart.filter(c => c.inventory.type === "service" && !c.leadStaffId);
+  
+  // When fully covered by deposit, skip payment method validation entirely
+  const isFullyCoveredByDeposit = balanceCollectedToday === 0 && bookingDepositAmount > 0;
+  
+  const splitTotal = splitPayments.reduce((s, p) => s + p.amount, 0);
+  const splitIsValid = Math.abs(splitTotal - balanceCollectedToday) < 0.01 && splitPayments.filter(s => s.amount > 0).length > 0;
+  
   const canCheckout = 
     cart.length > 0 && 
     selectedCustomer && 
     selectedStaff && 
     serviceItemsMissingLead.length === 0 &&
-    (discountAmount === 0 || (discountReason !== "" && discountApprovedBy !== ""));
+    (discountAmount === 0 || (discountReason !== "" && discountApprovedBy !== "")) &&
+    (isFullyCoveredByDeposit || paymentMethod !== "split" || splitIsValid);
 
   if (!currentStore) {
     return (
@@ -646,8 +788,13 @@ export default function NewSale() {
                               type="number"
                               step="0.01"
                               min="0"
-                              value={item.customPrice}
-                              onChange={(e) => updateCustomPrice(item.inventory.id, parseFloat(e.target.value) || 0)}
+                              value={item.customPrice === 0 ? "0" : item.customPrice || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                let cleanVal = val;
+                                if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
+                                updateCustomPrice(item.inventory.id, cleanVal === "" ? 0 : parseFloat(cleanVal) || 0);
+                              }}
                               className="h-7 w-20 font-mono text-sm"
                               data-testid={`input-price-${item.inventory.id}`}
                             />
@@ -662,9 +809,27 @@ export default function NewSale() {
                             >
                               <Minus className="h-3 w-3" />
                             </Button>
-                            <span className="w-6 text-center font-mono text-sm">
-                              {item.quantity}
-                            </span>
+                            <Input
+                              type="number"
+                              step="1"
+                              min="1"
+                              max={item.inventory.type === "service" ? 999 : item.inventory.quantity}
+                              value={item.quantity || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "") {
+                                  // Temporary empty state handled by a local override or just forcing it to 1 is better?
+                                  // For simplicity, we can let the input be empty but don't commit it to state until parsed.
+                                  // Wait, if it's controlled by item.quantity, we can't type an empty string. 
+                                  // Let's use parseInt(val) or 1
+                                  setExactQuantity(item.inventory.id, 1);
+                                } else {
+                                  setExactQuantity(item.inventory.id, parseInt(val) || 1);
+                                }
+                              }}
+                              className="h-7 w-14 text-center font-mono text-sm px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              data-testid={`input-quantity-${item.inventory.id}`}
+                            />
                             <Button
                               variant="outline"
                               size="icon"
@@ -894,9 +1059,12 @@ export default function NewSale() {
                           max={finalCartTotal}
                           className="h-8 font-mono text-xs"
                           placeholder="0.00"
-                          value={discountAmount || ""}
+                          value={discountAmount === 0 ? "0" : discountAmount || ""}
                           onChange={(e) => {
-                            const val = parseFloat(e.target.value);
+                            const valStr = e.target.value;
+                            let cleanValStr = valStr;
+                            if (/^0\d+/.test(valStr)) cleanValStr = valStr.replace(/^0+/, '');
+                            const val = parseFloat(cleanValStr);
                             if (isNaN(val) || val <= 0) {
                               setDiscountAmount(0);
                               setDiscountPercent(0);
@@ -931,7 +1099,10 @@ export default function NewSale() {
                           placeholder={finalCartTotal ? (finalCartTotal - discountAmount).toFixed(2) : "0.00"}
                           value={discountAmount > 0 ? (finalCartTotal - discountAmount).toFixed(2) : ""}
                           onChange={(e) => {
-                            const val = parseFloat(e.target.value);
+                            const valStr = e.target.value;
+                            let cleanValStr = valStr;
+                            if (/^0\d+/.test(valStr)) cleanValStr = valStr.replace(/^0+/, '');
+                            const val = parseFloat(cleanValStr);
                             if (isNaN(val) || val >= finalCartTotal) {
                               setDiscountAmount(0);
                               setDiscountPercent(0);
@@ -990,11 +1161,27 @@ export default function NewSale() {
                 )}
               </div>
 
-              <div className="w-full flex justify-between items-center pt-2 border-t">
-                <span className="font-bold text-base text-foreground">Total Charged</span>
-                <span className="text-xl font-bold font-mono text-emerald-600">
-                  {formatCurrency(Math.max(0, finalCartTotal - discountAmount))}
-                </span>
+              <div className="w-full space-y-2 pt-2 border-t">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-sm text-foreground">Total Value</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {formatCurrency(totalCharged)}
+                  </span>
+                </div>
+                
+                {bookingDepositAmount > 0 && (
+                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                    <span className="font-medium text-sm">Booking Deposit Paid</span>
+                    <span className="font-mono text-sm">- {formatCurrency(bookingDepositAmount)}</span>
+                  </div>
+                )}
+                
+                <div className="flex justify-between items-center pt-2 border-t border-primary/20">
+                  <span className="font-bold text-base text-primary uppercase tracking-tight">Total Remaining</span>
+                  <span className="text-2xl font-bold font-mono text-emerald-600">
+                    {formatCurrency(balanceCollectedToday)}
+                  </span>
+                </div>
               </div>
             </CardFooter>
           </Card>
@@ -1018,6 +1205,7 @@ export default function NewSale() {
                         aria-expanded={customerOpen}
                         className="flex-1 justify-between font-normal"
                         data-testid="select-customer"
+                        disabled={!!bookingId}
                       >
                         {selectedCustomer
                           ? customers.find((c) => c.id === selectedCustomer)?.name
@@ -1034,7 +1222,7 @@ export default function NewSale() {
                           {customers.filter(c => !c.isArchived).map((customer) => (
                             <CommandItem
                               key={customer.id}
-                              value={`${customer.name} ${customer.customerNumber}`}
+                              value={`${customer.name} ${customer.customerNumber} ${customer.mobileNumber || ''}`}
                               onSelect={() => {
                                 setSelectedCustomer(customer.id);
                                 setCustomerOpen(false);
@@ -1049,7 +1237,9 @@ export default function NewSale() {
                               />
                               <div className="flex flex-col">
                                 <span>{customer.name}</span>
-                                <span className="text-xs text-muted-foreground font-mono">{customer.customerNumber}</span>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {customer.customerNumber} {customer.mobileNumber ? `• ${customer.mobileNumber}` : ''}
+                                </span>
                               </div>
                             </CommandItem>
                           ))}
@@ -1058,14 +1248,16 @@ export default function NewSale() {
                     </Command>
                   </PopoverContent>
                 </Popover>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={() => setNewCustomerDialogOpen(true)}
-                    title="Add New Customer"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  {!bookingId && (
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      onClick={() => setNewCustomerDialogOpen(true)}
+                      title="Add New Customer"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
@@ -1123,72 +1315,204 @@ export default function NewSale() {
                 </Popover>
               </div>
               <Separator className="my-4" />
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <CreditCard className="h-3 w-3" />
-                  Payment Method
-                </Label>
-                <RadioGroup
-                  value={paymentMethod}
-                  onValueChange={(value) => setPaymentMethod(value as "cash" | "transfer" | "flutterwave" | "credit")}
-                  className="grid grid-cols-1 gap-2"
-                >
-                  <label
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                      paymentMethod === "cash" ? "border-primary bg-primary/5" : "hover-elevate"
-                    )}
+              
+              {balanceCollectedToday === 0 ? (
+                <div className="space-y-2">
+                  <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg space-y-1">
+                    <p className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4" /> Fully Covered
+                    </p>
+                    <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                      This booking is fully covered by the deposit paid. No additional payment required.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <CreditCard className="h-3 w-3" />
+                    Payment Method
+                  </Label>
+                  <RadioGroup
+                    value={paymentMethod}
+                    onValueChange={(value) => setPaymentMethod(value as any)}
+                    className="grid grid-cols-1 gap-2"
                   >
-                    <RadioGroupItem value="cash" id="cash" data-testid="radio-cash" />
-                    <Banknote className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">Cash</p>
-                      <p className="text-xs text-muted-foreground">Pay with cash</p>
-                    </div>
-                  </label>
-                  <label
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                      paymentMethod === "transfer" ? "border-primary bg-primary/5" : "hover-elevate"
-                    )}
-                  >
-                    <RadioGroupItem value="transfer" id="transfer" data-testid="radio-transfer" />
-                    <CreditCard className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">Bank Transfer</p>
-                      <p className="text-xs text-muted-foreground">Direct bank transfer</p>
-                    </div>
-                  </label>
-                  <label
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                      paymentMethod === "flutterwave" ? "border-primary bg-primary/5" : "hover-elevate"
-                    )}
-                  >
-                    <RadioGroupItem value="flutterwave" id="flutterwave" data-testid="radio-flutterwave" />
-                    <Link2 className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">Payment Link</p>
-                      <p className="text-xs text-muted-foreground">Generate Flutterwave payment link</p>
-                    </div>
-                  </label>
-                  <label
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                      paymentMethod === "credit" ? "border-primary bg-primary/5" : "hover-elevate"
-                    )}
-                  >
-                    <RadioGroupItem value="credit" id="credit" data-testid="radio-credit" />
-                    <BookOpen className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-sm">Credit (Owe)</p>
-                      <p className="text-xs text-muted-foreground">Borrow Book entry (needs customer)</p>
-                    </div>
-                  </label>
-                </RadioGroup>
-              </div>
+                    <label
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                        paymentMethod === "cash" ? "border-primary bg-primary/5" : "hover-elevate"
+                      )}
+                    >
+                      <RadioGroupItem value="cash" id="cash" data-testid="radio-cash" />
+                      <Banknote className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-sm">Cash</p>
+                        <p className="text-xs text-muted-foreground">Pay with cash</p>
+                      </div>
+                    </label>
+                    <label
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                        paymentMethod === "transfer" ? "border-primary bg-primary/5" : "hover-elevate"
+                      )}
+                    >
+                      <RadioGroupItem value="transfer" id="transfer" data-testid="radio-transfer" />
+                      <CreditCard className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-sm">Bank Transfer</p>
+                        <p className="text-xs text-muted-foreground">Direct bank transfer</p>
+                      </div>
+                    </label>
+                    <label
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                        paymentMethod === "flutterwave" ? "border-primary bg-primary/5" : "hover-elevate"
+                      )}
+                    >
+                      <RadioGroupItem value="flutterwave" id="flutterwave" data-testid="radio-flutterwave" />
+                      <Link2 className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-sm">Payment Link</p>
+                        <p className="text-xs text-muted-foreground">Generate Flutterwave payment link</p>
+                      </div>
+                    </label>
+                    <label
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                        paymentMethod === "credit" ? "border-primary bg-primary/5" : "hover-elevate"
+                      )}
+                    >
+                      <RadioGroupItem value="credit" id="credit" data-testid="radio-credit" />
+                      <BookOpen className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-sm">Credit (Owe)</p>
+                        <p className="text-xs text-muted-foreground">Borrow Book entry (needs customer)</p>
+                      </div>
+                    </label>
+                    <label
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                        paymentMethod === "split" ? "border-primary bg-primary/5" : "hover-elevate"
+                      )}
+                    >
+                      <RadioGroupItem value="split" id="split" data-testid="radio-split" />
+                      <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-sm">Split Payment</p>
+                        <p className="text-xs text-muted-foreground">Pay with multiple methods</p>
+                      </div>
+                    </label>
+                  </RadioGroup>
+                </div>
+              )}
 
-              {paymentMethod === "credit" && (
+              {paymentMethod === "split" && balanceCollectedToday > 0 && (
+                <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-4 animate-in fade-in-50 duration-200">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <ChevronsUpDown className="h-3.5 w-3.5" />
+                      Split Configuration
+                    </h4>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-7 text-xs"
+                      onClick={() => setSplitPayments([...splitPayments, { method: "cash", amount: 0 }])}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {splitPayments.map((split, index) => (
+                      <div key={index} className="flex gap-2 items-start relative group">
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-[10px] text-muted-foreground uppercase font-medium">Method</Label>
+                          <Select 
+                            value={split.method} 
+                            onValueChange={(v: any) => updateSplitPayment(index, "method", v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-background">
+                              <SelectValue>
+                                {split.method === "cash" ? "Cash" : split.method === "transfer" ? "Bank Transfer" : split.method === "credit" ? "Credit (Owe)" : split.method}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="cash">Cash</SelectItem>
+                              <SelectItem value="transfer">Bank Transfer</SelectItem>
+                              <SelectItem value="credit">Credit (Owe)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-[10px] text-muted-foreground uppercase font-medium">Amount</Label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1.5 text-xs text-muted-foreground">₦</span>
+                            <Input 
+                              type="number" 
+                              min="0"
+                              value={split.amount === 0 ? "0" : split.amount || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                let cleanVal = val;
+                                if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
+                                updateSplitPayment(index, "amount", cleanVal === "" ? 0 : parseFloat(cleanVal) || 0);
+                              }}
+                              className="pl-6 h-8 text-xs font-mono bg-background"
+                            />
+                          </div>
+                        </div>
+                        {splitPayments.length > 1 && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 mt-[18px] text-muted-foreground hover:text-destructive opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeSplitPayment(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-3 border-t border-border space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-medium text-muted-foreground">Total Split:</span>
+                      <div className="text-right flex items-center gap-1.5">
+                        <span className={cn(
+                          "text-sm font-bold font-mono",
+                          splitIsValid
+                            ? "text-emerald-600 dark:text-emerald-400" 
+                            : "text-red-500"
+                        )}>
+                          {formatCurrency(splitTotal)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          / {formatCurrency(balanceCollectedToday)}
+                        </span>
+                      </div>
+                    </div>
+                    {!splitIsValid && splitTotal > 0 && (
+                      <p className="text-[11px] text-red-500 text-right">
+                        {splitTotal < balanceCollectedToday 
+                          ? `Still need: ${formatCurrency(balanceCollectedToday - splitTotal)}`
+                          : `Over by: ${formatCurrency(splitTotal - balanceCollectedToday)}`
+                        }
+                      </p>
+                    )}
+                    {splitIsValid && (
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 text-right flex items-center justify-end gap-1">
+                        <CheckCircle2 className="h-3 w-3" /> Balanced — ready to checkout
+                      </p>
+                    )}
+                  </div>
+
+                </div>
+              )}
+
+              {paymentMethod === "credit" && balanceCollectedToday > 0 && (
                 <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-3 animate-in fade-in-50 duration-200">
                   <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
                     <BookOpen className="h-3.5 w-3.5" />
@@ -1207,10 +1531,13 @@ export default function NewSale() {
                           id="credit-upfront"
                           type="number"
                           placeholder="e.g. 1000 (leave 0 if none)"
-                          value={creditUpfrontPaid || ""}
+                          value={creditUpfrontPaid === 0 ? "0" : creditUpfrontPaid || ""}
                           onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            setCreditUpfrontPaid(Math.max(0, Math.min(val, finalCartTotal)));
+                            const val = e.target.value;
+                            let cleanVal = val;
+                            if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
+                            const floatVal = cleanVal === "" ? 0 : parseFloat(cleanVal) || 0;
+                            setCreditUpfrontPaid(Math.max(0, Math.min(floatVal, finalCartTotal)));
                           }}
                           className="bg-background"
                         />

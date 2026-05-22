@@ -26,6 +26,7 @@ import InventoryPage from "@/pages/inventory";
 import InventoryDetails from "@/pages/inventory-details";
 import NewSale from "@/pages/new-sale";
 import Transactions from "@/pages/transactions";
+import TransactionDetailsPage from "@/pages/transaction-details";
 import ProfitLossPage from "@/pages/profit-loss";
 import ExpensesPage from "@/pages/expenses";
 import PayrollPage from "@/pages/payroll";
@@ -41,6 +42,10 @@ import NotFound from "@/pages/not-found";
 import ServiceProfitabilityPage from "@/pages/service-profitability";
 import { GlobalSearch } from "@/components/global-search";
 import { NotificationSheet } from "@/components/notification-sheet";
+
+import BookingsPage from "@/pages/bookings";
+import BookingFormPage from "@/pages/booking-form";
+import BookingDetailsPage from "@/pages/booking-details";
 
 import StoreFormPage from "@/pages/store-form";
 import BusinessFormPage from "@/pages/business-form";
@@ -160,12 +165,12 @@ function AuthenticatedLayout() {
             <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
               <div className="flex items-center gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
-                <Separator orientation="vertical" className="hidden md:block h-6" />
-                <div className="hidden md:block w-48">
+                <Separator orientation="vertical" className="hidden lg:block h-6" />
+                <div className="hidden lg:block w-48">
                   <OrgSwitcher />
                 </div>
-                <Separator orientation="vertical" className="hidden md:block h-6" />
-                <div className="hidden md:block w-48">
+                <Separator orientation="vertical" className="hidden lg:block h-6" />
+                <div className="hidden lg:block w-48">
                   <StoreSelector />
                 </div>
               </div>
@@ -177,7 +182,7 @@ function AuthenticatedLayout() {
                 <ThemeToggle />
               </div>
             </header>
-            <main className="flex-1 overflow-auto p-6">
+            <main className="flex-1 overflow-auto p-3 sm:p-6">
               <div className="mx-auto max-w-7xl">
                 <Switch>
                   <Route path="/">
@@ -193,9 +198,14 @@ function AuthenticatedLayout() {
                   <Route path="/inventory/:id" component={InventoryDetails} />
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
+                  <Route path="/transactions/:id" component={TransactionDetailsPage} />
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
                   <Route path="/borrow-book" component={BorrowBookPage} />
+                  <Route path="/bookings/new" component={BookingFormPage} />
+                  <Route path="/bookings/:id/edit" component={BookingFormPage} />
+                  <Route path="/bookings/:id" component={BookingDetailsPage} />
+                  <Route path="/bookings" component={BookingsPage} />
                   <Route path="/reports/staff-performance" component={StaffPerformancePage} />
                   <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
                   <Route path="/payroll" component={PayrollPage} />

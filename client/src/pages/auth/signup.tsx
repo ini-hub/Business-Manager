@@ -59,6 +59,7 @@ export default function Signup() {
   const [, setLocation] = useLocation();
   const form = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
+    mode: "onChange",
     defaultValues: {
       businessName: "",
       address: "",
@@ -413,7 +414,7 @@ export default function Signup() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={signupMutation.isPending}
+                disabled={signupMutation.isPending || !form.formState.isValid}
                 data-testid="button-signup"
               >
                 {signupMutation.isPending ? (

@@ -16,6 +16,7 @@ import {
   Wallet2,
   Gift,
   BookOpen,
+  CalendarClock,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -31,6 +32,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -100,6 +102,12 @@ const salesItems: MenuItem[] = [
     icon: BookOpen,
     allowedRoles: ["owner", "manager"],
   },
+  {
+    title: "Bookings",
+    url: "/bookings",
+    icon: CalendarClock,
+    allowedRoles: ["owner", "manager", "staff"],
+  },
 ];
 
 const reportsItems: MenuItem[] = [
@@ -154,6 +162,13 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const { currentStore } = useStore();
+  const { isMobile, setOpenMobile } = useSidebar();
+  
+  const handleLinkClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
   
   const userRole = (user?.role as UserRole) || "staff";
   
@@ -195,7 +210,7 @@ export function AppSidebar() {
         </div>
         
         {/* Mobile Switchers Panel - Visible only on small devices */}
-        <div className="flex flex-col gap-3 mt-4 pt-3 border-t border-sidebar-border md:hidden animate-fade-in">
+        <div className="flex flex-col gap-3 mt-4 pt-3 border-t border-sidebar-border lg:hidden animate-fade-in">
           <div className="w-full">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Organization</span>
             <OrgSwitcher />
@@ -221,7 +236,7 @@ export function AppSidebar() {
                       isActive={location === item.url}
                       className="gap-3"
                     >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </Link>
@@ -247,7 +262,7 @@ export function AppSidebar() {
                       isActive={location === item.url}
                       className="gap-3"
                     >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </Link>
@@ -273,7 +288,7 @@ export function AppSidebar() {
                       isActive={item.title === "Payroll" ? location.startsWith(item.url) : location === item.url}
                       className="gap-3 relative"
                     >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                         {item.title === "Payroll" && pendingPayrollCount > 0 && (
@@ -304,7 +319,7 @@ export function AppSidebar() {
                       isActive={location === item.url}
                       className="gap-3"
                     >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`}>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`} onClick={handleLinkClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
                       </Link>
@@ -320,7 +335,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <div className="flex items-center gap-3 px-2 py-1.5 w-full">
-              <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 group hover:opacity-80 transition-opacity">
+              <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 group hover:opacity-80 transition-opacity" onClick={handleLinkClick}>
                 <Avatar className="h-9 w-9 border-2 border-primary/10 transition-transform group-hover:scale-105">
                   <AvatarImage src={user?.profilePhotoUrl || ""} />
                   <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">

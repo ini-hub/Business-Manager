@@ -33,7 +33,6 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
-import { ExportToolbar } from "@/components/export-toolbar";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -556,27 +555,15 @@ export default function Customers() {
         description={`Managing customers for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
-            <ExportToolbar
+            <BulkOperations
+              entityType="customers"
               data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
               columns={exportColumns}
-              filename={`customers-${activeTab}`}
-              title={`Customers Report (${activeTab})`}
-              disabled={isLoading}
+              isLoading={isLoading}
+              storeId={currentStore.id}
+              pdfTitle={`Customers Report (${activeTab})`}
+              showImportOption={user?.role !== "staff"}
             />
-            {user?.role !== "staff" && (
-              <BulkOperations
-                entityType="customers"
-                data={activeCustomers as unknown as Record<string, unknown>[]}
-                columns={[
-                  { key: "name", header: "Name" },
-                  { key: "customerNumber", header: "Customer Number" },
-                  { key: "mobileNumber", header: "Mobile Number" },
-                  { key: "address", header: "Address" },
-                ]}
-                isLoading={isLoading}
-                storeId={currentStore.id}
-              />
-            )}
             {user?.role !== "staff" && (
               <Button onClick={openCreateForm} data-testid="button-add-customer">
                 <Plus className="mr-2 h-4 w-4" />

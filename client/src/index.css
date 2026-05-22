@@ -286,3 +286,27 @@
     inset: -1px;
   }
 }
+
+/* Globally suppress up/down spinner arrows on input[type="number"] */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Responsive font scaling utility helpers */
+@media (max-width: 640px) {
+  .text-responsive-base {
+    font-size: 0.875rem !important; /* 14px */
+  }
+  .text-responsive-lg {
+    font-size: 1rem !important; /* 16px */
+  }
+  .text-responsive-xl {
+    font-size: 1.25rem !important; /* 20px */
+  }
+}
+

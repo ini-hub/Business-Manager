@@ -73,9 +73,9 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
-      staleTime: 5 * 60 * 1000, // 5 min — data stays fresh, no unnecessary refetches
+      staleTime: 0, // 0 min — always check for fresh data on mount/focus
       gcTime: 10 * 60 * 1000, // 10 min — keep in cache after unmount
-      refetchOnWindowFocus: false, // disable focus-refetch noise
+      refetchOnWindowFocus: true, // enable focus-refetch to keep data in sync across tabs/windows
       retry: false,
     },
     mutations: {

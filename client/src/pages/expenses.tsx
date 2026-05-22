@@ -90,6 +90,8 @@ export default function ExpensesPage() {
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<ExpenseCategory | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseWithCategory | null>(null);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editCategoryNameInput, setEditCategoryNameInput] = useState("");
 
   const { data: expenses = [], isLoading: isLoadingExpenses } = useQuery<ExpenseWithCategory[]>({
     queryKey: [
@@ -264,6 +266,22 @@ export default function ExpensesPage() {
     },
   });
 
+  const updateCategoryMutation = useMutation({
+    mutationFn: async (data: { id: string, name: string }) => {
+      const res = await apiRequest("PATCH", `/api/expense-categories/${data.id}`, { name: data.name });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expense-categories"] });
+      setEditingCategoryId(null);
+      setEditCategoryNameInput("");
+      toast({ title: "Success", description: "Category updated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not update category.", variant: "destructive" });
+    }
+  });
+
   const deleteExpenseMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/expenses/${id}`);
@@ -431,20 +449,59 @@ export default function ExpensesPage() {
                     <div className="space-y-2 mt-4 max-h-64 overflow-y-auto pr-2">
                       {categories.map((c) => (
                         <div key={c.id} className="flex justify-between items-center p-2 rounded-md border">
-                          <span className="font-medium flex items-center gap-2">
-                            {c.name}
-                            {c.isSystem && <Badge variant="secondary" className="text-[10px]">System</Badge>}
-                          </span>
-                          {!c.isSystem && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setCategoryToDelete(c);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
+                          {editingCategoryId === c.id ? (
+                            <div className="flex w-full gap-2 items-center">
+                              <Input 
+                                value={editCategoryNameInput} 
+                                onChange={(e) => setEditCategoryNameInput(e.target.value)}
+                                className="h-8 flex-1"
+                                autoFocus
+                              />
+                              <Button 
+                                size="sm" 
+                                onClick={() => updateCategoryMutation.mutate({ id: c.id, name: editCategoryNameInput })}
+                                disabled={!editCategoryNameInput.trim() || updateCategoryMutation.isPending}
+                              >
+                                Save
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => setEditingCategoryId(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="font-medium flex items-center gap-2">
+                                {c.name}
+                                {c.isSystem && <Badge variant="secondary" className="text-[10px]">System</Badge>}
+                              </span>
+                              {!c.isSystem && (
+                                <div className="flex gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setEditingCategoryId(c.id);
+                                      setEditCategoryNameInput(c.name);
+                                    }}
+                                  >
+                                    <Edit className="h-4 w-4 text-blue-500" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setCategoryToDelete(c);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       ))}
@@ -482,7 +539,20 @@ export default function ExpensesPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Amount ({storeCurrency})</FormLabel>
-                            <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="0"
+                                value={field.value === 0 ? "0" : field.value ?? ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  let cleanVal = val;
+                                  if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
+                                  field.onChange(cleanVal === "" ? 0 : parseFloat(cleanVal) || 0);
+                                }}
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -731,7 +801,20 @@ export default function ExpensesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Amount ({storeCurrency})</FormLabel>
-                      <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0"
+                          value={field.value === 0 ? "0" : field.value ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            let cleanVal = val;
+                            if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
+                            field.onChange(cleanVal === "" ? 0 : parseFloat(cleanVal) || 0);
+                          }}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

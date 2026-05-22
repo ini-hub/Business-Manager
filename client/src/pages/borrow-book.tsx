@@ -26,14 +26,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -54,9 +46,10 @@ import {
   User,
   Plus,
   RefreshCw,
-  Search,
   XCircle,
 } from "lucide-react";
+import { DataTable } from "@/components/data-table";
+
 
 export default function BorrowBookPage() {
   const { currentStore } = useStore();
@@ -64,14 +57,10 @@ export default function BorrowBookPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Search & Filter State
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-
   // Modals & Dialog State
   const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
   const [repaymentOpen, setRepaymentOpen] = useState(false);
-  const [repaymentAmount, setRepaymentAmount] = useState("");
+  const [repaymentAmount, setRepaymentAmount] = useState("0");
   const [repaymentMethod, setRepaymentMethod] = useState("cash");
   const [repaymentNotes, setRepaymentNotes] = useState("");
 
@@ -96,14 +85,10 @@ export default function BorrowBookPage() {
     enabled: !!storeId,
   });
 
-  const { data: ledger = [], isLoading: isLedgerLoading, refetch: refetchLedger } = useQuery({
-    queryKey: ["/api/credit/ledger", storeId, searchTerm, statusFilter],
+  const { data: ledger = [], isLoading: isLedgerLoading, refetch: refetchLedger } = useQuery<any[]>({
+    queryKey: ["/api/credit/ledger", storeId],
     queryFn: async () => {
-      let url = `/api/credit/ledger?storeId=${storeId}&search=${encodeURIComponent(searchTerm)}`;
-      if (statusFilter !== "all") {
-        url += `&status=${statusFilter}`;
-      }
-      const res = await apiRequest("GET", url);
+      const res = await apiRequest("GET", `/api/credit/ledger?storeId=${storeId}`);
       return res.json();
     },
     enabled: !!storeId,
@@ -127,6 +112,171 @@ export default function BorrowBookPage() {
     enabled: !!selectedEntry?.id && historyOpen,
   });
 
+  const columns = [
+    {
+      key: "customerName",
+      header: "Customer",
+      render: (entry: any) => (
+        <div className="flex flex-col">
+          <span className="font-semibold text-sm">{entry.customer?.name || "Unknown"}</span>
+          <span className="text-xs text-muted-foreground">{entry.customer?.mobileNumber || "No phone number"}</span>
+        </div>
+      ),
+    },
+    {
+      key: "receiptNumber",
+      header: "Receipt / Description",
+      render: (entry: any) => (
+        <div className="flex flex-col">
+          <span className="text-xs font-semibold text-primary">
+            {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone Entry"}
+          </span>
+          <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={entry.description}>
+            {entry.description || "N/A"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "amountOwed",
+      header: "Total Owed",
+      className: "text-right",
+      render: (entry: any) => (
+        <span className="font-medium text-sm">
+          ₦{entry.amountOwed.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "totalRepayments",
+      header: "Paid Back",
+      className: "text-right",
+      render: (entry: any) => (
+        <span className="font-medium text-sm text-emerald-600">
+          ₦{(entry.amountPaidUpfront + (entry.totalRepayments || 0)).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "outstandingBalance",
+      header: "Outstanding",
+      className: "text-right",
+      render: (entry: any) => (
+        <span className="font-bold text-sm text-amber-500">
+          ₦{entry.outstandingBalance.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "dueDate",
+      header: "Due Date",
+      render: (entry: any) => (
+        entry.dueDate ? (
+          <div className="flex flex-col">
+            <span>{new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</span>
+            {entry.status === "overdue" && (
+              <span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider animate-pulse">Overdue</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">No due date</span>
+        )
+      ),
+    },
+    {
+      key: "statusLabel",
+      header: "Status",
+      render: (entry: any) => getStatusBadge(entry.status),
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[80px]",
+      render: (entry: any) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {entry.outstandingBalance > 0 && (
+              <>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSelectedEntry(entry);
+                    setRepaymentAmount("0");
+                    setRepaymentOpen(true);
+                  }}
+                  className="text-emerald-500 font-medium"
+                >
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  Record Repayment
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSelectedEntry(entry);
+                    setPreviewMessage(generatePreview(entry, "whatsapp"));
+                    setReminderOpen(true);
+                  }}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  Send Reminder
+                </DropdownMenuItem>
+              </>
+            )}
+            <DropdownMenuItem
+              onClick={() => {
+                setSelectedEntry(entry);
+                setHistoryOpen(true);
+              }}
+            >
+              <History className="mr-2 h-4 w-4" />
+              View History
+            </DropdownMenuItem>
+            
+            {entry.outstandingBalance > 0 && user?.role === "owner" && (
+              <>
+                <Separator className="my-1" />
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSelectedEntry(entry);
+                    setWriteOffOpen(true);
+                  }}
+                  className="text-rose-500"
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Write Off (Bad Debt)
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const tableData = ledger.map((entry: any) => {
+    const statusLabel = 
+      entry.status === "owing" ? "Owing" :
+      entry.status === "partial" ? "Partial" :
+      entry.status === "overdue" ? "Overdue" :
+      entry.status === "settled" ? "Settled" :
+      entry.status === "written_off" ? "Written Off" :
+      entry.status;
+
+    return {
+      ...entry,
+      customerName: entry.customer?.name || "Unknown",
+      customerMobile: entry.customer?.mobileNumber || "No phone number",
+      statusLabel,
+    };
+  });
+
+  const filterConfigs = [
+    { key: "statusLabel", label: "Status", type: "select" as const },
+  ];
+
   // Mutations
   const recordRepaymentMutation = useMutation({
     mutationFn: async () => {
@@ -140,7 +290,7 @@ export default function BorrowBookPage() {
     onSuccess: () => {
       toast({ title: "Repayment recorded successfully!" });
       setRepaymentOpen(false);
-      setRepaymentAmount("");
+      setRepaymentAmount("0");
       setRepaymentNotes("");
       queryClient.invalidateQueries({ queryKey: ["/api/credit/summary", storeId] });
       queryClient.invalidateQueries({ queryKey: ["/api/credit/ledger", storeId] });
@@ -332,175 +482,27 @@ export default function BorrowBookPage() {
       </div>
 
       {/* Main Ledger Table & Filters Card */}
-      <Card className="glassmorphism p-6 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search customer name or phone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 bg-background"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[160px] bg-background">
-                <SelectValue placeholder="All Statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="owing">Owing</SelectItem>
-                <SelectItem value="partial">Partial Payment</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
-                <SelectItem value="settled">Settled</SelectItem>
-                <SelectItem value="written_off">Written Off</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button variant="ghost" size="icon" onClick={() => refetchLedger()} title="Refresh list">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-md border bg-background">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Customer</TableHead>
-                <TableHead>Receipt / Description</TableHead>
-                <TableHead className="text-right">Total Owed</TableHead>
-                <TableHead className="text-right">Paid Back</TableHead>
-                <TableHead className="text-right">Outstanding</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-[80px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLedgerLoading ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-                    Loading ledger data...
-                  </TableCell>
-                </TableRow>
-              ) : ledger.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No credit records found matching current filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                ledger.map((entry: any) => (
-                  <TableRow key={entry.id}>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-sm">{entry.customer.name}</span>
-                        <span className="text-xs text-muted-foreground">{entry.customer.phone || "No phone number"}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-primary">
-                          {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone Entry"}
-                        </span>
-                        <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={entry.description}>
-                          {entry.description || "N/A"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-medium text-sm">
-                      ₦{entry.amountOwed.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right font-medium text-sm text-emerald-600">
-                      ₦{(entry.amountPaidUpfront + (entry.totalRepayments || 0)).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-sm text-amber-500">
-                      ₦{entry.outstandingBalance.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {entry.dueDate ? (
-                        <div className="flex flex-col">
-                          <span>{new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</span>
-                          {entry.status === "overdue" && (
-                            <span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider animate-pulse">Overdue</span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No due date</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(entry.status)}</TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {entry.outstandingBalance > 0 && (
-                            <>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedEntry(entry);
-                                  setRepaymentOpen(true);
-                                }}
-                                className="text-emerald-500 font-medium"
-                              >
-                                <DollarSign className="mr-2 h-4 w-4" />
-                                Record Repayment
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedEntry(entry);
-                                  setPreviewMessage(generatePreview(entry, "whatsapp"));
-                                  setReminderOpen(true);
-                                }}
-                              >
-                                <Send className="mr-2 h-4 w-4" />
-                                Send Reminder
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedEntry(entry);
-                              setHistoryOpen(true);
-                            }}
-                          >
-                            <History className="mr-2 h-4 w-4" />
-                            View History
-                          </DropdownMenuItem>
-                          
-                          {entry.outstandingBalance > 0 && user?.role === "owner" && (
-                            <>
-                              <Separator className="my-1" />
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedEntry(entry);
-                                  setWriteOffOpen(true);
-                                }}
-                                className="text-rose-500"
-                              >
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Write Off (Bad Debt)
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+      <Card className="border-border/50 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <CardTitle className="text-base font-medium">Borrow Book Ledger</CardTitle>
+          <Button variant="ghost" size="icon" onClick={() => refetchLedger()} title="Refresh list" className="h-8 w-8">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            data={tableData}
+            columns={columns}
+            searchable
+            searchPlaceholder="Search customer name, phone, receipt or description..."
+            searchKeys={["customerName", "customerMobile", "receiptNumber", "description"]}
+            isLoading={isLedgerLoading}
+            emptyMessage="No credit records found."
+            filterConfigs={filterConfigs}
+          />
+        </CardContent>
       </Card>
+
 
       {/* Record Repayment Dialog */}
       <Dialog open={repaymentOpen} onOpenChange={setRepaymentOpen}>
@@ -526,8 +528,13 @@ export default function BorrowBookPage() {
                 id="repay-amount"
                 type="number"
                 placeholder="e.g. 5000"
-                value={repaymentAmount}
-                onChange={(e) => setRepaymentAmount(e.target.value)}
+                value={repaymentAmount === "0" ? "0" : repaymentAmount || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  let cleanVal = val;
+                  if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
+                  setRepaymentAmount(cleanVal === "" ? "0" : cleanVal);
+                }}
                 className={
                   parseFloat(repaymentAmount) > (selectedEntry?.outstandingBalance || 0) || parseFloat(repaymentAmount) <= 0
                     ? "border-rose-500 focus-visible:ring-rose-500"

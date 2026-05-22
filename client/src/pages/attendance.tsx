@@ -284,22 +284,22 @@ export default function AttendancePage() {
                   const status = rec?.status as AttendanceStatus | undefined;
                   const isActive = activeStaffDays.has(`${s.id}:${dailyDate}`);
                   return (
-                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-semibold text-primary">
+                    <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="h-8 w-8 rounded-full bg-primary/10 flex-shrink-0 flex items-center justify-center text-sm font-semibold text-primary">
                           {s.name.charAt(0).toUpperCase()}
                         </div>
-                        <div>
-                          <p className="font-medium text-sm">{s.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{s.staffNumber}</p>
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{s.name}</p>
+                          <p className="text-xs text-muted-foreground font-mono truncate">{s.staffNumber}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t sm:border-0 pt-2 sm:pt-0">
                         {status ? <StatusBadge status={status} isActive={isActive} /> : (
                           <span className="text-xs text-muted-foreground italic">Not marked</span>
                         )}
                         {canEdit && (
-                          <div className="flex gap-1 ml-2">
+                          <div className="flex gap-1">
                             {(Object.keys(STATUS_CONFIG) as AttendanceStatus[]).map(st => {
                               const cfg = STATUS_CONFIG[st];
                               const Icon = cfg.icon;

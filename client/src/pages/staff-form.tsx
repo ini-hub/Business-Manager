@@ -284,7 +284,7 @@ export default function StaffFormPage() {
                           <SelectContent className="max-h-[300px]">
                             {countryCodes.map((country) => (
                               <SelectItem key={country.code} value={country.code}>
-                                {country.name} (+{country.dialCode})
+                                {country.name} ({country.dialCode})
                               </SelectItem>
                             ))}
                           </SelectContent>

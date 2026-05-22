@@ -375,11 +375,11 @@ export default function OnboardingWizard() {
                 <h2 className="text-2xl font-bold">You're all set!</h2>
                 <p className="text-muted-foreground mt-2">Your business is ready. Head to the dashboard to start managing operations.</p>
               </div>
-              <div className="flex gap-3 justify-center">
-                <Button onClick={() => finishOnboarding("/")} size="lg">
+              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm sm:max-w-none mx-auto justify-center">
+                <Button onClick={() => finishOnboarding("/")} size="lg" className="w-full sm:w-auto">
                   Go to Dashboard <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
-                <Button variant="outline" size="lg" onClick={() => finishOnboarding("/sales/new")}>
+                <Button variant="outline" size="lg" onClick={() => finishOnboarding("/sales/new")} className="w-full sm:w-auto">
                   Make First Sale <ShoppingCart className="h-4 w-4 ml-1" />
                 </Button>
               </div>

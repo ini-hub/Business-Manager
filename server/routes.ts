@@ -50,6 +50,7 @@ import { initWebSocketServer } from "./websocket";
 import { RouterRegistry } from "./controllers/RouterRegistry";
 import { AuthController } from "./controllers/AuthController";
 import { InventoryController } from "./controllers/InventoryController";
+import { BookingController } from "./controllers/BookingController";
 import { CreditController } from "./controllers/CreditController";
 
 // Default OTP code for development (no email integration)
@@ -121,6 +122,7 @@ export async function registerRoutes(
   const registry = new RouterRegistry([
     new AuthController(),
     new InventoryController(),
+    new BookingController(),
     new CreditController(),
   ]);
   app.use("/api", registry.registerAll());
@@ -181,17 +183,8 @@ export async function registerRoutes(
       const isPending = members.some(m => m.status === "pending");
       const isPartial = members.some(m => m.status === "partial");
 
-      // Bypasses the activation screens if the user already has a password on the platform.
-      if (user.password || user.passwordHash) {
-        return res.json({
-          status: "password_required",
-          email: user.email,
-          phone: user.phone,
-        });
-      }
-
       // 1. If invited staff in partial status (code verified but password not yet set) -> direct to set password
-      if (isPartial || (user.createdByInvitation && user.activationCodeUsed && !user.password && !user.passwordHash)) {
+      if (isPartial) {
         return res.json({
           status: "create_password_required",
           email: user.email,
@@ -201,8 +194,7 @@ export async function registerRoutes(
       }
 
       // 2. If invited staff (status pending or code not yet used) -> show activation screen without auto-generating/sending code
-      if (isPending || (!user.activationCodeUsed && user.activationCode) || user.createdByInvitation) {
-        // Otherwise show activation screen. Do NOT generate new code, do NOT send email.
+      if (isPending || (user.createdByInvitation && !user.activationCodeUsed)) {
         return res.json({
           status: "pending_activation",
           email: user.email,
@@ -211,7 +203,7 @@ export async function registerRoutes(
         });
       }
 
-      // 2. If user is self-registered and email not verified yet -> send OTP and require OTP verification
+      // 3. If user is self-registered and email not verified yet -> send OTP and require OTP verification
       if (user.email && !user.isEmailVerified && !user.createdByInvitation) {
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
         const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -225,15 +217,6 @@ export async function registerRoutes(
         return res.json({
           status: "email_verification_required",
           email: user.email,
-        });
-      }
-
-      // 3. Fallback: if somehow user.activationCodeUsed is true but no password set (e.g. stopped flow)
-      if (user.activationCodeUsed && !user.password && !user.passwordHash) {
-        return res.json({
-          status: "create_password_required",
-          email: user.email,
-          phone: user.phone,
         });
       }
 
@@ -3035,7 +3018,11 @@ export async function registerRoutes(
         commissionSplit: z.enum(["standard", "equal"]).optional().default("standard"),
       })
     ),
-    paymentMethod: z.enum(["cash", "transfer", "flutterwave", "credit"]).default("cash"),
+    paymentMethod: z.enum(["cash", "transfer", "flutterwave", "credit", "split", "deposit"]).default("cash"),
+    splitPayments: z.array(z.object({
+      method: z.enum(["cash", "transfer", "flutterwave", "credit"]),
+      amount: z.number().min(0.01)
+    })).optional(),
     discountAmount: z.number().min(0).optional(),
     discountPercent: z.number().min(0).optional(),
     discountReason: z.string().optional(),
@@ -3043,6 +3030,10 @@ export async function registerRoutes(
     effectiveDate: z.string().optional(),
     creditUpfrontPaid: z.number().min(0).optional(),
     creditDueDate: z.string().optional(),
+    bookingId: z.string().optional(),
+    bookingDepositAmount: z.number().min(0).optional(),
+    bookingDepositMethod: z.string().optional(),
+    balanceCollectedToday: z.number().min(0).optional(),
   });
 
   app.post("/api/sales/checkout", async (req, res) => {
@@ -3063,6 +3054,11 @@ export async function registerRoutes(
         effectiveDate: data.effectiveDate,
         creditUpfrontPaid: data.creditUpfrontPaid,
         creditDueDate: data.creditDueDate,
+        bookingId: data.bookingId,
+        bookingDepositAmount: data.bookingDepositAmount,
+        bookingDepositMethod: data.bookingDepositMethod,
+        balanceCollectedToday: data.balanceCollectedToday,
+        splitPayments: data.splitPayments,
       });
 
       if (!result.success) {
@@ -3910,6 +3906,17 @@ export async function registerRoutes(
       res.status(201).json(category);
     } catch (error) {
       res.status(500).json({ error: "Could not create expense category." });
+    }
+  });
+
+  app.patch("/api/expense-categories/:id", requireRole("owner"), async (req, res) => {
+    try {
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ error: "Category name is required." });
+      const updated = await storage.updateExpenseCategory(req.params.id, name);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update expense category." });
     }
   });
 
