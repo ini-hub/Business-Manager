@@ -33,6 +33,7 @@ interface RevenueByTypeData {
 
 interface ChartProps {
   storeId?: string;
+  businessId?: string;
   storeCurrency?: string;
   queryString?: string;
 }
@@ -62,16 +63,17 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart({ storeId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
+export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
-    queryKey: ["/api/charts/sales-trends", storeId, queryString],
+    queryKey: ["/api/charts/sales-trends", storeId, businessId, queryString],
     queryFn: async () => {
-      const res = await fetch(`/api/charts/sales-trends?storeId=${storeId}${queryString ? '&' + queryString.substring(1) : ''}`);
+      const param = businessId ? `businessId=${businessId}` : `storeId=${storeId}`;
+      const res = await fetch(`/api/charts/sales-trends?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: !!storeId,
+    enabled: !!storeId || !!businessId,
   });
 
   const chartData = useMemo(() => {
@@ -172,16 +174,17 @@ export function SalesTrendChart({ storeId, storeCurrency = "NGN", queryString = 
   );
 }
 
-export function RevenueByItemChart({ storeId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
+export function RevenueByItemChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
-    queryKey: ["/api/charts/revenue-by-type", storeId, queryString],
+    queryKey: ["/api/charts/revenue-by-type", storeId, businessId, queryString],
     queryFn: async () => {
-      const res = await fetch(`/api/charts/revenue-by-type?storeId=${storeId}${queryString ? '&' + queryString.substring(1) : ''}`);
+      const param = businessId ? `businessId=${businessId}` : `storeId=${storeId}`;
+      const res = await fetch(`/api/charts/revenue-by-type?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: !!storeId,
+    enabled: !!storeId || !!businessId,
   });
 
   if (isLoading) {
@@ -218,7 +221,7 @@ export function RevenueByItemChart({ storeId, storeCurrency = "NGN", queryString
         <CardTitle className="text-base font-medium">Top Revenue Items</CardTitle>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={250}>
+        <ResponsiveContainer width="100%" height={300}>
           <BarChart data={items} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
             <XAxis
@@ -232,10 +235,12 @@ export function RevenueByItemChart({ storeId, storeCurrency = "NGN", queryString
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              width={100}
+              width={120}
+              interval={0}
+              tickFormatter={(val) => val.length > 18 ? `${val.substring(0, 16)}...` : val}
               className="text-muted-foreground"
             />
             <Tooltip
@@ -274,16 +279,17 @@ export function RevenueByItemChart({ storeId, storeCurrency = "NGN", queryString
   );
 }
 
-export function RevenueBreakdownChart({ storeId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
+export function RevenueBreakdownChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
-    queryKey: ["/api/charts/revenue-by-type", storeId, queryString],
+    queryKey: ["/api/charts/revenue-by-type", storeId, businessId, queryString],
     queryFn: async () => {
-      const res = await fetch(`/api/charts/revenue-by-type?storeId=${storeId}${queryString ? '&' + queryString.substring(1) : ''}`);
+      const param = businessId ? `businessId=${businessId}` : `storeId=${storeId}`;
+      const res = await fetch(`/api/charts/revenue-by-type?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: !!storeId,
+    enabled: !!storeId || !!businessId,
   });
 
   const pieData = useMemo(() => {

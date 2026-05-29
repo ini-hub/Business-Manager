@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, sql } from "drizzle-orm";
+import { eq, and, gte, lte, gt, sql, or } from "drizzle-orm";
 import { checkouts, orders, creditEntries, repayments } from "@shared/schema";
 
 export class AnalyticsService {
@@ -15,6 +15,8 @@ export class AnalyticsService {
     const {
       serviceRevenue,
       productRevenue,
+      grossRevenue,
+      returnedRevenue,
       totalRevenue,
       costOfGoodsSold,
       grossProfit,
@@ -100,6 +102,8 @@ export class AnalyticsService {
     return {
       serviceRevenue,
       productRevenue,
+      grossRevenue,
+      returnedRevenue,
       totalRevenue,
       costOfGoodsSold,
       grossProfit,
@@ -138,6 +142,8 @@ export class AnalyticsService {
       .select({
         inventoryId: orders.inventoryId,
         quantity: orders.quantity,
+        returnedQuantity: orders.returnedQuantity,
+        refundedAmount: orders.refundedAmount,
         totalPrice: orders.totalPrice,
       })
       .from(orders)
@@ -150,8 +156,8 @@ export class AnalyticsService {
     // 4. Group calculations per item
     const itemSummaries = items.map((item) => {
       const itemSales = sales.filter((s) => s.inventoryId === item.id);
-      const revenue = itemSales.reduce((sum, s) => sum + s.totalPrice, 0);
-      const quantitySold = itemSales.reduce((sum, s) => sum + s.quantity, 0);
+      const revenue = itemSales.reduce((sum, s) => sum + Math.max(0, s.totalPrice - (s.refundedAmount || 0)), 0);
+      const quantitySold = itemSales.reduce((sum, s) => sum + Math.max(0, s.quantity - (s.returnedQuantity || 0)), 0);
       const cogs = quantitySold * (item.costPrice ?? 0);
       const grossProfit = revenue - cogs;
       const grossProfitMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
@@ -239,12 +245,12 @@ export class AnalyticsService {
     const payrollDetails = await storage.getPaidPayrollExpenses(storeId, startDate, endDate);
     const totalPayroll = payrollDetails.reduce((sum, p) => sum + p.amount, 0);
 
-    // 7. Discounts given in range
+    // 7. Discounts given in range (basket + loyalty point redemptions)
     const discountConditions: any[] = [
       eq(checkouts.storeId, storeId),
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
-      gt(checkouts.discountAmount, 0),
+      or(gt(checkouts.discountAmount, 0), gt(checkouts.pointsRedeemed, 0)),
     ];
     if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
     if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
@@ -252,10 +258,11 @@ export class AnalyticsService {
     const uniqueTxDiscounts = await db
       .select({
         discountAmount: checkouts.discountAmount,
+        pointsRedeemed: checkouts.pointsRedeemed,
       })
       .from(checkouts)
       .where(and(...discountConditions));
-    const totalDiscounts = uniqueTxDiscounts.reduce((sum, d) => sum + (d.discountAmount || 0), 0);
+    const totalDiscounts = uniqueTxDiscounts.reduce((sum, d) => sum + (d.discountAmount || 0) + ((d.pointsRedeemed || 0) * 10), 0);
 
     // Final dynamic calculations
     const totalNetProfit = itemSummaries.reduce((sum, s) => sum + s.netProfit, 0);

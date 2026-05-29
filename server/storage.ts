@@ -88,6 +88,18 @@ import {
   type InsertCustomRole,
   creditEntries,
   repayments,
+  returnLogs,
+  cashRegisterSessions,
+  cashDrops,
+  bundleComponents,
+  vendors,
+  vendorBills,
+  stockAudits,
+  stockAuditItems,
+  taxRates,
+  inventoryBatches,
+  quotes,
+  storeCreditTransactions,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, or, inArray, ilike, gt, gte, lte } from "drizzle-orm";
@@ -98,6 +110,30 @@ import { UserRepository } from "./repositories/UserRepository";
 import { InventoryRepository } from "./repositories/InventoryRepository";
 import { ExpenseRepository } from "./repositories/ExpenseRepository";
 import { CreditRepository } from "./repositories/CreditRepository";
+import { VendorRepository } from "./repositories/VendorRepository";
+import { CashRegisterRepository } from "./repositories/CashRegisterRepository";
+import { StockAuditRepository } from "./repositories/StockAuditRepository";
+import { QuoteRepository } from "./repositories/QuoteRepository";
+import { normalizePhoneNumber } from "./sanitize";
+import { PurchaseOrderRepository } from "./repositories/PurchaseOrderRepository";
+import { StockTransferRepository } from "./repositories/StockTransferRepository";
+import { TaxRateRepository } from "./repositories/TaxRateRepository";
+
+export function serializeUser(user: any) {
+  if (!user) return null;
+  const {
+    password,
+    passwordHash,
+    otpCode,
+    otpExpiry,
+    activationCode,
+    activationCodeExpiry,
+    loginAttempts,
+    lockedUntil,
+    ...cleanUser
+  } = user;
+  return cleanUser;
+}
 
 // Pagination types
 export interface PaginationOptions {
@@ -160,6 +196,13 @@ export interface IStorage {
   archiveCustomer(id: string): Promise<Customer | undefined>;
   restoreCustomer(id: string): Promise<Customer | undefined>;
   hasCustomerTransactions(id: string): Promise<boolean>;
+  findCustomerByPhone(storeId: string, phone: string): Promise<Customer | undefined>;
+  dismissDuplicate(targetId: string, duplicateId: string): Promise<void>;
+  mergeCustomers(targetId: string, duplicateId: string, customFields?: Partial<InsertCustomer>): Promise<Customer>;
+  linkGlobalCustomerIds(customerId: string): Promise<void>;
+  getBusinessCustomerCount(businessId: string, startDate?: string, endDate?: string): Promise<number>;
+  searchGlobalCustomers(businessId: string, currentStoreId: string, query: string): Promise<any[]>;
+  profileGlobalCustomer(customerId: string, targetStoreId: string): Promise<Customer>;
 
   // Staff
   getStaffList(storeId: string, includeArchived?: boolean): Promise<Staff[]>;
@@ -184,6 +227,8 @@ export interface IStorage {
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
   hasInventoryTransactions(id: string): Promise<boolean>;
+  getBundleComponents(parentInventoryId: string): Promise<any[]>;
+  setBundleComponents(parentInventoryId: string, components: { componentInventoryId: string; quantity: number }[]): Promise<void>;
 
   // Orders
   createOrder(order: InsertOrder): Promise<Order>;
@@ -249,8 +294,8 @@ export interface IStorage {
       assistingStaff2Id?: string | null;
       commissionSplit?: "standard" | "equal";
     }>;
-    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split";
-    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit", amount: number}>;
+    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit" | "store_credit";
+    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
@@ -259,6 +304,10 @@ export interface IStorage {
     creditUpfrontPaid?: number;
     creditDueDate?: string;
     bookingId?: string;
+    bookingDepositAmount?: number;
+    bookingDepositMethod?: string;
+    balanceCollectedToday?: number;
+    pointsRedeemed?: number;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 
   // Inventory Restock Events
@@ -314,6 +363,8 @@ export interface IStorage {
   getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
     serviceRevenue: number;
     productRevenue: number;
+    grossRevenue: number;
+    returnedRevenue: number;
     totalRevenue: number;
     costOfGoodsSold: number;
     grossProfit: number;
@@ -331,6 +382,20 @@ export interface IStorage {
   // Void
   voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string }>;
 
+  // Returns & Store Credits
+  processReturn(data: {
+    storeId: string;
+    checkoutId: string;
+    items: Array<{ orderId: string; quantity: number; restock: boolean }>;
+    refundMethod: string;
+    refundAmount: number;
+    reason: string;
+    userId: string;
+    staffId: string;
+  }): Promise<{ success: boolean; message: string; returnLogIds?: string[] }>;
+
+  getStoreCreditTransactions(customerId: string): Promise<any[]>;
+
   // Receipt
   getReceiptPayload(checkoutId: string): Promise<{
     business: { name: string } | null;
@@ -346,6 +411,8 @@ export interface IStorage {
 
   // Update payment method/status post-checkout
   updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean>;
+
+
 
   // Payroll Expenses
   getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]>;
@@ -386,13 +453,28 @@ export interface IStorage {
   
   // Credit & Debt
   creditRepo: CreditRepository;
+  vendorRepo: VendorRepository;
+  cashRegisterRepo: CashRegisterRepository;
+  stockAuditRepo: StockAuditRepository;
+  inventoryRepo: InventoryRepository;
+  quoteRepo: QuoteRepository;
+  purchaseOrderRepo: PurchaseOrderRepository;
+  stockTransferRepo: StockTransferRepository;
+  taxRateRepo: TaxRateRepository;
 }
 
 export class DatabaseStorage implements IStorage {
   private userRepo = new UserRepository();
-  private inventoryRepo = new InventoryRepository();
+  public readonly inventoryRepo = new InventoryRepository();
   private expenseRepo = new ExpenseRepository();
   public readonly creditRepo = new CreditRepository();
+  public readonly vendorRepo = new VendorRepository();
+  public readonly cashRegisterRepo = new CashRegisterRepository();
+  public readonly stockAuditRepo = new StockAuditRepository();
+  public readonly quoteRepo = new QuoteRepository();
+  public readonly purchaseOrderRepo = new PurchaseOrderRepository();
+  public readonly stockTransferRepo = new StockTransferRepository();
+  public readonly taxRateRepo = new TaxRateRepository();
 
   // Users & Auth
   async getUser(id: string): Promise<User | undefined> {
@@ -681,10 +763,22 @@ export class DatabaseStorage implements IStorage {
     const [store] = await tx.select().from(stores).where(eq(stores.id, storeId));
     if (!store) throw new Error("Store not found");
 
+    const [storeSetting] = await tx.select().from(settings).where(eq(settings.storeId, storeId));
+    const [business] = await tx.select().from(businesses).where(eq(businesses.id, store.businessId));
+
+    let prefix = "RCP";
+    if (storeSetting?.receiptPrefix && storeSetting.receiptPrefix !== "RCP") {
+      prefix = storeSetting.receiptPrefix;
+    } else if (business?.receiptPrefix) {
+      prefix = `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
+    } else {
+      prefix = `RCP-${store.code.trim().toUpperCase()}`;
+    }
+
     const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
     if (!counter) {
       await tx.insert(storeCounters).values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 });
-      return `${store.code}-TN-1`;
+      return `${prefix}-TN-1`;
     }
 
     const nextNum = counter.nextTransactionNumber;
@@ -692,7 +786,7 @@ export class DatabaseStorage implements IStorage {
       .set({ nextTransactionNumber: nextNum + 1 })
       .where(eq(storeCounters.id, counter.id));
 
-    return `${store.code}-TN-${nextNum}`;
+    return `${prefix}-TN-${nextNum}`;
   }
 
   // Customers
@@ -761,12 +855,21 @@ export class DatabaseStorage implements IStorage {
     // Generate customer number at save time to avoid gaps
     const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
     const { birthday, ...rest } = customer;
+    
+    // Normalize phone number on create
+    const normalizedPhone = customer.mobileNumber ? normalizePhoneNumber(customer.mobileNumber) : null;
+
     const [newCustomer] = await db.insert(customers).values({
       ...rest,
+      mobileNumber: normalizedPhone || null,
       customerNumber,
       birthday: birthday ? new Date(birthday) : null,
     }).returning();
-    return newCustomer;
+
+    // Perform global linking
+    await this.linkGlobalCustomerIds(newCustomer.id);
+
+    return (await this.getCustomer(newCustomer.id)) || newCustomer;
   }
 
   async updateCustomer(id: string, customerData: Partial<InsertCustomer>): Promise<Customer | undefined> {
@@ -775,8 +878,221 @@ export class DatabaseStorage implements IStorage {
     if (birthday !== undefined) {
       updateData.birthday = birthday ? new Date(birthday) : null;
     }
+    // Normalize phone number on update
+    if (customerData.mobileNumber !== undefined) {
+      updateData.mobileNumber = customerData.mobileNumber ? normalizePhoneNumber(customerData.mobileNumber) : null;
+    }
+
     const [updated] = await db.update(customers).set(updateData).where(eq(customers.id, id)).returning();
+    if (updated) {
+      // Re-trigger global linking
+      await this.linkGlobalCustomerIds(updated.id);
+      return (await this.getCustomer(updated.id)) || updated;
+    }
     return updated;
+  }
+
+  async linkGlobalCustomerIds(customerId: string): Promise<void> {
+    const customer = await this.getCustomer(customerId);
+    if (!customer) return;
+
+    const normalizedPhone = customer.mobileNumber ? normalizePhoneNumber(customer.mobileNumber) : "";
+    if (!normalizedPhone) {
+      await db.update(customers).set({ globalCustomerId: null }).where(eq(customers.id, customerId));
+      return;
+    }
+
+    // Get current store to find businessId
+    const store = await this.getStore(customer.storeId);
+    if (!store) return;
+
+    // Get all stores in this business
+    const businessStores = await db.select({ id: stores.id }).from(stores).where(eq(stores.businessId, store.businessId));
+    const storeIds = businessStores.map(s => s.id);
+    if (storeIds.length === 0) return;
+
+    // Find all matching customers in these stores with same phone number
+    const matches = await db
+      .select()
+      .from(customers)
+      .where(
+        and(
+          inArray(customers.storeId, storeIds),
+          eq(customers.mobileNumber, normalizedPhone),
+          eq(customers.isArchived, false)
+        )
+      );
+
+    if (matches.length > 0) {
+      // Check if any existing customer already has a globalCustomerId
+      let globalId = matches.find(c => c.globalCustomerId)?.globalCustomerId || null;
+      if (!globalId) {
+        const crypto = await import("crypto");
+        globalId = crypto.randomUUID();
+      }
+
+      // Update all matching profiles to share the same globalCustomerId
+      const idsToUpdate = matches.map(c => c.id);
+      await db
+        .update(customers)
+        .set({ globalCustomerId: globalId })
+        .where(inArray(customers.id, idsToUpdate));
+    } else {
+      // Just set a unique globalCustomerId for this customer
+      const crypto = await import("crypto");
+      const globalId = crypto.randomUUID();
+      await db
+        .update(customers)
+        .set({ globalCustomerId: globalId })
+        .where(eq(customers.id, customerId));
+    }
+  }
+
+  async getBusinessCustomerCount(businessId: string, startDate?: string, endDate?: string): Promise<number> {
+    const storeList = await this.getStores(businessId);
+    const storeIds = storeList.map(s => s.id);
+    if (storeIds.length === 0) return 0;
+
+    let conditions: any[] = [
+      inArray(customers.storeId, storeIds),
+      eq(customers.isArchived, false)
+    ];
+
+    if (startDate) conditions.push(gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) conditions.push(lte(customers.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+    const [globalCountResult] = await db
+      .select({
+        count: sql<number>`count(distinct ${customers.globalCustomerId})`
+      })
+      .from(customers)
+      .where(
+        and(
+          ...conditions,
+          sql`${customers.globalCustomerId} is not null`
+        )
+      );
+
+    const [nullGlobalCountResult] = await db
+      .select({
+        count: sql<number>`count(*)`
+      })
+      .from(customers)
+      .where(
+        and(
+          ...conditions,
+          sql`${customers.globalCustomerId} is null`
+        )
+      );
+
+    return Number(globalCountResult?.count || 0) + Number(nullGlobalCountResult?.count || 0);
+  }
+
+  async searchGlobalCustomers(businessId: string, currentStoreId: string, query: string): Promise<any[]> {
+    const storeList = await this.getStores(businessId);
+    const storeIds = storeList.map(s => s.id);
+    if (storeIds.length === 0) return [];
+
+    const searchQuery = `%${query.trim()}%`;
+    const normalizedPhone = normalizePhoneNumber(query);
+    const phonePattern = normalizedPhone ? `%${normalizedPhone}%` : searchQuery;
+
+    // Search active customers in stores belonging to the same business (excluding current store)
+    const matches = await db
+      .select({
+        customer: customers,
+        storeName: stores.name,
+      })
+      .from(customers)
+      .innerJoin(stores, eq(customers.storeId, stores.id))
+      .where(
+        and(
+          inArray(customers.storeId, storeIds),
+          eq(customers.isArchived, false),
+          sql`${customers.storeId} != ${currentStoreId}`,
+          or(
+            ilike(customers.name, searchQuery),
+            ilike(customers.customerNumber, searchQuery),
+            normalizedPhone ? ilike(customers.mobileNumber, phonePattern) : sql`false`
+          )
+        )
+      )
+      .limit(30);
+
+    return matches.map(m => ({
+      ...m.customer,
+      storeName: m.storeName,
+    }));
+  }
+
+  async profileGlobalCustomer(customerId: string, targetStoreId: string): Promise<Customer> {
+    const sourceCustomer = await this.getCustomer(customerId);
+    if (!sourceCustomer) {
+      throw new Error("Source customer not found.");
+    }
+
+    // Check if a customer with same globalCustomerId or normalized phone already exists in the target store
+    if (sourceCustomer.globalCustomerId) {
+      const [existing] = await db
+        .select()
+        .from(customers)
+        .where(
+          and(
+            eq(customers.storeId, targetStoreId),
+            eq(customers.globalCustomerId, sourceCustomer.globalCustomerId),
+            eq(customers.isArchived, false)
+          )
+        );
+      if (existing) return existing;
+    }
+
+    if (sourceCustomer.mobileNumber) {
+      const normalizedPhone = normalizePhoneNumber(sourceCustomer.mobileNumber);
+      const [existing] = await db
+        .select()
+        .from(customers)
+        .where(
+          and(
+            eq(customers.storeId, targetStoreId),
+            eq(customers.mobileNumber, normalizedPhone),
+            eq(customers.isArchived, false)
+          )
+        );
+      if (existing) {
+        // Link them globally just in case
+        if (!existing.globalCustomerId && sourceCustomer.globalCustomerId) {
+          await db
+            .update(customers)
+            .set({ globalCustomerId: sourceCustomer.globalCustomerId })
+            .where(eq(customers.id, existing.id));
+          existing.globalCustomerId = sourceCustomer.globalCustomerId;
+        }
+        return existing;
+      }
+    }
+
+    // Otherwise, create a brand new local profile!
+    const customerNumber = await this.getNextAvailableCustomerNumber(targetStoreId);
+    const [newCustomer] = await db
+      .insert(customers)
+      .values({
+        storeId: targetStoreId,
+        name: sourceCustomer.name,
+        customerNumber,
+        mobileNumber: sourceCustomer.mobileNumber ? normalizePhoneNumber(sourceCustomer.mobileNumber) : null,
+        countryCode: sourceCustomer.countryCode || "NG",
+        address: sourceCustomer.address || "",
+        birthday: sourceCustomer.birthday,
+        globalCustomerId: sourceCustomer.globalCustomerId,
+        isConfirmedDistinct: false,
+        loyaltyPoints: 0,
+      })
+      .returning();
+
+    // Call linking to ensure everything is perfectly linked
+    await this.linkGlobalCustomerIds(newCustomer.id);
+
+    return (await this.getCustomer(newCustomer.id)) || newCustomer;
   }
 
   async deleteCustomer(id: string): Promise<boolean> {
@@ -797,6 +1113,104 @@ export class DatabaseStorage implements IStorage {
   async hasCustomerTransactions(id: string): Promise<boolean> {
     const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.customerId, id));
     return result[0].count > 0;
+  }
+
+  async findCustomerByPhone(storeId: string, phone: string): Promise<Customer | undefined> {
+    const [customer] = await db
+      .select()
+      .from(customers)
+      .where(
+        and(
+          eq(customers.storeId, storeId),
+          eq(customers.mobileNumber, phone),
+          eq(customers.isArchived, false)
+        )
+      );
+    return customer;
+  }
+
+  async dismissDuplicate(targetId: string, duplicateId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(customers)
+        .set({ isConfirmedDistinct: true })
+        .where(eq(customers.id, targetId));
+      await tx
+        .update(customers)
+        .set({ isConfirmedDistinct: true })
+        .where(eq(customers.id, duplicateId));
+    });
+  }
+
+  async mergeCustomers(
+    targetId: string,
+    duplicateId: string,
+    customFields?: Partial<InsertCustomer>
+  ): Promise<Customer> {
+    return await db.transaction(async (tx) => {
+      const [target] = await tx.select().from(customers).where(eq(customers.id, targetId));
+      const [duplicate] = await tx.select().from(customers).where(eq(customers.id, duplicateId));
+
+      if (!target || !duplicate) {
+        throw new Error("Target or Duplicate customer not found.");
+      }
+
+      // Combine loyalty points
+      const combinedPoints = (target.loyaltyPoints || 0) + (duplicate.loyaltyPoints || 0);
+
+      const updateData: any = {
+        loyaltyPoints: combinedPoints,
+      };
+
+      if (customFields) {
+        const { birthday, ...rest } = customFields;
+        Object.assign(updateData, rest);
+        if (birthday !== undefined) {
+          updateData.birthday = birthday ? new Date(birthday) : null;
+        }
+      }
+
+      const [updatedTarget] = await tx
+        .update(customers)
+        .set(updateData)
+        .where(eq(customers.id, targetId))
+        .returning();
+
+      // Transfer bookings
+      await tx
+        .update(bookings)
+        .set({ customerId: targetId })
+        .where(eq(bookings.customerId, duplicateId));
+
+      // Transfer transactions
+      await tx
+        .update(transactions)
+        .set({ customerId: targetId })
+        .where(eq(transactions.customerId, duplicateId));
+
+      // Transfer credit entries
+      await tx
+        .update(creditEntries)
+        .set({ customerId: targetId })
+        .where(eq(creditEntries.customerId, duplicateId));
+
+      // Transfer quotes
+      await tx
+        .update(quotes)
+        .set({ customerId: targetId })
+        .where(eq(quotes.customerId, duplicateId));
+
+      // Retire/Archive the duplicate profile
+      await tx
+        .update(customers)
+        .set({
+          isArchived: true,
+          mergedIntoId: targetId,
+        })
+        .where(eq(customers.id, duplicateId));
+
+      return updatedTarget;
+    });
   }
 
   // Staff ID Generation - finds next available number without gaps
@@ -1035,6 +1449,14 @@ export class DatabaseStorage implements IStorage {
     return this.inventoryRepo.hasInventoryTransactions(id);
   }
 
+  async getBundleComponents(parentInventoryId: string): Promise<any[]> {
+    return this.inventoryRepo.getBundleComponents(parentInventoryId);
+  }
+
+  async setBundleComponents(parentInventoryId: string, components: { componentInventoryId: string; quantity: number }[]): Promise<void> {
+    return this.inventoryRepo.setBundleComponents(parentInventoryId, components);
+  }
+
   // Orders
   async createOrder(order: InsertOrder): Promise<Order> {
     const [newOrder] = await db.insert(orders).values(order).returning();
@@ -1071,149 +1493,118 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(transactions.transactionDate));
 
     const result: TransactionWithRelations[] = [];
-    const seenReceipts = new Set<string>();
 
     for (const tx of txs) {
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
       if (!checkout) continue;
 
-      const receiptNum = checkout.receiptNumber;
-      if (seenReceipts.has(receiptNum)) continue; // Already grouped!
-      seenReceipts.add(receiptNum);
-
-      // Get all checkout line items for this transaction
-      const matchedCheckouts = await db.select().from(checkouts)
-        .where(eq(checkouts.receiptNumber, receiptNum));
-
-      // Get all inventory items for this transaction
-      const matchedInventoryItems: Inventory[] = [];
-      for (const ch of matchedCheckouts) {
-        const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
-        if (order) {
-          const [invItem] = await db.select().from(inventory).where(eq(inventory.id, order.inventoryId));
-          if (invItem) {
-            matchedInventoryItems.push(invItem);
-          }
-        }
-      }
-
-      // Create a virtual inventory item representing all items
-      const virtualInventoryName = matchedInventoryItems.map(item => item.name).join(", ");
-      const virtualInventoryType = matchedInventoryItems.some(item => item.type === "service") ? "service" : "product";
+      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
+      if (!inventoryItem) continue;
 
       const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      if (!customer) continue;
+
       const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      if (!store) continue;
+
       const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
+
+      let voidedByUser: any = null;
+      if (checkout.voidedByUserId) {
+        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
+        voidedByUser = serializeUser(user) || null;
+      }
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
+      const quantity = order?.quantity ?? 1;
+      const returnedQuantity = order?.returnedQuantity ?? 0;
+      const refundedAmount = order?.refundedAmount ?? 0;
+
+      const basketSubtotal = Number(checkout.subtotal) || 1;
+      const orderPrice = Number(order?.totalPrice) || tx.amount;
+      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
 
       result.push({
         ...tx,
         customer,
-        inventory: {
-          id: matchedInventoryItems[0]?.id || tx.inventoryId,
-          storeId: tx.storeId,
-          name: virtualInventoryName || "Unknown Item",
-          type: virtualInventoryType,
-          quantity: matchedInventoryItems[0]?.quantity || 0,
-          costPrice: matchedInventoryItems[0]?.costPrice || 0,
-          sellingPrice: checkout.totalCharged, // Standalone total charged
-          commissionSplitBusinessShare: matchedInventoryItems[0]?.commissionSplitBusinessShare ?? 80,
-          commissionSplitStaffShare: matchedInventoryItems[0]?.commissionSplitStaffShare ?? 20,
-          commissionSplitOverride: matchedInventoryItems[0]?.commissionSplitOverride ?? false,
-        },
+        inventory: inventoryItem,
         checkout: {
           ...checkout,
-          totalPrice: checkout.totalCharged, // Represent transaction amount as totalCharged
+          totalPrice: tx.amount,
+          subtotal: orderPrice,
+          discountAmount: proportionalDiscount,
+          quantity,
+          returnedQuantity,
+          refundedAmount,
           staff: foundStaff,
+          voidedByUser,
         },
         store,
       });
     }
-    result.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+
     return result;
   }
 
   async getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>> {
     const { page, limit, search } = options;
-    const offset = (page - 1) * limit;
 
-    // Get all checkouts for counting unique transactions
-    const uniqueReceiptsQuery = await db
-      .select({ receiptNumber: checkouts.receiptNumber })
-      .from(checkouts)
-      .where(eq(checkouts.storeId, storeId))
-      .groupBy(checkouts.receiptNumber);
-    const total = uniqueReceiptsQuery.length;
-
-    // Select the unique receipt numbers for this page ordered by latest transaction time
-    const paginatedReceipts = await db
-      .select({ 
-        receiptNumber: checkouts.receiptNumber,
-        maxDate: sql<Date>`max(${checkouts.createdAt})`
-      })
-      .from(checkouts)
-      .where(eq(checkouts.storeId, storeId))
-      .groupBy(checkouts.receiptNumber)
-      .orderBy(desc(sql`max(${checkouts.createdAt})`))
-      .limit(limit)
-      .offset(offset);
+    const txs = await db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.storeId, storeId))
+      .orderBy(desc(transactions.transactionDate));
 
     const data: TransactionWithRelations[] = [];
 
-    for (const r of paginatedReceipts) {
-      // Find one checkout with this receiptNumber to get customer & transaction link
-      const matchedCheckouts = await db.select().from(checkouts)
-        .where(eq(checkouts.receiptNumber, r.receiptNumber));
-      if (matchedCheckouts.length === 0) continue;
+    for (const tx of txs) {
+      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
+      if (!checkout) continue;
 
-      const primaryCheckout = matchedCheckouts[0];
-      const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, primaryCheckout.id));
-      if (!tx) continue;
-
-      // Get all inventory items
-      const matchedInventoryItems: Inventory[] = [];
-      for (const ch of matchedCheckouts) {
-        const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
-        if (order) {
-          const [invItem] = await db.select().from(inventory).where(eq(inventory.id, order.inventoryId));
-          if (invItem) {
-            matchedInventoryItems.push(invItem);
-          }
-        }
-      }
-
-      const virtualInventoryName = matchedInventoryItems.map(item => item.name).join(", ");
-      const virtualInventoryType = matchedInventoryItems.some(item => item.type === "service") ? "service" : "product";
+      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
+      if (!inventoryItem) continue;
 
       const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      if (!customer) continue;
+
       const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, primaryCheckout.staffId));
+      if (!store) continue;
+
+      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
+
+      let voidedByUser: any = null;
+      if (checkout.voidedByUserId) {
+        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
+        voidedByUser = serializeUser(user) || null;
+      }
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
+      const quantity = order?.quantity ?? 1;
+      const returnedQuantity = order?.returnedQuantity ?? 0;
+      const refundedAmount = order?.refundedAmount ?? 0;
+
+      const basketSubtotal = Number(checkout.subtotal) || 1;
+      const orderPrice = Number(order?.totalPrice) || tx.amount;
+      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
 
       data.push({
         ...tx,
         customer,
-        inventory: {
-          id: matchedInventoryItems[0]?.id || tx.inventoryId,
-          storeId: tx.storeId,
-          name: virtualInventoryName || "Unknown Item",
-          type: virtualInventoryType,
-          quantity: matchedInventoryItems[0]?.quantity || 0,
-          costPrice: matchedInventoryItems[0]?.costPrice || 0,
-          sellingPrice: primaryCheckout.totalCharged,
-          commissionSplitBusinessShare: matchedInventoryItems[0]?.commissionSplitBusinessShare ?? 80,
-          commissionSplitStaffShare: matchedInventoryItems[0]?.commissionSplitStaffShare ?? 20,
-          commissionSplitOverride: matchedInventoryItems[0]?.commissionSplitOverride ?? false,
-        },
+        inventory: inventoryItem,
         checkout: {
-          ...primaryCheckout,
-          totalPrice: primaryCheckout.totalCharged,
+          ...checkout,
+          totalPrice: tx.amount,
+          subtotal: orderPrice,
+          discountAmount: proportionalDiscount,
+          quantity,
+          returnedQuantity,
+          refundedAmount,
           staff: foundStaff,
+          voidedByUser,
         },
         store,
       });
     }
-
-    // Sort chronologically (latest transactions first)
-    data.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
 
     // Apply search filter if provided
     let filteredData = data;
@@ -1222,14 +1613,18 @@ export class DatabaseStorage implements IStorage {
       filteredData = data.filter(tx => 
         tx.customer?.name?.toLowerCase().includes(searchLower) ||
         tx.inventory?.name?.toLowerCase().includes(searchLower) ||
-        tx.checkout?.receiptNumber?.toLowerCase().includes(searchLower)
+        tx.checkout?.receiptNumber?.toLowerCase().includes(searchLower) ||
+        tx.checkout?.paymentMethod?.toLowerCase().includes(searchLower)
       );
     }
 
+    const total = filteredData.length;
+    const offset = (page - 1) * limit;
+    const paginatedData = filteredData.slice(offset, offset + limit);
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
     return {
-      data: filteredData,
+      data: paginatedData,
       pagination: {
         total,
         page,
@@ -1432,58 +1827,47 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(transactions.transactionDate));
 
     const result: TransactionWithRelations[] = [];
-    const seenReceipts = new Set<string>();
 
     for (const tx of txs) {
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
       if (!checkout) continue;
 
-      const receiptNum = checkout.receiptNumber;
-      if (seenReceipts.has(receiptNum)) continue;
-      seenReceipts.add(receiptNum);
-
-      // Get all checkout line items for this transaction
-      const matchedCheckouts = await db.select().from(checkouts)
-        .where(eq(checkouts.receiptNumber, receiptNum));
-
-      // Get all inventory items
-      const matchedInventoryItems: Inventory[] = [];
-      for (const ch of matchedCheckouts) {
-        const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
-        if (order) {
-          const [invItem] = await db.select().from(inventory).where(eq(inventory.id, order.inventoryId));
-          if (invItem) {
-            matchedInventoryItems.push(invItem);
-          }
-        }
-      }
-
-      const virtualInventoryName = matchedInventoryItems.map(item => item.name).join(", ");
-      const virtualInventoryType = matchedInventoryItems.some(item => item.type === "service") ? "service" : "product";
+      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
+      if (!inventoryItem) continue;
 
       const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
+      if (!customer) continue;
+
       const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
+      if (!store) continue;
+
       const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
+
+      let voidedByUser: any = null;
+      if (checkout.voidedByUserId) {
+        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
+        voidedByUser = serializeUser(user) || null;
+      }
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
+      const quantity = order?.quantity ?? 1;
+
+      const basketSubtotal = Number(checkout.subtotal) || 1;
+      const orderPrice = Number(order?.totalPrice) || tx.amount;
+      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
 
       result.push({
         ...tx,
         customer,
-        inventory: {
-          id: matchedInventoryItems[0]?.id || tx.inventoryId,
-          storeId: tx.storeId,
-          name: virtualInventoryName || "Unknown Item",
-          type: virtualInventoryType,
-          quantity: matchedInventoryItems[0]?.quantity || 0,
-          costPrice: matchedInventoryItems[0]?.costPrice || 0,
-          sellingPrice: checkout.totalCharged,
-          commissionSplitBusinessShare: matchedInventoryItems[0]?.commissionSplitBusinessShare ?? 80,
-          commissionSplitStaffShare: matchedInventoryItems[0]?.commissionSplitStaffShare ?? 20,
-          commissionSplitOverride: matchedInventoryItems[0]?.commissionSplitOverride ?? false,
-        },
+        inventory: inventoryItem,
         checkout: {
           ...checkout,
-          totalPrice: checkout.totalCharged,
+          totalPrice: tx.amount,
+          subtotal: orderPrice,
+          discountAmount: proportionalDiscount,
+          quantity,
           staff: foundStaff,
+          voidedByUser,
         },
         store,
       });
@@ -1590,6 +1974,8 @@ export class DatabaseStorage implements IStorage {
       totalServices: services.length,
       totalTransactions: matchedCheckouts.length,
       totalRevenue: plSummary.totalRevenue,
+      grossRevenue: plSummary.grossRevenue,
+      returnedRevenue: plSummary.returnedRevenue,
       totalProfit: plSummary.grossProfit,
       lowStockItems,
     };
@@ -1607,15 +1993,23 @@ export class DatabaseStorage implements IStorage {
       .where(and(...conditions))
       .orderBy(transactions.transactionDate);
 
-    const allCheckouts = await db.select().from(checkouts).where(eq(checkouts.storeId, storeId));
-    const checkoutMap = new Map(allCheckouts.map(c => [c.id, c]));
+    const allCheckouts = await db
+      .select({
+        checkout: checkouts,
+        refundedAmount: orders.refundedAmount,
+      })
+      .from(checkouts)
+      .leftJoin(orders, eq(checkouts.orderId, orders.id))
+      .where(eq(checkouts.storeId, storeId));
+    const checkoutMap = new Map(allCheckouts.map(c => [c.checkout.id, c]));
 
     const trendMap = new Map<string, { revenue: number; transactions: number }>();
 
     for (const tx of allTransactions) {
       const dateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
-      const checkout = checkoutMap.get(tx.checkoutId);
-      const revenue = checkout?.totalPrice ?? 0;
+      const checkoutData = checkoutMap.get(tx.checkoutId);
+      if (!checkoutData || checkoutData.checkout.isVoided) continue;
+      const revenue = Math.max(0, (checkoutData.checkout.totalPrice || 0) - (checkoutData.refundedAmount || 0));
 
       const existing = trendMap.get(dateStr) ?? { revenue: 0, transactions: 0 };
       trendMap.set(dateStr, {
@@ -1647,6 +2041,7 @@ export class DatabaseStorage implements IStorage {
         inventoryName: inventory.name,
         inventoryType: inventory.type,
         revenue: orders.totalPrice,
+        refundedAmount: orders.refundedAmount,
       })
       .from(orders)
       .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
@@ -1657,7 +2052,7 @@ export class DatabaseStorage implements IStorage {
     
     for (const row of rows) {
       const existing = grouped.get(row.inventoryName) || { name: row.inventoryName, value: 0, type: row.inventoryType };
-      existing.value += row.revenue;
+      existing.value += Math.max(0, row.revenue - (row.refundedAmount || 0));
       grouped.set(row.inventoryName, existing);
     }
 
@@ -1679,8 +2074,8 @@ export class DatabaseStorage implements IStorage {
       assistingStaff2Id?: string | null;
       commissionSplit?: "standard" | "equal";
     }>;
-    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit";
-    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit", amount: number}>;
+    paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit" | "store_credit";
+    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
@@ -1692,6 +2087,7 @@ export class DatabaseStorage implements IStorage {
     bookingDepositAmount?: number;
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;
+    pointsRedeemed?: number;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
     const checkoutIds: string[] = [];
     const lowStockItems: Array<{ name: string; quantity: number }> = [];
@@ -1714,16 +2110,42 @@ export class DatabaseStorage implements IStorage {
         } else {
           txDate = new Date(); // Carry now time when unchanged
         }
+        // Validate paymentMethod and splitPayments exclusivity
+        if (data.paymentMethod === "flutterwave" && data.splitPayments && data.splitPayments.length > 0) {
+          throw new Error("Flutterwave cannot be combined with split payments. Choose either Flutterwave OR split payment.");
+        }
+
         // Validate customer exists
         const [customer] = await tx.select().from(customers).where(eq(customers.id, data.customerId));
         if (!customer) {
           throw new Error("Please select a valid customer to complete this sale.");
         }
 
-        // Validate staff exists
+        // Validate staff exists and belongs to this store
         const [staffMember] = await tx.select().from(staff).where(eq(staff.id, data.staffId));
         if (!staffMember) {
           throw new Error("Please select a valid staff member to complete this sale.");
+        }
+        if (staffMember.storeId !== data.storeId) {
+          throw new Error(`Staff member "${staffMember.name}" does not belong to this store branch.`);
+        }
+
+        // Check if cash payment requires an open register session
+        const hasCashPayment = data.paymentMethod === "cash" || 
+          (data.paymentMethod === "split" && data.splitPayments?.some(p => p.method === "cash"));
+
+        let activeSessionId: string | null = null;
+        if (hasCashPayment) {
+          const [activeSession] = await tx
+            .select()
+            .from(cashRegisterSessions)
+            .where(and(eq(cashRegisterSessions.storeId, data.storeId), eq(cashRegisterSessions.status, "open")))
+            .limit(1);
+
+          if (!activeSession) {
+            throw new Error("bad_request:Cannot complete sale. The cash drawer is currently closed. Please open the register first.");
+          }
+          activeSessionId = activeSession.id;
         }
 
         // Get store settings for low stock threshold
@@ -1754,10 +2176,47 @@ export class DatabaseStorage implements IStorage {
           if (!inventoryItem) {
             throw new Error("One of the items in your cart is no longer available.");
           }
+          if (item.quantity <= 0) {
+            throw new Error(`Invalid quantity for item ${inventoryItem.name}. Quantity must be at least 1.`);
+          }
+
           const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
-          
+
           if (unitPrice <= 0) {
             throw new Error(`Item ${inventoryItem.name} cannot be sold for ₦0. Only active promotions can apply ₦0 items.`);
+          }
+
+          // Validate lead staff belongs to the store if assigned
+          if (item.leadStaffId) {
+            const [leadStaffMember] = await tx.select().from(staff).where(eq(staff.id, item.leadStaffId));
+            if (!leadStaffMember) {
+              throw new Error("One of the assigned lead staff members is invalid.");
+            }
+            if (leadStaffMember.storeId !== data.storeId) {
+              throw new Error(`Lead staff member "${leadStaffMember.name}" does not belong to this store branch.`);
+            }
+          }
+
+          // Validate assisting staff 1 belongs to the store if assigned
+          if (item.assistingStaff1Id) {
+            const [ass1Member] = await tx.select().from(staff).where(eq(staff.id, item.assistingStaff1Id));
+            if (!ass1Member) {
+              throw new Error("One of the assigned assisting staff members is invalid.");
+            }
+            if (ass1Member.storeId !== data.storeId) {
+              throw new Error(`Assisting staff member "${ass1Member.name}" does not belong to this store branch.`);
+            }
+          }
+
+          // Validate assisting staff 2 belongs to the store if assigned
+          if (item.assistingStaff2Id) {
+            const [ass2Member] = await tx.select().from(staff).where(eq(staff.id, item.assistingStaff2Id));
+            if (!ass2Member) {
+              throw new Error("One of the assigned assisting staff members is invalid.");
+            }
+            if (ass2Member.storeId !== data.storeId) {
+              throw new Error(`Assisting staff member "${ass2Member.name}" does not belong to this store branch.`);
+            }
           }
 
           processedItems.push({
@@ -1865,6 +2324,18 @@ export class DatabaseStorage implements IStorage {
         // 2. Generate a single transaction receipt number
         const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
 
+        // Fetch dynamic tax rate
+        const storeTaxRates = await tx.select().from(taxRates).where(eq(taxRates.storeId, data.storeId));
+        const defaultTax = storeTaxRates.find(r => r.isDefault);
+        const taxRatePercent = defaultTax ? defaultTax.rate : 0;
+
+        // Loyalty points discount calculation
+        if (data.pointsRedeemed && data.pointsRedeemed > customer.loyaltyPoints) {
+          throw new Error(`Insufficient loyalty points. Customer has only ${customer.loyaltyPoints} points.`);
+        }
+        const pointsValueRate = 10; // 1 loyalty point = ₦10 discount
+        const pointsDiscount = (data.pointsRedeemed || 0) * pointsValueRate;
+
         // 3. Define transaction-level discount variables
         let totalDiscount = data.discountAmount || 0;
         let discountPct = data.discountPercent || (grossCartTotal > 0 ? (totalDiscount / grossCartTotal) * 100 : 0);
@@ -1874,7 +2345,13 @@ export class DatabaseStorage implements IStorage {
           totalDiscount = grossCartTotal;
         }
 
-        const totalCharged = Math.max(0, grossCartTotal - totalDiscount);
+        // Final discounted amount (before tax)
+        const discountedSubtotal = Math.max(0, grossCartTotal - totalDiscount - pointsDiscount);
+        
+        // Dynamic tax total
+        const taxTotalGlobal = discountedSubtotal * (taxRatePercent / 100);
+
+        const totalCharged = discountedSubtotal + taxTotalGlobal;
         
         // Validate booking deposit matching if a bookingId is provided
         const bookingDepositAmount = data.bookingDepositAmount || 0;
@@ -1923,15 +2400,37 @@ export class DatabaseStorage implements IStorage {
           }
 
           // Check stock for products
-          if (inventoryItem.type === "product" && inventoryItem.quantity < item.quantity) {
-            throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
+          if (inventoryItem.type === "product") {
+            if (inventoryItem.isBundle) {
+              const childComponents = await tx
+                .select({
+                  name: inventory.name,
+                  compQty: inventory.quantity,
+                  qtyNeeded: bundleComponents.quantity,
+                })
+                .from(bundleComponents)
+                .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
+                .where(eq(bundleComponents.parentInventoryId, item.inventoryId));
+
+              for (const comp of childComponents) {
+                const totalNeeded = comp.qtyNeeded * item.quantity;
+                if (comp.compQty < totalNeeded) {
+                  throw new Error(`Sorry, we do not have enough stock for the component ${comp.name} inside bundle ${inventoryItem.name}.`);
+                }
+              }
+            } else if (inventoryItem.quantity < item.quantity) {
+              throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
+            }
           }
 
           const totalPrice = item.unitPrice * item.quantity;
 
           // Compute how much of the global transaction discount applies to this item
           const itemDiscountPortion = item.isPromoLine ? 0 : (totalDiscount * (totalPrice / grossCartTotal || 1));
-          const itemCharged = Math.max(0, totalPrice - itemDiscountPortion);
+          const itemPointsDiscountPortion = item.isPromoLine ? 0 : (pointsDiscount * (totalPrice / grossCartTotal || 1));
+          const itemDiscountedSubtotal = Math.max(0, totalPrice - itemDiscountPortion - itemPointsDiscountPortion);
+          const itemTaxTotal = itemDiscountedSubtotal * (taxRatePercent / 100);
+          const itemCharged = itemDiscountedSubtotal + itemTaxTotal;
 
           // Create order
           const [order] = await tx.insert(orders).values({
@@ -1961,7 +2460,9 @@ export class DatabaseStorage implements IStorage {
             discountPercent: item.isPromoLine ? 0 : discountPct,
             discountReason: item.isPromoLine ? `Promo - ${item.promoName}` : (data.discountReason || null),
             discountApprovedBy: data.discountApprovedBy || null,
+            pointsRedeemed: data.pointsRedeemed || 0,
             totalCharged: itemCharged,
+            taxTotal: itemTaxTotal,
             bookingDepositAmount,
             bookingDepositMethod: data.bookingDepositMethod || null,
             balanceCollectedToday: Math.max(0, itemCharged - bookingDepositAmount),
@@ -1982,13 +2483,44 @@ export class DatabaseStorage implements IStorage {
 
           // Update inventory quantity
           if (inventoryItem.type === "product") {
-            const newQuantity = inventoryItem.quantity - item.quantity;
-            await tx.update(inventory)
-              .set({ quantity: newQuantity })
-              .where(eq(inventory.id, item.inventoryId));
-            
-            if (newQuantity <= lowStockThreshold) {
-              lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
+            if (inventoryItem.isBundle) {
+              const childComponents = await tx
+                .select({
+                  id: bundleComponents.componentInventoryId,
+                  name: inventory.name,
+                  quantity: inventory.quantity,
+                  qtyNeeded: bundleComponents.quantity,
+                })
+                .from(bundleComponents)
+                .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
+                .where(eq(bundleComponents.parentInventoryId, item.inventoryId));
+
+              for (const comp of childComponents) {
+                const totalDeduction = comp.qtyNeeded * item.quantity;
+                const newCompQty = comp.quantity - totalDeduction;
+                await tx.update(inventory)
+                  .set({ quantity: newCompQty })
+                  .where(eq(inventory.id, comp.id));
+
+                // FIFO Batch Deduction for bundle component
+                await this.inventoryRepo.deductFIFO(comp.id, totalDeduction, tx);
+
+                if (newCompQty <= lowStockThreshold) {
+                  lowStockItems.push({ name: comp.name, quantity: newCompQty });
+                }
+              }
+            } else {
+              const newQuantity = inventoryItem.quantity - item.quantity;
+              await tx.update(inventory)
+                .set({ quantity: newQuantity })
+                .where(eq(inventory.id, item.inventoryId));
+              
+              // FIFO Batch Deduction
+              await this.inventoryRepo.deductFIFO(item.inventoryId, item.quantity, tx);
+              
+              if (newQuantity <= lowStockThreshold) {
+                lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
+              }
             }
           }
 
@@ -2032,9 +2564,9 @@ export class DatabaseStorage implements IStorage {
           creditAmount = balanceCollectedToday;
           upfrontPaid = data.creditUpfrontPaid || 0;
         } else if (data.paymentMethod === "split" && data.splitPayments) {
-          const creditPayment = data.splitPayments.find(p => p.method === "credit");
-          if (creditPayment && creditPayment.amount > 0) {
-            creditAmount = creditPayment.amount;
+          const creditPayments = data.splitPayments.filter(p => p.method === "credit");
+          if (creditPayments.length > 0) {
+            creditAmount = creditPayments.reduce((sum, p) => sum + p.amount, 0);
             upfrontPaid = 0;
           }
         }
@@ -2074,6 +2606,71 @@ export class DatabaseStorage implements IStorage {
           await tx.update(bookings)
             .set({ status: "completed" })
             .where(eq(bookings.id, data.bookingId));
+        }
+
+        // Update cash session expected cash if needed
+        if (hasCashPayment && activeSessionId) {
+          let cashReceived = 0;
+          if (data.paymentMethod === "cash") {
+            cashReceived = balanceCollectedToday;
+          } else if (data.paymentMethod === "split" && data.splitPayments) {
+            const cashSplit = data.splitPayments.find(p => p.method === "cash");
+            if (cashSplit) {
+              cashReceived = cashSplit.amount;
+            }
+          }
+
+          if (cashReceived > 0) {
+            await tx
+              .update(cashRegisterSessions)
+              .set({
+                expectedCash: sql`${cashRegisterSessions.expectedCash} + ${cashReceived}`,
+              })
+              .where(eq(cashRegisterSessions.id, activeSessionId));
+          }
+        }
+
+        // Update customer loyalty points (accrual & deduction)
+        const pointsEarned = Math.floor(discountedSubtotal / 100); // 1 point per ₦100 spent (before tax)
+        const newPointsBalance = Math.max(0, customer.loyaltyPoints - (data.pointsRedeemed || 0) + pointsEarned);
+        await tx
+          .update(customers)
+          .set({ loyaltyPoints: newPointsBalance })
+          .where(eq(customers.id, data.customerId));
+
+        // Deduct customer store credit if used
+        let storeCreditUsed = 0;
+        if (data.paymentMethod === "store_credit") {
+          storeCreditUsed = balanceCollectedToday;
+        } else if (data.paymentMethod === "split" && data.splitPayments) {
+          const storeCreditSplit = data.splitPayments.find(p => p.method === "store_credit");
+          if (storeCreditSplit) {
+            storeCreditUsed = storeCreditSplit.amount;
+          }
+        }
+
+        if (storeCreditUsed > 0) {
+          if (!customer) {
+            throw new Error("A customer profile is required to redeem store credit.");
+          }
+          if (Number(customer.storeCreditBalance || 0) < storeCreditUsed) {
+            throw new Error(`Insufficient store credit balance. Available: ₦${customer.storeCreditBalance?.toLocaleString() || 0}`);
+          }
+
+          // Deduct from customer balance
+          await tx
+            .update(customers)
+            .set({ storeCreditBalance: sql`${customers.storeCreditBalance} - ${storeCreditUsed}` })
+            .where(eq(customers.id, customer.id));
+
+          // Log the store credit redemption transaction
+          await tx.insert(storeCreditTransactions).values({
+            customerId: customer.id,
+            storeId: data.storeId,
+            amount: -storeCreditUsed, // negative for redemptions
+            type: "purchase_redemption",
+            checkoutId: checkoutIds[0],
+          });
         }
       });
 
@@ -2556,6 +3153,8 @@ export class DatabaseStorage implements IStorage {
   async getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
     serviceRevenue: number;
     productRevenue: number;
+    grossRevenue: number;
+    returnedRevenue: number;
     totalRevenue: number;
     costOfGoodsSold: number;
     grossProfit: number;
@@ -2584,6 +3183,8 @@ export class DatabaseStorage implements IStorage {
         inventoryType: inventory.type,
         costPrice: inventory.costPrice,
         quantity: orders.quantity,
+        returnedQuantity: orders.returnedQuantity,
+        refundedAmount: orders.refundedAmount,
         totalPrice: orders.totalPrice,
       })
       .from(orders)
@@ -2594,25 +3195,33 @@ export class DatabaseStorage implements IStorage {
     let serviceRevenue = 0;
     let productRevenue = 0;
     let costOfGoodsSold = 0;
+    let grossRevenue = 0;
+    let returnedRevenue = 0;
 
     for (const row of rows) {
+      const netQuantity = Math.max(0, row.quantity - (row.returnedQuantity || 0));
+      const netTotalPrice = Math.max(0, row.totalPrice - (row.refundedAmount || 0));
+
+      grossRevenue += row.totalPrice;
+      returnedRevenue += (row.refundedAmount || 0);
+
       if (row.inventoryType === "service") {
-        serviceRevenue += row.totalPrice;
+        serviceRevenue += netTotalPrice;
       } else {
-        productRevenue += row.totalPrice;
+        productRevenue += netTotalPrice;
       }
-      costOfGoodsSold += (row.costPrice ?? 0) * row.quantity;
+      costOfGoodsSold += (row.costPrice ?? 0) * netQuantity;
     }
 
     const totalRevenue = serviceRevenue + productRevenue;
     const grossProfit = totalRevenue - costOfGoodsSold;
 
-    // Fetch unique transaction discounts in the period
+    // Fetch unique transaction discounts in the period (either direct cash discount or loyalty point redemption)
     const discountConditions: any[] = [
       eq(checkouts.storeId, storeId),
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
-      gt(checkouts.discountAmount, 0),
+      or(gt(checkouts.discountAmount, 0), gt(checkouts.pointsRedeemed, 0)),
     ];
     if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
     if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
@@ -2624,6 +3233,7 @@ export class DatabaseStorage implements IStorage {
         discountPercent: checkouts.discountPercent,
         discountReason: checkouts.discountReason,
         discountApprovedBy: checkouts.discountApprovedBy,
+        pointsRedeemed: checkouts.pointsRedeemed,
         createdAt: checkouts.createdAt,
         subtotal: sql<number>`sum(${checkouts.totalPrice})`,
       })
@@ -2635,19 +3245,45 @@ export class DatabaseStorage implements IStorage {
         checkouts.discountPercent,
         checkouts.discountReason,
         checkouts.discountApprovedBy,
+        checkouts.pointsRedeemed,
         checkouts.createdAt
       );
 
-    const discountsGiven = uniqueTxDiscounts.reduce((sum, d) => sum + (d.discountAmount || 0), 0);
+    const processedDiscounts = uniqueTxDiscounts.map((d) => {
+      const loyaltyDiscount = (d.pointsRedeemed || 0) * 10;
+      const totalDiscountVal = (d.discountAmount || 0) + loyaltyDiscount;
+      const subtotalVal = Number(d.subtotal || 0);
+      const totalPct = subtotalVal > 0 ? (totalDiscountVal / subtotalVal) * 100 : 0;
+      
+      let finalReason = d.discountReason || "";
+      if (d.pointsRedeemed && d.pointsRedeemed > 0) {
+        const loyaltyText = `Redeemed ${d.pointsRedeemed} Loyalty Points (₦${loyaltyDiscount})`;
+        finalReason = finalReason ? `${finalReason} | ${loyaltyText}` : loyaltyText;
+      }
+
+      return {
+        receiptNumber: d.receiptNumber,
+        discountAmount: totalDiscountVal,
+        discountPercent: totalPct,
+        discountReason: finalReason || "Loyalty Point Redemption",
+        discountApprovedBy: d.discountApprovedBy || (d.pointsRedeemed ? "Loyalty System" : "N/A"),
+        createdAt: d.createdAt,
+        subtotal: subtotalVal,
+      };
+    });
+
+    const discountsGiven = processedDiscounts.reduce((sum, d) => sum + d.discountAmount, 0);
 
     return { 
       serviceRevenue, 
       productRevenue, 
+      grossRevenue,
+      returnedRevenue,
       totalRevenue, 
       costOfGoodsSold, 
       grossProfit, 
       discountsGiven,
-      discountsList: uniqueTxDiscounts
+      discountsList: processedDiscounts
     };
   }
 
@@ -2717,6 +3353,186 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // ─── Returns & Store Credits ────────────────────────────────────────────────
+  async getStoreCreditTransactions(customerId: string): Promise<any[]> {
+    return db.select()
+      .from(storeCreditTransactions)
+      .where(eq(storeCreditTransactions.customerId, customerId))
+      .orderBy(desc(storeCreditTransactions.createdAt));
+  }
+
+  async processReturn(data: {
+    storeId: string;
+    checkoutId: string;
+    items: Array<{ orderId: string; quantity: number; restock: boolean }>;
+    refundMethod: string;
+    refundAmount: number;
+    reason: string;
+    userId: string;
+    staffId: string;
+  }): Promise<{ success: boolean; message: string; returnLogIds?: string[] }> {
+    try {
+      const returnLogIds: string[] = [];
+
+      await db.transaction(async (tx) => {
+        // 1. Fetch checkout
+        const [checkout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
+        if (!checkout) throw new Error("Transaction not found.");
+        if (checkout.isVoided) throw new Error("Cannot return items from a voided transaction.");
+
+        // 2. Fetch customer (if any) using transactions table link
+        let customerProfile: any = null;
+        const [txRow] = await tx.select().from(transactions).where(eq(transactions.checkoutId, checkout.id)).limit(1);
+        if (txRow && txRow.customerId) {
+          const [cust] = await tx.select().from(customers).where(eq(customers.id, txRow.customerId));
+          customerProfile = cust;
+        }
+
+        // Check if we are doing store credit, customer profile is strictly required
+        if (data.refundMethod === "store_credit" && (!txRow || !txRow.customerId)) {
+          throw new Error("A profiled customer is required to issue store credit.");
+        }
+
+        let calculatedTotalRefund = 0;
+
+        // 3. Process each return item
+        for (const item of data.items) {
+          // Fetch order row
+          const [order] = await tx.select().from(orders).where(eq(orders.id, item.orderId));
+          if (!order) throw new Error(`Line item not found: ${item.orderId}`);
+
+          const maxAvailable = order.quantity - order.returnedQuantity;
+          if (item.quantity <= 0 || item.quantity > maxAvailable) {
+            throw new Error(`Invalid return quantity (${item.quantity}). Max available: ${maxAvailable}`);
+          }
+
+          // Calculate refund amount portion for this item
+          const unitPrice = order.totalPrice / order.quantity;
+          const lineRefundAmount = unitPrice * item.quantity;
+          calculatedTotalRefund += lineRefundAmount;
+
+          // Add to returnLogs
+          let restockEventId: string | null = null;
+
+          // 4. Handle inventory restocking for product type
+          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+          if (inventoryItem && inventoryItem.type === "product" && item.restock) {
+            const newQty = inventoryItem.quantity + item.quantity;
+            // Create a restock event
+            const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
+              storeId: data.storeId,
+              inventoryId: inventoryItem.id,
+              quantityAdded: item.quantity,
+              previousQuantity: inventoryItem.quantity,
+              newQuantity: newQty,
+              unitCost: inventoryItem.costPrice || 0,
+              previousCostPrice: inventoryItem.costPrice || 0,
+              newCostPrice: inventoryItem.costPrice || 0,
+              previousSellingPrice: inventoryItem.sellingPrice || 0,
+              newSellingPrice: inventoryItem.sellingPrice || 0,
+              costStrategy: "keep",
+              notes: `Customer return from receipt ${checkout.receiptNumber}`,
+              reason: "Returned Stock",
+              staffId: data.staffId || null,
+              userId: data.userId || null,
+            }).returning();
+            
+            restockEventId = restockEvent.id;
+
+            // Update inventory count
+            await tx.update(inventory)
+              .set({ quantity: inventoryItem.quantity + item.quantity })
+              .where(eq(inventory.id, inventoryItem.id));
+          }
+
+          // Insert the return log
+          const beforeQty = inventoryItem ? inventoryItem.quantity : 0;
+          const afterQty = inventoryItem ? (inventoryItem.quantity + (item.restock && inventoryItem.type === "product" ? item.quantity : 0)) : 0;
+
+          const [log] = await tx.insert(returnLogs).values({
+            storeId: data.storeId,
+            checkoutId: checkout.id,
+            orderId: order.id,
+            quantity: item.quantity,
+            refundAmount: lineRefundAmount,
+            refundMethod: data.refundMethod,
+            reason: data.reason,
+            staffId: data.staffId || null,
+            userId: data.userId || null,
+            restockEventId,
+            inventoryQuantityBeforeReturn: beforeQty,
+            inventoryQuantityAfterReturn: afterQty,
+          }).returning();
+
+          returnLogIds.push(log.id);
+
+          // Update order's returnedQuantity and refundedAmount
+          await tx.update(orders)
+            .set({
+              returnedQuantity: order.returnedQuantity + item.quantity,
+              refundedAmount: order.refundedAmount + lineRefundAmount,
+            })
+            .where(eq(orders.id, order.id));
+
+          // 5. Update profit/loss metrics
+          if (inventoryItem) {
+            const [existingPL] = await tx.select().from(profitLoss)
+              .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, data.storeId)));
+            if (existingPL) {
+              const profit = lineRefundAmount - (inventoryItem.costPrice || 0) * item.quantity;
+              await tx.update(profitLoss)
+                .set({
+                  totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - item.quantity),
+                  quantityRemaining: existingPL.quantityRemaining + (item.restock && inventoryItem.type === "product" ? item.quantity : 0),
+                  totalRevenue: Math.max(0, existingPL.totalRevenue - lineRefundAmount),
+                  totalGrossProfit: existingPL.totalGrossProfit - profit,
+                })
+                .where(eq(profitLoss.id, existingPL.id));
+            }
+          }
+        }
+
+        // Validate that requested refundAmount doesn't exceed the total price of returned goods
+        if (data.refundAmount > calculatedTotalRefund + 0.01) {
+          throw new Error(`Refund amount exceeds the maximum value of returned items (${calculatedTotalRefund.toFixed(2)}).`);
+        }
+
+        // 6. Update checkout's returned status
+        await tx.update(checkouts)
+          .set({ isPartiallyReturned: true })
+          .where(eq(checkouts.id, checkout.id));
+
+        // 7. Issue Store Credit if refund method is store_credit
+        if (data.refundMethod === "store_credit" && customerProfile) {
+          // Increment customer store credit balance
+          await tx.update(customers)
+            .set({ storeCreditBalance: (customerProfile.storeCreditBalance || 0) + data.refundAmount })
+            .where(eq(customers.id, customerProfile.id));
+
+          // Create store credit transaction log
+          await tx.insert(storeCreditTransactions).values({
+            customerId: customerProfile.id,
+            storeId: data.storeId,
+            amount: data.refundAmount,
+            type: "issued_refund",
+            checkoutId: checkout.id,
+          });
+        }
+      });
+
+      // Notify managers
+      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
+      if (checkout) {
+        await this.notifyManagers(checkout.storeId, "return_transaction", `A return was processed on transaction ${checkout.receiptNumber}.`);
+      }
+
+      return { success: true, message: "Return processed successfully.", returnLogIds };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not process return.";
+      return { success: false, message };
+    }
+  }
+
   // ─── Get receipt payload ───────────────────────────────────────────────────
   async getReceiptPayload(checkoutId: string) {
     const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
@@ -2724,7 +3540,10 @@ export class DatabaseStorage implements IStorage {
 
     // Get all checkouts in the same transaction
     const matchedCheckouts = await db.select().from(checkouts)
-      .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
+      .where(and(
+        eq(checkouts.receiptNumber, primaryCheckout.receiptNumber),
+        eq(checkouts.storeId, primaryCheckout.storeId)
+      ));
 
     const items = [];
     for (const ch of matchedCheckouts) {
@@ -2755,10 +3574,40 @@ export class DatabaseStorage implements IStorage {
       .from(creditEntries)
       .where(eq(creditEntries.linkedTransactionId, checkoutId));
 
+    const rawReturnLogs = await db
+      .select()
+      .from(returnLogs)
+      .where(eq(returnLogs.checkoutId, checkoutId));
+
+    const resolvedReturnLogs = [];
+    for (const log of rawReturnLogs) {
+      const [order] = await db.select().from(orders).where(eq(orders.id, log.orderId));
+      const [inventoryItem] = order
+        ? await db.select().from(inventory).where(eq(inventory.id, order.inventoryId))
+        : [null];
+      const [staffMember] = log.staffId
+        ? await db.select().from(staff).where(eq(staff.id, log.staffId))
+        : [null];
+      resolvedReturnLogs.push({
+        ...log,
+        inventory: inventoryItem,
+        staff: staffMember,
+      });
+    }
+
+    let resolvedPrefix = "RCP";
+    if (storeSettings?.receiptPrefix && storeSettings.receiptPrefix !== "RCP") {
+      resolvedPrefix = storeSettings.receiptPrefix;
+    } else if (business?.receiptPrefix) {
+      resolvedPrefix = `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
+    } else {
+      resolvedPrefix = `RCP-${store.code.trim().toUpperCase()}`;
+    }
+
     return {
       business: business ? { name: business.name } : null,
       store: store ? { name: store.name, currency: store.currency, phone: store.phone, address: store.address } : null,
-      settings: storeSettings ? { receiptPrefix: storeSettings.receiptPrefix || "RCP", receiptThankYouMessage: storeSettings.receiptThankYouMessage } : null,
+      settings: storeSettings ? { receiptPrefix: resolvedPrefix, receiptThankYouMessage: storeSettings.receiptThankYouMessage } : null,
       checkout: primaryCheckout,
       order: items[0]?.order || null,
       inventory: items[0]?.inventory || null,
@@ -2767,6 +3616,7 @@ export class DatabaseStorage implements IStorage {
       leadStaff: items[0]?.leadStaff || null,
       items, // Group of all items in this transaction
       creditEntry: creditEntry || null,
+      returnLogs: resolvedReturnLogs,
     };
   }
 
@@ -2832,6 +3682,7 @@ export class DatabaseStorage implements IStorage {
       return {
         id: s.id,
         name: s.name,
+        email: s.email,
         role: s.role,
         totalRevenue,
         servicesCount,
@@ -2933,6 +3784,8 @@ export class DatabaseStorage implements IStorage {
       });
     }
   }
+
+
 }
 
 export const storage = new DatabaseStorage();

@@ -70,4 +70,12 @@ export abstract class BaseController {
 
     return store.businessId === user.businessId;
   }
+
+  protected async getUserStores(req: any): Promise<any[]> {
+    const userId = req.user?.userId || req.user?.id;
+    if (!userId) return [];
+    const user = await storage.getUser(userId);
+    if (!user || !user.businessId) return [];
+    return await storage.getStores(user.businessId);
+  }
 }

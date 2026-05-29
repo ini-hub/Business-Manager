@@ -3,6 +3,8 @@ import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, generateToken, verifyToken } from "./auth";
+import { setupAdminAuth } from "./auth-admin";
+import { adminRouter } from "./routes-admin";
 import {
   sendActivationEmail,
   sendAddedToOrgEmail,
@@ -31,16 +33,23 @@ import {
   orders,
   checkouts,
   promotions,
+  transactions,
   customers,
   inventory,
   staff,
   customRoles,
   insertCustomRoleSchema,
   insertStoreIntegrationSchema,
+  taxRates,
+  repayments,
+  expenses,
+  cashDrops,
+  creditEntries,
+  cashRegisterSessions,
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
-import { eq, and, gte, lte, gt, count } from "drizzle-orm";
+import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
 import { auditLogger } from "./audit";
 import { bulkUploadService } from "./services/BulkUploadService";
@@ -112,6 +121,10 @@ export async function registerRoutes(
 
   // Setup authentication
   await setupAuth(app);
+  await setupAdminAuth(app);
+
+  // Mount Admin Router
+  app.use("/api/admin", adminRouter);
 
   // Health check endpoint (no auth required, used by hosting providers)
   app.get("/api/health", (_req, res) => {
@@ -149,6 +162,29 @@ export async function registerRoutes(
     }
     return true;
   }
+
+  async function checkBusinessAccess(businessId: string, req: Request, res: Response): Promise<boolean> {
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    if (!userId) {
+      res.status(401).json({ error: "Authentication required." });
+      return false;
+    }
+    const member = await storage.getOrganisationMember(userId, businessId);
+    if (!member) {
+      res.status(403).json({ error: "Unauthorized access to business data." });
+      return false;
+    }
+    return true;
+  }
+
+  async function getUserStores(req: Request): Promise<any[]> {
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    if (!userId) return [];
+    const user = await storage.getUser(userId);
+    if (!user || !user.businessId) return [];
+    return await storage.getStores(user.businessId);
+  }
+
 
 
   // ========== CUSTOM AUTH ROUTES ==========
@@ -838,7 +874,7 @@ export async function registerRoutes(
       const members = await storage.getOrganisationsByUserId(user.id);
       const pendingMember = members.find(m => m.status === "pending");
       if (pendingMember) {
-        await storage.updateOrganisationMemberStatus(pendingMember.id, "partial");
+        await storage.updateOrganisationMemberStatus(pendingMember.memberId || pendingMember.id, "partial");
       }
 
       res.json({
@@ -893,7 +929,7 @@ export async function registerRoutes(
       if (isPartial) {
         const partialMember = members.find(m => m.status === "partial");
         if (partialMember) {
-          await storage.updateOrganisationMemberStatus(partialMember.id, "pending");
+          await storage.updateOrganisationMemberStatus(partialMember.memberId || partialMember.id, "pending");
         }
       }
 
@@ -989,7 +1025,7 @@ export async function registerRoutes(
       }
 
       if (targetMember.status !== "active") {
-        targetMember = await storage.updateOrganisationMemberStatus(targetMember.id, "active", new Date());
+        targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "active", new Date());
       }
 
       const org = await storage.getBusinessById(targetMember.organisationId);
@@ -1086,7 +1122,7 @@ export async function registerRoutes(
       let activeMember = members.find(m => m.status === "active");
       if (!activeMember && members.length > 0) {
         const firstMember = members[0];
-        await storage.updateOrganisationMemberStatus(firstMember.id, "active", new Date());
+        await storage.updateOrganisationMemberStatus(firstMember.memberId || firstMember.id, "active", new Date());
         activeMember = { ...firstMember, status: "active", activatedAt: new Date() };
       }
 
@@ -1369,6 +1405,10 @@ export async function registerRoutes(
             business,
             password: undefined,
             passwordHash: undefined,
+            otpCode: undefined,
+            otpExpiry: undefined,
+            activationCode: undefined,
+            activationCodeExpiry: undefined,
           });
         }
       }
@@ -1770,17 +1810,147 @@ export async function registerRoutes(
   });
 
   // ========== CUSTOMERS ==========
+  app.get("/api/customers/check-duplicate", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      const phone = req.query.phone as string;
+      if (!storeId || !phone) {
+        return res.status(400).json({ error: "Store ID and Phone are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const normalizedPhone = sanitizePhoneNumber(phone);
+      if (!normalizedPhone) return res.status(200).json({ duplicate: false });
+
+      const existing = await storage.findCustomerByPhone(storeId, normalizedPhone);
+      if (existing && !existing.isConfirmedDistinct) {
+        let lastTransactionDate: Date | null = null;
+        const [lastTx] = await db
+          .select({ transactionDate: transactions.transactionDate })
+          .from(transactions)
+          .where(eq(transactions.customerId, existing.id))
+          .orderBy(desc(transactions.transactionDate))
+          .limit(1);
+        if (lastTx) lastTransactionDate = lastTx.transactionDate;
+
+        return res.status(409).json({
+          duplicate: true,
+          existingCustomer: {
+            id: existing.id,
+            name: existing.name,
+            customerNumber: existing.customerNumber,
+            mobileNumber: existing.mobileNumber,
+            createdAt: existing.createdAt,
+            lastTransactionDate,
+          }
+        });
+      }
+      res.json({ duplicate: false });
+    } catch (error) {
+      res.status(500).json({ error: "Could not check duplicate." });
+    }
+  });
+
+  app.get("/api/customers/search-global", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      const query = req.query.query as string;
+      if (!storeId) {
+        return res.status(400).json({ error: "Please select a store first." });
+      }
+      if (!query || query.trim().length < 2) {
+        return res.json([]);
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const store = await storage.getStore(storeId);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+
+      const results = await storage.searchGlobalCustomers(store.businessId, storeId, query);
+      res.json(results);
+    } catch (error) {
+      console.error("Global Customer Search Error:", error);
+      res.status(500).json({ error: "Could not execute global customer search." });
+    }
+  });
+
+  app.post("/api/customers/profile-global", async (req, res) => {
+    try {
+      const { customerId, storeId } = req.body;
+      if (!customerId || !storeId) {
+        return res.status(400).json({ error: "Customer ID and Target Store ID are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const customer = await storage.profileGlobalCustomer(customerId, storeId);
+      auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE_GLOBAL_PROFILE", true);
+      res.json(customer);
+    } catch (error: any) {
+      console.error("Global Profile Creation Error:", error);
+      res.status(500).json({ error: error.message || "Could not profile customer from another branch." });
+    }
+  });
+
   app.get("/api/customers", async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
-      if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
+
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) return res.json(page > 0 && limit > 0 ? { customers: [], total: 0, pages: 0 } : []);
+
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            const list = await storage.getCustomers(s.id);
+            return list.map(item => ({ ...item, storeName: s.name }));
+          })
+        );
+
+        const mergedMap = new Map<string, any>();
+        for (const list of responses) {
+          for (const item of list) {
+            const key = item.mobileNumber || item.id;
+            const existing = mergedMap.get(key);
+            if (existing) {
+              if (item.storeName && !existing.storeName?.includes(item.storeName)) {
+                existing.storeName = `${existing.storeName}, ${item.storeName}`;
+              }
+            } else {
+              mergedMap.set(key, { ...item });
+            }
+          }
+        }
+        let merged = Array.from(mergedMap.values());
+
+        if (page > 0 && limit > 0) {
+          const search = req.query.search as string;
+          if (search) {
+            const sLower = search.toLowerCase();
+            merged = merged.filter(item => 
+              String(item.name || "").toLowerCase().includes(sLower) || 
+              String(item.mobileNumber || "").toLowerCase().includes(sLower)
+            );
+          }
+          const start = (page - 1) * limit;
+          const paginated = merged.slice(start, start + limit);
+          return res.json({
+            customers: paginated,
+            total: merged.length,
+            pages: Math.ceil(merged.length / limit),
+          });
+        }
+        return res.json(merged);
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
 
       if (page > 0 && limit > 0) {
         const search = req.query.search as string;
@@ -1824,7 +1994,54 @@ export async function registerRoutes(
       };
       const data = insertCustomerSchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
-      const customer = await storage.createCustomer(data);
+
+      // Proactive Phone Collision Intercept
+      const normalizedPhone = sanitizedBody.mobileNumber;
+      if (normalizedPhone && !req.body.allowDuplicatePhone) {
+        const existing = await storage.findCustomerByPhone(data.storeId, normalizedPhone);
+        if (existing && !existing.isConfirmedDistinct) {
+          let lastTransactionDate: Date | null = null;
+          const [lastTx] = await db
+            .select({ transactionDate: transactions.transactionDate })
+            .from(transactions)
+            .where(eq(transactions.customerId, existing.id))
+            .orderBy(desc(transactions.transactionDate))
+            .limit(1);
+          if (lastTx) lastTransactionDate = lastTx.transactionDate;
+
+          return res.status(409).json({
+            error: "possible_duplicate",
+            message: "A customer with this phone number already exists in this store.",
+            existingCustomer: {
+              id: existing.id,
+              name: existing.name,
+              customerNumber: existing.customerNumber,
+              mobileNumber: existing.mobileNumber,
+              createdAt: existing.createdAt,
+              lastTransactionDate,
+            }
+          });
+        }
+      }
+
+      // If allowDuplicatePhone is true, link both profiles
+      let duplicateOfId: string | undefined;
+      if (normalizedPhone && req.body.allowDuplicatePhone) {
+        const existing = await storage.findCustomerByPhone(data.storeId, normalizedPhone);
+        if (existing) {
+          duplicateOfId = existing.id;
+        }
+      }
+
+      const customer = await storage.createCustomer({
+        ...data,
+        duplicateOfId,
+      });
+
+      if (duplicateOfId) {
+        await storage.updateCustomer(duplicateOfId, { duplicateOfId: customer.id } as any);
+      }
+
       auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE", true);
       res.status(201).json(customer);
     } catch (error) {
@@ -1833,6 +2050,60 @@ export async function registerRoutes(
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
       res.status(500).json({ error: "We couldn't add this customer right now. Please try again." });
+    }
+  });
+
+  // Merge Customer Profiles
+  app.post("/api/customers/merge", requireRole("owner", "manager"), async (req, res) => {
+    try {
+      const { targetId, duplicateId, customFields } = req.body;
+      if (!targetId || !duplicateId) {
+        return res.status(400).json({ error: "Target ID and Duplicate ID are required." });
+      }
+
+      const target = await storage.getCustomer(targetId);
+      const duplicate = await storage.getCustomer(duplicateId);
+
+      if (!target || !duplicate) {
+        return res.status(404).json({ error: "Customer not found." });
+      }
+
+      if (!(await checkStoreAccess(target.storeId, req, res))) return;
+      if (!(await checkStoreAccess(duplicate.storeId, req, res))) return;
+
+      const mergedCustomer = await storage.mergeCustomers(targetId, duplicateId, customFields);
+      auditLogger.logDataModification("customer", targetId, getUserId(req), "MERGE", true, `Merged duplicate ${duplicateId}`);
+      res.json(mergedCustomer);
+    } catch (error) {
+      auditLogger.logDataModification("customer", req.body.targetId, getUserId(req), "MERGE", false, (error as Error).message);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Could not merge customer profiles." });
+    }
+  });
+
+  // Dismiss Duplicate Flag
+  app.post("/api/customers/dismiss-duplicate", requireRole("owner", "manager"), async (req, res) => {
+    try {
+      const { targetId, duplicateId } = req.body;
+      if (!targetId || !duplicateId) {
+        return res.status(400).json({ error: "Target ID and Duplicate ID are required." });
+      }
+
+      const target = await storage.getCustomer(targetId);
+      const duplicate = await storage.getCustomer(duplicateId);
+
+      if (!target || !duplicate) {
+        return res.status(404).json({ error: "Customer not found." });
+      }
+
+      if (!(await checkStoreAccess(target.storeId, req, res))) return;
+      if (!(await checkStoreAccess(duplicate.storeId, req, res))) return;
+
+      await storage.dismissDuplicate(targetId, duplicateId);
+      auditLogger.logDataModification("customer", targetId, getUserId(req), "DISMISS_DUPLICATE", true, `Dismissed duplicate with ${duplicateId}`);
+      res.status(204).end();
+    } catch (error) {
+      auditLogger.logDataModification("customer", req.body.targetId, getUserId(req), "DISMISS_DUPLICATE", false, (error as Error).message);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Could not dismiss duplicate warning." });
     }
   });
 
@@ -2042,6 +2313,11 @@ export async function registerRoutes(
 
   app.post("/api/staff", async (req, res) => {
     try {
+      const sanitizeOptionalNumber = (val: any) => {
+        if (val === undefined || val === null || val === "") return null;
+        return sanitizeNumber(val);
+      };
+
       const sanitizedBody = {
         ...req.body,
         name: sanitizeString(req.body.name),
@@ -2050,6 +2326,25 @@ export async function registerRoutes(
         payPerMonth: sanitizeNumber(req.body.payPerMonth),
         signedContract: sanitizeBoolean(req.body.signedContract),
         role: req.body.role || "staff",
+        // Staff compensation and payment overrides
+        overridePaymentMethod: sanitizeBoolean(req.body.overridePaymentMethod),
+        overrideCommission: sanitizeBoolean(req.body.overrideCommission),
+        overrideFormula: sanitizeBoolean(req.body.overrideFormula),
+        overrideAttendanceRates: sanitizeBoolean(req.body.overrideAttendanceRates),
+        
+        commissionFixedAmountOverride: sanitizeOptionalNumber(req.body.commissionFixedAmountOverride),
+        commissionTypeOverride: req.body.commissionTypeOverride ? sanitizeString(req.body.commissionTypeOverride) : null,
+        commissionFormulaOverride: req.body.commissionFormulaOverride ? sanitizeString(req.body.commissionFormulaOverride) : null,
+        
+        activeDayRateOverride: sanitizeOptionalNumber(req.body.activeDayRateOverride),
+        passiveDayRateOverride: sanitizeOptionalNumber(req.body.passiveDayRateOverride),
+        leaveDayRateOverride: sanitizeOptionalNumber(req.body.leaveDayRateOverride),
+        holidayDayRateOverride: sanitizeOptionalNumber(req.body.holidayDayRateOverride),
+        offDayRateOverride: sanitizeOptionalNumber(req.body.offDayRateOverride),
+        
+        payLeaveDaysOverride: sanitizeBoolean(req.body.payLeaveDaysOverride),
+        payHolidayDaysOverride: sanitizeBoolean(req.body.payHolidayDaysOverride),
+        payOffDaysOverride: sanitizeBoolean(req.body.payOffDaysOverride),
       };
       const data = insertStaffSchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
@@ -2179,13 +2474,37 @@ export async function registerRoutes(
         return res.status(403).json({ error: "You don't have access to this staff member." });
       }
 
-      const sanitizedBody = {
+      const sanitizeOptionalNumber = (val: any) => {
+        if (val === undefined || val === null || val === "") return null;
+        return sanitizeNumber(val);
+      };
+
+      const sanitizedBody: any = {
         ...req.body,
-        ...(req.body.name && { name: sanitizeString(req.body.name) }),
-        ...(req.body.email && { email: sanitizeString(req.body.email)?.toLowerCase() }),
-        ...(req.body.mobileNumber && { mobileNumber: sanitizePhoneNumber(req.body.mobileNumber) }),
+        ...(req.body.name !== undefined && { name: sanitizeString(req.body.name) }),
+        ...(req.body.email !== undefined && { email: sanitizeString(req.body.email)?.toLowerCase() }),
+        ...(req.body.mobileNumber !== undefined && { mobileNumber: sanitizePhoneNumber(req.body.mobileNumber) }),
         ...(req.body.payPerMonth !== undefined && { payPerMonth: sanitizeNumber(req.body.payPerMonth) }),
         ...(req.body.signedContract !== undefined && { signedContract: sanitizeBoolean(req.body.signedContract) }),
+        
+        ...(req.body.overridePaymentMethod !== undefined && { overridePaymentMethod: sanitizeBoolean(req.body.overridePaymentMethod) }),
+        ...(req.body.overrideCommission !== undefined && { overrideCommission: sanitizeBoolean(req.body.overrideCommission) }),
+        ...(req.body.overrideFormula !== undefined && { overrideFormula: sanitizeBoolean(req.body.overrideFormula) }),
+        ...(req.body.overrideAttendanceRates !== undefined && { overrideAttendanceRates: sanitizeBoolean(req.body.overrideAttendanceRates) }),
+        
+        ...(req.body.commissionFixedAmountOverride !== undefined && { commissionFixedAmountOverride: sanitizeOptionalNumber(req.body.commissionFixedAmountOverride) }),
+        ...(req.body.commissionTypeOverride !== undefined && { commissionTypeOverride: req.body.commissionTypeOverride ? sanitizeString(req.body.commissionTypeOverride) : null }),
+        ...(req.body.commissionFormulaOverride !== undefined && { commissionFormulaOverride: req.body.commissionFormulaOverride ? sanitizeString(req.body.commissionFormulaOverride) : null }),
+        
+        ...(req.body.activeDayRateOverride !== undefined && { activeDayRateOverride: sanitizeOptionalNumber(req.body.activeDayRateOverride) }),
+        ...(req.body.passiveDayRateOverride !== undefined && { passiveDayRateOverride: sanitizeOptionalNumber(req.body.passiveDayRateOverride) }),
+        ...(req.body.leaveDayRateOverride !== undefined && { leaveDayRateOverride: sanitizeOptionalNumber(req.body.leaveDayRateOverride) }),
+        ...(req.body.holidayDayRateOverride !== undefined && { holidayDayRateOverride: sanitizeOptionalNumber(req.body.holidayDayRateOverride) }),
+        ...(req.body.offDayRateOverride !== undefined && { offDayRateOverride: sanitizeOptionalNumber(req.body.offDayRateOverride) }),
+        
+        ...(req.body.payLeaveDaysOverride !== undefined && { payLeaveDaysOverride: sanitizeBoolean(req.body.payLeaveDaysOverride) }),
+        ...(req.body.payHolidayDaysOverride !== undefined && { payHolidayDaysOverride: sanitizeBoolean(req.body.payHolidayDaysOverride) }),
+        ...(req.body.payOffDaysOverride !== undefined && { payOffDaysOverride: sanitizeBoolean(req.body.payOffDaysOverride) }),
       };
       // Remove storeId to prevent cross-store migration via PATCH (use transfer endpoint instead)
       delete sanitizedBody.storeId;
@@ -2645,14 +2964,16 @@ export async function registerRoutes(
 
       const sales = await db.select({
         quantity: orders.quantity,
+        returnedQuantity: orders.returnedQuantity,
+        refundedAmount: orders.refundedAmount,
         totalPrice: orders.totalPrice,
       })
         .from(orders)
         .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
         .where(and(eq(orders.inventoryId, inventoryId), ...checkoutConditions));
 
-      const totalRevenue = sales.reduce((sum, s) => sum + s.totalPrice, 0);
-      const totalQuantitySold = sales.reduce((sum, s) => sum + s.quantity, 0);
+      const totalRevenue = sales.reduce((sum, s) => sum + Math.max(0, s.totalPrice - (s.refundedAmount || 0)), 0);
+      const totalQuantitySold = sales.reduce((sum, s) => sum + Math.max(0, s.quantity - (s.returnedQuantity || 0)), 0);
       const totalCogs = totalQuantitySold * (item.costPrice ?? 0);
       const grossProfit = totalRevenue - totalCogs;
       const grossProfitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
@@ -2688,18 +3009,128 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
-      if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) {
+          return res.json({
+            period: "Custom Range",
+            totalRevenue: 0,
+            totalCogs: 0,
+            totalSustainingCosts: 0,
+            netProfit: 0,
+            netProfitMargin: 0,
+            status: "breakeven",
+            items: []
+          });
+        }
+
+        const summaries = await Promise.all(
+          stores.map(s => analyticsService.getServiceProfitability(s.id, startDate, endDate))
+        );
+
+        const mergedItemsMap = new Map<string, any>();
+        for (const summary of summaries) {
+          const combined = [...(summary.services || []), ...(summary.products || [])];
+          for (const item of combined) {
+            const key = `${item.name}-${item.type}`;
+            const existing = mergedItemsMap.get(key);
+            if (existing) {
+              existing.revenue += item.revenue || 0;
+              existing.cogs += item.cogs || 0;
+              existing.grossProfit += item.grossProfit || 0;
+              existing.sustainingCosts += item.sustainingCosts || 0;
+              existing.netProfit += item.netProfit || 0;
+            } else {
+              mergedItemsMap.set(key, { ...item });
+            }
+          }
+        }
+
+        const items = Array.from(mergedItemsMap.values()).map(item => {
+          const netProfitMargin = item.revenue > 0 ? (item.netProfit / item.revenue) * 100 : 0;
+          const status = item.netProfit > 0 ? "profit" : item.netProfit < 0 ? "loss" : "breakeven";
+          return {
+            id: item.id,
+            name: item.name,
+            type: item.type,
+            totalRevenue: item.revenue,
+            totalCogs: item.cogs,
+            grossProfit: item.grossProfit,
+            totalSustainingCosts: item.sustainingCosts,
+            netProfit: item.netProfit,
+            netProfitMargin,
+            status,
+          };
+        });
+
+        const totalRevenue = items.reduce((sum, item) => sum + item.totalRevenue, 0);
+        const totalCogs = items.reduce((sum, item) => sum + item.totalCogs, 0);
+        const totalSustainingCosts = items.reduce((sum, item) => sum + item.totalSustainingCosts, 0);
+        const netProfit = totalRevenue - totalCogs - totalSustainingCosts;
+        const netProfitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+        const status = netProfit > 0 ? "profit" : netProfit < 0 ? "loss" : "breakeven";
+
+        return res.json({
+          period: "Custom Range",
+          startDate,
+          endDate: endDate || new Date().toISOString(),
+          totalRevenue,
+          totalCogs,
+          totalSustainingCosts,
+          netProfit,
+          netProfitMargin,
+          status,
+          items,
+        });
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
       const summary = await analyticsService.getServiceProfitability(storeId, startDate, endDate);
-      res.json(summary);
+
+      // Map to frontend expected ServiceProfitabilityReport format
+      const items = [...(summary.services || []), ...(summary.products || [])].map(item => ({
+        id: item.id,
+        name: item.name,
+        type: item.type,
+        totalRevenue: item.revenue || 0,
+        totalCogs: item.cogs || 0,
+        grossProfit: item.grossProfit || 0,
+        totalSustainingCosts: item.sustainingCosts || 0,
+        netProfit: item.netProfit || 0,
+        netProfitMargin: item.netProfitMargin || 0,
+        status: item.status,
+      }));
+
+      const totalRevenue = items.reduce((sum, item) => sum + item.totalRevenue, 0);
+      const totalCogs = items.reduce((sum, item) => sum + item.totalCogs, 0);
+      const totalSustainingCosts = items.reduce((sum, item) => sum + item.totalSustainingCosts, 0);
+      const netProfit = totalRevenue - totalCogs - totalSustainingCosts;
+      const netProfitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+      const status = netProfit > 0 ? "profit" : netProfit < 0 ? "loss" : "breakeven";
+
+      res.json({
+        period: "Custom Range",
+        startDate,
+        endDate: endDate || new Date().toISOString(),
+        totalRevenue,
+        totalCogs,
+        totalSustainingCosts,
+        netProfit,
+        netProfitMargin,
+        status,
+        items,
+      });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Could not calculate service profitability report." });
     }
   });
+
 
   app.post("/api/inventory/:id/restock", async (req, res) => {
     try {
@@ -2766,11 +3197,43 @@ export async function registerRoutes(
       if (!storeId) {
         return res.status(400).json({ error: "Please select a store first." });
       }
-      if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
+
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) return res.json(page > 0 && limit > 0 ? { transactions: [], total: 0, pages: 0 } : []);
+
+        const allTxs = await Promise.all(
+          stores.map(s => storage.getTransactions(s.id))
+        );
+        let merged = allTxs.flat();
+
+        if (page > 0 && limit > 0) {
+          const search = req.query.search as string;
+          if (search) {
+            const sLower = search.toLowerCase();
+            merged = merged.filter(tx => 
+              String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) || 
+              String(tx.id || "").toLowerCase().includes(sLower)
+            );
+          }
+          merged.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+          const start = (page - 1) * limit;
+          const paginated = merged.slice(start, start + limit);
+          return res.json({
+            transactions: paginated,
+            total: merged.length,
+            pages: Math.ceil(merged.length / limit),
+          });
+        }
+
+        merged.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+        return res.json(merged);
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
 
       if (page > 0 && limit > 0) {
         const search = req.query.search as string;
@@ -2784,6 +3247,7 @@ export async function registerRoutes(
       res.status(500).json({ error: "We couldn't load your transactions. Please try again." });
     }
   });
+
 
   app.get("/api/customers/:id/transactions", async (req, res) => {
     try {
@@ -2843,6 +3307,70 @@ export async function registerRoutes(
     }
   });
 
+  // ========== POS RETURNS & STORE CREDITS ==========
+
+  app.post("/api/sales/returns", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const { storeId, checkoutId, items, refundMethod, refundAmount, reason, staffId } = req.body;
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      if (!storeId || !checkoutId || !items || !Array.isArray(items) || items.length === 0 || !refundMethod || refundAmount === undefined || !reason) {
+        return res.status(400).json({ error: "Missing required return parameters." });
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.processReturn({
+        storeId,
+        checkoutId,
+        items,
+        refundMethod,
+        refundAmount: Number(refundAmount),
+        reason: reason.trim(),
+        userId,
+        staffId: staffId || "",
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      // If refund method is cash, integrate with active cash register session
+      if (refundMethod === "cash") {
+        try {
+          const activeSession = await storage.cashRegisterRepo.getActiveSession(storeId);
+          if (activeSession) {
+            await storage.cashRegisterRepo.recordCashDrop({
+              sessionId: activeSession.id,
+              amount: Number(refundAmount),
+              droppedByUserId: userId,
+              notes: `Refund payout for return on receipt ID ${checkoutId}`,
+            });
+          }
+        } catch (drawerErr) {
+          console.error("Failed to update cash register session for cash return:", drawerErr);
+        }
+      }
+
+      res.json({ success: true, message: result.message, returnLogIds: result.returnLogIds });
+    } catch (error) {
+      console.error("Process Return API Error:", error);
+      res.status(500).json({ error: "Could not process return." });
+    }
+  });
+
+  app.get("/api/customers/:id/store-credit", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const transactionsList = await storage.getStoreCreditTransactions(id);
+      res.json(transactionsList);
+    } catch (error) {
+      console.error("Store Credit API Error:", error);
+      res.status(500).json({ error: "Could not load store credit balance history." });
+    }
+  });
+
   // ========== PROFIT & LOSS ==========
 
   app.get("/api/profit-loss", async (req, res) => {
@@ -2862,14 +3390,112 @@ export async function registerRoutes(
   app.get("/api/profit-loss/summary", requireRole("owner"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
+      const businessId = req.query.businessId as string;
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
-      if (!storeId) return res.status(400).json({ error: "Please select a store first." });
-      if (!(await checkStoreAccess(storeId, req, res))) return;
+      if (!storeId && !businessId) {
+        return res.status(400).json({ error: "Store ID or Business ID required." });
+      }
 
-      const summary = await analyticsService.getProfitLossSummary(storeId, startDate, endDate);
-      res.json(summary);
+      if (businessId) {
+        if (!(await checkBusinessAccess(businessId, req, res))) return;
+
+        // Fetch all stores of this business
+        const stores = await storage.getStores(businessId);
+        if (stores.length === 0) {
+          return res.json({
+            serviceRevenue: 0,
+            productRevenue: 0,
+            grossRevenue: 0,
+            returnedRevenue: 0,
+            totalRevenue: 0,
+            costOfGoodsSold: 0,
+            grossProfit: 0,
+            discountsGiven: 0,
+            discountsList: [],
+            totalOperationalExpenses: 0,
+            totalPayrollExpenses: 0,
+            totalExpenses: 0,
+            operatingProfit: 0,
+            expensesGrouped: [],
+            payrollDetails: []
+          });
+        }
+
+        // Fetch summaries for each store in parallel
+        const summaries = await Promise.all(
+          stores.map(async (store) => {
+            try {
+              return await analyticsService.getProfitLossSummary(store.id, startDate, endDate);
+            } catch (err) {
+              console.error(`Error calculating PL for store ${store.id}:`, err);
+              return null;
+            }
+          })
+        );
+
+        // Aggregate summaries
+        const validSummaries = summaries.filter(s => s !== null);
+        const consolidated = {
+          serviceRevenue: 0,
+          productRevenue: 0,
+          grossRevenue: 0,
+          returnedRevenue: 0,
+          totalRevenue: 0,
+          costOfGoodsSold: 0,
+          grossProfit: 0,
+          discountsGiven: 0,
+          discountsList: [] as any[],
+          totalOperationalExpenses: 0,
+          totalPayrollExpenses: 0,
+          totalExpenses: 0,
+          operatingProfit: 0,
+          expensesGrouped: [] as { category: string; amount: number }[],
+          payrollDetails: [] as any[]
+        };
+
+        const expensesMap: Record<string, number> = {};
+
+        for (const s of validSummaries) {
+          if (!s) continue;
+          consolidated.serviceRevenue += s.serviceRevenue || 0;
+          consolidated.productRevenue += s.productRevenue || 0;
+          consolidated.grossRevenue += s.grossRevenue || 0;
+          consolidated.returnedRevenue += s.returnedRevenue || 0;
+          consolidated.totalRevenue += s.totalRevenue || 0;
+          consolidated.costOfGoodsSold += s.costOfGoodsSold || 0;
+          consolidated.grossProfit += s.grossProfit || 0;
+          consolidated.discountsGiven += s.discountsGiven || 0;
+          consolidated.totalOperationalExpenses += s.totalOperationalExpenses || 0;
+          consolidated.totalPayrollExpenses += s.totalPayrollExpenses || 0;
+          consolidated.totalExpenses += s.totalExpenses || 0;
+          consolidated.operatingProfit += s.operatingProfit || 0;
+
+          if (Array.isArray(s.discountsList)) {
+            consolidated.discountsList.push(...s.discountsList);
+          }
+          if (Array.isArray(s.payrollDetails)) {
+            consolidated.payrollDetails.push(...s.payrollDetails);
+          }
+          if (Array.isArray(s.expensesGrouped)) {
+            s.expensesGrouped.forEach((eg: any) => {
+              expensesMap[eg.category] = (expensesMap[eg.category] || 0) + (eg.amount || 0);
+            });
+          }
+        }
+
+        consolidated.expensesGrouped = Object.entries(expensesMap).map(([category, amount]) => ({
+          category,
+          amount,
+        }));
+
+        return res.json(consolidated);
+      } else {
+        if (!(await checkStoreAccess(storeId, req, res))) return;
+        const summary = await analyticsService.getProfitLossSummary(storeId, startDate, endDate);
+        res.json(summary);
+      }
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Could not calculate profit/loss summary." });
@@ -2951,12 +3577,87 @@ export async function registerRoutes(
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
+      const businessId = req.query.businessId as string;
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
 
-      if (!storeId) {
-        return res.status(400).json({ error: "Please select a store first." });
+      if (!storeId && !businessId) {
+        return res.status(400).json({ error: "Please select a store or business first." });
       }
+
+      if (businessId) {
+        if (!(await checkBusinessAccess(businessId, req, res))) return;
+        const stores = await storage.getStores(businessId);
+        if (stores.length === 0) {
+          return res.json({
+            totalCustomers: 0,
+            totalStaff: 0,
+            totalInventory: 0,
+            totalProducts: 0,
+            totalServices: 0,
+            totalTransactions: 0,
+            totalRevenue: 0,
+            grossRevenue: 0,
+            returnedRevenue: 0,
+            totalProfit: 0,
+            lowStockItems: []
+          });
+        }
+
+        const summaries = await Promise.all(
+          stores.map(async (store) => {
+            try {
+              return await storage.getDashboardStats(store.id, from, to);
+            } catch (err) {
+              console.error(`Error calculating dashboard stats for store ${store.id}:`, err);
+              return null;
+            }
+          })
+        );
+
+        const validSummaries = summaries.filter(s => s !== null);
+        const consolidated = {
+          totalCustomers: 0,
+          totalStaff: 0,
+          totalInventory: 0,
+          totalProducts: 0,
+          totalServices: 0,
+          totalTransactions: 0,
+          totalRevenue: 0,
+          grossRevenue: 0,
+          returnedRevenue: 0,
+          totalProfit: 0,
+          lowStockItems: [] as any[]
+        };
+
+        const lowStockIds = new Set<string>();
+        for (const s of validSummaries) {
+          if (!s) continue;
+          consolidated.totalStaff += s.totalStaff || 0;
+          consolidated.totalInventory += s.totalInventory || 0;
+          consolidated.totalProducts += s.totalProducts || 0;
+          consolidated.totalServices += s.totalServices || 0;
+          consolidated.totalTransactions += s.totalTransactions || 0;
+          consolidated.totalRevenue += s.totalRevenue || 0;
+          consolidated.grossRevenue += s.grossRevenue || 0;
+          consolidated.returnedRevenue += s.returnedRevenue || 0;
+          consolidated.totalProfit += s.totalProfit || 0;
+          if (s.lowStockItems) {
+            for (const item of s.lowStockItems) {
+              if (!lowStockIds.has(item.id)) {
+                lowStockIds.add(item.id);
+                consolidated.lowStockItems.push(item);
+              }
+            }
+          }
+        }
+
+        // De-duplicate customer count across all stores under this business
+        consolidated.totalCustomers = await storage.getBusinessCustomerCount(businessId, from, to);
+
+        return res.json(consolidated);
+      }
+
       if (!(await checkStoreAccess(storeId, req, res))) return;
       
       const stats = await storage.getDashboardStats(storeId, from, to);
@@ -2971,12 +3672,45 @@ export async function registerRoutes(
   app.get("/api/charts/sales-trends", async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
+      const businessId = req.query.businessId as string;
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
 
-      if (!storeId) {
-        return res.status(400).json({ error: "Please select a store first." });
+      if (!storeId && !businessId) {
+        return res.status(400).json({ error: "Please select a store or business first." });
       }
+
+      if (businessId) {
+        if (!(await checkBusinessAccess(businessId, req, res))) return;
+        const stores = await storage.getStores(businessId);
+        if (stores.length === 0) return res.json([]);
+
+        const storeTrends = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              return await storage.getSalesTrends(s.id, from, to);
+            } catch (err) {
+              return [];
+            }
+          })
+        );
+
+        const trendMap = new Map<string, { revenue: number; transactions: number }>();
+        for (const trends of storeTrends) {
+          for (const item of trends) {
+            const existing = trendMap.get(item.date) ?? { revenue: 0, transactions: 0 };
+            trendMap.set(item.date, {
+              revenue: existing.revenue + item.revenue,
+              transactions: existing.transactions + item.transactions
+            });
+          }
+        }
+        const result = Array.from(trendMap.entries())
+          .map(([date, data]) => ({ date, ...data }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        return res.json(result.slice(-30));
+      }
+
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const data = await storage.getSalesTrends(storeId, from, to);
       res.json(data);
@@ -2988,12 +3722,46 @@ export async function registerRoutes(
   app.get("/api/charts/revenue-by-type", async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
+      const businessId = req.query.businessId as string;
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
 
-      if (!storeId) {
-        return res.status(400).json({ error: "Please select a store first." });
+      if (!storeId && !businessId) {
+        return res.status(400).json({ error: "Please select a store or business first." });
       }
+
+      if (businessId) {
+        if (!(await checkBusinessAccess(businessId, req, res))) return;
+        const stores = await storage.getStores(businessId);
+        if (stores.length === 0) return res.json([]);
+
+        const storeRevenues = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              return await storage.getRevenueByType(s.id, from, to);
+            } catch (err) {
+              return [];
+            }
+          })
+        );
+
+        const revMap = new Map<string, { value: number; type: string }>();
+        for (const items of storeRevenues) {
+          for (const item of items) {
+            const existing = revMap.get(item.name) ?? { value: 0, type: item.type };
+            revMap.set(item.name, {
+              value: existing.value + item.value,
+              type: item.type
+            });
+          }
+        }
+        const result = Array.from(revMap.entries())
+          .map(([name, data]) => ({ name, value: data.value, type: data.type }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, 10);
+        return res.json(result);
+      }
+
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const data = await storage.getRevenueByType(storeId, from, to);
       res.json(data);
@@ -3018,9 +3786,9 @@ export async function registerRoutes(
         commissionSplit: z.enum(["standard", "equal"]).optional().default("standard"),
       })
     ),
-    paymentMethod: z.enum(["cash", "transfer", "flutterwave", "credit", "split", "deposit"]).default("cash"),
+    paymentMethod: z.enum(["cash", "transfer", "flutterwave", "credit", "split", "deposit", "store_credit"]).default("cash"),
     splitPayments: z.array(z.object({
-      method: z.enum(["cash", "transfer", "flutterwave", "credit"]),
+      method: z.enum(["cash", "transfer", "flutterwave", "credit", "store_credit"]),
       amount: z.number().min(0.01)
     })).optional(),
     discountAmount: z.number().min(0).optional(),
@@ -3034,11 +3802,16 @@ export async function registerRoutes(
     bookingDepositAmount: z.number().min(0).optional(),
     bookingDepositMethod: z.string().optional(),
     balanceCollectedToday: z.number().min(0).optional(),
+    pointsRedeemed: z.number().min(0).optional(),
   });
 
   app.post("/api/sales/checkout", async (req, res) => {
     try {
       const data = checkoutSchema.parse(req.body);
+
+      if (data.paymentMethod === "flutterwave" && data.splitPayments && data.splitPayments.length > 0) {
+        return res.status(400).json({ error: "Flutterwave cannot be combined with split payments. Choose either Flutterwave OR split payment." });
+      }
 
       // Use transactional checkout for atomicity (all-or-nothing)
       const result = await storage.processCheckout({
@@ -3059,6 +3832,7 @@ export async function registerRoutes(
         bookingDepositMethod: data.bookingDepositMethod,
         balanceCollectedToday: data.balanceCollectedToday,
         splitPayments: data.splitPayments,
+        pointsRedeemed: data.pointsRedeemed,
       });
 
       if (!result.success) {
@@ -3117,6 +3891,28 @@ export async function registerRoutes(
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
+
+      if (storeId === "all") {
+        const businessId = (req as any).user?.businessId || (req as any).user?.organisationId;
+        if (!businessId) return res.status(400).json({ error: "Business ID required." });
+        if (!(await checkBusinessAccess(businessId, req, res))) return;
+
+        const business = await storage.getBusinessById(businessId);
+        const storesList = await storage.getStores(businessId);
+        let firstStoreSettings = null;
+        if (storesList.length > 0) {
+          firstStoreSettings = await storage.getSettings(storesList[0].id);
+        }
+
+        return res.json({
+          id: "all",
+          storeId: "all",
+          receiptPrefix: business?.receiptPrefix || "RCP",
+          receiptThankYouMessage: firstStoreSettings?.receiptThankYouMessage || "",
+          lowStockThreshold: firstStoreSettings?.lowStockThreshold ?? 5,
+        });
+      }
+
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const settings = await storage.getSettings(storeId);
       res.json(settings);
@@ -3129,7 +3925,6 @@ export async function registerRoutes(
     try {
       const { storeId, ...data } = req.body;
       if (!storeId) return res.status(400).json({ error: "storeId is required." });
-      if (!(await checkStoreAccess(storeId, req, res))) return;
 
       // Only owner/manager can edit settings
       const role = (req as any).user?.role;
@@ -3137,7 +3932,85 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Only managers and owners can modify settings." });
       }
 
-      const updated = await storage.upsertSettings(storeId, data);
+      const sanitizeSettings = (body: any) => {
+        const sanitized: any = {};
+        if (body.defaultPaymentMethod !== undefined) sanitized.defaultPaymentMethod = sanitizeString(body.defaultPaymentMethod);
+        if (body.commissionType !== undefined) sanitized.commissionType = sanitizeString(body.commissionType);
+        if (body.commissionFixedAmount !== undefined) sanitized.commissionFixedAmount = sanitizeNumber(body.commissionFixedAmount);
+        if (body.commissionFormula !== undefined) sanitized.commissionFormula = sanitizeString(body.commissionFormula);
+        
+        if (body.leaveDayRate !== undefined) sanitized.leaveDayRate = sanitizeNumber(body.leaveDayRate);
+        if (body.payLeaveDays !== undefined) sanitized.payLeaveDays = sanitizeBoolean(body.payLeaveDays);
+        if (body.holidayDayRate !== undefined) sanitized.holidayDayRate = sanitizeNumber(body.holidayDayRate);
+        if (body.payHolidayDays !== undefined) sanitized.payHolidayDays = sanitizeBoolean(body.payHolidayDays);
+        if (body.offDayRate !== undefined) sanitized.offDayRate = sanitizeNumber(body.offDayRate);
+        if (body.payOffDays !== undefined) sanitized.payOffDays = sanitizeBoolean(body.payOffDays);
+        
+        if (body.leadSplit2 !== undefined) sanitized.leadSplit2 = Math.round(sanitizeNumber(body.leadSplit2));
+        if (body.asstSplit2 !== undefined) sanitized.asstSplit2 = Math.round(sanitizeNumber(body.asstSplit2));
+        if (body.leadSplit3 !== undefined) sanitized.leadSplit3 = Math.round(sanitizeNumber(body.leadSplit3));
+        if (body.asst1Split3 !== undefined) sanitized.asst1Split3 = Math.round(sanitizeNumber(body.asst1Split3));
+        if (body.asst2Split3 !== undefined) sanitized.asst2Split3 = Math.round(sanitizeNumber(body.asst2Split3));
+        
+        if (body.fixedBaseAmount !== undefined) sanitized.fixedBaseAmount = sanitizeNumber(body.fixedBaseAmount);
+        
+        if (body.activeDayTransport !== undefined) sanitized.activeDayTransport = sanitizeNumber(body.activeDayTransport);
+        if (body.passiveDayTransport !== undefined) sanitized.passiveDayTransport = sanitizeNumber(body.passiveDayTransport);
+        if (body.commissionRate !== undefined) sanitized.commissionRate = sanitizeNumber(body.commissionRate);
+        if (body.defaultPayrollPeriod !== undefined) sanitized.defaultPayrollPeriod = sanitizeString(body.defaultPayrollPeriod);
+        if (body.maxAssistingStaff !== undefined) sanitized.maxAssistingStaff = Math.round(sanitizeNumber(body.maxAssistingStaff));
+        if (body.receiptPrefix !== undefined) sanitized.receiptPrefix = sanitizeString(body.receiptPrefix);
+        if (body.receiptThankYouMessage !== undefined) sanitized.receiptThankYouMessage = sanitizeString(body.receiptThankYouMessage);
+        if (body.lowStockThreshold !== undefined) sanitized.lowStockThreshold = Math.round(sanitizeNumber(body.lowStockThreshold));
+        if (body.borrowBookReminderDaysBefore !== undefined) sanitized.borrowBookReminderDaysBefore = Math.round(sanitizeNumber(body.borrowBookReminderDaysBefore));
+        if (body.borrowBookReminderOnDueDate !== undefined) sanitized.borrowBookReminderOnDueDate = sanitizeBoolean(body.borrowBookReminderOnDueDate);
+        if (body.borrowBookReminderDaysAfter !== undefined) sanitized.borrowBookReminderDaysAfter = Math.round(sanitizeNumber(body.borrowBookReminderDaysAfter));
+        if (body.borrowBookReminderRepeatDays !== undefined) sanitized.borrowBookReminderRepeatDays = Math.round(sanitizeNumber(body.borrowBookReminderRepeatDays));
+        if (body.borrowBookReminderStopDays !== undefined) sanitized.borrowBookReminderStopDays = Math.round(sanitizeNumber(body.borrowBookReminderStopDays));
+        if (body.borrowBookReminderLanguage !== undefined) sanitized.borrowBookReminderLanguage = sanitizeString(body.borrowBookReminderLanguage);
+        if (body.whatsappGatewayConfigured !== undefined) sanitized.whatsappGatewayConfigured = sanitizeBoolean(body.whatsappGatewayConfigured);
+        if (body.smsGatewayConfigured !== undefined) sanitized.smsGatewayConfigured = sanitizeBoolean(body.smsGatewayConfigured);
+        
+        return sanitized;
+      };
+
+      const sanitizedData = sanitizeSettings(data);
+
+      if (storeId === "all") {
+        const businessId = (req as any).user?.businessId || (req as any).user?.organisationId;
+        if (!businessId) return res.status(400).json({ error: "Business ID required." });
+        if (!(await checkBusinessAccess(businessId, req, res))) return;
+
+        // 1. Update business-level receipt prefix
+        if (sanitizedData.receiptPrefix) {
+          await storage.updateBusiness(businessId, { receiptPrefix: sanitizedData.receiptPrefix });
+        }
+
+        // 2. Update all stores under this business with the thank you message and low stock threshold
+        const storesList = await storage.getStores(businessId);
+        for (const s of storesList) {
+          await storage.upsertSettings(s.id, {
+            receiptThankYouMessage: sanitizedData.receiptThankYouMessage,
+            lowStockThreshold: sanitizedData.lowStockThreshold,
+          });
+          
+          // Auto-recalculate payroll for each store to match new thresholds/settings
+          const todayStr = new Date().toISOString().split("T")[0];
+          triggerAutoRecalculate(s.id, todayStr).catch(console.error);
+        }
+
+        return res.json({
+          id: "all",
+          storeId: "all",
+          receiptPrefix: sanitizedData.receiptPrefix,
+          receiptThankYouMessage: sanitizedData.receiptThankYouMessage,
+          lowStockThreshold: sanitizedData.lowStockThreshold,
+        });
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const updated = await storage.upsertSettings(storeId, sanitizedData);
       
       // Auto-recalculate any active period to immediately reflect updated default rates
       const todayStr = new Date().toISOString().split("T")[0];
@@ -3154,6 +4027,19 @@ export async function registerRoutes(
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
+
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) return res.json([]);
+        const list = await Promise.all(
+          stores.map(async (s) => {
+            const promos = await storage.getPromotions(s.id);
+            return promos.map(p => ({ ...p, storeName: s.name }));
+          })
+        );
+        return res.json(list.flat().sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+      }
+
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const result = await storage.getPromotions(storeId);
       res.json(result);
@@ -3389,6 +4275,34 @@ export async function registerRoutes(
       const endDate = req.query.endDate as string | undefined;
 
       if (!storeId) return res.status(400).json({ error: "Please select a store first." });
+
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) return res.json([]);
+
+        const responses = await Promise.all(
+          stores.map(s => storage.getStaffPerformance(s.id, startDate, endDate))
+        );
+
+        const mergedMap = new Map<string, any>();
+        for (const list of responses) {
+          for (const s of list) {
+            const key = s.email?.toLowerCase() || s.name.toLowerCase();
+            const existing = mergedMap.get(key);
+            if (existing) {
+              existing.totalRevenue += s.totalRevenue;
+              existing.servicesCount += s.servicesCount;
+              existing.productsCount += s.productsCount;
+              existing.presentDays += s.presentDays;
+              existing.absentDays += s.absentDays;
+            } else {
+              mergedMap.set(key, { ...s });
+            }
+          }
+        }
+        return res.json(Array.from(mergedMap.values()));
+      }
+
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const data = await storage.getStaffPerformance(storeId, startDate, endDate);
@@ -3398,6 +4312,7 @@ export async function registerRoutes(
       res.status(500).json({ error: "Could not fetch staff performance data." });
     }
   });
+
 
   // Get attendance records
   app.get("/api/attendance", async (req, res) => {
@@ -3953,11 +4868,22 @@ export async function registerRoutes(
 
   app.post("/api/expenses", requireManagerOrOwner, async (req, res) => {
     try {
-      const { storeId, title, amount, categoryId, date, notes, receiptUrl, inventoryId } = req.body;
+      const { storeId, title, amount, categoryId, date, notes, receiptUrl, inventoryId, paymentMethod, splitPayments } = req.body;
       if (!storeId || !title || amount === undefined || !categoryId || !date) {
         return res.status(400).json({ error: "Missing required fields." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      // If split, validate splitPayments sum matches amount
+      if (paymentMethod === "split") {
+        if (!splitPayments || !Array.isArray(splitPayments) || splitPayments.length === 0) {
+          return res.status(400).json({ error: "Split payments details are required when payment method is 'split'." });
+        }
+        const splitSum = splitPayments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+        if (Math.abs(splitSum - Number(amount)) > 0.01) {
+          return res.status(400).json({ error: `The sum of split payments (₦${splitSum}) must equal the total expense amount (₦${amount}).` });
+        }
+      }
 
       const expense = await storage.createExpense({
         storeId,
@@ -3967,7 +4893,9 @@ export async function registerRoutes(
         date,
         notes,
         receiptUrl,
-        inventoryId: inventoryId === "none" ? null : (inventoryId || null)
+        inventoryId: inventoryId === "none" ? null : (inventoryId || null),
+        paymentMethod: paymentMethod || "cash",
+        splitPayments: paymentMethod === "split" ? splitPayments : null
       });
       res.status(201).json(expense);
     } catch (error) {
@@ -3977,7 +4905,24 @@ export async function registerRoutes(
 
   app.patch("/api/expenses/:id", requireManagerOrOwner, async (req, res) => {
     try {
-      const { title, amount, categoryId, date, notes, receiptUrl, inventoryId } = req.body;
+      const { title, amount, categoryId, date, notes, receiptUrl, inventoryId, paymentMethod, splitPayments } = req.body;
+      
+      if (paymentMethod === "split" || (!paymentMethod && splitPayments)) {
+        const [existing] = await db.select().from(expenses).where(eq(expenses.id, req.params.id));
+        if (!existing) {
+          return res.status(404).json({ error: "Expense not found." });
+        }
+        const targetAmount = amount !== undefined ? Number(amount) : existing.amount;
+        const targetSplits = splitPayments || existing.splitPayments;
+        if (!targetSplits || !Array.isArray(targetSplits) || targetSplits.length === 0) {
+          return res.status(400).json({ error: "Split payments details are required for split expenses." });
+        }
+        const splitSum = targetSplits.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+        if (Math.abs(splitSum - targetAmount) > 0.01) {
+          return res.status(400).json({ error: `The sum of split payments (₦${splitSum}) must equal the total expense amount (₦${targetAmount}).` });
+        }
+      }
+
       const expense = await storage.updateExpense(req.params.id, {
         title,
         amount: amount !== undefined ? Number(amount) : undefined,
@@ -3985,7 +4930,9 @@ export async function registerRoutes(
         date,
         notes,
         receiptUrl,
-        inventoryId: inventoryId === "none" ? null : (inventoryId || undefined)
+        inventoryId: inventoryId === "none" ? null : (inventoryId || undefined),
+        paymentMethod: paymentMethod || undefined,
+        splitPayments: paymentMethod === "split" ? splitPayments : (paymentMethod && paymentMethod !== "split" ? null : undefined)
       });
       res.json(expense);
     } catch (error) {
@@ -3999,6 +4946,1118 @@ export async function registerRoutes(
       res.status(204).end();
     } catch (error) {
       res.status(500).json({ error: "Could not delete expense." });
+    }
+  });
+
+  // ==========================================
+  // V2/V3/V4 SME GAPS INTEGRATION ENDPOINTS
+  // ==========================================
+
+  // ---------- 1. PARTIAL RETURNS ----------
+  app.post("/api/transactions/:checkoutId/return", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const { checkoutId } = req.params;
+      const { orderId, quantity, refundAmount, refundMethod, reason, staffId } = req.body;
+      
+      if (!orderId || quantity === undefined || refundAmount === undefined || !refundMethod) {
+        return res.status(400).json({ error: "Missing required fields for processing return." });
+      }
+
+      // Retrieve receipt payload first to verify store access
+      const payload = await storage.getReceiptPayload(checkoutId);
+      if (!payload) {
+        return res.status(404).json({ error: "Transaction not found." });
+      }
+      const checkout = payload.items[0]?.checkout;
+      if (!checkout) {
+        return res.status(404).json({ error: "Checkout not found." });
+      }
+
+      if (!(await checkStoreAccess(checkout.storeId, req, res))) return;
+
+      const result = await storage.processReturn({
+        storeId: checkout.storeId,
+        checkoutId,
+        items: [{
+          orderId,
+          quantity: Number(quantity),
+          restock: true,
+        }],
+        refundMethod,
+        refundAmount: Number(refundAmount),
+        reason: reason || "Legacy return",
+        userId: req.user?.id || "",
+        staffId: staffId || "",
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Return error:", error);
+      res.status(500).json({ error: (error as Error).message || "Could not process return." });
+    }
+  });
+
+
+  // ---------- 2. CASH DRAWER MANAGEMENT ----------
+  // Get Active Session for Store
+  app.get("/api/cash-register/session", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const session = await storage.cashRegisterRepo.getActiveSession(storeId);
+      res.json(session || null);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch active register session." });
+    }
+  });
+
+  // Get All Sessions for Store
+  app.get("/api/cash-register/sessions", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const sessions = await storage.cashRegisterRepo.getSessions(storeId);
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch register sessions." });
+    }
+  });
+
+  // Open Register Session
+  app.post("/api/cash-register/open", async (req, res) => {
+    try {
+      const { storeId, openingFloat, notes } = req.body;
+      if (!storeId || openingFloat === undefined) {
+        return res.status(400).json({ error: "Store ID and opening float are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const session = await storage.cashRegisterRepo.openSession({
+        storeId,
+        openedByUserId: userId,
+        openingFloat: Number(openingFloat),
+        notes,
+      });
+      res.status(201).json(session);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.startsWith("conflict:")) {
+        return res.status(409).json({ error: err.message.substring(9) });
+      }
+      res.status(500).json({ error: err.message || "Could not open register session." });
+    }
+  });
+
+  // Record Cash Drop
+  app.post("/api/cash-register/drop", async (req, res) => {
+    try {
+      const { sessionId, amount, notes } = req.body;
+      if (!sessionId || amount === undefined) {
+        return res.status(400).json({ error: "Session ID and amount are required." });
+      }
+
+      const session = await storage.cashRegisterRepo.findById(sessionId);
+      if (!session) return res.status(404).json({ error: "Register session not found." });
+      if (!(await checkStoreAccess(session.storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const drop = await storage.cashRegisterRepo.recordCashDrop({
+        sessionId,
+        amount: Number(amount),
+        droppedByUserId: userId,
+        notes,
+      });
+      res.status(201).json(drop);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.startsWith("bad_request:")) {
+        return res.status(400).json({ error: err.message.substring(12) });
+      }
+      res.status(500).json({ error: err.message || "Could not record cash drop." });
+    }
+  });
+
+  // Get Cash Drops for Session
+  app.get("/api/cash-register/sessions/:sessionId/drops", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await storage.cashRegisterRepo.findById(sessionId);
+      if (!session) return res.status(404).json({ error: "Session not found." });
+      if (!(await checkStoreAccess(session.storeId, req, res))) return;
+
+      const drops = await storage.cashRegisterRepo.getSessionDrops(sessionId);
+      res.json(drops);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch cash drops." });
+    }
+  });
+
+  // Close Register Session
+  app.post("/api/cash-register/close", async (req, res) => {
+    try {
+      const { sessionId, actualCash, notes } = req.body;
+      if (!sessionId || actualCash === undefined) {
+        return res.status(400).json({ error: "Session ID and actual cash count are required." });
+      }
+
+      const session = await storage.cashRegisterRepo.findById(sessionId);
+      if (!session) return res.status(404).json({ error: "Register session not found." });
+      if (!(await checkStoreAccess(session.storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const closed = await storage.cashRegisterRepo.closeSession(sessionId, {
+        closedByUserId: userId,
+        actualCash: Number(actualCash),
+        notes,
+      });
+      res.json(closed);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.startsWith("bad_request:")) {
+        return res.status(400).json({ error: err.message.substring(12) });
+      }
+      res.status(500).json({ error: err.message || "Could not close register session." });
+    }
+  });
+
+
+  // ---------- 3. ACCOUNTS PAYABLE (VENDORS & BILLS) ----------
+  // Get Vendors
+  app.get("/api/vendors", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.vendorRepo.getVendors(storeId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch vendors." });
+    }
+  });
+
+  // Create Vendor
+  app.post("/api/vendors", async (req, res) => {
+    try {
+      const { storeId, name, contactName, email, phone, address, notes } = req.body;
+      if (!storeId || !name) return res.status(400).json({ error: "Store ID and name are required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.vendorRepo.createVendor({
+        storeId,
+        name,
+        contactName,
+        email,
+        phone,
+        address,
+        notes,
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not create vendor." });
+    }
+  });
+
+  // Update Vendor
+  app.patch("/api/vendors/:id", async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+
+      const { name, contactName, email, phone, address, notes } = req.body;
+      const updated = await storage.vendorRepo.updateVendor(req.params.id, {
+        name,
+        contactName,
+        email,
+        phone,
+        address,
+        notes,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update vendor." });
+    }
+  });
+
+  // Delete Vendor
+  app.delete("/api/vendors/:id", requireRole("owner"), async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+
+      await storage.vendorRepo.deleteVendor(req.params.id);
+      res.status(204).end();
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete vendor." });
+    }
+  });
+
+  // Get Vendor Bills
+  app.get("/api/vendors/bills", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.vendorRepo.getVendorBills(storeId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch vendor bills." });
+    }
+  });
+
+  // Create Vendor Bill
+  app.post("/api/vendors/bills", async (req, res) => {
+    try {
+      const { storeId, vendorId, amount, amountPaid, status, dueDate, billDate, notes, linkedRestockEventId } = req.body;
+      if (!storeId || !vendorId || amount === undefined) {
+        return res.status(400).json({ error: "Store ID, Vendor ID and amount are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.vendorRepo.createVendorBill({
+        storeId,
+        vendorId,
+        amount: Number(amount),
+        amountPaid: Number(amountPaid || 0),
+        status: status || "unpaid",
+        dueDate: dueDate ? new Date(dueDate) : null,
+        billDate: billDate ? new Date(billDate) : new Date(),
+        notes,
+        linkedRestockEventId: linkedRestockEventId || null,
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not create vendor bill." });
+    }
+  });
+
+  // Update Vendor Bill
+  app.patch("/api/vendors/bills/:id", async (req, res) => {
+    try {
+      const bill = await storage.vendorRepo.getVendorBill(req.params.id);
+      if (!bill) return res.status(404).json({ error: "Vendor bill not found." });
+      if (!(await checkStoreAccess(bill.storeId, req, res))) return;
+
+      const { amountPaid, status, notes } = req.body;
+      const updated = await storage.vendorRepo.updateVendorBill(req.params.id, {
+        amountPaid: amountPaid !== undefined ? Number(amountPaid) : undefined,
+        status,
+        notes,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update vendor bill." });
+    }
+  });
+
+  // Delete Vendor Bill
+  app.delete("/api/vendors/bills/:id", requireRole("owner"), async (req, res) => {
+    try {
+      const bill = await storage.vendorRepo.getVendorBill(req.params.id);
+      if (!bill) return res.status(404).json({ error: "Vendor bill not found." });
+      if (!(await checkStoreAccess(bill.storeId, req, res))) return;
+
+      await storage.vendorRepo.deleteVendorBill(req.params.id);
+      res.status(204).end();
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete vendor bill." });
+    }
+  });
+
+
+  // ---------- 4. STOCK AUDITING (PHYSICAL VS. SYSTEM) ----------
+  // Get Stock Audits
+  app.get("/api/stock-audits", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.stockAuditRepo.getAudits(storeId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch stock audits." });
+    }
+  });
+
+  // Get Stock Audit Details
+  app.get("/api/stock-audits/:id", async (req, res) => {
+    try {
+      const result = await storage.stockAuditRepo.getAudit(req.params.id);
+      if (!result) return res.status(404).json({ error: "Stock audit not found." });
+      if (!(await checkStoreAccess(result.storeId, req, res))) return;
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch stock audit details." });
+    }
+  });
+
+  // Create Stock Audit
+  app.post("/api/stock-audits", async (req, res) => {
+    try {
+      const { storeId, conductedByStaffId, notes, items } = req.body;
+      if (!storeId || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "Store ID and at least one item are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await storage.stockAuditRepo.createAudit({
+        storeId,
+        conductedByStaffId,
+        notes,
+        items: items.map((i: any) => ({
+          inventoryId: i.inventoryId,
+          systemQuantity: Number(i.systemQuantity),
+          physicalQuantity: Number(i.physicalQuantity),
+          reason: i.reason,
+        })),
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not create stock audit." });
+    }
+  });
+
+  // Approve Stock Audit
+  app.post("/api/stock-audits/:id/approve", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const audit = await storage.stockAuditRepo.findById(req.params.id);
+      if (!audit) return res.status(404).json({ error: "Stock audit not found." });
+      if (!(await checkStoreAccess(audit.storeId, req, res))) return;
+
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const approved = await storage.stockAuditRepo.approveAudit(req.params.id, userId);
+      res.json(approved);
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.startsWith("not_found:")) {
+        return res.status(404).json({ error: err.message.substring(10) });
+      }
+      if (err.message.startsWith("bad_request:")) {
+         return res.status(400).json({ error: err.message.substring(12) });
+      }
+      res.status(500).json({ error: err.message || "Could not approve stock audit." });
+    }
+  });
+
+
+  // ---------- 5. COMPOSITE / BUNDLED ITEMS ----------
+  // Get Bundle Components
+  app.get("/api/inventory/:id/bundle-components", async (req, res) => {
+    try {
+      const item = await storage.inventoryRepo.findById(req.params.id);
+      if (!item) return res.status(404).json({ error: "Inventory item not found." });
+      if (!(await checkStoreAccess(item.storeId, req, res))) return;
+
+      const components = await storage.inventoryRepo.getBundleComponents(req.params.id);
+      res.json(components);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch bundle components." });
+    }
+  });
+
+  // Set Bundle Components
+  app.post("/api/inventory/:id/bundle-components", async (req, res) => {
+    try {
+      const item = await storage.inventoryRepo.findById(req.params.id);
+      if (!item) return res.status(404).json({ error: "Inventory item not found." });
+      if (!(await checkStoreAccess(item.storeId, req, res))) return;
+
+      const { components } = req.body;
+      if (!Array.isArray(components)) {
+        return res.status(400).json({ error: "Components array is required." });
+      }
+
+      await storage.inventoryRepo.setBundleComponents(
+        req.params.id,
+        components.map((c: any) => ({
+          componentInventoryId: c.componentInventoryId,
+          quantity: Number(c.quantity),
+        }))
+      );
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not update bundle components." });
+    }
+  });
+
+
+  // ========== V3 & V4 SME SUITE ROUTING ENDPOINTS ==========
+
+  // ---------- 6. QUOTES & ESTIMATES ----------
+  // Get all quotes for a store
+  app.get("/api/quotes", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) return res.json([]);
+        const list = await Promise.all(
+          stores.map(async (s) => {
+            const quotes = await storage.quoteRepo.getQuotes(s.id);
+            return quotes.map(q => ({ ...q, storeName: s.name }));
+          })
+        );
+        return res.json(list.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const list = await storage.quoteRepo.getQuotes(storeId);
+      res.json(list);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch quotes." });
+    }
+  });
+
+  // Get a single quote
+  app.get("/api/quotes/:id", async (req, res) => {
+    try {
+      const quote = await storage.quoteRepo.getQuote(req.params.id);
+      if (!quote) return res.status(404).json({ error: "Quote not found." });
+      if (!(await checkStoreAccess(quote.storeId, req, res))) return;
+
+      res.json(quote);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch quote." });
+    }
+  });
+
+  // Create a quote
+  app.post("/api/quotes", async (req, res) => {
+    try {
+      const { storeId, customerId, quoteRef, validUntil, notes, items } = req.body;
+      if (!storeId || !quoteRef || !Array.isArray(items)) {
+        return res.status(400).json({ error: "storeId, quoteRef, and items array are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const created = await storage.quoteRepo.createQuote({
+        storeId,
+        customerId: customerId || null,
+        quoteRef,
+        notes: notes || null,
+        validUntil: validUntil ? new Date(validUntil) : null,
+        status: "draft",
+        items: items.map((i: any) => ({
+          inventoryId: i.inventoryId,
+          quantity: Number(i.quantity),
+          unitPrice: Number(i.unitPrice),
+        })),
+      });
+
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message || "Could not create quote." });
+    }
+  });
+
+  // Update quote status
+  app.patch("/api/quotes/:id/status", async (req, res) => {
+    try {
+      const quote = await storage.quoteRepo.getQuote(req.params.id);
+      if (!quote) return res.status(404).json({ error: "Quote not found." });
+      if (!(await checkStoreAccess(quote.storeId, req, res))) return;
+
+      const { status } = req.body;
+      if (!status) return res.status(400).json({ error: "Status is required." });
+
+      const updated = await storage.quoteRepo.updateQuoteStatus(req.params.id, status);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update quote status." });
+    }
+  });
+
+  // Delete quote
+  app.delete("/api/quotes/:id", async (req, res) => {
+    try {
+      const quote = await storage.quoteRepo.getQuote(req.params.id);
+      if (!quote) return res.status(404).json({ error: "Quote not found." });
+      if (!(await checkStoreAccess(quote.storeId, req, res))) return;
+
+      await storage.quoteRepo.deleteQuote(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete quote." });
+    }
+  });
+
+
+  // ---------- 7. PURCHASE ORDERS ----------
+  // Get all POs
+  app.get("/api/purchase-orders", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const list = await storage.purchaseOrderRepo.getPurchaseOrders(storeId);
+      res.json(list);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch purchase orders." });
+    }
+  });
+
+  // Get single PO
+  app.get("/api/purchase-orders/:id", async (req, res) => {
+    try {
+      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
+      if (!po) return res.status(404).json({ error: "Purchase order not found." });
+      if (!(await checkStoreAccess(po.storeId, req, res))) return;
+
+      res.json(po);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch purchase order." });
+    }
+  });
+
+  // Create PO
+  app.post("/api/purchase-orders", async (req, res) => {
+    try {
+      const { storeId, vendorId, poNumber, expectedDelivery, items } = req.body;
+      if (!storeId || !vendorId || !poNumber || !Array.isArray(items)) {
+        return res.status(400).json({ error: "storeId, vendorId, poNumber, and items array are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const created = await storage.purchaseOrderRepo.createPurchaseOrder({
+        storeId,
+        vendorId,
+        poNumber,
+        expectedDelivery: expectedDelivery ? new Date(expectedDelivery) : null,
+        status: "draft",
+        items: items.map((i: any) => ({
+          inventoryId: i.inventoryId,
+          quantity: Number(i.quantity),
+          unitCost: Number(i.unitCost),
+        })),
+      });
+
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message || "Could not create purchase order." });
+    }
+  });
+
+  // Update PO Status
+  app.patch("/api/purchase-orders/:id/status", async (req, res) => {
+    try {
+      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
+      if (!po) return res.status(404).json({ error: "Purchase order not found." });
+      if (!(await checkStoreAccess(po.storeId, req, res))) return;
+
+      const { status } = req.body;
+      if (!status) return res.status(400).json({ error: "Status is required." });
+
+      const updated = await storage.purchaseOrderRepo.updatePurchaseOrderStatus(req.params.id, status);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update purchase order status." });
+    }
+  });
+
+  // Receive PO items
+  app.post("/api/purchase-orders/:id/receive", async (req, res) => {
+    try {
+      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
+      if (!po) return res.status(404).json({ error: "Purchase order not found." });
+      if (!(await checkStoreAccess(po.storeId, req, res))) return;
+
+      const { itemsToReceive, staffId } = req.body;
+      if (!Array.isArray(itemsToReceive)) {
+        return res.status(400).json({ error: "itemsToReceive array is required." });
+      }
+
+      const userId = getUserId(req) || null;
+      const result = await storage.purchaseOrderRepo.receivePOItems(
+        req.params.id,
+        itemsToReceive.map((i: any) => ({
+          inventoryId: i.inventoryId,
+          quantity: Number(i.quantity),
+        })),
+        staffId || null,
+        userId
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message || "Could not fulfill purchase order items." });
+    }
+  });
+
+  // Delete PO
+  app.delete("/api/purchase-orders/:id", async (req, res) => {
+    try {
+      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
+      if (!po) return res.status(404).json({ error: "Purchase order not found." });
+      if (!(await checkStoreAccess(po.storeId, req, res))) return;
+
+      await storage.purchaseOrderRepo.deletePurchaseOrder(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete purchase order." });
+    }
+  });
+
+
+  // ---------- 8. STOCK TRANSFERS ----------
+  // Get transfers
+  app.get("/api/stock-transfers", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const list = await storage.stockTransferRepo.getStockTransfers(storeId);
+      res.json(list);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch stock transfers." });
+    }
+  });
+
+  // Get single transfer
+  app.get("/api/stock-transfers/:id", async (req, res) => {
+    try {
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Transfer not found." });
+      if (!(await checkStoreAccess(transfer.fromStoreId, req, res)) && !(await checkStoreAccess(transfer.toStoreId, req, res))) {
+        return res.status(403).json({ error: "Unauthorized access to this transfer." });
+      }
+
+      res.json(transfer);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch stock transfer." });
+    }
+  });
+
+  // Create stock transfer
+  app.post("/api/stock-transfers", async (req, res) => {
+    try {
+      const { fromStoreId, toStoreId, notes, items } = req.body;
+      if (!fromStoreId || !toStoreId || !Array.isArray(items)) {
+        return res.status(400).json({ error: "fromStoreId, toStoreId, and items are required." });
+      }
+      if (!(await checkStoreAccess(fromStoreId, req, res))) return;
+
+      const created = await storage.stockTransferRepo.createStockTransfer({
+        fromStoreId,
+        toStoreId,
+        notes: notes || null,
+        status: "pending",
+        items: items.map((i: any) => ({
+          inventoryId: i.inventoryId,
+          quantity: Number(i.quantity),
+        })),
+      });
+
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message || "Could not create stock transfer." });
+    }
+  });
+
+  // Update status (approvals / completion)
+  app.patch("/api/stock-transfers/:id/status", async (req, res) => {
+    try {
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      
+      // Source store authorization required to approve transfer out
+      if (!(await checkStoreAccess(transfer.fromStoreId, req, res))) return;
+
+      const { status } = req.body;
+      if (!status) return res.status(400).json({ error: "Status is required." });
+
+      const userId = getUserId(req) || null;
+      const result = await storage.stockTransferRepo.updateStockTransferStatus(req.params.id, status, userId);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      res.json(result.transfer);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message || "Could not update stock transfer status." });
+    }
+  });
+
+  // Delete stock transfer
+  app.delete("/api/stock-transfers/:id", async (req, res) => {
+    try {
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      if (!(await checkStoreAccess(transfer.fromStoreId, req, res))) return;
+
+      await storage.stockTransferRepo.deleteStockTransfer(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete stock transfer." });
+    }
+  });
+
+
+  // ---------- 9. TAX RATES ----------
+  // Get tax rates
+  app.get("/api/tax-rates", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        if (stores.length === 0) return res.json([]);
+        const rates = await Promise.all(
+          stores.map(s => storage.taxRateRepo.getTaxRates(s.id))
+        );
+        return res.json(rates.flat());
+      }
+
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const rates = await storage.taxRateRepo.getTaxRates(storeId);
+      res.json(rates);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch tax rates." });
+    }
+  });
+
+
+  // Create tax rate
+  app.post("/api/tax-rates", async (req, res) => {
+    try {
+      const { storeId, name, rate, isDefault } = req.body;
+      if (!storeId || !name || rate === undefined) {
+        return res.status(400).json({ error: "storeId, name, and rate are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const created = await storage.taxRateRepo.createTaxRate({
+        storeId,
+        name,
+        rate: Number(rate),
+        isDefault: !!isDefault,
+      });
+
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Could not create tax rate." });
+    }
+  });
+
+  // Update tax rate
+  app.patch("/api/tax-rates/:id", async (req, res) => {
+    try {
+      const [rate] = await db.select().from(taxRates).where(eq(taxRates.id, req.params.id));
+      if (!rate) return res.status(404).json({ error: "Tax rate not found." });
+      if (!(await checkStoreAccess(rate.storeId, req, res))) return;
+
+      const updated = await storage.taxRateRepo.updateTaxRate(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update tax rate." });
+    }
+  });
+
+  // Delete tax rate
+  app.delete("/api/tax-rates/:id", async (req, res) => {
+    try {
+      const [rate] = await db.select().from(taxRates).where(eq(taxRates.id, req.params.id));
+      if (!rate) return res.status(404).json({ error: "Tax rate not found." });
+      if (!(await checkStoreAccess(rate.storeId, req, res))) return;
+
+      await storage.taxRateRepo.deleteTaxRate(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete tax rate." });
+    }
+  });
+
+
+  // ---------- 10. EXPIRY BATCHES ----------
+  // Get batches for an inventory item
+  app.get("/api/inventory/:id/batches", async (req, res) => {
+    try {
+      const item = await storage.inventoryRepo.findById(req.params.id);
+      if (!item) return res.status(404).json({ error: "Inventory item not found." });
+      if (!(await checkStoreAccess(item.storeId, req, res))) return;
+
+      const list = await storage.inventoryRepo.getBatches(req.params.id);
+      res.json(list);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch batches." });
+    }
+  });
+
+  // Add batch to inventory item
+  app.post("/api/inventory/:id/batches", async (req, res) => {
+    try {
+      const item = await storage.inventoryRepo.findById(req.params.id);
+      if (!item) return res.status(404).json({ error: "Inventory item not found." });
+      if (!(await checkStoreAccess(item.storeId, req, res))) return;
+
+      const { batchNumber, expiryDate, quantity } = req.body;
+      if (!batchNumber || !expiryDate || quantity === undefined) {
+        return res.status(400).json({ error: "batchNumber, expiryDate, and quantity are required." });
+      }
+
+      const created = await storage.inventoryRepo.createBatch({
+        storeId: item.storeId,
+        inventoryId: req.params.id,
+        batchNumber,
+        expiryDate: new Date(expiryDate),
+        quantity: Number(quantity),
+      });
+
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Could not create batch." });
+    }
+  });
+
+
+  // ---------- 10b. VARIANTS ----------
+  // Get variants for an inventory item
+  app.get("/api/inventory/:id/variants", async (req, res) => {
+    try {
+      const item = await storage.inventoryRepo.findById(req.params.id);
+      if (!item) return res.status(404).json({ error: "Inventory item not found." });
+      if (!(await checkStoreAccess(item.storeId, req, res))) return;
+
+      const variants = await storage.inventoryRepo.getVariants(req.params.id);
+      res.json(variants);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch variants." });
+    }
+  });
+
+  // Create a variant for an inventory item
+  app.post("/api/inventory/:id/variants", async (req, res) => {
+    try {
+      const parentItem = await storage.inventoryRepo.findById(req.params.id);
+      if (!parentItem) return res.status(404).json({ error: "Parent inventory item not found." });
+      if (!(await checkStoreAccess(parentItem.storeId, req, res))) return;
+
+      const { name, costPrice, sellingPrice, quantity, variantDimensions } = req.body;
+      
+      const sanitizedBody = {
+        storeId: parentItem.storeId,
+        name: sanitizeString(name),
+        type: parentItem.type,
+        costPrice: sanitizeNumber(costPrice),
+        sellingPrice: sanitizeNumber(sellingPrice),
+        quantity: parentItem.type === "product" ? sanitizeNumber(quantity) : 0,
+        parentInventoryId: parentItem.id,
+        variantDimensions: variantDimensions || {},
+      };
+
+      if (sanitizedBody.type === "product") {
+        if (sanitizedBody.quantity === undefined || sanitizedBody.quantity === null || isNaN(sanitizedBody.quantity) || sanitizedBody.quantity < 0) {
+          return res.status(400).json({ error: "Stock quantity must be a non-negative number." });
+        }
+      }
+
+      if (sanitizedBody.costPrice <= 0) {
+        return res.status(400).json({ error: "Unit cost must be greater than zero." });
+      }
+
+      if (sanitizedBody.sellingPrice <= 0) {
+        return res.status(400).json({ error: "Selling price must be greater than zero." });
+      }
+
+      if (sanitizedBody.sellingPrice < sanitizedBody.costPrice) {
+        return res.status(400).json({ error: `Selling price cannot be less than unit cost (₦${sanitizedBody.costPrice.toLocaleString()}).` });
+      }
+
+      const existingItem = await storage.getInventoryItemByName(sanitizedBody.storeId, sanitizedBody.name);
+      if (existingItem) {
+        return res.status(409).json({
+          error: "duplicate_name",
+          message: `Variant name "${sanitizedBody.name}" already exists.`,
+          existingItem,
+        });
+      }
+
+      const item = await storage.createInventoryItem(sanitizedBody);
+      auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
+      res.status(201).json(item);
+    } catch (error) {
+      auditLogger.logDataModification("inventory", undefined, getUserId(req), "CREATE", false, (error as Error).message);
+      res.status(500).json({ error: "Could not create variant." });
+    }
+  });
+
+
+  // ---------- 11. CASH FLOW STATEMENT ----------
+  app.get("/api/reports/cash-flow", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const startDateStr = req.query.startDate as string;
+      const endDateStr = req.query.endDate as string;
+      
+      const start = startDateStr ? new Date(startDateStr) : new Date(new Date().setDate(new Date().getDate() - 30));
+      const end = endDateStr ? new Date(endDateStr) : new Date();
+
+      // Retrieve all checkouts for Operating inflow
+      const storeCheckouts = await db
+        .select()
+        .from(checkouts)
+        .where(
+          and(
+            eq(checkouts.storeId, storeId),
+            gte(checkouts.createdAt, start),
+            lte(checkouts.createdAt, end),
+            eq(checkouts.isVoided, false)
+          )
+        );
+
+      // Sum up cash receipts from sales (cash payments + cash split payments)
+      let cashSales = 0;
+      let nonCashSales = 0;
+
+      for (const checkout of storeCheckouts) {
+        if (checkout.paymentMethod === "cash") {
+          cashSales += checkout.totalCharged;
+        } else if (checkout.paymentMethod === "split" && checkout.splitPayments) {
+          const cashPortion = checkout.splitPayments.find((p: any) => p.method === "cash")?.amount || 0;
+          cashSales += cashPortion;
+          nonCashSales += (checkout.totalCharged - cashPortion);
+        } else {
+          nonCashSales += checkout.totalCharged;
+        }
+      }
+
+      // Customer repayments in cash
+      const repaymentsList = await db
+        .select({
+          repayment: repayments,
+          credit: creditEntries,
+        })
+        .from(repayments)
+        .innerJoin(creditEntries, eq(repayments.creditEntryId, creditEntries.id))
+        .where(
+          and(
+            eq(creditEntries.storeId, storeId),
+            gte(repayments.createdAt, start),
+            lte(repayments.createdAt, end)
+          )
+        );
+
+      let cashRepayments = 0;
+      for (const row of repaymentsList) {
+        if (row.repayment.paymentMethod === "cash") {
+          cashRepayments += row.repayment.amountReceived;
+        }
+      }
+
+      // Paid expenses as Operating outflow
+      const startStr = start.toISOString().split('T')[0];
+      const endStr = end.toISOString().split('T')[0];
+
+      const expensesList = await db
+        .select()
+        .from(expenses)
+        .where(
+          and(
+            eq(expenses.storeId, storeId),
+            gte(expenses.date, startStr),
+            lte(expenses.date, endStr)
+          )
+        );
+
+      let operatingExpensesCashOut = 0;
+      let operatingExpensesNonCashOut = 0;
+
+      for (const exp of expensesList) {
+        if (exp.paymentMethod === "cash") {
+          operatingExpensesCashOut += exp.amount;
+        } else if (exp.paymentMethod === "split" && exp.splitPayments) {
+          const cashPortion = exp.splitPayments.find((p: any) => p.method === "cash")?.amount || 0;
+          operatingExpensesCashOut += cashPortion;
+          operatingExpensesNonCashOut += (exp.amount - cashPortion);
+        } else {
+          operatingExpensesNonCashOut += exp.amount;
+        }
+      }
+
+      // Cash Drawer Float discrepancy / Drops
+      const sessionDrops = await db
+        .select({
+          drop: cashDrops
+        })
+        .from(cashDrops)
+        .innerJoin(cashRegisterSessions, eq(cashDrops.sessionId, cashRegisterSessions.id))
+        .where(
+          and(
+            eq(cashRegisterSessions.storeId, storeId),
+            gte(cashDrops.droppedAt, start),
+            lte(cashDrops.droppedAt, end)
+          )
+        );
+      
+      let cashDropsTotal = sessionDrops.reduce((sum, row) => sum + Number(row.drop.amount), 0);
+
+      // Calculations
+      const operatingInflow = cashSales + cashRepayments;
+      const operatingOutflow = operatingExpensesCashOut + cashDropsTotal;
+      const netOperating = operatingInflow - operatingOutflow;
+
+      res.json({
+        reportingPeriod: { start, end },
+        operatingActivities: {
+          cashReceiptsFromCustomers: operatingInflow,
+          cashPaidForOperatingExpenses: operatingExpensesCashOut,
+          cashDropsFromDrawer: cashDropsTotal,
+          netCashFromOperatingActivities: netOperating
+        },
+        investingActivities: {
+          capitalExpenditure: 0,
+          netCashFromInvestingActivities: 0
+        },
+        financingActivities: {
+          loansReceived: 0,
+          netCashFromFinancingActivities: 0
+        },
+        netCashIncrease: netOperating,
+        cashSummary: {
+          cashSales,
+          nonCashSales,
+          cashRepayments,
+          operatingExpensesNonCashOut
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Could not calculate Cash Flow Statement." });
     }
   });
 

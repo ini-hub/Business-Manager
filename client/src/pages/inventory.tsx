@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3 } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X } from "lucide-react";
 import { z } from "zod";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -51,7 +51,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 
-type FilterType = "all" | "product" | "service" | "low-stock";
+type FilterType = "all" | "product" | "service" | "low-stock" | "audits";
 
 const inventoryFormSchema = insertInventorySchema.refine(
   (data) => data.costPrice > 0,
@@ -79,7 +79,7 @@ const inventoryFormSchema = insertInventorySchema.refine(
 
 export default function InventoryPage() {
   const { toast } = useToast();
-  const { currentStore } = useStore();
+  const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -91,6 +91,18 @@ export default function InventoryPage() {
   const [duplicatePayload, setDuplicatePayload] = useState<InsertInventory | null>(null);
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
+  const [isAuditFormOpen, setIsAuditFormOpen] = useState(false);
+  const [isAuditDetailOpen, setIsAuditDetailOpen] = useState(false);
+  const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
+  const [conductedByStaffId, setConductedByStaffId] = useState("");
+  const [auditNotes, setAuditNotes] = useState("");
+  const [auditItems, setAuditItems] = useState<{
+    inventoryId: string;
+    name: string;
+    systemQuantity: number;
+    physicalQuantity: number;
+    reason: string;
+  }[]>([]);
   const [restockData, setRestockData] = useState({
     quantity: 1,
     unitCost: 0,
@@ -103,13 +115,147 @@ export default function InventoryPage() {
   });
 
   const { data: inventoryList = [], isLoading } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id],
-    enabled: !!currentStore?.id,
+    queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/inventory?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as Inventory[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedMap = new Map<string, Inventory & { storeName?: string }>();
+        for (const list of responses) {
+          for (const item of list) {
+            const key = item.id;
+            const existing = mergedMap.get(key);
+            if (existing) {
+              if (item.storeName && !existing.storeName?.includes(item.storeName)) {
+                existing.storeName = `${existing.storeName}, ${item.storeName}`;
+              }
+            } else {
+              mergedMap.set(key, { ...item });
+            }
+          }
+        }
+        return Array.from(mergedMap.values());
+      }
+      const res = await fetch(`/api/inventory?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch inventory");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   const { data: settingsData } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore.id !== "all",
+  });
+
+  const { data: auditsList = [], isLoading: isLoadingAudits } = useQuery<any[]>({
+    queryKey: ["/api/stock-audits", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/stock-audits?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as any[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        return responses.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+      const res = await fetch(`/api/stock-audits?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch stock audits");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? (stores.length > 0 && filterType === "audits") : (!!currentStore?.id && filterType === "audits"),
+  });
+
+  const { data: staffList = [] } = useQuery<any[]>({
+    queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/staff?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as any[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        return responses.flat();
+      }
+      const res = await fetch(`/api/staff?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch staff");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
+  });
+
+  const { data: auditDetail, isLoading: isLoadingAuditDetail } = useQuery<any>({
+    queryKey: ["/api/stock-audits", selectedAuditId],
+    queryFn: async () => {
+      const res = await fetch(`/api/stock-audits/${selectedAuditId}`);
+      if (!res.ok) throw new Error("Failed to fetch audit details");
+      return res.json();
+    },
+    enabled: !!selectedAuditId,
+  });
+
+  const createAuditMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", "/api/stock-audits", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      toast({ title: "Stock audit submitted successfully." });
+      setIsAuditFormOpen(false);
+      setAuditNotes("");
+      setConductedByStaffId("");
+      setAuditItems([]);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not create stock audit",
+        description: getUserFriendlyError(error),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const approveAuditMutation = useMutation({
+    mutationFn: (auditId: string) => apiRequest("POST", `/api/stock-audits/${auditId}/approve`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", selectedAuditId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Stock audit approved. Inventory quantities updated." });
+      setIsAuditDetailOpen(false);
+      setSelectedAuditId(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not approve stock audit",
+        description: getUserFriendlyError(error),
+        variant: "destructive",
+      });
+    },
   });
 
   const lowStockThreshold = settingsData?.lowStockThreshold ?? 5;
@@ -158,7 +304,7 @@ export default function InventoryPage() {
   const hasZeroMargin = watchCostPrice > 0 && watchCostPrice === watchSellingPrice;
 
   const createMutation = useMutation({
-    mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", { ...data, storeId: currentStore?.id }),
+    mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
@@ -268,7 +414,7 @@ export default function InventoryPage() {
 
   const openCreateForm = () => {
     form.reset({
-      storeId: currentStore?.id || "",
+      storeId: currentStore?.id === "all" ? "" : (currentStore?.id || ""),
       name: "",
       type: "product",
       costPrice: 0,
@@ -361,6 +507,15 @@ export default function InventoryPage() {
   };
 
   const columns = [
+    ...(currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (item: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {item.storeName || "Global"}
+        </Badge>
+      ),
+    }] : []),
     {
       key: "name",
       header: "Item Name",
@@ -513,55 +668,98 @@ export default function InventoryPage() {
     );
   }
 
+  const totalAuditsCount = auditsList.length;
+  const draftAuditsCount = auditsList.filter((a: any) => a.status === "draft").length;
+  const latestAuditDateStr = auditsList.length > 0 
+    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(auditsList[0].createdAt))
+    : "No audits yet";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Inventory"
         description={`Managing inventory for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
-            <BulkOperations
-              entityType="inventory"
-              data={filteredInventory as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              isLoading={isLoading}
-              storeId={currentStore.id}
-              pdfTitle="Inventory Report"
-              showImportOption={user?.role !== "staff"}
-            />
-            <Button onClick={openCreateForm} data-testid="button-add-item">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Item
-            </Button>
+            {filterType === "audits" ? (
+              <Button onClick={() => setIsAuditFormOpen(true)} data-testid="button-new-audit">
+                <Plus className="mr-2 h-4 w-4" />
+                New Stock Audit
+              </Button>
+            ) : (
+              <>
+                <BulkOperations
+                  entityType="inventory"
+                  data={filteredInventory as unknown as Record<string, unknown>[]}
+                  columns={exportColumns}
+                  isLoading={isLoading}
+                  storeId={currentStore.id}
+                  pdfTitle="Inventory Report"
+                  showImportOption={user?.role !== "staff"}
+                />
+                <Button onClick={openCreateForm} data-testid="button-add-item">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Item
+                </Button>
+              </>
+            )}
           </div>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard
-          title="Total Cost Value"
-          value={formatCurrency(totalCostValue)}
-          icon={<Package className="h-4 w-4" />}
-          description="Total value of products in stock"
-          isLoading={isLoading}
-        />
-        <MetricCard
-          title="Total Retail Value"
-          value={formatCurrency(totalRetailValue)}
-          icon={<Coins className="h-4 w-4" />}
-          description="Expected revenue if all sold"
-          isLoading={isLoading}
-        />
-        <MetricCard
-          title="Projected Gross Margin"
-          value={`${projectedGrossMargin.toFixed(1)}%`}
-          icon={<BarChart3 className="h-4 w-4" />}
-          description="Based on current stock value"
-          isLoading={isLoading}
-        />
+        {filterType === "audits" ? (
+          <>
+            <MetricCard
+              title="Total Audits Conducted"
+              value={String(totalAuditsCount)}
+              icon={<ClipboardList className="h-4 w-4" />}
+              description="Historical stock counts performed"
+              isLoading={isLoadingAudits}
+            />
+            <MetricCard
+              title="Pending Approvals"
+              value={String(draftAuditsCount)}
+              icon={<AlertCircle className="h-4 w-4 text-amber-500" />}
+              description="Audits requiring manager approval"
+              isLoading={isLoadingAudits}
+            />
+            <MetricCard
+              title="Latest Audit Performed"
+              value={latestAuditDateStr}
+              icon={<CheckCircle2 className="h-4 w-4 text-green-500" />}
+              description="Most recent physical check date"
+              isLoading={isLoadingAudits}
+            />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              title="Total Cost Value"
+              value={formatCurrency(totalCostValue)}
+              icon={<Package className="h-4 w-4" />}
+              description="Total value of products in stock"
+              isLoading={isLoading}
+            />
+            <MetricCard
+              title="Total Retail Value"
+              value={formatCurrency(totalRetailValue)}
+              icon={<Coins className="h-4 w-4" />}
+              description="Expected revenue if all sold"
+              isLoading={isLoading}
+            />
+            <MetricCard
+              title="Projected Gross Margin"
+              value={`${projectedGrossMargin.toFixed(1)}%`}
+              icon={<BarChart3 className="h-4 w-4" />}
+              description="Based on current stock value"
+              isLoading={isLoading}
+            />
+          </>
+        )}
       </div>
 
-      {lowStockCount > 0 && (
+      {lowStockCount > 0 && filterType !== "audits" && (
         <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
           <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
           <div className="flex-1">
@@ -598,51 +796,168 @@ export default function InventoryPage() {
               icon: <AlertCircle className="mr-1 h-3 w-3" />,
               testId: "tab-low-stock",
               className: lowStockCount > 0 ? "text-amber-600 dark:text-amber-400" : "" 
+            },
+            {
+              value: "audits",
+              label: "Stock Audits",
+              icon: <ClipboardList className="mr-1 h-3 w-3" />,
+              testId: "tab-audits",
             }
           ]} 
         />
       </Tabs>
 
-      {(() => {
-        const tableData = filteredInventory.map((item) => {
-          const margin = item.sellingPrice > 0 
-            ? Math.round(((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100) 
-            : 0;
-          const stockStatus = item.type === "service" 
-            ? "In Stock" 
-            : (item.quantity === 0 ? "Out of Stock" : (item.quantity <= lowStockThreshold ? "Low Stock" : "In Stock"));
-          return {
-            ...item,
-            stockStatus,
-            margin
-          };
-        });
+      {filterType === "audits" ? (
+        (() => {
+          const auditColumns = [
+            ...(currentStore?.id === "all" ? [{
+              key: "storeName",
+              header: "Store",
+              render: (audit: any) => (
+                <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+                  {audit.storeName || "Global"}
+                </Badge>
+              ),
+            }] : []),
+            {
+              key: "id",
+              header: "Audit ID",
+              render: (audit: any) => (
+                <span className="font-mono text-xs font-semibold">
+                  {audit.id.substring(0, 8).toUpperCase()}
+                </span>
+              ),
+            },
+            {
+              key: "createdAt",
+              header: "Date Conducted",
+              render: (audit: any) => (
+                <span className="text-sm">
+                  {new Intl.DateTimeFormat("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(new Date(audit.createdAt))}
+                </span>
+              ),
+            },
+            {
+              key: "conductedBy",
+              header: "Conducted By",
+              render: (audit: any) => {
+                const conductor = staffList.find((s) => s.id === audit.conductedByStaffId);
+                return (
+                  <span className="text-sm font-medium">
+                    {conductor ? conductor.name : "System / Admin"}
+                  </span>
+                );
+              },
+            },
+            {
+              key: "status",
+              header: "Status",
+              render: (audit: any) => (
+                <Badge
+                  variant="secondary"
+                  className={
+                    audit.status === "approved"
+                      ? "bg-green-500/10 text-green-500 hover:bg-green-500/25 animate-pulse"
+                      : "bg-amber-500/10 text-amber-500 hover:bg-amber-500/25"
+                  }
+                >
+                  {audit.status.toUpperCase()}
+                </Badge>
+              ),
+            },
+            {
+              key: "notes",
+              header: "General Notes",
+              render: (audit: any) => (
+                <span className="text-xs text-muted-foreground line-clamp-1 max-w-[200px]">
+                  {audit.notes || "—"}
+                </span>
+              ),
+            },
+            {
+              key: "actions",
+              header: "",
+              render: (audit: any) => (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedAuditId(audit.id);
+                    setIsAuditDetailOpen(true);
+                  }}
+                >
+                  <FileText className="mr-1.5 h-3.5 w-3.5" />
+                  View Details
+                </Button>
+              ),
+            },
+          ];
 
-        const filterConfigs = [
-          { 
-            key: "type", 
-            label: "Type", 
-            type: "select" as const,
-            valueMapper: (val: any) => String(val).charAt(0).toUpperCase() + String(val).slice(1)
-          },
-          { key: "stockStatus", label: "Stock Status", type: "select" as const },
-          { key: "margin", label: "Margin %", type: "range" as const }
-        ];
+          return (
+            <DataTable
+              data={auditsList}
+              columns={auditColumns}
+              searchable
+              searchPlaceholder="Search audits by notes..."
+              searchKeys={["notes"]}
+              isLoading={isLoadingAudits}
+              emptyMessage="No stock audits recorded. Initiate one using the button above."
+              onRowClick={(audit) => {
+                setSelectedAuditId(audit.id);
+                setIsAuditDetailOpen(true);
+              }}
+            />
+          );
+        })()
+      ) : (
+        (() => {
+          const tableData = filteredInventory.map((item) => {
+            const margin = item.sellingPrice > 0 
+              ? Math.round(((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100) 
+              : 0;
+            const stockStatus = item.type === "service" 
+              ? "In Stock" 
+              : (item.quantity === 0 ? "Out of Stock" : (item.quantity <= lowStockThreshold ? "Low Stock" : "In Stock"));
+            return {
+              ...item,
+              stockStatus,
+              margin
+            };
+          });
 
-        return (
-          <DataTable
-            data={tableData}
-            columns={columns}
-            searchable
-            searchPlaceholder="Search inventory..."
-            searchKeys={["name"]}
-            isLoading={isLoading}
-            emptyMessage="No items found. Add your first item to get started."
-            onRowClick={navigateToDetails}
-            filterConfigs={filterConfigs}
-          />
-        );
-      })()}
+          const filterConfigs = [
+            { 
+              key: "type", 
+              label: "Type", 
+              type: "select" as const,
+              valueMapper: (val: any) => String(val).charAt(0).toUpperCase() + String(val).slice(1)
+            },
+            { key: "stockStatus", label: "Stock Status", type: "select" as const },
+            { key: "margin", label: "Margin %", type: "range" as const }
+          ];
+
+          return (
+            <DataTable
+              data={tableData}
+              columns={columns}
+              searchable
+              searchPlaceholder="Search inventory..."
+              searchKeys={["name"]}
+              isLoading={isLoading}
+              emptyMessage="No items found. Add your first item to get started."
+              onRowClick={navigateToDetails}
+              filterConfigs={filterConfigs}
+            />
+          );
+        })()
+      )}
 
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-lg">
@@ -658,6 +973,30 @@ export default function InventoryPage() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              {currentStore?.id === "all" && !selectedItem && (
+                <FormField
+                  control={form.control}
+                  name="storeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Target Store Location</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-store">
+                            <SelectValue placeholder="Select a branch..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {stores.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={form.control}
                 name="name"
@@ -1120,6 +1459,343 @@ export default function InventoryPage() {
               Rename Name
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Stock Audit Dialog */}
+      <Dialog open={isAuditFormOpen} onOpenChange={setIsAuditFormOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 glassmorphic-dark border-muted/30">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+              <ClipboardList className="h-5 w-5 text-indigo-400" />
+              New Physical Stock Audit
+            </DialogTitle>
+            <DialogDescription>
+              Record a physical count of products in stock to reconcile with system-tracked stock.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="conductedBy">Conducted By</Label>
+                <Select value={conductedByStaffId} onValueChange={setConductedByStaffId}>
+                  <SelectTrigger id="conductedBy">
+                    <SelectValue placeholder="Select staff..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {staffList.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} ({s.role})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="auditNotes">General Notes</Label>
+                <Input
+                  id="auditNotes"
+                  placeholder="e.g. Monthly stock take"
+                  value={auditNotes}
+                  onChange={(e) => setAuditNotes(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-muted/30 pt-4 space-y-3">
+              <Label>Select Products to Audit</Label>
+              <Select
+                value=""
+                onValueChange={(val) => {
+                  const item = inventoryList.find((i) => i.id === val);
+                  if (item && !auditItems.some((ai) => ai.inventoryId === item.id)) {
+                    setAuditItems((prev) => [
+                      ...prev,
+                      {
+                        inventoryId: item.id,
+                        name: item.name,
+                        systemQuantity: item.quantity,
+                        physicalQuantity: item.quantity,
+                        reason: "Miscount",
+                      },
+                    ]);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Add product to audit..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {inventoryList
+                    .filter((i) => i.type === "product" && !auditItems.some((ai) => ai.inventoryId === i.id))
+                    .map((i) => (
+                      <SelectItem key={i.id} value={i.id}>
+                        {i.name} (Current Stock: {i.quantity})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-3">
+              {auditItems.length > 0 ? (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                  {auditItems.map((ai, index) => {
+                    const variance = ai.physicalQuantity - ai.systemQuantity;
+                    return (
+                      <div
+                        key={ai.inventoryId}
+                        className="flex flex-col gap-2 p-3 rounded-lg border bg-muted/10 border-muted/30 animate-in fade-in slide-in-from-top-2 duration-200"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm">{ai.name}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              setAuditItems((prev) => prev.filter((item) => item.inventoryId !== ai.inventoryId));
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block mb-1">System Qty</span>
+                            <Input
+                              type="number"
+                              readOnly
+                              value={ai.systemQuantity}
+                              className="h-8 font-mono text-xs bg-muted/30 border-muted/30"
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block mb-1">Physical Qty</span>
+                            <Input
+                              type="number"
+                              value={ai.physicalQuantity}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                setAuditItems((prev) =>
+                                  prev.map((item, idx) =>
+                                    idx === index ? { ...item, physicalQuantity: val } : item
+                                  )
+                                );
+                              }}
+                              className="h-8 font-mono text-xs"
+                              min="0"
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-muted-foreground block mb-1">Variance</span>
+                            <div
+                              className={`h-8 flex items-center justify-center rounded-md border text-xs font-mono font-bold ${
+                                variance > 0
+                                  ? "bg-green-500/10 border-green-500/30 text-green-500"
+                                  : variance < 0
+                                  ? "bg-red-500/10 border-red-500/30 text-red-500"
+                                  : "bg-muted border-border text-muted-foreground"
+                              }`}
+                            >
+                              {variance > 0 ? `+${variance}` : variance}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-1">
+                          <span className="text-[10px] text-muted-foreground block mb-1">Reason for Drift</span>
+                          <Select
+                            value={ai.reason}
+                            onValueChange={(val) => {
+                              setAuditItems((prev) =>
+                                prev.map((item, idx) => (idx === index ? { ...item, reason: val } : item))
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Reason" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Theft">Theft/Pilferage</SelectItem>
+                              <SelectItem value="Damage">Damage/Spillage</SelectItem>
+                              <SelectItem value="Miscount">Regular Miscount</SelectItem>
+                              <SelectItem value="DataEntry">Data Entry Error</SelectItem>
+                              <SelectItem value="Other">Other Reason</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-sm text-muted-foreground border border-dashed rounded-lg border-muted/30">
+                  No products added to audit yet. Add one above.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-muted/30 pt-4">
+            <Button variant="outline" onClick={() => setIsAuditFormOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!conductedByStaffId) {
+                  toast({ title: "Validation Error", description: "Please select who conducted the audit.", variant: "destructive" });
+                  return;
+                }
+                if (auditItems.length === 0) {
+                  toast({ title: "Validation Error", description: "Please add at least one product to audit.", variant: "destructive" });
+                  return;
+                }
+                createAuditMutation.mutate({
+                  storeId: currentStore.id,
+                  conductedByStaffId,
+                  notes: auditNotes,
+                  items: auditItems,
+                });
+              }}
+              disabled={createAuditMutation.isPending || auditItems.length === 0}
+            >
+              {createAuditMutation.isPending ? "Submitting..." : "Submit Audit Draft"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Audit Details Dialog */}
+      <Dialog open={isAuditDetailOpen} onOpenChange={setIsAuditDetailOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 glassmorphic-dark border-muted/30">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+              <FileText className="h-5 w-5 text-indigo-400" />
+              Stock Audit Details
+            </DialogTitle>
+            <DialogDescription>
+              Detailed logs and physical variances for this stock audit.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoadingAuditDetail ? (
+            <div className="flex-1 flex items-center justify-center py-8">
+              <RefreshCw className="h-8 w-8 animate-spin text-indigo-400" />
+            </div>
+          ) : auditDetail ? (
+            <>
+              <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
+                <div className="grid grid-cols-2 gap-4 rounded-lg border border-muted/30 bg-muted/5 p-4 text-sm">
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Status</span>
+                    <Badge
+                      variant="secondary"
+                      className={
+                        auditDetail.status === "approved"
+                          ? "bg-green-500/10 text-green-500 hover:bg-green-500/25"
+                          : "bg-amber-500/10 text-amber-500 hover:bg-amber-500/25"
+                      }
+                    >
+                      {auditDetail.status.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Date Conducted</span>
+                    <span className="font-medium text-foreground">
+                      {new Intl.DateTimeFormat("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(auditDetail.createdAt))}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Conducted By</span>
+                    <span className="font-medium text-foreground">
+                      {auditDetail.conductedBy
+                        ? auditDetail.conductedBy.name
+                        : "System / Admin"}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Approved By</span>
+                    <span className="font-medium text-foreground">
+                      {auditDetail.approvedBy
+                        ? auditDetail.approvedBy.name || auditDetail.approvedBy.email
+                        : auditDetail.status === "approved"
+                        ? "Admin / Manager"
+                        : "Pending Approval"}
+                    </span>
+                  </div>
+                  {auditDetail.notes && (
+                    <div className="col-span-2 space-y-1 pt-1.5 border-t border-muted/20">
+                      <span className="text-xs text-muted-foreground block">Notes</span>
+                      <p className="text-xs text-muted-foreground italic bg-muted/10 p-2 rounded border border-muted/20">
+                        {auditDetail.notes}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground">Audited Items & Drifts</h4>
+                  <div className="border border-muted/30 rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-muted/10 border-b border-muted/30 text-muted-foreground font-semibold">
+                          <th className="p-3">Product Name</th>
+                          <th className="p-3 text-right">System Qty</th>
+                          <th className="p-3 text-right">Physical Qty</th>
+                          <th className="p-3 text-right">Variance</th>
+                          <th className="p-3">Drift Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-muted/20">
+                        {auditDetail.items.map((item: any) => {
+                          const variance = item.physicalQuantity - item.systemQuantity;
+                          return (
+                            <tr key={item.id} className="hover:bg-muted/5">
+                              <td className="p-3 font-medium text-foreground">{item.inventory?.name || "Unknown Product"}</td>
+                              <td className="p-3 text-right font-mono text-muted-foreground">{item.systemQuantity}</td>
+                              <td className="p-3 text-right font-mono text-foreground">{item.physicalQuantity}</td>
+                              <td
+                                className={`p-3 text-right font-mono font-bold ${
+                                  variance > 0 ? "text-green-500" : variance < 0 ? "text-red-500" : "text-muted-foreground"
+                                }`}
+                              >
+                                {variance > 0 ? `+${variance}` : variance}
+                              </td>
+                              <td className="p-3 text-muted-foreground italic">{item.reason || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-muted/30 pt-4">
+                <Button variant="outline" onClick={() => setIsAuditDetailOpen(false)}>
+                  Close
+                </Button>
+                {auditDetail.status === "draft" && (user?.role === "owner" || user?.role === "manager") && (
+                  <Button
+                    onClick={() => approveAuditMutation.mutate(auditDetail.id)}
+                    disabled={approveAuditMutation.isPending}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {approveAuditMutation.isPending ? "Approving..." : "Approve & Resolve Drifts"}
+                  </Button>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">Could not load details.</div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, Store, Building2, Settings } from "lucide-react";
+import { Check, ChevronsUpDown, Store, Building2, Settings, Coins } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -78,6 +78,32 @@ export function StoreSelector() {
           <CommandList>
             <CommandEmpty>No store found.</CommandEmpty>
             <CommandGroup heading="Stores">
+              {user?.role === "owner" && stores.length > 1 && (
+                <CommandItem
+                  value="All Stores (Consolidated)"
+                  onSelect={() => {
+                    setCurrentStore({
+                      id: "all",
+                      name: "All Stores (Consolidated)",
+                      currency: stores[0]?.currency || "NGN",
+                      code: "GLOBAL",
+                      businessId: stores[0]?.businessId,
+                    } as any);
+                    setOpen(false);
+                  }}
+                  data-testid="option-store-all"
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      currentStore?.id === "all" ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <Coins className="mr-2 h-4 w-4 text-emerald-500 shrink-0" />
+                  <span className="truncate">All Stores (Consolidated)</span>
+                  <span className="ml-auto text-xs text-muted-foreground">GLOBAL</span>
+                </CommandItem>
+              )}
               {stores.map((store) => (
                 <CommandItem
                   key={store.id}

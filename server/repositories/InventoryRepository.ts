@@ -1,7 +1,17 @@
 import { BaseRepository } from "./BaseRepository";
 import { db } from "../db";
-import { inventory, transactions, type Inventory, type InsertInventory } from "@shared/schema";
-import { eq, and, or, ilike, asc, sql, count } from "drizzle-orm";
+import {
+  inventory,
+  transactions,
+  bundleComponents,
+  inventoryBatches,
+  type Inventory,
+  type InsertInventory,
+  type BundleComponent,
+  type InventoryBatch,
+  type InsertInventoryBatch,
+} from "@shared/schema";
+import { eq, and, or, ilike, asc, sql, count, gt } from "drizzle-orm";
 
 export interface PaginationOptions {
   page: number;
@@ -109,5 +119,90 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
       .from(inventory)
       .where(and(eq(inventory.storeId, storeId), ilike(inventory.name, `%${query}%`)))
       .limit(10);
+  }
+
+  async getBundleComponents(parentInventoryId: string): Promise<(BundleComponent & { component: Inventory })[]> {
+    const rows = await db
+      .select({
+        bundleComponent: bundleComponents,
+        component: inventory,
+      })
+      .from(bundleComponents)
+      .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
+      .where(eq(bundleComponents.parentInventoryId, parentInventoryId));
+
+    return rows.map(r => ({
+      ...r.bundleComponent,
+      component: r.component,
+    }));
+  }
+
+  async setBundleComponents(parentInventoryId: string, components: { componentInventoryId: string; quantity: number }[]): Promise<void> {
+    await db.delete(bundleComponents).where(eq(bundleComponents.parentInventoryId, parentInventoryId));
+    if (components.length > 0) {
+      await db.insert(bundleComponents).values(
+        components.map(c => ({
+          parentInventoryId,
+          componentInventoryId: c.componentInventoryId,
+          quantity: c.quantity,
+        }))
+      );
+    }
+  }
+
+  // --- Variants / Matrix Support ---
+  async getVariants(parentInventoryId: string): Promise<Inventory[]> {
+    return db
+      .select()
+      .from(inventory)
+      .where(eq(inventory.parentInventoryId, parentInventoryId))
+      .orderBy(asc(inventory.name));
+  }
+
+  // --- Batch & Expiry FIFO Support ---
+  async getBatches(inventoryId: string): Promise<InventoryBatch[]> {
+    return db
+      .select()
+      .from(inventoryBatches)
+      .where(eq(inventoryBatches.inventoryId, inventoryId))
+      .orderBy(asc(inventoryBatches.expiryDate));
+  }
+
+  async createBatch(data: InsertInventoryBatch): Promise<InventoryBatch> {
+    const [inserted] = await db.insert(inventoryBatches).values(data).returning();
+    return inserted;
+  }
+
+  async deductFIFO(inventoryId: string, quantityToDeduct: number, externalTx?: any): Promise<void> {
+    const client = externalTx || db;
+
+    // Fetch all active cohorts of this item ordered by expiryDate (oldest first)
+    const activeBatches = await client
+      .select()
+      .from(inventoryBatches)
+      .where(and(eq(inventoryBatches.inventoryId, inventoryId), gt(inventoryBatches.quantity, 0)))
+      .orderBy(asc(inventoryBatches.expiryDate), asc(inventoryBatches.createdAt));
+
+    let remaining = quantityToDeduct;
+
+    for (const batch of activeBatches) {
+      if (remaining <= 0) break;
+
+      if (batch.quantity >= remaining) {
+        // This batch satisfies the remainder
+        await client
+          .update(inventoryBatches)
+          .set({ quantity: batch.quantity - remaining })
+          .where(eq(inventoryBatches.id, batch.id));
+        remaining = 0;
+      } else {
+        // Fully exhaust this batch and keep looking
+        await client
+          .update(inventoryBatches)
+          .set({ quantity: 0 })
+          .where(eq(inventoryBatches.id, batch.id));
+        remaining -= batch.quantity;
+      }
+    }
   }
 }

@@ -40,6 +40,7 @@ import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
@@ -94,7 +95,7 @@ export default function PayrollPage() {
       const res = await apiRequest("GET", `/api/payroll/periods?storeId=${currentStore?.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   // Reset periods pagination when currentStore or periods change
@@ -234,6 +235,15 @@ export default function PayrollPage() {
       <div className="space-y-6">
         <PageHeader title="Payroll" description="Manage staff payroll and commissions" />
         <StoreRequiredAlert title="Store Required for Payroll" />
+      </div>
+    );
+  }
+
+  if (currentStore.id === "all") {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <PageHeader title="Payroll" description="Manage staff payroll and commissions" />
+        <ConsolidatedFallbackAlert pageTitle="Staff Payroll" />
       </div>
     );
   }

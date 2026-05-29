@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
@@ -85,7 +86,7 @@ export default function AttendancePage() {
 
   const { data: staffList = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const activeStaff = staffList.filter(s => !s.isArchived);
@@ -115,7 +116,7 @@ export default function AttendancePage() {
       const res = await apiRequest("GET", `/api/attendance?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   // Fetch transactions to resolve active vs passive status dynamically
@@ -125,7 +126,7 @@ export default function AttendancePage() {
       const res = await apiRequest("GET", `/api/transactions?storeId=${currentStore?.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   // Lookup set of staff members assigned to service line items per day: "staffId:yyyy-MM-dd"
@@ -212,6 +213,18 @@ export default function AttendancePage() {
       <div className="space-y-6">
         <PageHeader title="Attendance" description="Track staff attendance" />
         <StoreRequiredAlert title="Store Required for Attendance" />
+      </div>
+    );
+  }
+
+  if (currentStore.id === "all") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Attendance"
+          description="Track staff attendance"
+        />
+        <ConsolidatedFallbackAlert pageTitle="Staff Attendance" />
       </div>
     );
   }

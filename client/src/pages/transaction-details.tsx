@@ -15,12 +15,17 @@ import {
   Coins,
   ShoppingBag,
   Loader2,
+  Undo2,
+  Store,
+  Tag,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BaseCard } from "@/components/oop-ui/BaseCard";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { ReturnDialog } from "@/components/ReturnDialog";
 import {
   Dialog,
   DialogContent,
@@ -77,6 +82,11 @@ export default function TransactionDetailsPage() {
   const [editPaymentMethod, setEditPaymentMethod] = useState("");
   const [editPaymentStatus, setEditPaymentStatus] = useState("");
 
+  // Return Dialog State
+  const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
+  // Track return success to block re-opening until data is fresh
+  const [isRefreshingAfterReturn, setIsRefreshingAfterReturn] = useState(false);
+
   const storeCurrency = currentStore?.currency || "NGN";
 
   const formatCurrency = (value: number, currency: string = storeCurrency) => {
@@ -105,6 +115,63 @@ export default function TransactionDetailsPage() {
 
   const isVoided = transaction?.checkout?.isVoided ?? false;
   const checkoutId = transaction?.checkout?.id;
+
+  // Fetch full checkout receipt details (which includes all items and returns history)
+  const { data: receiptDetails, isLoading: isReceiptLoading } = useQuery<any>({
+    queryKey: [`/api/transactions/${checkoutId}/receipt`],
+    enabled: !!checkoutId,
+  });
+
+  // Use receipt-level totals from receiptDetails when available.
+  // The storage layer overrides checkout.totalPrice to the per-line amount on the list endpoint,
+  // but the /receipt endpoint returns the true basket-level totals.
+  const receiptTotal = receiptDetails?.checkout?.totalCharged ?? receiptDetails?.checkout?.totalPrice ?? (transaction?.checkout?.totalPrice ?? 0);
+  const receiptSubtotal = receiptDetails?.checkout?.subtotal ?? receiptTotal;
+  const receiptDiscount = receiptDetails?.checkout?.discountAmount ?? 0;
+  const receiptDiscountPct = receiptDetails?.checkout?.discountPercent ?? 0;
+  const receiptDiscountReason = receiptDetails?.checkout?.discountReason ?? "";
+  const hasDiscount = receiptDiscount > 0;
+
+  const isFullyReturned =
+    !isVoided &&
+    receiptDetails?.items?.length > 0 &&
+    receiptDetails.items.every((item: any) => {
+      return (item.order?.returnedQuantity || 0) >= (item.order?.quantity || 0);
+    });
+
+  const handleReturnSuccess = async () => {
+    // 1. Force-close the dialog immediately so it can't be re-submitted
+    setIsReturnDialogOpen(false);
+    // 2. Lock the return button while data refreshes
+    setIsRefreshingAfterReturn(true);
+    try {
+      // 3. Invalidate the receipt endpoint (drives returnedQuantity / items list)
+      await queryClient.invalidateQueries({ queryKey: [`/api/transactions/${checkoutId}/receipt`] });
+      // 4. Invalidate the transactions list (drives returnCheckoutObj rebuild)
+      await queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+      // 5. Invalidate downstream caches
+      await queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/profit-loss"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+    } finally {
+      setIsRefreshingAfterReturn(false);
+    }
+  };
+
+  const returnCheckoutObj = receiptDetails ? {
+    id: checkoutId,
+    receiptNumber: receiptDetails.checkout?.receiptNumber,
+    customerId: receiptDetails.customer?.id,
+    staffId: receiptDetails.checkout?.staffId,
+    orders: receiptDetails.items.map((item: any) => ({
+      id: item.order.id,
+      inventoryId: item.order.inventoryId,
+      quantity: item.order.quantity,
+      returnedQuantity: item.order.returnedQuantity || 0,
+      totalPrice: item.checkout.totalPrice,
+      inventory: item.inventory,
+    })),
+  } : null;
 
   // Mutations
   const voidMutation = useMutation({
@@ -246,6 +313,21 @@ export default function TransactionDetailsPage() {
                 VOIDED
               </Badge>
             )}
+            {isFullyReturned ? (
+              <Badge
+                variant="outline"
+                className="text-sm px-3 py-1 text-red-600 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold"
+              >
+                FULLY RETURNED
+              </Badge>
+            ) : receiptDetails?.checkout?.isPartiallyReturned ? (
+              <Badge
+                variant="outline"
+                className="text-sm px-3 py-1 text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold"
+              >
+                PARTIALLY RETURNED
+              </Badge>
+            ) : null}
           </div>
           <p className="text-sm text-muted-foreground font-mono mt-0.5">
             {tx.checkout?.receiptNumber}
@@ -381,8 +463,8 @@ export default function TransactionDetailsPage() {
                     <Coins className="h-6 w-6" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Qty / Units</p>
-                    <p className="font-semibold text-lg">{tx.amount}</p>
+                    <p className="text-sm text-muted-foreground">Qty / Units (this item)</p>
+                    <p className="font-semibold text-lg">{tx.checkout?.quantity ?? 1}</p>
                   </div>
                 </div>
 
@@ -390,23 +472,149 @@ export default function TransactionDetailsPage() {
                   <div className="h-12 w-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0">
                     <Coins className="h-6 w-6" />
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Amount</p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-muted-foreground">Receipt Total (full basket)</p>
                     <p
                       className={`font-bold text-2xl ${isVoided ? "line-through text-muted-foreground" : ""}`}
                     >
-                      {formatCurrency(tx.checkout?.totalPrice ?? 0)}
+                      {formatCurrency(receiptTotal)}
                     </p>
                     {storeCurrency !== "USD" && (
                       <p className="text-xs text-muted-foreground font-mono">
-                        {formatCurrency((tx.checkout?.totalPrice ?? 0) / 1500, "USD")}
+                        {formatCurrency(receiptTotal / 1500, "USD")}
                       </p>
                     )}
+                    {/* Line-item amount breakdown */}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      This line: <span className="font-mono font-semibold">{formatCurrency(tx.amount ?? 0)}</span>
+                    </p>
                   </div>
                 </div>
               </div>
+
+              {/* Discount row — only shown when a discount was applied */}
+              {(hasDiscount || isReceiptLoading) && hasDiscount && (
+                <div className="flex items-start gap-4 rounded-lg border border-amber-200 bg-amber-50/50 dark:bg-amber-950/10 dark:border-amber-900/30 p-4">
+                  <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
+                    <Tag className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 space-y-0.5">
+                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Discount Applied</p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-mono font-bold text-amber-700 dark:text-amber-400">-{formatCurrency(receiptDiscount)}</span>
+                      {receiptDiscountPct > 0 && (
+                        <span className="ml-1 text-xs">({receiptDiscountPct}% off)</span>
+                      )}
+                    </p>
+                    {receiptDiscountReason && (
+                      <p className="text-xs text-muted-foreground italic">"{receiptDiscountReason}"</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs text-muted-foreground">Subtotal before discount</p>
+                    <p className="font-mono text-sm font-semibold">{formatCurrency(receiptSubtotal)}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Purchase Line Items */}
+              {receiptDetails?.items && receiptDetails.items.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <ShoppingBag className="h-4 w-4 text-primary" />
+                      Purchased Items
+                    </h3>
+                    <div className="rounded-lg border bg-card overflow-hidden">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-muted/40 border-b border-muted/50 font-semibold text-muted-foreground">
+                            <th className="p-3">Item</th>
+                            <th className="p-3 text-center">Qty</th>
+                            <th className="p-3 text-right">Unit Price</th>
+                            <th className="p-3 text-right">Total</th>
+                            <th className="p-3 text-center">Returned</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-muted/40">
+                          {receiptDetails.items.map((item: any) => {
+                            const unitPrice = item.order.quantity > 0 ? (item.checkout.totalPrice / item.order.quantity) : 0;
+                            const returnedQty = item.order.returnedQuantity || 0;
+                            return (
+                              <tr key={item.order.id} className="hover:bg-muted/10 transition-colors">
+                                <td className="p-3">
+                                  <p className="font-medium text-foreground">{item.inventory?.name || "Unknown Item"}</p>
+                                  <Badge variant="outline" className="text-[10px] py-0 px-1 capitalize mt-0.5">
+                                    {item.inventory?.type || "product"}
+                                  </Badge>
+                                </td>
+                                <td className="p-3 text-center font-mono">{item.order.quantity}</td>
+                                <td className="p-3 text-right font-mono">{formatCurrency(unitPrice)}</td>
+                                <td className="p-3 text-right font-mono font-medium">{formatCurrency(item.checkout.totalPrice)}</td>
+                                <td className="p-3 text-center">
+                                  {returnedQty > 0 ? (
+                                    <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-mono text-[10px] font-semibold">
+                                      {returnedQty} returned
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground/50">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </BaseCard>
+
+          {/* Return Logs Card */}
+          {receiptDetails?.returnLogs && receiptDetails.returnLogs.length > 0 && (
+            <BaseCard hoverElevation className="border-orange-500/20 bg-orange-500/[0.02]">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                  <Undo2 className="h-5 w-5" />
+                  Return & Refund History
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {receiptDetails.returnLogs.map((log: any) => (
+                  <div key={log.id} className="flex gap-4 p-3 bg-card border rounded-lg text-xs hover:shadow-sm transition-shadow animate-in fade-in duration-300">
+                    <div className="h-8 w-8 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-600 shrink-0">
+                      <Undo2 className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex justify-between items-start">
+                        <p className="font-semibold text-foreground">
+                          Returned {log.quantity} × {log.inventory?.name || "Item"}
+                        </p>
+                        <span className="font-mono font-bold text-orange-600 dark:text-orange-400">
+                          -{formatCurrency(log.refundAmount)}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground">
+                        Refunded via <span className="capitalize font-medium text-foreground">{log.refundMethod.replace("_", " ")}</span>
+                        {log.staff && ` by ${log.staff.name}`}
+                      </p>
+                      {log.reason && (
+                        <p className="text-muted-foreground italic bg-muted/40 p-1.5 rounded mt-1.5 border-l-2 border-orange-400">
+                          "{log.reason}"
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground/80 font-mono mt-1">
+                        {formatDate(log.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </BaseCard>
+          )}
         </div>
 
         {/* Right Section — Actions */}
@@ -428,6 +636,30 @@ export default function TransactionDetailsPage() {
                 <Printer className="mr-2 h-4 w-4" />
                 Print / View Receipt
               </Button>
+
+              {/* Process Return — only if receipt data has loaded and not refreshing after a return */}
+              {canManage && !isVoided && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start border-orange-200 hover:bg-orange-50 hover:text-orange-600 text-orange-600 dark:border-orange-900/30 dark:hover:bg-orange-950/20"
+                  onClick={() => setIsReturnDialogOpen(true)}
+                  disabled={isReceiptLoading || !returnCheckoutObj || isRefreshingAfterReturn}
+                  title={
+                    isRefreshingAfterReturn
+                      ? "Refreshing transaction data..."
+                      : isReceiptLoading
+                      ? "Loading receipt data..."
+                      : "Process Return"
+                  }
+                >
+                  <Undo2 className="mr-2 h-4 w-4" />
+                  {isRefreshingAfterReturn
+                    ? "Refreshing..."
+                    : isReceiptLoading
+                    ? "Loading..."
+                    : "Process Return"}
+                </Button>
+              )}
 
               {/* Update Payment */}
               {canManage && !isVoided && (
@@ -453,8 +685,8 @@ export default function TransactionDetailsPage() {
                 </Button>
               )}
 
-              {/* Void Log — Owner only */}
-              {isVoided && user?.role === "owner" && (
+              {/* Void Log — visible to manager & owner */}
+              {isVoided && canManage && (
                 <>
                   <Separator className="my-4" />
                   <div className="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg">
@@ -601,6 +833,16 @@ export default function TransactionDetailsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Return Dialog */}
+      {returnCheckoutObj && (
+        <ReturnDialog
+          open={isReturnDialogOpen}
+          onOpenChange={setIsReturnDialogOpen}
+          checkout={returnCheckoutObj}
+          onSuccess={handleReturnSuccess}
+        />
+      )}
     </div>
   );
 }

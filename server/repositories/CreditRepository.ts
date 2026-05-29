@@ -153,6 +153,7 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       ...r.credit,
       customer: {
         name: r.customer.name,
+        customerNumber: r.customer.customerNumber,
         phone: r.customer.mobileNumber,
       },
       receiptNumber: r.checkout?.receiptNumber || null,

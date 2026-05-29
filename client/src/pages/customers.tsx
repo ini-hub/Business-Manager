@@ -41,6 +41,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
+import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link } from "wouter";
@@ -70,22 +71,79 @@ const customerFormSchema = insertCustomerSchema.extend({
 
 export default function Customers() {
   const { toast } = useToast();
-  const { currentStore } = useStore();
+  const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [activeTab, setActiveTab] = useState("active");
+  const [duplicateCustomer, setDuplicateCustomer] = useState<any | null>(null);
+  const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
+  const [pendingSubmitValues, setPendingSubmitValues] = useState<any | null>(null);
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers", currentStore?.id],
-    enabled: !!currentStore?.id,
+    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/customers?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as Customer[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedMap = new Map<string, Customer & { storeName?: string }>();
+        for (const list of responses) {
+          for (const item of list) {
+            const key = item.id;
+            const existing = mergedMap.get(key);
+            if (existing) {
+              if (item.storeName && !existing.storeName?.includes(item.storeName)) {
+                existing.storeName = `${existing.storeName}, ${item.storeName}`;
+              }
+            } else {
+              mergedMap.set(key, { ...item });
+            }
+          }
+        }
+        return Array.from(mergedMap.values());
+      }
+      const res = await fetch(`/api/customers?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch customers");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   const { data: transactionsData = [], isLoading: isLoadingTxs } = useQuery<any[]>({
-    queryKey: ["/api/transactions", currentStore?.id],
-    enabled: !!currentStore?.id,
+    queryKey: ["/api/transactions", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/transactions?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as any[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        return responses.flat().sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+      }
+      const res = await fetch(`/api/transactions?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   // Calculate Customer Analytics Metrics
@@ -242,7 +300,7 @@ export default function Customers() {
   const selectedCountryCode = form.watch("countryCode");
 
   const createMutation = useMutation({
-    mutationFn: (data: InsertCustomer) => apiRequest("POST", "/api/customers", { ...data, storeId: currentStore?.id }),
+    mutationFn: (data: InsertCustomer) => apiRequest("POST", "/api/customers", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
@@ -327,7 +385,7 @@ export default function Customers() {
 
   const openCreateForm = () => {
     form.reset({
-      storeId: currentStore?.id || "",
+      storeId: currentStore?.id === "all" ? "" : (currentStore?.id || ""),
       name: "",
       customerNumber: "",
       countryCode: "NG",
@@ -362,7 +420,19 @@ export default function Customers() {
     form.reset();
   };
 
-  const onSubmit = (data: InsertCustomer) => {
+  const handleForceCreate = () => {
+    if (pendingSubmitValues) {
+      createMutation.mutate({
+        ...pendingSubmitValues,
+        allowDuplicatePhone: true,
+      } as any);
+      setIsDuplicateOpen(false);
+      setPendingSubmitValues(null);
+      setDuplicateCustomer(null);
+    }
+  };
+
+  const onSubmit = async (data: InsertCustomer) => {
     const countryCode = data.countryCode || "NG";
     // Only validate phone if provided
     if (data.mobileNumber && data.mobileNumber.trim()) {
@@ -376,27 +446,41 @@ export default function Customers() {
     if (selectedCustomer) {
       updateMutation.mutate(data);
     } else {
+      if (data.mobileNumber && data.mobileNumber.trim()) {
+        try {
+          const res = await fetch(`/api/customers/check-duplicate?phone=${data.mobileNumber}&storeId=${currentStore?.id}`);
+          if (res.status === 409) {
+            const result = await res.json();
+            setDuplicateCustomer(result.existingCustomer);
+            setPendingSubmitValues(data);
+            setIsDuplicateOpen(true);
+            return;
+          }
+        } catch (err) {
+          console.error("Duplicate check failed:", err);
+        }
+      }
       createMutation.mutate(data);
     }
   };
 
   const activeColumns = [
-    {
-      key: "customerNumber",
-      header: "ID",
-      render: (customer: Customer) => (
-        <div className="flex items-center gap-2">
-          <Hash className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-sm">{customer.customerNumber}</span>
-        </div>
+    ...(currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (customer: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {customer.storeName || "Global"}
+        </Badge>
       ),
-    },
+    }] : []),
     {
       key: "name",
-      header: "Name",
-      render: (customer: Customer) => (
-        <span className="font-medium">{customer.name}</span>
-      ),
+      header: "Customer",
+      render: (customer: Customer) => {
+        const presenter = new CustomerPresenter(customer);
+        return <EntityDisplay presenter={presenter} />;
+      },
     },
     {
       key: "mobileNumber",
@@ -459,25 +543,27 @@ export default function Customers() {
   ].filter(col => col.key !== "actions" || user?.role !== "staff");
 
   const archivedColumns = [
-    {
-      key: "customerNumber",
-      header: "ID",
-      render: (customer: Customer) => (
-        <div className="flex items-center gap-2">
-          <Hash className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-sm">{customer.customerNumber}</span>
-        </div>
+    ...(currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (customer: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {customer.storeName || "Global"}
+        </Badge>
       ),
-    },
+    }] : []),
     {
       key: "name",
-      header: "Name",
-      render: (customer: Customer) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{customer.name}</span>
-          <Badge variant="secondary">Archived</Badge>
-        </div>
-      ),
+      header: "Customer",
+      render: (customer: Customer) => {
+        const presenter = new CustomerPresenter(customer);
+        return (
+          <div className="flex items-center gap-2">
+            <EntityDisplay presenter={presenter} />
+            <Badge variant="secondary" className="h-5">Archived</Badge>
+          </div>
+        );
+      },
     },
     {
       key: "mobileNumber",
@@ -880,6 +966,30 @@ export default function Customers() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              {currentStore?.id === "all" && !selectedCustomer && (
+                <FormField
+                  control={form.control}
+                  name="storeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Target Store Location</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-store">
+                            <SelectValue placeholder="Select a branch..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {stores.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={form.control}
                 name="name"
@@ -974,6 +1084,84 @@ export default function Customers() {
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDuplicateOpen} onOpenChange={setIsDuplicateOpen}>
+        <DialogContent className="max-w-md bg-slate-900 border border-slate-800 text-white rounded-3xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-white">
+              ⚠️ Possible Duplicate Detected
+            </DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs mt-1">
+              A customer with this phone number already exists in this store branch.
+            </DialogDescription>
+          </DialogHeader>
+
+          {duplicateCustomer && (
+            <div className="space-y-6 pt-4">
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs text-slate-300 font-medium">
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">Customer Number:</span>
+                  <span className="font-mono text-primary font-bold">{duplicateCustomer.customerNumber}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">Customer Name:</span>
+                  <span className="font-bold text-white">{duplicateCustomer.name}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">Phone Number:</span>
+                  <span className="font-mono">{duplicateCustomer.mobileNumber}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-900 pb-2">
+                  <span className="text-slate-400">Profile Created:</span>
+                  <span>{new Date(duplicateCustomer.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Last Transaction:</span>
+                  <span className="text-amber-500 font-bold">
+                    {duplicateCustomer.lastTransactionDate 
+                      ? new Date(duplicateCustomer.lastTransactionDate).toLocaleDateString()
+                      : "No past transactions"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2">
+                <Button
+                  className="w-full rounded-full font-bold shadow-md h-10 text-xs"
+                  onClick={() => {
+                    setIsDuplicateOpen(false);
+                    setPendingSubmitValues(null);
+                    setDuplicateCustomer(null);
+                    closeForm();
+                    setLocation(`/customers/${duplicateCustomer.id}`);
+                  }}
+                >
+                  Use Existing Customer
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full rounded-full border-slate-700 hover:bg-slate-800 text-slate-300 font-bold h-10 text-xs"
+                  onClick={handleForceCreate}
+                  disabled={createMutation.isPending}
+                >
+                  No, Create as New Customer
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full rounded-full text-slate-500 hover:text-white h-10 text-xs"
+                  onClick={() => {
+                    setIsDuplicateOpen(false);
+                    setPendingSubmitValues(null);
+                    setDuplicateCustomer(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

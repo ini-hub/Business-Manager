@@ -15,11 +15,41 @@ export class InventoryController extends BaseController {
       if (!storeId) {
         return this.badRequest(res, "Please select a store first.");
       }
-      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       // Support both paginated and non-paginated queries
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
+
+      if (storeId === "all") {
+        const stores = await this.getUserStores(req);
+        if (stores.length === 0) return this.ok(res, page > 0 && limit > 0 ? { items: [], total: 0, pages: 0 } : []);
+
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            const list = await storage.getInventory(s.id);
+            return list.map(item => ({ ...item, storeName: s.name }));
+          })
+        );
+        let merged = responses.flat();
+
+        if (page > 0 && limit > 0) {
+          const search = req.query.search as string;
+          if (search) {
+            const sLower = search.toLowerCase();
+            merged = merged.filter(item => String(item.name || "").toLowerCase().includes(sLower));
+          }
+          const start = (page - 1) * limit;
+          const paginated = merged.slice(start, start + limit);
+          return this.ok(res, {
+            items: paginated,
+            total: merged.length,
+            pages: Math.ceil(merged.length / limit),
+          });
+        }
+        return this.ok(res, merged);
+      }
+
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       if (page > 0 && limit > 0) {
         const search = req.query.search as string;

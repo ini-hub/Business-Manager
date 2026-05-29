@@ -17,6 +17,10 @@ import {
   Gift,
   BookOpen,
   CalendarClock,
+  ArrowLeftRight,
+  Truck,
+  FileText,
+  Percent,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -81,6 +85,18 @@ const managementItems: MenuItem[] = [
     icon: Package,
     allowedRoles: ["owner"],
   },
+  {
+    title: "Stock Transfers",
+    url: "/stock-transfers",
+    icon: ArrowLeftRight,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Purchase Orders",
+    url: "/purchase-orders",
+    icon: Truck,
+    allowedRoles: ["owner", "manager"],
+  },
 ];
 
 const salesItems: MenuItem[] = [
@@ -106,6 +122,12 @@ const salesItems: MenuItem[] = [
     title: "Bookings",
     url: "/bookings",
     icon: CalendarClock,
+    allowedRoles: ["owner", "manager", "staff"],
+  },
+  {
+    title: "Quotes",
+    url: "/quotes",
+    icon: FileText,
     allowedRoles: ["owner", "manager", "staff"],
   },
 ];
@@ -156,6 +178,12 @@ const settingsItems: MenuItem[] = [
     icon: Gift,
     allowedRoles: ["owner"],
   },
+  {
+    title: "Taxes & Compliance",
+    url: "/settings/taxes",
+    icon: Percent,
+    allowedRoles: ["owner"],
+  },
 ];
 
 export function AppSidebar() {
@@ -186,7 +214,7 @@ export function AppSidebar() {
       const res = await apiRequest("GET", `/api/payroll/periods?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: ["owner", "manager"].includes(userRole) && !!currentStore?.id,
+    enabled: ["owner", "manager"].includes(userRole) && !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const pendingPayrollCount = payrollPeriods?.filter(p => p.status === "pending").length || 0;

@@ -47,9 +47,24 @@ export function sanitizeUUID(input: string | undefined | null): string | null {
   return null;
 }
 
+export function normalizePhoneNumber(input: string | undefined | null): string {
+  if (!input) return "";
+  // Remove all non-digits
+  let digits = input.replace(/\D/g, "");
+  // Strip leading country code 234 if present
+  if (digits.startsWith("234") && digits.length > 10) {
+    digits = digits.slice(3);
+  }
+  // Strip leading zero
+  if (digits.startsWith("0")) {
+    digits = digits.slice(1);
+  }
+  return digits;
+}
+
 export function sanitizePhoneNumber(input: string | undefined | null): string {
   if (!input) return "";
-  return input.replace(/[^\d+\-\s()]/g, "").trim();
+  return normalizePhoneNumber(input);
 }
 
 export function sanitizeEmail(input: string | undefined | null): string {

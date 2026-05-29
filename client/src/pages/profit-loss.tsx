@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet, ChevronDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet, ChevronDown, Building2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,15 @@ import { analyticsApi } from "@/services/AnalyticsApiService";
 import { endOfDay, startOfDay, startOfMonth, subMonths, format } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function ProfitLossPage() {
-  const { currentStore } = useStore();
+  const { currentStore, business, stores } = useStore();
   const { user } = useAuth();
   const storeCurrency = currentStore?.currency || "NGN";
   const [discountsCollapsed, setDiscountsCollapsed] = useState(true);
+  const [activeTab, setActiveTab] = useState("income");
+  const isOwner = user?.role === "owner";
 
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -47,30 +50,140 @@ export default function ProfitLossPage() {
   });
 
   const { data: profitLossData = [], isLoading: isLoadingPL } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss", currentStore?.id],
-    enabled: !!currentStore?.id,
+    queryKey: ["/api/profit-loss", currentStore?.id, business?.id],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && business?.id && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/profit-loss?storeId=${s.id}`);
+              if (!res.ok) return [];
+              return await res.json() as ProfitLossWithInventory[];
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedMap = new Map<string, ProfitLossWithInventory>();
+        for (const list of responses) {
+          for (const item of list) {
+            const id = item.inventoryId;
+            const existing = mergedMap.get(id);
+            if (existing) {
+              existing.totalQuantitySold += item.totalQuantitySold;
+              existing.totalRevenue += item.totalRevenue;
+              existing.totalGrossProfit += item.totalGrossProfit;
+            } else {
+              mergedMap.set(id, { ...item });
+            }
+          }
+        }
+        return Array.from(mergedMap.values());
+      }
+      const res = await fetch(`/api/profit-loss?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to load profit/loss details");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
   });
 
   const { data: summary, isLoading: isLoadingSummary } = useQuery<any>({
     queryKey: [
       "/api/profit-loss/summary",
       currentStore?.id,
+      business?.id,
       dateRange?.from?.toISOString(),
       dateRange?.to?.toISOString()
     ],
-    queryFn: () => analyticsApi.getProfitLossSummary(
-      currentStore!.id,
-      dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined,
-      dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined
-    ),
-    enabled: !!currentStore?.id,
+    queryFn: async () => {
+      const fromParam = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined;
+      const toParam = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined;
+      
+      if (currentStore?.id === "all") {
+        const params = new URLSearchParams();
+        if (business?.id) params.append("businessId", business.id);
+        if (fromParam) params.append("startDate", fromParam);
+        if (toParam) params.append("endDate", toParam);
+        const res = await fetch(`/api/profit-loss/summary?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to load consolidated profit/loss summary");
+        return res.json();
+      }
+      
+      return analyticsApi.getProfitLossSummary(
+        currentStore!.id,
+        fromParam,
+        toParam
+      );
+    },
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
+  });
+
+  const { data: cashFlowData, isLoading: isLoadingCashFlow } = useQuery<any>({
+    queryKey: [
+      "/api/reports/cash-flow",
+      currentStore?.id,
+      business?.id,
+      dateRange?.from?.toISOString(),
+      dateRange?.to?.toISOString()
+    ],
+    queryFn: async () => {
+      const fromParam = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : "";
+      const toParam = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : "";
+      
+      if (currentStore?.id === "all" && business?.id && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/reports/cash-flow?storeId=${s.id}&startDate=${fromParam}&endDate=${toParam}`);
+              if (!res.ok) return null;
+              return await res.json();
+            } catch {
+              return null;
+            }
+          })
+        );
+        const validRes = responses.filter(r => r !== null);
+        const consolidated = {
+          operatingActivities: {
+            cashReceiptsFromCustomers: 0,
+            cashPaidForOperatingExpenses: 0,
+            cashDropsFromDrawer: 0,
+            netCashFromOperatingActivities: 0
+          },
+          netCashIncrease: 0,
+          cashSummary: {
+            cashSales: 0,
+            nonCashSales: 0,
+            cashRepayments: 0,
+            operatingExpensesNonCashOut: 0
+          }
+        };
+        for (const r of validRes) {
+          consolidated.operatingActivities.cashReceiptsFromCustomers += r.operatingActivities.cashReceiptsFromCustomers || 0;
+          consolidated.operatingActivities.cashPaidForOperatingExpenses += r.operatingActivities.cashPaidForOperatingExpenses || 0;
+          consolidated.operatingActivities.cashDropsFromDrawer += r.operatingActivities.cashDropsFromDrawer || 0;
+          consolidated.operatingActivities.netCashFromOperatingActivities += r.operatingActivities.netCashFromOperatingActivities || 0;
+          consolidated.netCashIncrease += r.netCashIncrease || 0;
+          consolidated.cashSummary.cashSales += r.cashSummary.cashSales || 0;
+          consolidated.cashSummary.nonCashSales += r.cashSummary.nonCashSales || 0;
+          consolidated.cashSummary.cashRepayments += r.cashSummary.cashRepayments || 0;
+          consolidated.cashSummary.operatingExpensesNonCashOut += r.cashSummary.operatingExpensesNonCashOut || 0;
+        }
+        return consolidated;
+      }
+      
+      const res = await fetch(`/api/reports/cash-flow?storeId=${currentStore?.id}&startDate=${fromParam}&endDate=${toParam}`);
+      if (!res.ok) throw new Error("Failed to load cash flow details");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
   });
 
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);
   };
 
-  const isLoading = isLoadingPL || isLoadingSummary;
+  const isLoading = isLoadingPL || isLoadingSummary || isLoadingCashFlow;
 
 
 
@@ -186,10 +299,10 @@ export default function ProfitLossPage() {
   }));
 
   const opProfit = summary?.operatingProfit ?? 0;
-  const isOwner = user?.role === "owner";
 
   const plTabItems: TabItem[] = [
     { value: "income", label: "Income Statement" },
+    { value: "cashflow", label: "Cash Flow Statement", visible: isOwner || user?.role === "manager" },
     { value: "expenses", label: "Expense Details", visible: isOwner },
     { value: "discounts", label: "Discounts Report", visible: isOwner },
     { value: "breakdown", label: "Item-by-Item Breakdown (All Time)" },
@@ -198,8 +311,8 @@ export default function ProfitLossPage() {
   return (
     <PageContainer
       title="Profit & Loss Statement"
-      description={`Financial performance analysis for ${currentStore?.name}`}
-      storeRequired
+      description={currentStore?.id === "all" ? `Consolidated financial performance analysis for all ${stores.length} branches` : `Financial performance analysis for ${currentStore?.name}`}
+      storeRequired={currentStore?.id !== "all"}
       currentStore={currentStore}
       requiredRole="manager"
       currentUserRole={user?.role}
@@ -222,42 +335,76 @@ export default function ProfitLossPage() {
       }
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <PolymorphicMetricCard
-          title="Total Revenue"
-          value={formatCurrency(summary?.totalRevenue ?? 0)}
-          icon={<Coins className="h-5 w-5 text-emerald-600" />}
-          isLoading={isLoading}
-        />
-        <PolymorphicMetricCard
-          title="Gross Profit"
-          value={formatCurrency(summary?.grossProfit ?? 0)}
-          trend={(summary?.grossProfit ?? 0) >= 0 ? "up" : "down"}
-          trendValue="Gross margin"
-          icon={(summary?.grossProfit ?? 0) >= 0 ? <TrendingUp className="h-5 w-5 text-blue-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
-          isLoading={isLoading}
-        />
-        {isOwner && (
-          <PolymorphicMetricCard
-            title="Total Expenses"
-            value={formatCurrency(summary?.totalExpenses ?? 0)}
-            icon={<Wallet className="h-5 w-5 text-amber-600" />}
-            description="Operational + Payroll"
-            isLoading={isLoading}
-          />
-        )}
-        {isOwner && (
-          <PolymorphicMetricCard
-            title="Operating Profit"
-            value={formatCurrency(opProfit)}
-            trend={opProfit >= 0 ? "up" : "down"}
-            trendValue="Operating margin"
-            icon={opProfit >= 0 ? <TrendingUp className="h-5 w-5 text-green-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
-            isLoading={isLoading}
-          />
+        {activeTab === "cashflow" ? (
+          <>
+            <PolymorphicMetricCard
+              title="Customer Cash Inflows"
+              value={formatCurrency(cashFlowData?.operatingActivities?.cashReceiptsFromCustomers ?? 0)}
+              icon={<Coins className="h-5 w-5 text-emerald-600" />}
+              isLoading={isLoadingCashFlow}
+            />
+            <PolymorphicMetricCard
+              title="Cash Paid for Expenses"
+              value={formatCurrency(cashFlowData?.operatingActivities?.cashPaidForOperatingExpenses ?? 0)}
+              icon={<Wallet className="h-5 w-5 text-red-600" />}
+              isLoading={isLoadingCashFlow}
+            />
+            <PolymorphicMetricCard
+              title="Drawer Cash Drops"
+              value={formatCurrency(cashFlowData?.operatingActivities?.cashDropsFromDrawer ?? 0)}
+              icon={<TrendingDown className="h-5 w-5 text-amber-600" />}
+              isLoading={isLoadingCashFlow}
+            />
+            <PolymorphicMetricCard
+              title="Net Cash Flow"
+              value={formatCurrency(cashFlowData?.netCashIncrease ?? 0)}
+              trend={(cashFlowData?.netCashIncrease ?? 0) >= 0 ? "up" : "down"}
+              trendValue="Net Cash Increase"
+              icon={<TrendingUp className="h-5 w-5 text-blue-600" />}
+              isLoading={isLoadingCashFlow}
+            />
+          </>
+        ) : (
+          <>
+            <PolymorphicMetricCard
+              title="Actual Revenue (Net)"
+              value={formatCurrency(summary?.totalRevenue ?? 0)}
+              description={summary?.returnedRevenue > 0 ? `Gross: ${formatCurrency(summary.grossRevenue)} (Refunded: ${formatCurrency(summary.returnedRevenue)})` : "Net revenue after returns"}
+              icon={<Coins className="h-5 w-5 text-emerald-600" />}
+              isLoading={isLoading}
+            />
+            <PolymorphicMetricCard
+              title="Gross Profit"
+              value={formatCurrency(summary?.grossProfit ?? 0)}
+              trend={(summary?.grossProfit ?? 0) >= 0 ? "up" : "down"}
+              trendValue="Gross margin"
+              icon={(summary?.grossProfit ?? 0) >= 0 ? <TrendingUp className="h-5 w-5 text-blue-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
+              isLoading={isLoading}
+            />
+            {isOwner && (
+              <PolymorphicMetricCard
+                title="Total Expenses"
+                value={formatCurrency(summary?.totalExpenses ?? 0)}
+                icon={<Wallet className="h-5 w-5 text-amber-600" />}
+                description="Operational + Payroll"
+                isLoading={isLoading}
+              />
+            )}
+            {isOwner && (
+              <PolymorphicMetricCard
+                title="Operating Profit"
+                value={formatCurrency(opProfit)}
+                trend={opProfit >= 0 ? "up" : "down"}
+                trendValue="Operating margin"
+                icon={opProfit >= 0 ? <TrendingUp className="h-5 w-5 text-green-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
+                isLoading={isLoading}
+              />
+            )}
+          </>
         )}
       </div>
 
-      <Tabs defaultValue="income" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <PolymorphicTabsList tabs={plTabItems} variant="default" className="mb-6" />
 
         <TabsContent value="income" className="space-y-6 mt-0 border-none p-0">
@@ -272,16 +419,29 @@ export default function ProfitLossPage() {
             </CardHeader>
             <CardContent className="pt-6 space-y-4">
               <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Service Revenue</span>
+                <span className="text-muted-foreground">Service Revenue (Net)</span>
                 <span className="font-mono">{formatCurrency(summary?.serviceRevenue ?? 0)}</span>
               </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Product Sales</span>
+                <span className="text-muted-foreground">Product Sales (Net)</span>
                 <span className="font-mono">{formatCurrency(summary?.productRevenue ?? 0)}</span>
               </div>
-              <div className="flex justify-between items-center font-medium pt-2 border-t">
-                <span>Total Revenue</span>
+              <div className="flex justify-between items-center font-semibold pt-2 border-t text-base">
+                <span>Actual Revenue (Net)</span>
                 <span className="font-mono text-emerald-600">{formatCurrency(summary?.totalRevenue ?? 0)}</span>
+              </div>
+              
+              <div className="border border-dashed border-muted/80 rounded-lg p-3 bg-muted/5 space-y-2 mt-2">
+                <div className="flex justify-between items-center text-xs text-muted-foreground">
+                  <span>Gross Revenue (Before Returns)</span>
+                  <span className="font-mono">{formatCurrency(summary?.grossRevenue ?? 0)}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs text-muted-foreground">
+                  <span>Total Returns & Refunds Deducted</span>
+                  <span className={`font-mono ${(summary?.returnedRevenue ?? 0) > 0 ? "text-red-500 font-medium" : ""}`}>
+                    − {formatCurrency(summary?.returnedRevenue ?? 0)}
+                  </span>
+                </div>
               </div>
               
               <div className="flex justify-between items-center text-sm pt-4">
@@ -380,6 +540,113 @@ export default function ProfitLossPage() {
                   </div>
                 </>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cashflow" className="space-y-6 mt-0 border-none p-0">
+          <Card className="border-primary/20 shadow-sm max-w-3xl mx-auto">
+            <CardHeader className="bg-muted/30 pb-4">
+              <CardTitle>Cash Flow Statement</CardTitle>
+              <CardDescription>
+                {dateRange?.from && dateRange?.to ? (
+                  `Period: ${format(dateRange.from, 'MMM d, yyyy')} to ${format(dateRange.to, 'MMM d, yyyy')}`
+                ) : "All time"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <h3 className="font-bold text-sm text-foreground uppercase tracking-wider mb-2">1. Operating Activities</h3>
+                <div className="space-y-2 pl-3 border-l border-muted">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Cash Sales (Customer Receipts)</span>
+                    <span className="font-mono">{formatCurrency(cashFlowData?.cashSummary?.cashSales ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Customer Repayments (Cash portion)</span>
+                    <span className="font-mono">{formatCurrency(cashFlowData?.cashSummary?.cashRepayments ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center font-medium text-sm pt-1 border-t border-muted/50">
+                    <span>Total Cash Inflow from Operations</span>
+                    <span className="font-mono text-emerald-600">{formatCurrency(cashFlowData?.operatingActivities?.cashReceiptsFromCustomers ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm pt-2">
+                    <span className="text-muted-foreground">Cash Paid for Operating Expenses</span>
+                    <span className="font-mono text-red-500">− {formatCurrency(cashFlowData?.operatingActivities?.cashPaidForOperatingExpenses ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Register Cash Drops to Safe</span>
+                    <span className="font-mono text-amber-500">− {formatCurrency(cashFlowData?.operatingActivities?.cashDropsFromDrawer ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center font-bold text-base pt-2 border-t mt-2">
+                    <span>Net Cash from Operating Activities</span>
+                    <span className={`font-mono ${(cashFlowData?.operatingActivities?.netCashFromOperatingActivities ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {formatCurrency(cashFlowData?.operatingActivities?.netCashFromOperatingActivities ?? 0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-bold text-sm text-foreground uppercase tracking-wider mb-2">2. Investing Activities</h3>
+                <div className="space-y-2 pl-3 border-l border-muted">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Capital Expenditure</span>
+                    <span className="font-mono">{formatCurrency(cashFlowData?.investingActivities?.capitalExpenditure ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center font-medium text-sm pt-1 border-t border-muted/50">
+                    <span>Net Cash from Investing Activities</span>
+                    <span className="font-mono">{formatCurrency(0)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <h3 className="font-bold text-sm text-foreground uppercase tracking-wider mb-2">3. Financing Activities</h3>
+                <div className="space-y-2 pl-3 border-l border-muted">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Loans Received</span>
+                    <span className="font-mono">{formatCurrency(cashFlowData?.financingActivities?.loansReceived ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center font-medium text-sm pt-1 border-t border-muted/50">
+                    <span>Net Cash from Financing Activities</span>
+                    <span className="font-mono">{formatCurrency(0)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <Separator className="my-4" />
+
+              <div className="flex justify-between items-center font-extrabold text-xl pt-2 border-t mt-2">
+                <span>NET INCREASE IN CASH</span>
+                <span className={`font-mono ${(cashFlowData?.netCashIncrease ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {formatCurrency(cashFlowData?.netCashIncrease ?? 0)}
+                </span>
+              </div>
+
+              <div className="bg-slate-800/20 border border-slate-700/30 rounded-lg p-4 mt-6">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">Operating Receipts Breakdown</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-slate-900/40 p-3 rounded border border-slate-800/80">
+                    <p className="text-[11px] text-muted-foreground font-semibold uppercase">Cash vs Non-Cash Sales</p>
+                    <div className="flex justify-between items-center mt-1.5 text-sm font-mono">
+                      <span className="text-emerald-500">Cash: {formatCurrency(cashFlowData?.cashSummary?.cashSales ?? 0)}</span>
+                      <span className="text-blue-400">Non-Cash: {formatCurrency(cashFlowData?.cashSummary?.nonCashSales ?? 0)}</span>
+                    </div>
+                  </div>
+                  <div className="bg-slate-900/40 p-3 rounded border border-slate-800/80">
+                    <p className="text-[11px] text-muted-foreground font-semibold uppercase">Non-Cash Expenses Paid</p>
+                    <div className="flex justify-between items-center mt-1.5 text-sm font-mono">
+                      <span className="text-muted-foreground">Card/Transfer:</span>
+                      <span>{formatCurrency(cashFlowData?.cashSummary?.operatingExpensesNonCashOut ?? 0)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

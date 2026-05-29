@@ -28,21 +28,39 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { useStore } from "@/lib/store-context";
 import { DataTable } from "@/components/data-table";
+import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 
 export default function BookingsPage() {
-  const { currentStore } = useStore();
+  const { currentStore, stores } = useStore();
   const [view, setView] = useState<"list" | "calendar">("list");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [, setLocation] = useLocation();
 
   const { data, isLoading } = useQuery<{ data: any[], pagination: any }>({
-    queryKey: ["/api/bookings", currentStore?.id],
+    queryKey: ["/api/bookings", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/bookings?storeId=${s.id}&limit=1000`);
+              if (!res.ok) return { data: [], pagination: {} };
+              const payload = await res.json() as { data: any[], pagination: any };
+              const list = payload.data || [];
+              return list.map((item: any) => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedList = responses.flat().sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
+        return { data: mergedList, pagination: {} };
+      }
       const res = await fetch(`/api/bookings?storeId=${currentStore!.id}&limit=1000`);
       if (!res.ok) throw new Error("Failed to fetch bookings");
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   const getStatusColor = (status: string) => {
@@ -59,6 +77,15 @@ export default function BookingsPage() {
   };
 
   const columns = [
+    ...(currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (booking: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {booking.storeName || "Global"}
+        </Badge>
+      ),
+    }] : []),
     {
       key: "bookingRef",
       header: "Reference",
@@ -78,12 +105,14 @@ export default function BookingsPage() {
     {
       key: "customerName",
       header: "Customer",
-      render: (booking: any) => (
-        <div className="flex flex-col">
-          <span className="font-medium text-sm">{booking.customer?.name || "Unknown"}</span>
-          <span className="text-xs text-muted-foreground">{booking.customer?.mobileNumber || "—"}</span>
-        </div>
-      ),
+      render: (booking: any) => {
+        const presenter = new CustomerPresenter({
+          name: booking.customer?.name,
+          customerNumber: booking.customer?.customerNumber || booking.customerId || "—",
+          mobileNumber: booking.customer?.mobileNumber,
+        });
+        return <EntityDisplay presenter={presenter} />;
+      },
     },
     {
       key: "scheduledAt",

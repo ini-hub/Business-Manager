@@ -40,11 +40,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (stores.length > 0) {
       const savedStoreId = storageKey ? localStorage.getItem(storageKey) : null;
-      // Only use saved store if it actually belongs to this user's stores
-      const savedStore = savedStoreId ? stores.find(s => s.id === savedStoreId) : null;
-      setCurrentStoreState(savedStore || stores[0]);
+      // Only use saved store if it actually belongs to this user's stores or is the special "all" view for owners
+      if (savedStoreId === "all" && user?.role === "owner") {
+        setCurrentStoreState({
+          id: "all",
+          name: "All Stores (Consolidated)",
+          currency: stores[0]?.currency || "NGN",
+          code: "GLOBAL",
+          businessId: business?.id,
+        } as any);
+      } else {
+        const savedStore = savedStoreId ? stores.find(s => s.id === savedStoreId) : null;
+        setCurrentStoreState(savedStore || stores[0]);
+      }
     }
-  }, [stores, storageKey]);
+  }, [stores, storageKey, user, business]);
 
   const setCurrentStore = (store: Store) => {
     setCurrentStoreState(store);

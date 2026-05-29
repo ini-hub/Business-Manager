@@ -49,7 +49,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Customer, Staff, Inventory } from "@shared/schema";
+import { CustomerPresenter, StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { insertCustomerSchema } from "@shared/schema";
+import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 
 // Form schema based on the backend requirements
 const bookingFormSchema = z.object({
@@ -111,7 +114,9 @@ export default function BookingFormPage() {
 
   // Customer UI states
   const [customerOpen, setCustomerOpen] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
+  const [staffOpen, setStaffOpen] = useState(false);
 
   const customerForm = useForm<InsertCustomer>({
     resolver: zodResolver(newCustomerSchema),
@@ -160,9 +165,45 @@ export default function BookingFormPage() {
   const [isAuthorizingSupervisor, setIsAuthorizingSupervisor] = useState(false);
 
   // Fetch data
-  const { data: customers } = useQuery<Customer[]>({
+  const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
     enabled: !!currentStore?.id,
+  });
+
+  const { data: globalCustomerMatches = [] } = useQuery<any[]>({
+    queryKey: ["/api/customers/search-global", currentStore?.id, customerSearchQuery],
+    queryFn: async () => {
+      if (customerSearchQuery.trim().length < 2) return [];
+      const res = await apiRequest("GET", `/api/customers/search-global?storeId=${currentStore?.id}&query=${encodeURIComponent(customerSearchQuery)}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all" && customerSearchQuery.trim().length >= 2,
+  });
+
+  const profileCustomerMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      const res = await apiRequest("POST", "/api/customers/profile-global", {
+        customerId,
+        storeId: currentStore?.id,
+      });
+      return res.json();
+    },
+    onSuccess: (newLocalCustomer) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      form.setValue("customerId", newLocalCustomer.id);
+      setCustomerOpen(false);
+      toast({
+        title: "Customer Profiled Successfully",
+        description: `${newLocalCustomer.name} has been imported to this branch.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Couldn't Profile Customer",
+        description: error.message || "Failed to copy customer profile.",
+        variant: "destructive",
+      });
+    },
   });
 
   const { data: staff } = useQuery<Staff[]>({
@@ -269,6 +310,30 @@ export default function BookingFormPage() {
     }
   };
 
+  if (!currentStore) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={isEditing ? "Edit Booking" : "New Booking"}
+          description="Schedule an appointment or product pre-order"
+        />
+        <StoreRequiredAlert title="Store Required for Bookings" />
+      </div>
+    );
+  }
+
+  if (currentStore.id === "all") {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <PageHeader
+          title={isEditing ? "Edit Booking" : "New Booking"}
+          description="Schedule an appointment or product pre-order"
+        />
+        <ConsolidatedFallbackAlert pageTitle="Appointment & Order Bookings" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -327,55 +392,122 @@ export default function BookingFormPage() {
                       name="customerId"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Customer</FormLabel>
-                          <div className="flex items-center gap-2">
-                            <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
+                           <FormLabel>Customer</FormLabel>
+                           <div className="flex items-center gap-2">
+                            <Popover open={customerOpen} onOpenChange={(open) => {
+                              setCustomerOpen(open);
+                              if (!open) setCustomerSearchQuery("");
+                            }}>
                               <PopoverTrigger asChild>
                                 <Button
                                   variant="outline"
                                   role="combobox"
                                   aria-expanded={customerOpen}
                                   className="flex-1 justify-between font-normal"
+                                  disabled={profileCustomerMutation.isPending}
                                 >
-                                  {field.value
-                                    ? customers?.find((c) => c.id === field.value)?.name
-                                    : "Search customers..."}
+                                  {profileCustomerMutation.isPending ? (
+                                    <span className="flex items-center gap-2 text-muted-foreground">
+                                      <span className="h-2 w-2 animate-ping rounded-full bg-primary" />
+                                      Profiling customer...
+                                    </span>
+                                  ) : field.value ? (
+                                    customers?.find((c) => c.id === field.value)?.name
+                                  ) : (
+                                    "Search customers..."
+                                  )}
                                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                 </Button>
                               </PopoverTrigger>
                               <PopoverContent className="w-[300px] p-0" align="start">
-                                <Command>
-                                  <CommandInput placeholder="Search by name or ID..." />
+                                <Command shouldFilter={false}>
+                                  <CommandInput 
+                                    placeholder="Search by name or ID..." 
+                                    value={customerSearchQuery}
+                                    onValueChange={setCustomerSearchQuery}
+                                  />
                                   <CommandList>
-                                    <CommandEmpty>No customer found.</CommandEmpty>
-                                    <CommandGroup>
-                                      {customers?.filter(c => !c.isArchived).map((customer) => (
-                                        <CommandItem
-                                          key={customer.id}
-                                          value={`${customer.name} ${customer.customerNumber}`}
-                                          onSelect={() => {
-                                            field.onChange(customer.id);
-                                            setCustomerOpen(false);
-                                          }}
-                                        >
-                                          <Check
-                                            className={cn(
-                                              "mr-2 h-4 w-4",
-                                              field.value === customer.id ? "opacity-100" : "opacity-0"
-                                            )}
-                                          />
-                                          <div className="flex flex-col">
-                                            <span>{customer.name}</span>
-                                            <span className="text-xs text-muted-foreground font-mono">{customer.customerNumber}</span>
-                                          </div>
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
+                                    {profileCustomerMutation.isPending ? (
+                                      <CommandEmpty>Profiling customer, please wait...</CommandEmpty>
+                                    ) : (
+                                      (customers?.filter(c => !c.isArchived).length === 0) &&
+                                      globalCustomerMatches.length === 0 && (
+                                        <CommandEmpty>No customer found.</CommandEmpty>
+                                      )
+                                    )}
+
+                                    {!profileCustomerMutation.isPending && (
+                                      <>
+                                        {/* Local store branch */}
+                                        <CommandGroup heading="Local Store Branch">
+                                          {customers
+                                            ?.filter((c) => !c.isArchived)
+                                            .filter((c) => {
+                                              if (!customerSearchQuery.trim()) return true;
+                                              const query = customerSearchQuery.toLowerCase();
+                                              return (
+                                                c.name.toLowerCase().includes(query) ||
+                                                c.customerNumber.toLowerCase().includes(query) ||
+                                                (c.mobileNumber || "").toLowerCase().includes(query)
+                                              );
+                                            })
+                                            .map((customer) => {
+                                              const presenter = new CustomerPresenter(customer);
+                                              return (
+                                                <CommandItem
+                                                  key={customer.id}
+                                                  value={`${customer.name} ${customer.customerNumber} ${customer.mobileNumber || ''}`}
+                                                  onSelect={() => {
+                                                    field.onChange(customer.id);
+                                                    setCustomerOpen(false);
+                                                  }}
+                                                >
+                                                  <Check
+                                                    className={cn(
+                                                      "mr-2 h-4 w-4",
+                                                      field.value === customer.id ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                  />
+                                                  <EntityDisplay presenter={presenter} />
+                                                </CommandItem>
+                                              );
+                                            })}
+                                        </CommandGroup>
+
+                                        {/* Other branches */}
+                                        {globalCustomerMatches.length > 0 && (
+                                          <CommandGroup heading="Other Branches (Same Business)">
+                                            {globalCustomerMatches.map((customer) => {
+                                              const presenter = new CustomerPresenter(customer);
+                                              return (
+                                                <CommandItem
+                                                  key={customer.id}
+                                                  value={`${customer.name} ${customer.customerNumber} ${customer.mobileNumber || ''}`}
+                                                  onSelect={() => {
+                                                    profileCustomerMutation.mutate(customer.id);
+                                                  }}
+                                                  className="flex items-center justify-between cursor-pointer"
+                                                >
+                                                  <div className="flex items-center flex-1">
+                                                    <Check className="mr-2 h-4 w-4 opacity-0" />
+                                                    <EntityDisplay presenter={presenter} />
+                                                  </div>
+                                                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0 ml-2">
+                                                    {customer.storeName}
+                                                  </span>
+                                                </CommandItem>
+                                              );
+                                            })}
+                                          </CommandGroup>
+                                        )}
+                                      </>
+                                    )}
                                   </CommandList>
                                 </Command>
                               </PopoverContent>
                             </Popover>
-                            <Button 
+
+                             <Button 
                               variant="outline" 
                               size="icon" 
                               type="button"
@@ -395,23 +527,71 @@ export default function BookingFormPage() {
                         control={form.control}
                         name="leadStaffId"
                         render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Assigned Staff</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select staff member" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {staff?.map((s) => (
-                                  <SelectItem key={s.id} value={s.id}>
-                                    {s.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                          <FormItem className="flex flex-col justify-end h-full">
+                            <FormLabel className="mb-2">Assigned Staff</FormLabel>
+                            <Popover open={staffOpen} onOpenChange={setStaffOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  className={cn(
+                                    "w-full justify-between font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value && field.value !== "unassigned"
+                                    ? staff?.find((s) => s.id === field.value)?.name
+                                    : "Select staff member..."}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[300px] p-0" align="start">
+                                <Command>
+                                  <CommandInput placeholder="Search staff..." />
+                                  <CommandList>
+                                    <CommandEmpty>No staff member found.</CommandEmpty>
+                                    <CommandGroup>
+                                      <CommandItem
+                                        value="unassigned"
+                                        onSelect={() => {
+                                          field.onChange("unassigned");
+                                          setStaffOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            (field.value === "unassigned" || !field.value) ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        <span>Unassigned</span>
+                                      </CommandItem>
+                                      {staff?.filter(s => !s.isArchived).map((s) => {
+                                        const presenter = new StaffPresenter(s);
+                                        return (
+                                          <CommandItem
+                                            key={s.id}
+                                            value={`${s.name} ${s.staffNumber}`}
+                                            onSelect={() => {
+                                              field.onChange(s.id);
+                                              setStaffOpen(false);
+                                            }}
+                                          >
+                                            <Check
+                                              className={cn(
+                                                "mr-2 h-4 w-4",
+                                                field.value === s.id ? "opacity-100" : "opacity-0"
+                                              )}
+                                            />
+                                            <EntityDisplay presenter={presenter} />
+                                          </CommandItem>
+                                        );
+                                      })}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
                             <FormMessage />
                           </FormItem>
                         )}

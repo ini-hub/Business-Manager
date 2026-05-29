@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock, Edit, Infinity, Info, AlertCircle, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock, Edit, Infinity, Info, AlertCircle, AlertTriangle, Plus, Trash2, Layers } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -77,6 +77,13 @@ export default function InventoryDetails() {
   const { currentStore } = useStore();
   const { toast } = useToast();
   const inventoryId = params?.id;
+
+  const { data: inventory, isLoading: itemLoading } = useQuery<Inventory>({
+    queryKey: ["inventory-detail", inventoryId],
+    queryFn: () => inventoryApi.getInventoryItem(inventoryId!),
+    enabled: !!inventoryId,
+  });
+
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [restockData, setRestockData] = useState({
     quantity: 1,
@@ -89,6 +96,114 @@ export default function InventoryDetails() {
     receiptUrl: "",
   });
   const [isEditOpen, setIsEditOpen] = useState(false);
+
+  // --- COMPOSITE / BUNDLES ---
+  const { data: bundleComponents = [], isLoading: bundleLoading } = useQuery<any[]>({
+    queryKey: ["bundle-components", inventoryId],
+    queryFn: async () => {
+      const res = await fetch(`/api/inventory/${inventoryId}/bundle-components`);
+      if (!res.ok) throw new Error("Failed to fetch bundle components");
+      return res.json();
+    },
+    enabled: !!inventoryId && !!inventory?.isBundle,
+  });
+
+  const { data: storeInventory = [] } = useQuery<Inventory[]>({
+    queryKey: ["/api/inventory", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+
+  const updateBundleMutation = useMutation({
+    mutationFn: async (components: { componentInventoryId: string; quantity: number }[]) => {
+      return apiRequest("POST", `/api/inventory/${inventoryId}/bundle-components`, { components });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bundle-components", inventoryId] });
+      toast({ title: "Bundle components updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update bundle components",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // --- VARIANTS / MATRIX ---
+  const [isVariantDialogOpen, setIsVariantDialogOpen] = useState(false);
+  const [newVariantData, setNewVariantData] = useState({
+    name: "",
+    costPrice: 0,
+    sellingPrice: 0,
+    quantity: 0,
+    size: "",
+    color: "",
+  });
+
+  const { data: variants = [], isLoading: variantsLoading } = useQuery<Inventory[]>({
+    queryKey: ["inventory-variants", inventoryId],
+    queryFn: async () => {
+      const res = await fetch(`/api/inventory/${inventoryId}/variants`);
+      if (!res.ok) throw new Error("Failed to fetch variants");
+      return res.json();
+    },
+    enabled: !!inventoryId && inventory?.type === "product" && !inventory?.parentInventoryId,
+  });
+
+  const createVariantMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest("POST", `/api/inventory/${inventoryId}/variants`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-variants", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      toast({ title: "Variant created successfully" });
+      setIsVariantDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create variant",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // --- FIFO EXPIRY BATCHES ---
+  const [newBatchData, setNewBatchData] = useState({
+    batchNumber: "",
+    expiryDate: "",
+    quantity: 1,
+  });
+
+  const { data: batches = [], isLoading: batchesLoading } = useQuery<any[]>({
+    queryKey: ["inventory-batches", inventoryId],
+    queryFn: async () => {
+      const res = await fetch(`/api/inventory/${inventoryId}/batches`);
+      if (!res.ok) throw new Error("Failed to fetch batches");
+      return res.json();
+    },
+    enabled: !!inventoryId && inventory?.type === "product" && !inventory?.isBundle,
+  });
+
+  const createBatchMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest("POST", `/api/inventory/${inventoryId}/batches`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-batches", inventoryId] });
+      toast({ title: "Batch cohort added successfully" });
+      setNewBatchData({ batchNumber: "", expiryDate: "", quantity: 1 });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create batch",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const form = useForm<InsertInventory>({
     resolver: zodResolver(inventoryEditFormSchema),
@@ -153,15 +268,11 @@ export default function InventoryDetails() {
     updateMutation.mutate(data);
   };
 
-  const { data: inventory, isLoading: itemLoading } = useQuery<Inventory>({
-    queryKey: ["inventory-detail", inventoryId],
-    queryFn: () => inventoryApi.getInventoryItem(inventoryId!),
-    enabled: !!inventoryId,
-  });
+
 
   const { data: settingsData } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
   const lowStockThreshold = settingsData?.lowStockThreshold ?? 5;
@@ -440,8 +551,11 @@ export default function InventoryDetails() {
         <PolymorphicTabsList
           tabs={[
             { value: "overview", label: "Overview" },
-            { value: "restock-history", label: "Restock History" },
+            ...(inventory.type === "product" ? [{ value: "restock-history", label: "Restock History" }] : []),
             { value: "sustaining-costs", label: "Sustaining Costs" },
+            ...(inventory.isBundle ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
+            ...(inventory.type === "product" && !inventory.parentInventoryId ? [{ value: "variants", label: "Variants / Matrix" }] : []),
+            ...(inventory.type === "product" && !inventory.isBundle ? [{ value: "expiry-batches", label: "FIFO Expiry Batches" }] : []),
           ]}
           variant="default"
         />
@@ -716,7 +830,502 @@ export default function InventoryDetails() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="bundle-components" className="space-y-6 mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5 text-primary" />
+                Bundle Components
+              </CardTitle>
+              <CardDescription>
+                Manage the child inventory items that make up this composite bundle. Selling the bundle automatically deducts stock of its component items.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {bundleLoading ? (
+                <div className="py-8 text-center text-muted-foreground">Loading components...</div>
+              ) : (
+                <div className="grid gap-6 lg:grid-cols-3">
+                  <div className="lg:col-span-2 space-y-4">
+                    <h3 className="text-sm font-semibold">Active Components</h3>
+                    {bundleComponents.length === 0 ? (
+                      <div className="py-8 text-center text-muted-foreground border rounded-lg bg-muted/10">
+                        <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                        <p>No components added to this bundle yet.</p>
+                        <p className="text-xs mt-1">Use the panel on the right to add products.</p>
+                      </div>
+                    ) : (
+                      <DataTable
+                        columns={[
+                          {
+                            key: "componentName",
+                            header: "Component Name",
+                            render: (row: any) => (
+                              <span className="font-medium">{row.component?.name || "Unknown Item"}</span>
+                            )
+                          },
+                          {
+                            key: "type",
+                            header: "Type",
+                            render: (row: any) => (
+                              <Badge variant="outline" className="capitalize">{row.component?.type}</Badge>
+                            )
+                          },
+                          {
+                            key: "quantity",
+                            header: "Qty per Bundle",
+                            render: (row: any) => (
+                              <span className="font-mono">{row.quantity}</span>
+                            )
+                          },
+                          {
+                            key: "stock",
+                            header: "Available Stock",
+                            render: (row: any) => (
+                              <span className="font-mono text-muted-foreground">{row.component?.quantity ?? 0}</span>
+                            )
+                          },
+                          {
+                            key: "actions",
+                            header: "",
+                            render: (row: any) => (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
+                                onClick={() => {
+                                  const updated = bundleComponents
+                                    .filter(c => c.componentInventoryId !== row.componentInventoryId)
+                                    .map(c => ({ componentInventoryId: c.componentInventoryId, quantity: c.quantity }));
+                                  updateBundleMutation.mutate(updated);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )
+                          }
+                        ]}
+                        data={bundleComponents}
+                      />
+                    )}
+                  </div>
+
+                  <Card className="bg-muted/10 border-dashed">
+                    <CardHeader>
+                      <CardTitle className="text-sm font-semibold">Add Component</CardTitle>
+                      <CardDescription className="text-xs">
+                        Include a product from stock into this bundle
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Select Product</Label>
+                        <Select
+                          onValueChange={(val) => {
+                            (window as any).selectedBundleComponentId = val;
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose product..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {storeInventory
+                              .filter((item: any) => item.type === "product" && item.id !== inventoryId && !item.isBundle)
+                              .map((item: any) => (
+                                <SelectItem key={item.id} value={item.id}>
+                                  {item.name} ({item.quantity} in stock)
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Quantity per Bundle</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          defaultValue="1"
+                          id="bundle-qty-input"
+                        />
+                      </div>
+
+                      <Button
+                        className="w-full mt-2"
+                        onClick={() => {
+                          const componentId = (window as any).selectedBundleComponentId;
+                          const qtyInput = document.getElementById("bundle-qty-input") as HTMLInputElement;
+                          const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
+
+                          if (!componentId) {
+                            toast({ title: "Please select a component product", variant: "destructive" });
+                            return;
+                          }
+
+                          if (bundleComponents.some((c: any) => c.componentInventoryId === componentId)) {
+                            toast({ title: "Product is already a component of this bundle", variant: "destructive" });
+                            return;
+                          }
+
+                          const updated = [
+                            ...bundleComponents.map(c => ({ componentInventoryId: c.componentInventoryId, quantity: c.quantity })),
+                            { componentInventoryId: componentId, quantity: qty }
+                          ];
+                          updateBundleMutation.mutate(updated);
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add to Bundle
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="variants" className="space-y-6 mt-0">
+          <Card>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Layers className="h-5 w-5 text-primary" />
+                  Product Variants & Matrix
+                </CardTitle>
+                <CardDescription>
+                  Group product options (like different sizes or colors) under this parent product listing.
+                </CardDescription>
+              </div>
+              <Button onClick={() => {
+                setNewVariantData({
+                  name: `${inventory.name} - `,
+                  costPrice: inventory.costPrice,
+                  sellingPrice: inventory.sellingPrice,
+                  quantity: 0,
+                  size: "",
+                  color: "",
+                });
+                setIsVariantDialogOpen(true);
+              }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Variant
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {variantsLoading ? (
+                <div className="py-8 text-center text-muted-foreground">Loading variants...</div>
+              ) : variants.length === 0 ? (
+                <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg bg-muted/10">
+                  <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="font-semibold text-base">No variants created yet</p>
+                  <p className="text-sm mt-1 max-w-md mx-auto text-muted-foreground">
+                    Create size, color, or other style dimensions to manage stock items separately under this product.
+                  </p>
+                </div>
+              ) : (
+                <DataTable
+                  columns={[
+                    {
+                      key: "name",
+                      header: "Variant Name",
+                      render: (row: any) => (
+                        <span className="font-medium">{row.name}</span>
+                      )
+                    },
+                    {
+                      key: "dimensions",
+                      header: "Attributes",
+                      render: (row: any) => {
+                        const dims = row.variantDimensions || {};
+                        return (
+                          <div className="flex gap-1.5 flex-wrap">
+                            {dims.size && <Badge variant="secondary">Size: {dims.size}</Badge>}
+                            {dims.color && <Badge variant="outline">Color: {dims.color}</Badge>}
+                            {!dims.size && !dims.color && <span className="text-muted-foreground text-xs">-</span>}
+                          </div>
+                        );
+                      }
+                    },
+                    {
+                      key: "costPrice",
+                      header: "Cost Price",
+                      render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.costPrice)}</span>
+                    },
+                    {
+                      key: "sellingPrice",
+                      header: "Selling Price",
+                      render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.sellingPrice)}</span>
+                    },
+                    {
+                      key: "quantity",
+                      header: "Stock",
+                      render: (row: any) => (
+                        <span className={`font-mono font-medium ${row.quantity === 0 ? 'text-destructive' : ''}`}>
+                          {row.quantity}
+                        </span>
+                      )
+                    },
+                    {
+                      key: "action",
+                      header: "",
+                      render: (row: any) => (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setLocation(`/inventory/${row.id}`)}
+                        >
+                          View Details
+                        </Button>
+                      )
+                    }
+                  ]}
+                  data={variants}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="expiry-batches" className="space-y-6 mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                FIFO Expiry Cohorts
+              </CardTitle>
+              <CardDescription>
+                Track stock batches by expiry dates. Sales will automatically deduct from the oldest stock batch first (First-In, First-Out).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {batchesLoading ? (
+                <div className="py-8 text-center text-muted-foreground">Loading batches...</div>
+              ) : (
+                <div className="grid gap-6 lg:grid-cols-3">
+                  <div className="lg:col-span-2 space-y-4">
+                    <h3 className="text-sm font-semibold">Active Batches</h3>
+                    {batches.length === 0 ? (
+                      <div className="py-8 text-center text-muted-foreground border rounded-lg bg-muted/10">
+                        <Calendar className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                        <p>No expiry batches recorded.</p>
+                        <p className="text-xs mt-1">Add a new cohort in the right-side form to begin tracking.</p>
+                      </div>
+                    ) : (
+                      <DataTable
+                        columns={[
+                          {
+                            key: "batchNumber",
+                            header: "Batch #",
+                            render: (row: any) => <span className="font-mono font-medium">{row.batchNumber}</span>
+                          },
+                          {
+                            key: "expiryDate",
+                            header: "Expiry Date",
+                            render: (row: any) => (
+                              <span>{new Date(row.expiryDate).toLocaleDateString()}</span>
+                            )
+                          },
+                          {
+                            key: "quantity",
+                            header: "Qty Remaining",
+                            render: (row: any) => (
+                              <span className="font-mono font-bold">{row.quantity}</span>
+                            )
+                          },
+                          {
+                            key: "status",
+                            header: "Status",
+                            render: (row: any) => {
+                              const now = new Date();
+                              const expiry = new Date(row.expiryDate);
+                              const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                              
+                              if (diffDays <= 0) {
+                                return <Badge variant="destructive">Expired</Badge>;
+                              } else if (diffDays <= 30) {
+                                return (
+                                  <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                    Expiring in {diffDays} days
+                                  </Badge>
+                                );
+                              } else {
+                                return (
+                                  <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                                    Active
+                                  </Badge>
+                                );
+                              }
+                            }
+                          }
+                        ]}
+                        data={batches}
+                      />
+                    )}
+                  </div>
+
+                  <Card className="bg-muted/10">
+                    <CardHeader>
+                      <CardTitle className="text-sm font-semibold">Add Batch Cohort</CardTitle>
+                      <CardDescription className="text-xs">
+                        Log a new batch with specific expiry information
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="batch-number">Batch Number</Label>
+                        <Input
+                          id="batch-number"
+                          placeholder="e.g. BAT-2026-001"
+                          value={newBatchData.batchNumber}
+                          onChange={(e) => setNewBatchData(prev => ({ ...prev, batchNumber: e.target.value }))}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="batch-expiry">Expiry Date</Label>
+                        <Input
+                          id="batch-expiry"
+                          type="date"
+                          value={newBatchData.expiryDate}
+                          onChange={(e) => setNewBatchData(prev => ({ ...prev, expiryDate: e.target.value }))}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="batch-qty">Starting Quantity</Label>
+                        <Input
+                          id="batch-qty"
+                          type="number"
+                          min="1"
+                          value={newBatchData.quantity}
+                          onChange={(e) => setNewBatchData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                        />
+                      </div>
+
+                      <Button
+                        className="w-full mt-2"
+                        disabled={createBatchMutation.isPending || !newBatchData.batchNumber || !newBatchData.expiryDate}
+                        onClick={() => {
+                          createBatchMutation.mutate({
+                            batchNumber: newBatchData.batchNumber,
+                            expiryDate: newBatchData.expiryDate,
+                            quantity: newBatchData.quantity,
+                          });
+                        }}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Log Batch
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      <Dialog open={isVariantDialogOpen} onOpenChange={setIsVariantDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Product Variant</DialogTitle>
+            <DialogDescription>
+              Create a distinct item listing linked as a variant of "{inventory.name}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="variant-name">Variant Item Name</Label>
+              <Input
+                id="variant-name"
+                placeholder="e.g. T-Shirt - M / Red"
+                value={newVariantData.name}
+                onChange={(e) => setNewVariantData(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="variant-size">Size (optional)</Label>
+                <Input
+                  id="variant-size"
+                  placeholder="e.g. M, L, XL"
+                  value={newVariantData.size}
+                  onChange={(e) => setNewVariantData(prev => ({ ...prev, size: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="variant-color">Color (optional)</Label>
+                <Input
+                  id="variant-color"
+                  placeholder="e.g. Red, Blue"
+                  value={newVariantData.color}
+                  onChange={(e) => setNewVariantData(prev => ({ ...prev, color: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="variant-cost">Cost Price</Label>
+                <Input
+                  id="variant-cost"
+                  type="number"
+                  step="0.01"
+                  value={newVariantData.costPrice}
+                  onChange={(e) => setNewVariantData(prev => ({ ...prev, costPrice: parseFloat(e.target.value) || 0 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="variant-selling">Selling Price</Label>
+                <Input
+                  id="variant-selling"
+                  type="number"
+                  step="0.01"
+                  value={newVariantData.sellingPrice}
+                  onChange={(e) => setNewVariantData(prev => ({ ...prev, sellingPrice: parseFloat(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="variant-qty">Starting Stock Quantity</Label>
+              <Input
+                id="variant-qty"
+                type="number"
+                min="0"
+                value={newVariantData.quantity}
+                onChange={(e) => setNewVariantData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsVariantDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={createVariantMutation.isPending || !newVariantData.name}
+              onClick={() => {
+                const dims: any = {};
+                if (newVariantData.size) dims.size = newVariantData.size;
+                if (newVariantData.color) dims.color = newVariantData.color;
+
+                createVariantMutation.mutate({
+                  name: newVariantData.name,
+                  costPrice: newVariantData.costPrice,
+                  sellingPrice: newVariantData.sellingPrice,
+                  quantity: newVariantData.quantity,
+                  variantDimensions: dims,
+                });
+              }}
+            >
+              {createVariantMutation.isPending ? "Creating..." : "Create Variant"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isRestockOpen} onOpenChange={setIsRestockOpen}>
         <DialogContent className="max-w-md">

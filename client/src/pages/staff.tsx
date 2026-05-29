@@ -27,6 +27,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
 import { Mail, Shield } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -53,8 +54,42 @@ export default function StaffPage() {
   const [activeTab, setActiveTab] = useState("active");
 
   const { data: staffList = [], isLoading } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    enabled: !!currentStore?.id,
+    queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/staff?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as Staff[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedMap = new Map<string, Staff & { storeName?: string }>();
+        for (const list of responses) {
+          for (const item of list) {
+            const key = item.id;
+            const existing = mergedMap.get(key);
+            if (existing) {
+              if (item.storeName && !existing.storeName?.includes(item.storeName)) {
+                existing.storeName = `${existing.storeName}, ${item.storeName}`;
+              }
+            } else {
+              mergedMap.set(key, { ...item });
+            }
+          }
+        }
+        return Array.from(mergedMap.values());
+      }
+      const res = await fetch(`/api/staff?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch staff");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   const activeStaff = staffList.filter(s => !s.isArchived);
@@ -141,23 +176,25 @@ export default function StaffPage() {
   };
 
   const activeColumns = useMemo(() => {
+    const storeColumn = currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (staff: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {staff.storeName || "Global"}
+        </Badge>
+      ),
+    }] : [];
+
     const baseColumns = [
-      {
-        key: "staffNumber",
-        header: "Staff ID",
-        render: (staff: Staff) => (
-          <div className="flex items-center gap-2">
-            <Hash className="h-3 w-3 text-muted-foreground" />
-            <span className="font-mono text-sm">{staff.staffNumber}</span>
-          </div>
-        ),
-      },
+      ...storeColumn,
       {
         key: "name",
-        header: "Name",
-        render: (staff: Staff) => (
-          <span className="font-medium">{staff.name}</span>
-        ),
+        header: "Staff Member",
+        render: (staff: Staff) => {
+          const presenter = new StaffPresenter(staff);
+          return <EntityDisplay presenter={presenter} />;
+        },
       },
       {
         key: "email",
@@ -182,8 +219,11 @@ export default function StaffPage() {
     ];
 
     if (isOwner) {
+      const mobileCol = baseColumns.find(c => c.key === "mobileNumber")!;
+      const nonMobileBaseCols = baseColumns.filter(c => c.key !== "mobileNumber");
+
       return [
-        ...baseColumns.slice(0, 3),
+        ...nonMobileBaseCols,
         {
           key: "role",
           header: "Role",
@@ -203,7 +243,7 @@ export default function StaffPage() {
             </Badge>
           ),
         },
-        baseColumns[3],
+        mobileCol,
         {
           key: "payPerMonth",
           header: "Monthly Pay",
@@ -305,25 +345,27 @@ export default function StaffPage() {
   }, [isOwner, formatCurrency, setLocation, otherStores.length]);
 
   const archivedColumns = [
-    {
-      key: "staffNumber",
-      header: "Staff ID",
-      render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <Hash className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-sm">{staff.staffNumber}</span>
-        </div>
+    ...(currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (staff: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {staff.storeName || "Global"}
+        </Badge>
       ),
-    },
+    }] : []),
     {
       key: "name",
-      header: "Name",
-      render: (staff: Staff) => (
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{staff.name}</span>
-          <Badge variant="secondary">Archived</Badge>
-        </div>
-      ),
+      header: "Staff Member",
+      render: (staff: Staff) => {
+        const presenter = new StaffPresenter(staff);
+        return (
+          <div className="flex items-center gap-2">
+            <EntityDisplay presenter={presenter} />
+            <Badge variant="secondary">Archived</Badge>
+          </div>
+        );
+      },
     },
     {
       key: "mobileNumber",

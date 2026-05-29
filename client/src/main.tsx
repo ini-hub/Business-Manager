@@ -12,4 +12,14 @@ const customErrorMap: z.ZodErrorMap = (issue, ctx) => {
 
 z.setErrorMap(customErrorMap);
 
+// Prevent wheel scroll from changing numeric input values globally
+document.addEventListener("wheel", () => {
+  if (
+    document.activeElement instanceof HTMLInputElement &&
+    document.activeElement.type === "number"
+  ) {
+    document.activeElement.blur();
+  }
+}, { passive: true });
+
 createRoot(document.getElementById("root")!).render(<App />);

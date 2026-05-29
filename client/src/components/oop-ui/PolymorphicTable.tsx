@@ -661,7 +661,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   }
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("space-y-4 w-full min-w-0 overflow-hidden", className)}>
       {/* Search & Dynamic Horizontal Filter Toolbar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 pb-2 border-b border-muted/30">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
@@ -742,7 +742,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
         </div>
       </div>
 
-      <div className="hidden lg:block rounded-md border bg-card text-card-foreground">
+      <div className="hidden lg:block rounded-md border bg-card text-card-foreground overflow-x-auto max-w-full">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30">
@@ -865,7 +865,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
             )}
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 w-full min-w-0">
             {paginatedData.map((item) => {
               const isSelected = currentSelectedIds.includes(item.id);
               const actionsCol = columns.find(col => col.key === "actions");
@@ -884,7 +884,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                     }
                   }}
                   className={cn(
-                    "relative bg-card text-card-foreground border rounded-xl p-4 shadow-xs hover:border-primary/45 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3 group border-muted/80",
+                    "relative bg-card text-card-foreground border rounded-xl p-4 shadow-xs hover:border-primary/45 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3 group border-muted/80 min-w-0 overflow-hidden",
                     isSelected && "border-primary/50 bg-primary/5"
                   )}
                 >

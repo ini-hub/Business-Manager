@@ -26,6 +26,12 @@ export const organisations = pgTable("organisations", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   commissionSplitBusinessShare: integer("commission_split_business_share").notNull().default(80),
   commissionSplitStaffShare: integer("commission_split_staff_share").notNull().default(20),
+  status: text("status").notNull().default("active"), // 'active', 'inactive', 'suspended'
+  suspensionReason: text("suspension_reason"), // 'policy_violation', 'non_payment', 'fraudulent_activity', 'owner_request', 'inactivity', 'other'
+  suspensionNote: text("suspension_note"),
+  suspendedAt: timestamp("suspended_at"),
+  deletedAt: timestamp("deleted_at"), // Soft-delete 30-day grace period
+  deletionReason: text("deletion_reason"),
 });
 
 export const organisationsRelations = relations(organisations, ({ many }) => ({
@@ -131,7 +137,12 @@ export const customers = pgTable("customers", {
   address: text("address").notNull(),
   birthday: timestamp("birthday"),
   loyaltyPoints: integer("loyalty_points").notNull().default(0),
+  storeCreditBalance: real("store_credit_balance").notNull().default(0),
   isArchived: boolean("is_archived").notNull().default(false),
+  globalCustomerId: varchar("global_customer_id"), // Links local profiles sharing same phone
+  isConfirmedDistinct: boolean("is_confirmed_distinct").notNull().default(false),
+  duplicateOfId: varchar("duplicate_of_id"), // Links to other duplicate customer profile
+  mergedIntoId: varchar("merged_into_id"), // Links to target profile if merged
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
@@ -175,7 +186,22 @@ export const staff = pgTable("staff", {
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
   role: text("role").notNull().default("staff"), // manager or staff
-  paymentMethod: text("payment_method").notNull().default("hybrid"), // fixed or hybrid
+  paymentMethod: text("payment_method").notNull().default("hybrid"), // fixed, commission, or hybrid
+  overridePaymentMethod: boolean("override_payment_method").notNull().default(false),
+  overrideCommission: boolean("override_commission").notNull().default(false),
+  commissionTypeOverride: text("commission_type_override"), // percentage or fixed_per_service
+  commissionFixedAmountOverride: real("commission_fixed_amount_override"),
+  overrideFormula: boolean("override_formula").notNull().default(false),
+  commissionFormulaOverride: text("commission_formula_override"), // formula_a, formula_b, formula_c, formula_d
+  overrideAttendanceRates: boolean("override_attendance_rates").notNull().default(false),
+  activeDayRateOverride: real("active_day_rate_override"),
+  passiveDayRateOverride: real("passive_day_rate_override"),
+  leaveDayRateOverride: real("leave_day_rate_override"),
+  payLeaveDaysOverride: boolean("pay_leave_days_override").notNull().default(false),
+  holidayDayRateOverride: real("holiday_day_rate_override"),
+  payHolidayDaysOverride: boolean("pay_holiday_days_override").notNull().default(false),
+  offDayRateOverride: real("off_day_rate_override"),
+  payOffDaysOverride: boolean("pay_off_days_override").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
@@ -201,7 +227,7 @@ export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isAr
   countryCode: z.string().default("NG"),
   mobileNumber: trimmedString(1, "Mobile number is required"),
   role: z.string().default("staff"),
-  paymentMethod: z.enum(["fixed", "hybrid"]).default("hybrid"),
+  paymentMethod: z.string().default("hybrid"),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 export type Staff = typeof staff.$inferSelect;
@@ -218,6 +244,9 @@ export const inventory = pgTable("inventory", {
   commissionSplitOverride: boolean("commission_split_override").default(false).notNull(),
   commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
   commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),
+  isBundle: boolean("is_bundle").default(false).notNull(),
+  parentInventoryId: varchar("parent_inventory_id"), // Self-referencing foreign key later
+  variantDimensions: jsonb("variant_dimensions"),
 }, (table) => [
   unique("inventory_store_name_unique").on(table.storeId, table.name),
 ]);
@@ -397,7 +426,10 @@ export const orders = pgTable("orders", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   quantity: integer("quantity").notNull(),
+  returnedQuantity: integer("returned_quantity").notNull().default(0),
   totalPrice: real("total_price").notNull(),
+  refundedAmount: real("refunded_amount").notNull().default(0),
+  taxApplied: real("tax_applied").notNull().default(0),
 });
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
@@ -432,7 +464,7 @@ export const checkouts = pgTable("checkouts", {
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
   totalPrice: real("total_price").notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave, credit, split
-  splitPayments: jsonb("split_payments").$type<Array<{method: "cash" | "transfer" | "flutterwave" | "credit", amount: number}>>(), // only populated if paymentMethod === "split"
+  splitPayments: jsonb("split_payments").$type<Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>>(), // only populated if paymentMethod === "split"
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
   paymentReference: text("payment_reference"), // For Flutterwave transaction reference
   commissionSplit: text("commission_split").notNull().default("standard"), // standard or equal
@@ -441,15 +473,17 @@ export const checkouts = pgTable("checkouts", {
   voidedAt: timestamp("voided_at"),
   voidedByUserId: varchar("voided_by_user_id").references(() => users.id),
   voidReason: text("void_reason"),
+  isPartiallyReturned: boolean("is_partially_returned").notNull().default(false),
   // New transaction-level Discount Option B columns
   subtotal: real("subtotal").notNull().default(0),
   discountAmount: real("discount_amount").notNull().default(0),
   discountPercent: real("discount_percent").notNull().default(0),
   discountReason: text("discount_reason"),
   discountApprovedBy: text("discount_approved_by"),
+  pointsRedeemed: integer("points_redeemed").notNull().default(0),
   totalCharged: real("total_charged").notNull().default(0),
+  taxTotal: real("tax_total").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  systemCreatedAt: timestamp("system_created_at").notNull().defaultNow(),
 });
 
 export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
@@ -565,6 +599,9 @@ export type TransactionWithRelations = Transaction & {
   checkout: Checkout & {
     staff?: Staff;
     voidedByUser?: User | null;
+    quantity?: number;
+    returnedQuantity?: number;
+    refundedAmount?: number;
   };
   store: Store;
 };
@@ -634,6 +671,9 @@ export const users = pgTable("users", {
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  status: text("status").notNull().default("active"), // 'active', 'pending', 'locked', 'deactivated'
+  suspensionReason: text("suspension_reason"),
+  suspendedAt: timestamp("suspended_at"),
 });
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -796,6 +836,23 @@ export const settings = pgTable("settings", {
   borrowBookReminderLanguage: text("borrow_book_reminder_language").notNull().default("both"), // pidgin, english, both
   whatsappGatewayConfigured: boolean("whatsapp_gateway_configured").notNull().default(false),
   smsGatewayConfigured: boolean("sms_gateway_configured").notNull().default(false),
+  // Payroll Settings defaults
+  defaultPaymentMethod: text("default_payment_method").notNull().default("hybrid"), // fixed, commission, hybrid
+  commissionType: text("commission_type").notNull().default("percentage"), // percentage, fixed_per_service
+  commissionFixedAmount: real("commission_fixed_amount").notNull().default(0),
+  commissionFormula: text("commission_formula").notNull().default("formula_b"), // formula_a, formula_b, formula_c, formula_d
+  leaveDayRate: real("leave_day_rate").notNull().default(0),
+  payLeaveDays: boolean("pay_leave_days").notNull().default(false),
+  holidayDayRate: real("holiday_day_rate").notNull().default(0),
+  payHolidayDays: boolean("pay_holiday_days").notNull().default(false),
+  offDayRate: real("off_day_rate").notNull().default(0),
+  payOffDays: boolean("pay_off_days").notNull().default(false),
+  leadSplit2: integer("lead_split_2").notNull().default(80),
+  asstSplit2: integer("asst_split_2").notNull().default(20),
+  leadSplit3: integer("lead_split_3").notNull().default(60),
+  asst1Split3: integer("asst1_split_3").notNull().default(20),
+  asst2Split3: integer("asst2_split_3").notNull().default(20),
+  fixedBaseAmount: real("fixed_base_amount").notNull().default(30000),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -999,6 +1056,14 @@ export const payrollEntries = pgTable("payroll_entries", {
   totalTransport: real("total_transport").notNull().default(0),
   grossCommission: real("gross_commission").notNull().default(0),
   netPay: real("net_pay").notNull().default(0),
+  leaveDays: integer("leave_days").notNull().default(0),
+  holidayDays: integer("holiday_days").notNull().default(0),
+  offDays: integer("off_days").notNull().default(0),
+  absentDays: integer("absent_days").notNull().default(0),
+  leavePay: real("leave_pay").notNull().default(0),
+  holidayPay: real("holiday_pay").notNull().default(0),
+  offDayPay: real("off_day_pay").notNull().default(0),
+  calculationDetails: jsonb("calculation_details"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
@@ -1090,6 +1155,8 @@ export const expenses = pgTable("expenses", {
   notes: text("notes"),
   receiptUrl: text("receipt_url"),
   isAutoGenerated: boolean("is_auto_generated").notNull().default(false), // true if from Payroll module
+  paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos, split, credit
+  splitPayments: jsonb("split_payments").$type<Array<{method: string, amount: number}>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1109,7 +1176,14 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
   }),
 }));
 
-export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true, updatedAt: true, isAutoGenerated: true });
+export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true, updatedAt: true, isAutoGenerated: true }).extend({
+  splitPayments: z.array(
+    z.object({
+      method: z.string(),
+      amount: z.number(),
+    })
+  ).nullable().optional(),
+});
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
 
@@ -1248,5 +1322,432 @@ export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({
 export type InsertCustomRole = z.infer<typeof insertCustomRoleSchema>;
 export type CustomRole = typeof customRoles.$inferSelect;
 
+// V2 Feature: Return Logs
+export const returnLogs = pgTable("return_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  quantity: integer("quantity").notNull(),
+  refundAmount: real("refund_amount").notNull(),
+  refundMethod: text("refund_method").notNull(),
+  reason: text("reason"),
+  staffId: varchar("staff_id").references(() => staff.id),
+  userId: varchar("user_id").references(() => users.id),
+  restockEventId: varchar("restock_event_id").references(() => inventoryRestockEvents.id),
+  inventoryQuantityBeforeReturn: integer("inventory_quantity_before_return").notNull().default(0),
+  inventoryQuantityAfterReturn: integer("inventory_quantity_after_return").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
 
+export const returnLogsRelations = relations(returnLogs, ({ one }) => ({
+  store: one(stores, { fields: [returnLogs.storeId], references: [stores.id] }),
+  checkout: one(checkouts, { fields: [returnLogs.checkoutId], references: [checkouts.id] }),
+  order: one(orders, { fields: [returnLogs.orderId], references: [orders.id] }),
+  restockEvent: one(inventoryRestockEvents, { fields: [returnLogs.restockEventId], references: [inventoryRestockEvents.id] }),
+}));
+
+export const insertReturnLogSchema = createInsertSchema(returnLogs).omit({ id: true, createdAt: true });
+export type InsertReturnLog = z.infer<typeof insertReturnLogSchema>;
+export type ReturnLog = typeof returnLogs.$inferSelect;
+
+// V2 Feature: Store Credit Transactions
+export const storeCreditTransactions = pgTable("store_credit_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  amount: real("amount").notNull(), // positive for additions, negative for redemptions
+  type: text("type").notNull(), // 'issued_refund', 'purchase_redemption', 'manual_adjustment'
+  checkoutId: varchar("checkout_id").references(() => checkouts.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const storeCreditTransactionsRelations = relations(storeCreditTransactions, ({ one }) => ({
+  customer: one(customers, { fields: [storeCreditTransactions.customerId], references: [customers.id] }),
+  store: one(stores, { fields: [storeCreditTransactions.storeId], references: [stores.id] }),
+  checkout: one(checkouts, { fields: [storeCreditTransactions.checkoutId], references: [checkouts.id] }),
+}));
+
+export const insertStoreCreditTransactionSchema = createInsertSchema(storeCreditTransactions).omit({ id: true, createdAt: true });
+export type InsertStoreCreditTransaction = z.infer<typeof insertStoreCreditTransactionSchema>;
+export type StoreCreditTransaction = typeof storeCreditTransactions.$inferSelect;
+
+// V2 Feature: Cash Drawer Management
+export const cashRegisterSessions = pgTable("cash_register_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  status: text("status").notNull().default("open"), // open, closed
+  openedAt: timestamp("opened_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+  openedByUserId: varchar("opened_by_user_id").references(() => users.id),
+  closedByUserId: varchar("closed_by_user_id").references(() => users.id),
+  openingFloat: real("opening_float").notNull().default(0),
+  expectedCash: real("expected_cash").notNull().default(0),
+  actualCash: real("actual_cash"),
+  difference: real("difference"),
+  notes: text("notes"),
+});
+
+export const cashDrops = pgTable("cash_drops", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").notNull().references(() => cashRegisterSessions.id),
+  amount: real("amount").notNull(),
+  droppedAt: timestamp("dropped_at").notNull().defaultNow(),
+  droppedByUserId: varchar("dropped_by_user_id").references(() => users.id),
+  notes: text("notes"),
+});
+
+export const cashRegisterRelations = relations(cashRegisterSessions, ({ one, many }) => ({
+  store: one(stores, { fields: [cashRegisterSessions.storeId], references: [stores.id] }),
+  drops: many(cashDrops),
+}));
+
+export const cashDropsRelations = relations(cashDrops, ({ one }) => ({
+  session: one(cashRegisterSessions, { fields: [cashDrops.sessionId], references: [cashRegisterSessions.id] }),
+}));
+
+export const insertCashRegisterSessionSchema = createInsertSchema(cashRegisterSessions).omit({ id: true });
+export const insertCashDropSchema = createInsertSchema(cashDrops).omit({ id: true });
+export type CashRegisterSession = typeof cashRegisterSessions.$inferSelect;
+export type CashDrop = typeof cashDrops.$inferSelect;
+
+// V2 Feature: Accounts Payable (Vendor Bills)
+export const vendors = pgTable("vendors", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  name: text("name").notNull(),
+  contactName: text("contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const vendorBills = pgTable("vendor_bills", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
+  amount: real("amount").notNull(),
+  amountPaid: real("amount_paid").notNull().default(0),
+  status: text("status").notNull().default("unpaid"), // unpaid, partial, paid
+  dueDate: timestamp("due_date"),
+  billDate: timestamp("bill_date").notNull().defaultNow(),
+  notes: text("notes"),
+  linkedRestockEventId: varchar("linked_restock_event_id").references(() => inventoryRestockEvents.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const vendorRelations = relations(vendors, ({ many }) => ({
+  bills: many(vendorBills),
+}));
+
+export const vendorBillRelations = relations(vendorBills, ({ one }) => ({
+  vendor: one(vendors, { fields: [vendorBills.vendorId], references: [vendors.id] }),
+  restockEvent: one(inventoryRestockEvents, { fields: [vendorBills.linkedRestockEventId], references: [inventoryRestockEvents.id] }),
+}));
+
+export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true });
+export const insertVendorBillSchema = createInsertSchema(vendorBills).omit({ id: true, createdAt: true });
+export type Vendor = typeof vendors.$inferSelect;
+export type VendorBill = typeof vendorBills.$inferSelect;
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
+export type InsertVendorBill = z.infer<typeof insertVendorBillSchema>;
+
+// V2 Feature: Stock Audits
+export const stockAudits = pgTable("stock_audits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  status: text("status").notNull().default("draft"), // draft, approved
+  notes: text("notes"),
+  conductedByStaffId: varchar("conducted_by_staff_id").references(() => staff.id),
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  approvedAt: timestamp("approved_at"),
+});
+
+export const stockAuditItems = pgTable("stock_audit_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").notNull().references(() => stockAudits.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  systemQuantity: integer("system_quantity").notNull(),
+  physicalQuantity: integer("physical_quantity").notNull(),
+  variance: integer("variance").notNull(),
+  reason: text("reason"),
+});
+
+export const stockAuditRelations = relations(stockAudits, ({ one, many }) => ({
+  store: one(stores, { fields: [stockAudits.storeId], references: [stores.id] }),
+  conductedBy: one(staff, { fields: [stockAudits.conductedByStaffId], references: [staff.id] }),
+  approvedBy: one(users, { fields: [stockAudits.approvedByUserId], references: [users.id] }),
+  items: many(stockAuditItems),
+}));
+
+export const stockAuditItemRelations = relations(stockAuditItems, ({ one }) => ({
+  audit: one(stockAudits, { fields: [stockAuditItems.auditId], references: [stockAudits.id] }),
+  inventory: one(inventory, { fields: [stockAuditItems.inventoryId], references: [inventory.id] }),
+}));
+
+export const insertStockAuditSchema = createInsertSchema(stockAudits).omit({ id: true, createdAt: true });
+export const insertStockAuditItemSchema = createInsertSchema(stockAuditItems).omit({ id: true });
+export type StockAudit = typeof stockAudits.$inferSelect;
+export type StockAuditItem = typeof stockAuditItems.$inferSelect;
+
+// V2 Feature: Bundled Components
+export const bundleComponents = pgTable("bundle_components", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  parentInventoryId: varchar("parent_inventory_id").notNull().references(() => inventory.id),
+  componentInventoryId: varchar("component_inventory_id").notNull().references(() => inventory.id),
+  quantity: integer("quantity").notNull().default(1),
+});
+
+export const bundleComponentsRelations = relations(bundleComponents, ({ one }) => ({
+  parent: one(inventory, { fields: [bundleComponents.parentInventoryId], references: [inventory.id] }),
+  component: one(inventory, { fields: [bundleComponents.componentInventoryId], references: [inventory.id] }),
+}));
+
+export const insertBundleComponentSchema = createInsertSchema(bundleComponents).omit({ id: true });
+export type BundleComponent = typeof bundleComponents.$inferSelect;
+
+// V3 Feature: Quotes & Estimates
+export const quotes = pgTable("quotes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  customerId: varchar("customer_id").references(() => customers.id),
+  quoteRef: text("quote_ref").notNull().unique(),
+  status: text("status").notNull().default("draft"),
+  totalPrice: real("total_price").notNull().default(0),
+  notes: text("notes"),
+  validUntil: timestamp("valid_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const quoteItems = pgTable("quote_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  quoteId: varchar("quote_id").notNull().references(() => quotes.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: real("unit_price").notNull().default(0),
+  totalPrice: real("total_price").notNull().default(0),
+});
+
+export const quotesRelations = relations(quotes, ({ one, many }) => ({
+  store: one(stores, { fields: [quotes.storeId], references: [stores.id] }),
+  customer: one(customers, { fields: [quotes.customerId], references: [customers.id] }),
+  items: many(quoteItems),
+}));
+
+export const quoteItemsRelations = relations(quoteItems, ({ one }) => ({
+  quote: one(quotes, { fields: [quoteItems.quoteId], references: [quotes.id] }),
+  inventory: one(inventory, { fields: [quoteItems.inventoryId], references: [inventory.id] }),
+}));
+
+export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertQuoteItemSchema = createInsertSchema(quoteItems).omit({ id: true });
+export type InsertQuote = z.infer<typeof insertQuoteSchema>;
+export type InsertQuoteItem = z.infer<typeof insertQuoteItemSchema>;
+export type Quote = typeof quotes.$inferSelect;
+export type QuoteItem = typeof quoteItems.$inferSelect;
+
+// V3 Feature: Purchase Orders
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
+  poNumber: text("po_number").notNull().unique(),
+  status: text("status").notNull().default("draft"),
+  totalAmount: real("total_amount").notNull().default(0),
+  expectedDelivery: timestamp("expected_delivery"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const purchaseOrderItems = pgTable("purchase_order_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  poId: varchar("po_id").notNull().references(() => purchaseOrders.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  quantity: integer("quantity").notNull(),
+  receivedQuantity: integer("received_quantity").notNull().default(0),
+  unitCost: real("unit_cost").notNull(),
+  totalCost: real("total_cost").notNull(),
+});
+
+export const purchaseOrderRelations = relations(purchaseOrders, ({ one, many }) => ({
+  store: one(stores, { fields: [purchaseOrders.storeId], references: [stores.id] }),
+  vendor: one(vendors, { fields: [purchaseOrders.vendorId], references: [vendors.id] }),
+  items: many(purchaseOrderItems),
+}));
+
+export const purchaseOrderItemRelations = relations(purchaseOrderItems, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.poId], references: [purchaseOrders.id] }),
+  inventory: one(inventory, { fields: [purchaseOrderItems.inventoryId], references: [inventory.id] }),
+}));
+
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true });
+export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
+export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+
+// V3 Feature: Stock Transfers
+export const stockTransfers = pgTable("stock_transfers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fromStoreId: varchar("from_store_id").notNull().references(() => stores.id),
+  toStoreId: varchar("to_store_id").notNull().references(() => stores.id),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const stockTransferItems = pgTable("stock_transfer_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  transferId: varchar("transfer_id").notNull().references(() => stockTransfers.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  quantity: integer("quantity").notNull(),
+});
+
+export const stockTransferRelations = relations(stockTransfers, ({ one, many }) => ({
+  fromStore: one(stores, { fields: [stockTransfers.fromStoreId], references: [stores.id], relationName: "transferFrom" }),
+  toStore: one(stores, { fields: [stockTransfers.toStoreId], references: [stores.id], relationName: "transferTo" }),
+  items: many(stockTransferItems),
+}));
+
+export const stockTransferItemRelations = relations(stockTransferItems, ({ one }) => ({
+  transfer: one(stockTransfers, { fields: [stockTransferItems.transferId], references: [stockTransfers.id] }),
+  inventory: one(inventory, { fields: [stockTransferItems.inventoryId], references: [inventory.id] }),
+}));
+
+export const insertStockTransferSchema = createInsertSchema(stockTransfers).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertStockTransferItemSchema = createInsertSchema(stockTransferItems).omit({ id: true });
+export type InsertStockTransfer = z.infer<typeof insertStockTransferSchema>;
+export type InsertStockTransferItem = z.infer<typeof insertStockTransferItemSchema>;
+export type StockTransfer = typeof stockTransfers.$inferSelect;
+export type StockTransferItem = typeof stockTransferItems.$inferSelect;
+
+// V4 Feature: Tax Rates
+export const taxRates = pgTable("tax_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  name: text("name").notNull(),
+  rate: real("rate").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const taxRateRelations = relations(taxRates, ({ one }) => ({
+  store: one(stores, { fields: [taxRates.storeId], references: [stores.id] }),
+}));
+
+export const insertTaxRateSchema = createInsertSchema(taxRates).omit({ id: true, createdAt: true });
+export type InsertTaxRate = z.infer<typeof insertTaxRateSchema>;
+export type TaxRate = typeof taxRates.$inferSelect;
+
+// V4 Feature: Inventory Batches
+export const inventoryBatches = pgTable("inventory_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
+  batchNumber: text("batch_number").notNull(),
+  expiryDate: timestamp("expiry_date").notNull(),
+  quantity: integer("quantity").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const inventoryBatchRelations = relations(inventoryBatches, ({ one }) => ({
+  store: one(stores, { fields: [inventoryBatches.storeId], references: [stores.id] }),
+  inventory: one(inventory, { fields: [inventoryBatches.inventoryId], references: [inventory.id] }),
+}));
+
+export const insertInventoryBatchSchema = createInsertSchema(inventoryBatches).omit({ id: true, createdAt: true });
+export type InsertInventoryBatch = z.infer<typeof insertInventoryBatchSchema>;
+export type InventoryBatch = typeof inventoryBatches.$inferSelect;
+
+// --- SUPER ADMIN PORTAL TABLES ---
+
+// Super Admins Table
+export const superAdmins = pgTable("super_admins", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  email: text("email").unique().notNull(),
+  passwordHash: text("password_hash").notNull(),
+  mfaSecret: text("mfa_secret"),
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  role: text("role").notNull().default("ops_manager"), // 'super_admin', 'ops_manager', 'support_agent', 'finance_admin'
+  status: text("status").notNull().default("active"), // 'active', 'suspended'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at"),
+});
+
+export const superAdminsRelations = relations(superAdmins, ({ many }) => ({
+  auditLogs: many(superAdminAuditLogs),
+}));
+
+export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true }).extend({
+  email: z.string().email("Invalid email address"),
+});
+export type InsertSuperAdmin = z.infer<typeof insertSuperAdminSchema>;
+export type SuperAdmin = typeof superAdmins.$inferSelect;
+
+// Feature Flags Table
+export const featureFlags = pgTable("feature_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").unique().notNull(),
+  status: text("status").notNull().default("off"), // 'on', 'off', 'scoped', 'by_plan'
+  scopedOrgIds: jsonb("scoped_org_ids"), // JSON array of business/organisation IDs
+  subscriptionTier: text("subscription_tier"), // e.g. 'pro', 'premium' (optional plan scope)
+  description: text("description").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedBy: text("updated_by"), // email of the admin who updated it
+});
+
+export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({ id: true, updatedAt: true });
+export type InsertFeatureFlag = z.infer<typeof insertFeatureFlagSchema>;
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+
+// Announcements Table
+export const announcements = pgTable("announcements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  type: text("type").notNull().default("info"), // 'info', 'warning', 'update', 'maintenance'
+  target: text("target").notNull().default("all"), // 'all', 'active', 'specific_plan', 'specific_org'
+  targetOrgId: varchar("target_org_id").references(() => organisations.id),
+  showFrom: timestamp("show_from").notNull(),
+  showUntil: timestamp("show_until").notNull(),
+  dismissible: boolean("dismissible").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: text("created_by"), // email of the admin who created it
+});
+
+export const announcementsRelations = relations(announcements, ({ one }) => ({
+  targetOrg: one(organisations, { fields: [announcements.targetOrgId], references: [organisations.id] }),
+}));
+
+export const insertAnnouncementSchema = createInsertSchema(announcements).omit({ id: true, createdAt: true });
+export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
+export type Announcement = typeof announcements.$inferSelect;
+
+// Super Admin Audit Logs Table (Immutable Operations Ledger)
+export const superAdminAuditLogs = pgTable("super_admin_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adminId: varchar("admin_id").notNull().references(() => superAdmins.id),
+  adminEmail: text("admin_email").notNull(),
+  adminRole: text("admin_role").notNull(),
+  action: text("action").notNull(), // e.g. 'suspend_business', 'reset_user_password', 'toggle_feature_flag'
+  target: text("target").notNull(), // description/ID of the target affected resource
+  ipAddress: text("ip_address").notNull(),
+  details: jsonb("details"), // JSON payload detailing old/new parameters
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const superAdminAuditLogsRelations = relations(superAdminAuditLogs, ({ one }) => ({
+  admin: one(superAdmins, { fields: [superAdminAuditLogs.adminId], references: [superAdmins.id] }),
+}));
+
+export const insertSuperAdminAuditLogSchema = createInsertSchema(superAdminAuditLogs).omit({ id: true, createdAt: true });
+export type InsertSuperAdminAuditLog = z.infer<typeof insertSuperAdminAuditLogSchema>;
+export type SuperAdminAuditLog = typeof superAdminAuditLogs.$inferSelect;
 

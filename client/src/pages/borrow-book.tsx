@@ -49,6 +49,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
+import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 
 
 export default function BorrowBookPage() {
@@ -116,12 +117,14 @@ export default function BorrowBookPage() {
     {
       key: "customerName",
       header: "Customer",
-      render: (entry: any) => (
-        <div className="flex flex-col">
-          <span className="font-semibold text-sm">{entry.customer?.name || "Unknown"}</span>
-          <span className="text-xs text-muted-foreground">{entry.customer?.mobileNumber || "No phone number"}</span>
-        </div>
-      ),
+      render: (entry: any) => {
+        const presenter = new CustomerPresenter({
+          name: entry.customer?.name,
+          customerNumber: entry.customer?.customerNumber || entry.customerId || "—",
+          mobileNumber: entry.customer?.phone || entry.customer?.mobileNumber,
+        });
+        return <EntityDisplay presenter={presenter} />;
+      },
     },
     {
       key: "receiptNumber",
@@ -268,7 +271,7 @@ export default function BorrowBookPage() {
     return {
       ...entry,
       customerName: entry.customer?.name || "Unknown",
-      customerMobile: entry.customer?.mobileNumber || "No phone number",
+      customerMobile: entry.customer?.phone || entry.customer?.mobileNumber || "No phone number",
       statusLabel,
     };
   });

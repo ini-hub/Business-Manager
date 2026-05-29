@@ -29,6 +29,7 @@ import Transactions from "@/pages/transactions";
 import TransactionDetailsPage from "@/pages/transaction-details";
 import ProfitLossPage from "@/pages/profit-loss";
 import ExpensesPage from "@/pages/expenses";
+import AddExpensePage from "@/pages/add-expense";
 import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
 import BorrowBookPage from "@/pages/borrow-book";
@@ -40,6 +41,10 @@ import ProfilePage from "@/pages/profile";
 import StaffDashboard from "@/pages/staff-dashboard";
 import NotFound from "@/pages/not-found";
 import ServiceProfitabilityPage from "@/pages/service-profitability";
+import QuotesPage from "@/pages/quotes";
+import PurchaseOrdersPage from "@/pages/purchase-orders";
+import StockTransfersPage from "@/pages/stock-transfers";
+import TaxesCompliancePage from "@/pages/settings/taxes-compliance";
 import { GlobalSearch } from "@/components/global-search";
 import { NotificationSheet } from "@/components/notification-sheet";
 
@@ -58,6 +63,22 @@ import ForgotPassword from "@/pages/auth/forgot-password";
 import ResetPassword from "@/pages/auth/reset-password";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineSyncManager } from "@/components/offline-sync-manager";
+
+// Super Admin Portal Pages & Layouts
+import AdminLogin from "@/pages/admin/AdminLogin";
+import AdminDashboard from "@/pages/admin/Dashboard";
+import BusinessesList from "@/pages/admin/BusinessesList";
+import BusinessDetails from "@/pages/admin/BusinessDetails";
+import OnboardingPipeline from "@/pages/admin/OnboardingPipeline";
+import UsersList from "@/pages/admin/UsersList";
+import TransactionsMonitor from "@/pages/admin/TransactionsMonitor";
+import RevenueAnalytics from "@/pages/admin/RevenueAnalytics";
+import FeatureFlags from "@/pages/admin/FeatureFlags";
+import AnnouncementsManager from "@/pages/admin/AnnouncementsManager";
+import SystemHealth from "@/pages/admin/SystemHealth";
+import AuditLogs from "@/pages/admin/AuditLogs";
+import SuperAdminAccounts from "@/pages/admin/SuperAdminAccounts";
+import AdminLayout from "@/components/admin/AdminLayout";
 
 function OnboardingRoute() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -97,7 +118,42 @@ export default function App() {
   );
 }
 
+function SuperAdminRouter() {
+  return (
+    <Switch>
+      <Route path="/super-admin/login" component={AdminLogin} />
+      <Route>
+        <AdminLayout>
+          <Switch>
+            <Route path="/super-admin" component={AdminDashboard} />
+            <Route path="/super-admin/businesses" component={BusinessesList} />
+            <Route path="/super-admin/businesses/:id" component={BusinessDetails} />
+            <Route path="/super-admin/onboarding" component={OnboardingPipeline} />
+            <Route path="/super-admin/users" component={UsersList} />
+            <Route path="/super-admin/transactions" component={TransactionsMonitor} />
+            <Route path="/super-admin/revenue" component={RevenueAnalytics} />
+            <Route path="/super-admin/flags" component={FeatureFlags} />
+            <Route path="/super-admin/announcements" component={AnnouncementsManager} />
+            <Route path="/super-admin/health" component={SystemHealth} />
+            <Route path="/super-admin/audit-logs" component={AuditLogs} />
+            <Route path="/super-admin/accounts" component={SuperAdminAccounts} />
+            <Route>
+              <Redirect to="/super-admin" />
+            </Route>
+          </Switch>
+        </AdminLayout>
+      </Route>
+    </Switch>
+  );
+}
+
 function Router() {
+  const [location] = useLocation();
+
+  if (location.startsWith("/super-admin")) {
+    return <SuperAdminRouter />;
+  }
+
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
@@ -161,7 +217,7 @@ function AuthenticatedLayout() {
       <SidebarProvider style={sidebarStyle as React.CSSProperties}>
         <div className="flex min-h-screen w-full">
           <AppSidebar />
-          <SidebarInset className="flex flex-col flex-1">
+          <SidebarInset className="flex flex-col flex-1 min-w-0">
             <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
               <div className="flex items-center gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
@@ -182,8 +238,8 @@ function AuthenticatedLayout() {
                 <ThemeToggle />
               </div>
             </header>
-            <main className="flex-1 overflow-auto p-3 sm:p-6">
-              <div className="mx-auto max-w-7xl">
+            <main className="flex-1 overflow-auto w-full min-w-0 p-3 sm:p-6">
+              <div className="mx-auto max-w-7xl w-full min-w-0">
                 <Switch>
                   <Route path="/">
                     {user?.role === "staff" ? <StaffDashboard /> : <Dashboard />}
@@ -201,6 +257,7 @@ function AuthenticatedLayout() {
                   <Route path="/transactions/:id" component={TransactionDetailsPage} />
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
+                  <Route path="/expenses/new" component={AddExpensePage} />
                   <Route path="/borrow-book" component={BorrowBookPage} />
                   <Route path="/bookings/new" component={BookingFormPage} />
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
@@ -231,6 +288,12 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/settings/roles/:id/edit">
                     {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
+                  </Route>
+                  <Route path="/quotes" component={QuotesPage} />
+                  <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+                  <Route path="/stock-transfers" component={StockTransfersPage} />
+                  <Route path="/settings/taxes">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <TaxesCompliancePage />}
                   </Route>
                   <Route path="/settings/promotions">
                     {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}

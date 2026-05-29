@@ -58,6 +58,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
@@ -87,6 +88,7 @@ import {
 } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { CustomerPresenter, StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 
 
 const newCustomerSchema = insertCustomerSchema.extend({
@@ -117,6 +119,7 @@ export default function NewSale() {
   const [selectedStaff, setSelectedStaff] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [customerOpen, setCustomerOpen] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [staffOpen, setStaffOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave" | "credit" | "split">("cash");
   const [splitPayments, setSplitPayments] = useState<Array<{method: "cash" | "transfer" | "credit", amount: number}>>([
@@ -140,6 +143,140 @@ export default function NewSale() {
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
   const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
   
+  const [redeemPoints, setRedeemPoints] = useState<boolean>(false);
+  const [redeemStoreCredit, setRedeemStoreCredit] = useState<boolean>(false);
+  const [openRegisterDialogOpen, setOpenRegisterDialogOpen] = useState<boolean>(false);
+  const [openingFloat, setOpeningFloat] = useState<number>(0);
+  const [registerNotes, setRegisterNotes] = useState<string>("");
+
+  // Cash Drawer Management UI States
+  const [cashDropDialogOpen, setCashDropDialogOpen] = useState<boolean>(false);
+  const [cashDropAmount, setCashDropAmount] = useState<string>("");
+  const [cashDropNotes, setCashDropNotes] = useState<string>("");
+  
+  const [closeRegisterDialogOpen, setCloseRegisterDialogOpen] = useState<boolean>(false);
+  const [actualCashCount, setActualCashCount] = useState<string>("");
+  const [closeRegisterNotes, setCloseRegisterNotes] = useState<string>("");
+  const [showCloseSummary, setShowCloseSummary] = useState<boolean>(false);
+  const [closeSummaryData, setCloseSummaryData] = useState<any>(null);
+
+  const { data: activeSession } = useQuery<any>({
+    queryKey: ["/api/cash-register/session", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/cash-register/session?storeId=${currentStore?.id}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
+  const { data: taxRates = [] } = useQuery<any[]>({
+    queryKey: ["/api/tax-rates", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/tax-rates?storeId=${currentStore?.id}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
+  const openRegisterMutation = useMutation({
+    mutationFn: async (data: { openingFloat: number; notes: string }) => {
+      const res = await apiRequest("POST", "/api/cash-register/open", {
+        storeId: currentStore?.id,
+        openingFloat: data.openingFloat,
+        notes: data.notes,
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to open register session");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-register/session", currentStore?.id] });
+      toast({ title: "Register drawer opened!", description: "You can now complete your checkout transactions." });
+      setOpenRegisterDialogOpen(false);
+      setOpeningFloat(0);
+      setRegisterNotes("");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not open register session",
+        description: err.message || "Please check your inputs and try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to record a cash drop
+  const recordCashDropMutation = useMutation({
+    mutationFn: async (data: { amount: number; notes: string }) => {
+      const res = await apiRequest("POST", "/api/cash-register/drop", {
+        sessionId: activeSession?.id,
+        amount: data.amount,
+        notes: data.notes,
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to record cash drop");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-register/session", currentStore?.id] });
+      toast({
+        title: "Cash Drop Recorded!",
+        description: `Successfully dropped ₦${Number(cashDropAmount).toLocaleString()} from the drawer.`,
+      });
+      setCashDropAmount("");
+      setCashDropNotes("");
+      setCashDropDialogOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could Not Record Drop",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to close the drawer session
+  const closeRegisterMutation = useMutation({
+    mutationFn: async (data: { actualCash: number; notes: string }) => {
+      const res = await apiRequest("POST", "/api/cash-register/close", {
+        sessionId: activeSession?.id,
+        actualCash: data.actualCash,
+        notes: data.notes,
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to close register session");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cash-register/session", currentStore?.id] });
+      setCloseSummaryData(data);
+      setShowCloseSummary(true);
+      toast({
+        title: "Drawer Session Closed!",
+        description: "Reconciliation report generated successfully.",
+      });
+      setActualCashCount("");
+      setCloseRegisterNotes("");
+      setCloseRegisterDialogOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could Not Close Drawer",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const searchParams = new URLSearchParams(window.location.search);
   const bookingId = searchParams.get("bookingId");
 
@@ -208,17 +345,53 @@ export default function NewSale() {
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
+  const { data: globalCustomerMatches = [] } = useQuery<any[]>({
+    queryKey: ["/api/customers/search-global", currentStore?.id, customerSearchQuery],
+    queryFn: async () => {
+      if (customerSearchQuery.trim().length < 2) return [];
+      const res = await apiRequest("GET", `/api/customers/search-global?storeId=${currentStore?.id}&query=${encodeURIComponent(customerSearchQuery)}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all" && customerSearchQuery.trim().length >= 2,
+  });
+
+  const profileCustomerMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      const res = await apiRequest("POST", "/api/customers/profile-global", {
+        customerId,
+        storeId: currentStore?.id,
+      });
+      return res.json();
+    },
+    onSuccess: (newLocalCustomer) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      setSelectedCustomer(newLocalCustomer.id);
+      setCustomerOpen(false);
+      toast({
+        title: "Customer Profiled Successfully",
+        description: `${newLocalCustomer.name} has been imported to this branch.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Couldn't Profile Customer",
+        description: error.message || "Failed to copy customer profile.",
+        variant: "destructive",
+      });
+    },
   });
 
   const { data: staffList = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const { data: inventory = [], isLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id],
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const { data: promotionsList = [] } = useQuery<any[]>({
@@ -227,7 +400,7 @@ export default function NewSale() {
       const res = await apiRequest("GET", `/api/promotions?storeId=${currentStore?.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const availableInventory = inventory.filter(
@@ -498,9 +671,32 @@ export default function NewSale() {
   });
 
   const finalCartTotal = Math.max(0, cartTotal - promoDiscount);
+
   const bookingDepositAmount = bookingDetails?.depositAmount || 0;
   const bookingDepositMethod = bookingDetails?.depositPaymentMethod || "";
-  const totalCharged = Math.max(0, finalCartTotal - discountAmount);
+
+  // Dynamic tax rate from fetched rates
+  const defaultTaxRate = taxRates?.find((r: any) => r.isDefault);
+  const taxRatePercent = defaultTaxRate ? Number(defaultTaxRate.rate) : 0;
+
+  // Customer loyalty points & store credit
+  const currentCustomer = customers.find((c: any) => String(c.id) === selectedCustomer);
+  const customerPoints = currentCustomer?.loyaltyPoints || 0;
+  const customerStoreCredit = currentCustomer?.storeCreditBalance || 0;
+  const subtotalBeforePoints = Math.max(0, finalCartTotal - discountAmount);
+
+  // 1 loyalty point = ₦10 discount. Max discount cannot exceed the subtotal before tax.
+  const maxPointsToRedeem = Math.min(customerPoints, Math.floor(subtotalBeforePoints / 10));
+  const pointsToRedeem = redeemPoints ? maxPointsToRedeem : 0;
+  const loyaltyDiscount = pointsToRedeem * 10;
+
+  const subtotalAfterPoints = Math.max(0, subtotalBeforePoints - loyaltyDiscount);
+  const taxTotal = subtotalAfterPoints * (taxRatePercent / 100);
+  const totalChargedBeforeCredit = subtotalAfterPoints + taxTotal;
+
+  // Store Credit Redemption (applied on totalChargedBeforeCredit)
+  const storeCreditRedeemed = redeemStoreCredit ? Math.min(customerStoreCredit, totalChargedBeforeCredit) : 0;
+  const totalCharged = Math.max(0, totalChargedBeforeCredit - storeCreditRedeemed);
   const balanceCollectedToday = Math.max(0, totalCharged - bookingDepositAmount);
 
   const checkoutMutation = useMutation({
@@ -522,8 +718,45 @@ export default function NewSale() {
       const freshCartSubtotal = cart.reduce((sum, item) => sum + (item.customPrice * item.quantity), 0);
       const freshPromoDiscount = promoDiscount;
       const freshFinalTotal = Math.max(0, freshCartSubtotal - freshPromoDiscount);
-      const freshTotalCharged = Math.max(0, freshFinalTotal - (discountAmount || 0));
+
+      const freshCustomer = customers.find((c: any) => String(c.id) === selectedCustomer);
+      const freshCustomerPoints = freshCustomer?.loyaltyPoints || 0;
+      const freshCustomerStoreCredit = freshCustomer?.storeCreditBalance || 0;
+      const freshSubtotalBeforePoints = Math.max(0, freshFinalTotal - (discountAmount || 0));
+      const freshMaxPointsToRedeem = Math.min(freshCustomerPoints, Math.floor(freshSubtotalBeforePoints / 10));
+      const freshPointsToRedeem = redeemPoints ? freshMaxPointsToRedeem : 0;
+      const freshLoyaltyDiscount = freshPointsToRedeem * 10;
+
+      const freshSubtotalAfterPoints = Math.max(0, freshSubtotalBeforePoints - freshLoyaltyDiscount);
+      const freshTaxTotal = freshSubtotalAfterPoints * (taxRatePercent / 100);
+      const freshTotalChargedBeforeCredit = freshSubtotalAfterPoints + freshTaxTotal;
+
+      const freshStoreCreditRedeemed = redeemStoreCredit ? Math.min(freshCustomerStoreCredit, freshTotalChargedBeforeCredit) : 0;
+      const freshTotalCharged = Math.max(0, freshTotalChargedBeforeCredit - freshStoreCreditRedeemed);
       const freshBalance = Math.max(0, freshTotalCharged - freshDepositAmount);
+
+      let finalPaymentMethod = freshBalance === 0 && freshDepositAmount > 0 ? "deposit" : paymentMethod;
+      let finalSplitPayments = paymentMethod === "split" ? splitPayments.filter(s => s.amount > 0) : undefined;
+
+      if (freshStoreCreditRedeemed > 0) {
+        if (freshBalance === 0) {
+          finalPaymentMethod = "store_credit";
+          finalSplitPayments = undefined;
+        } else {
+          if (paymentMethod === "split") {
+            finalSplitPayments = [
+              ...splitPayments.filter(s => s.amount > 0),
+              { method: "store_credit", amount: freshStoreCreditRedeemed }
+            ] as any[];
+          } else {
+            finalPaymentMethod = "split";
+            finalSplitPayments = [
+              { method: paymentMethod as any, amount: freshBalance },
+              { method: "store_credit", amount: freshStoreCreditRedeemed }
+            ];
+          }
+        }
+      }
 
       const checkoutPayload = {
         storeId: currentStore?.id,
@@ -531,7 +764,7 @@ export default function NewSale() {
         customerId: selectedCustomer || null,
         staffId: selectedStaff,
         items: orderData,
-        paymentMethod: freshBalance === 0 && freshDepositAmount > 0 ? "deposit" : paymentMethod,
+        paymentMethod: finalPaymentMethod,
         discountAmount: discountAmount || undefined,
         discountPercent: discountPercent || undefined,
         discountReason: discountReason || undefined,
@@ -539,10 +772,11 @@ export default function NewSale() {
         effectiveDate: isDateModified ? effectiveDate : undefined,
         creditUpfrontPaid: paymentMethod === "credit" ? creditUpfrontPaid : undefined,
         creditDueDate: paymentMethod === "credit" ? (creditDueDate || undefined) : undefined,
-        splitPayments: paymentMethod === "split" ? splitPayments.filter(s => s.amount > 0) : undefined,
+        splitPayments: finalSplitPayments,
         bookingDepositAmount: freshDepositAmount > 0 ? freshDepositAmount : undefined,
         bookingDepositMethod: freshDepositMethod || undefined,
         balanceCollectedToday: freshBalance,
+        pointsRedeemed: freshPointsToRedeem > 0 ? freshPointsToRedeem : undefined,
       };
 
       if (!navigator.onLine) {
@@ -577,6 +811,7 @@ export default function NewSale() {
         queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/profit-loss", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", currentStore?.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
         toast({ title: "Sale completed successfully!" });
       }
@@ -586,6 +821,8 @@ export default function NewSale() {
       setSelectedStaff("");
       setPaymentMethod("cash");
       setApplyDiscount(false);
+      setRedeemPoints(false);
+      setRedeemStoreCredit(false);
       setDiscountAmount(0);
       setDiscountPercent(0);
       setDiscountReason("");
@@ -622,13 +859,53 @@ export default function NewSale() {
   const splitTotal = splitPayments.reduce((s, p) => s + p.amount, 0);
   const splitIsValid = Math.abs(splitTotal - balanceCollectedToday) < 0.01 && splitPayments.filter(s => s.amount > 0).length > 0;
   
-  const canCheckout = 
-    cart.length > 0 && 
-    selectedCustomer && 
-    selectedStaff && 
-    serviceItemsMissingLead.length === 0 &&
-    (discountAmount === 0 || (discountReason !== "" && discountApprovedBy !== "")) &&
-    (isFullyCoveredByDeposit || paymentMethod !== "split" || splitIsValid);
+  const validateCheckout = (): string | null => {
+    if (cart.length === 0) return "Your cart is empty. Add items to proceed.";
+    if (!selectedCustomer) return "Please select a customer (e.g. Walk-in).";
+    if (!selectedStaff) return "Please select the staff member handling this transaction.";
+    if (serviceItemsMissingLead.length > 0) return "Please assign a lead staff member to all service items.";
+    if (discountAmount > 0 && (!discountReason || !discountApprovedBy)) return "Discount requires both a reason and manager approval.";
+    if (!isFullyCoveredByDeposit && paymentMethod === "split" && !splitIsValid) return "Split payment amounts must exactly match the balance due.";
+    return null;
+  };
+
+  const handleCheckoutClick = () => {
+    // If discount requires override but is not approved, trigger the override dialog instead of showing a blocking validation error
+    const pct = finalCartTotal > 0 ? (discountAmount / finalCartTotal) * 100 : 0;
+    const requiresOverride = discountAmount > 0 && (
+      user?.role === "staff" || 
+      (user?.role === "manager" && pct > 20)
+    );
+    
+    if (requiresOverride && !discountApprovedBy) {
+      if (!discountReason) {
+        toast({
+          title: "Discount Reason Required",
+          description: "Please specify a reason for applying a transaction discount before seeking supervisor approval.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSupervisorOverrideOpen(true);
+      return;
+    }
+
+    const validationError = validateCheckout();
+    if (validationError) {
+      toast({
+        title: "Missing Requirements",
+        description: validationError,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!activeSession) {
+      setOpenRegisterDialogOpen(true);
+      return;
+    }
+    checkoutMutation.mutate();
+  };
 
   if (!currentStore) {
     return (
@@ -642,11 +919,87 @@ export default function NewSale() {
     );
   }
 
+  if (currentStore.id === "all") {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <PageHeader
+          title="New Sale"
+          description="Create a new sales transaction"
+        />
+        <ConsolidatedFallbackAlert pageTitle="Point of Sale (POS) Checkout" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="New Sale"
         description={`Create a new sales transaction for ${currentStore.name}`}
+        actions={
+          <div className="flex items-center gap-2">
+            {activeSession ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="bg-slate-900/40 border-slate-800 text-slate-200 hover:text-white flex items-center gap-2 rounded-xl h-9 px-3">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-mono text-xs">₦{activeSession.expectedCash.toLocaleString()} expected</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-4 bg-slate-900 border-slate-800 text-slate-350 rounded-2xl shadow-xl space-y-4 z-50">
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-white text-sm flex items-center gap-1.5">
+                      <Banknote className="h-4 w-4 text-emerald-400" />
+                      Active Register Session
+                    </h4>
+                    <p className="text-[10px] text-slate-500">
+                      Opened {new Date(activeSession.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ₦{activeSession.openingFloat.toLocaleString()} float
+                    </p>
+                  </div>
+                  
+                  <div className="p-3 bg-slate-950/60 border border-slate-850 rounded-xl space-y-1.5 text-xs">
+                    <div className="flex justify-between items-center text-[10px] text-slate-500">
+                      <span>Expected Drawer Balance</span>
+                      <span className="font-bold font-mono text-white">₦{activeSession.expectedCash.toLocaleString()}</span>
+                    </div>
+                    {activeSession.notes && (
+                      <div className="pt-1.5 border-t border-slate-850 text-[10px] text-slate-450 italic">
+                        "{activeSession.notes}"
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      className="text-xs h-8 border-slate-800 hover:bg-slate-800 text-slate-300"
+                      onClick={() => setCashDropDialogOpen(true)}
+                    >
+                      Cash Drop
+                    </Button>
+                    <Button 
+                      type="button" 
+                      className="text-xs h-8 bg-rose-600 hover:bg-rose-700 text-white font-bold"
+                      onClick={() => setCloseRegisterDialogOpen(true)}
+                    >
+                      Close Shift
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <Button 
+                variant="outline" 
+                className="bg-rose-500/10 border-rose-500/20 text-rose-450 hover:bg-rose-500/20 flex items-center gap-2 rounded-xl h-9 px-3"
+                onClick={() => setOpenRegisterDialogOpen(true)}
+              >
+                <span className="h-2 w-2 rounded-full bg-rose-500" />
+                <span className="text-xs font-bold">Register Drawer Closed</span>
+              </Button>
+            )}
+          </div>
+        }
       />
 
       <div className="grid gap-6 xl:grid-cols-3">
@@ -868,12 +1221,15 @@ export default function NewSale() {
                                     <CommandList>
                                       <CommandEmpty>Not found</CommandEmpty>
                                       <CommandGroup>
-                                        {staffList.filter(s => !s.isArchived).map(s => (
-                                          <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "leadStaffId", s.id)}>
-                                            <Check className={cn("mr-2 h-3 w-3", item.leadStaffId === s.id ? "opacity-100" : "opacity-0")} />
-                                            {s.name}
-                                          </CommandItem>
-                                        ))}
+                                        {staffList.filter(s => !s.isArchived).map(s => {
+                                          const presenter = new StaffPresenter(s);
+                                          return (
+                                            <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "leadStaffId", s.id)}>
+                                              <Check className={cn("mr-2 h-3 w-3", item.leadStaffId === s.id ? "opacity-100" : "opacity-0")} />
+                                              <EntityDisplay presenter={presenter} />
+                                            </CommandItem>
+                                          );
+                                        })}
                                       </CommandGroup>
                                     </CommandList>
                                   </Command>
@@ -898,14 +1254,17 @@ export default function NewSale() {
                                       <CommandList>
                                         <CommandEmpty>Not found</CommandEmpty>
                                         <CommandGroup>
-                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId).map(s => (
-                                            <CommandItem key={s.id} value={s.name} onSelect={() => {
-                                              updateStaffAssignment(item.inventory.id, "assistingStaff1Id", s.id);
-                                            }}>
-                                              <Check className={cn("mr-2 h-3 w-3", item.assistingStaff1Id === s.id ? "opacity-100" : "opacity-0")} />
-                                              {s.name}
-                                            </CommandItem>
-                                          ))}
+                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId).map(s => {
+                                            const presenter = new StaffPresenter(s);
+                                            return (
+                                              <CommandItem key={s.id} value={s.name} onSelect={() => {
+                                                updateStaffAssignment(item.inventory.id, "assistingStaff1Id", s.id);
+                                              }}>
+                                                <Check className={cn("mr-2 h-3 w-3", item.assistingStaff1Id === s.id ? "opacity-100" : "opacity-0")} />
+                                                <EntityDisplay presenter={presenter} />
+                                              </CommandItem>
+                                            );
+                                          })}
                                         </CommandGroup>
                                       </CommandList>
                                     </Command>
@@ -940,12 +1299,15 @@ export default function NewSale() {
                                       <CommandList>
                                         <CommandEmpty>Not found</CommandEmpty>
                                         <CommandGroup>
-                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId && s.id !== item.assistingStaff1Id).map(s => (
-                                            <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "assistingStaff2Id", s.id)}>
-                                              <Check className={cn("mr-2 h-3 w-3", item.assistingStaff2Id === s.id ? "opacity-100" : "opacity-0")} />
-                                              {s.name}
-                                            </CommandItem>
-                                          ))}
+                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId && s.id !== item.assistingStaff1Id).map(s => {
+                                             const presenter = new StaffPresenter(s);
+                                             return (
+                                               <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "assistingStaff2Id", s.id)}>
+                                                 <Check className={cn("mr-2 h-3 w-3", item.assistingStaff2Id === s.id ? "opacity-100" : "opacity-0")} />
+                                                 <EntityDisplay presenter={presenter} />
+                                               </CommandItem>
+                                             );
+                                           })}
                                         </CommandGroup>
                                       </CommandList>
                                     </Command>
@@ -1081,7 +1443,7 @@ export default function NewSale() {
                               user?.role === "staff" || 
                               (user?.role === "manager" && pct > 20);
                             if (requiresOverride) {
-                              setSupervisorOverrideOpen(true);
+                              setDiscountApprovedBy("");
                             } else {
                               const displayName = user?.name || user?.email || "Owner";
                               setDiscountApprovedBy(`${displayName} (${user?.role})`);
@@ -1120,7 +1482,7 @@ export default function NewSale() {
                               user?.role === "staff" || 
                               (user?.role === "manager" && pct > 20);
                             if (requiresOverride) {
-                              setSupervisorOverrideOpen(true);
+                              setDiscountApprovedBy("");
                             } else {
                               const displayName = user?.name || user?.email || "Owner";
                               setDiscountApprovedBy(`${displayName} (${user?.role})`);
@@ -1161,24 +1523,149 @@ export default function NewSale() {
                 )}
               </div>
 
-              <div className="w-full space-y-2 pt-2 border-t">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold text-sm text-foreground">Total Value</span>
-                  <span className="text-sm font-semibold text-foreground">
-                    {formatCurrency(totalCharged)}
-                  </span>
+              {/* Customer Loyalty Points Panel */}
+              {selectedCustomer && customerPoints > 0 && (
+                <div className="w-full border border-primary/10 rounded-lg p-3.5 bg-primary/5 space-y-3 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-1.5">
+                      <Gift className="h-3.5 w-3.5 text-primary" />
+                      Customer Loyalty
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="redeem-points-toggle" className="text-xs font-medium cursor-pointer">
+                        Redeem Points?
+                      </Label>
+                      <Switch
+                        id="redeem-points-toggle"
+                        checked={redeemPoints}
+                        onCheckedChange={setRedeemPoints}
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-primary/10 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Available Points:</span>
+                      <span className="font-semibold">{customerPoints} pts</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Points Value:</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        {formatCurrency(customerPoints * 10)}
+                      </span>
+                    </div>
+                    {redeemPoints && (
+                      <div className="mt-2 pt-2 border-t border-dashed border-primary/10 flex justify-between items-center text-xs font-semibold bg-emerald-500/10 p-2 rounded">
+                        <span className="text-emerald-800 dark:text-emerald-300">Points Redeemed:</span>
+                        <span className="text-emerald-800 dark:text-emerald-300 font-mono">
+                          {pointsToRedeem} pts (-{formatCurrency(loyaltyDiscount)})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Customer Store Credit Panel */}
+              {selectedCustomer && customerStoreCredit > 0 && (
+                <div className="w-full border border-indigo-500/10 rounded-lg p-3.5 bg-indigo-500/5 space-y-3 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-tight text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                      Customer Store Credit
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="redeem-credit-toggle" className="text-xs font-medium cursor-pointer">
+                        Redeem Store Credit?
+                      </Label>
+                      <Switch
+                        id="redeem-credit-toggle"
+                        checked={redeemStoreCredit}
+                        onCheckedChange={setRedeemStoreCredit}
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-indigo-500/10 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Available Credit:</span>
+                      <span className="font-semibold font-mono text-indigo-600 dark:text-indigo-400">
+                        {formatCurrency(customerStoreCredit)}
+                      </span>
+                    </div>
+                    {redeemStoreCredit && (
+                      <div className="mt-2 pt-2 border-t border-dashed border-indigo-500/10 flex justify-between items-center text-xs font-semibold bg-indigo-500/10 p-2 rounded">
+                        <span className="text-indigo-800 dark:text-indigo-300">Credit Applied today:</span>
+                        <span className="text-indigo-800 dark:text-indigo-300 font-mono">
+                          -{formatCurrency(storeCreditRedeemed)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="w-full space-y-2 pt-2 border-t text-xs">
+                <div className="flex justify-between items-center text-muted-foreground">
+                  <span>Cart Subtotal</span>
+                  <span className="font-mono">{formatCurrency(finalCartTotal)}</span>
+                </div>
+
+                {discountAmount > 0 && (
+                  <div className="flex justify-between items-center text-red-500">
+                    <span>Coupon / Custom Discount</span>
+                    <span className="font-mono">- {formatCurrency(discountAmount)}</span>
+                  </div>
+                )}
+
+                {loyaltyDiscount > 0 && (
+                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                    <span>Loyalty Points Discount</span>
+                    <span className="font-mono">- {formatCurrency(loyaltyDiscount)}</span>
+                  </div>
+                )}
+
+                {(discountAmount > 0 || loyaltyDiscount > 0) && (
+                  <div className="flex justify-between items-center font-medium text-foreground border-t border-dashed border-primary/10 pt-1.5">
+                    <span>Net Subtotal</span>
+                    <span className="font-mono">{formatCurrency(subtotalAfterPoints)}</span>
+                  </div>
+                )}
+
+                {taxRatePercent > 0 && (
+                  <div className="flex justify-between items-center text-muted-foreground">
+                    <span>
+                      VAT / Sales Tax ({defaultTaxRate?.name || "Tax"} {taxRatePercent}%)
+                    </span>
+                    <span className="font-mono">{formatCurrency(taxTotal)}</span>
+                  </div>
+                )}
+
+                {storeCreditRedeemed > 0 && (
+                  <>
+                    <div className="flex justify-between items-center font-medium text-muted-foreground border-t border-dashed border-primary/10 pt-1.5">
+                      <span>Subtotal (incl. Tax)</span>
+                      <span className="font-mono">{formatCurrency(totalChargedBeforeCredit)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold animate-fade-in">
+                      <span>Store Credit Applied</span>
+                      <span className="font-mono">- {formatCurrency(storeCreditRedeemed)}</span>
+                    </div>
+                  </>
+                )}
+
+                <div className="flex justify-between items-center font-bold text-sm text-foreground pt-1.5 border-t">
+                  <span>Total Charged</span>
+                  <span className="font-mono">{formatCurrency(totalCharged)}</span>
                 </div>
                 
                 {bookingDepositAmount > 0 && (
-                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                    <span className="font-medium text-sm">Booking Deposit Paid</span>
-                    <span className="font-mono text-sm">- {formatCurrency(bookingDepositAmount)}</span>
+                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-medium">
+                    <span>Booking Deposit Paid</span>
+                    <span className="font-mono">- {formatCurrency(bookingDepositAmount)}</span>
                   </div>
                 )}
                 
-                <div className="flex justify-between items-center pt-2 border-t border-primary/20">
+                <div className="flex justify-between items-center pt-2.5 border-t border-primary/20">
                   <span className="font-bold text-base text-primary uppercase tracking-tight">Total Remaining</span>
-                  <span className="text-2xl font-bold font-mono text-emerald-600">
+                  <span className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
                     {formatCurrency(balanceCollectedToday)}
                   </span>
                 </div>
@@ -1197,7 +1684,10 @@ export default function NewSale() {
                   Customer
                 </Label>
                 <div className="flex items-center gap-2">
-                  <Popover open={customerOpen} onOpenChange={setCustomerOpen}>
+                  <Popover open={customerOpen} onOpenChange={(open) => {
+                    setCustomerOpen(open);
+                    if (!open) setCustomerSearchQuery("");
+                  }}>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
@@ -1205,45 +1695,107 @@ export default function NewSale() {
                         aria-expanded={customerOpen}
                         className="flex-1 justify-between font-normal"
                         data-testid="select-customer"
-                        disabled={!!bookingId}
+                        disabled={!!bookingId || profileCustomerMutation.isPending}
                       >
-                        {selectedCustomer
-                          ? customers.find((c) => c.id === selectedCustomer)?.name
-                          : "Search customers..."}
+                        {profileCustomerMutation.isPending ? (
+                          <span className="flex items-center gap-2 text-muted-foreground">
+                            <span className="h-2 w-2 animate-ping rounded-full bg-primary" />
+                            Profiling customer...
+                          </span>
+                        ) : selectedCustomer ? (
+                          customers.find((c) => c.id === selectedCustomer)?.name
+                        ) : (
+                          "Search customers..."
+                        )}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search by name or ID..." data-testid="input-search-customer" />
+                    <Command shouldFilter={false}>
+                      <CommandInput 
+                        placeholder="Search by name or ID..." 
+                        data-testid="input-search-customer" 
+                        value={customerSearchQuery}
+                        onValueChange={setCustomerSearchQuery}
+                      />
                       <CommandList>
-                        <CommandEmpty>No customer found.</CommandEmpty>
-                        <CommandGroup>
-                          {customers.filter(c => !c.isArchived).map((customer) => (
-                            <CommandItem
-                              key={customer.id}
-                              value={`${customer.name} ${customer.customerNumber} ${customer.mobileNumber || ''}`}
-                              onSelect={() => {
-                                setSelectedCustomer(customer.id);
-                                setCustomerOpen(false);
-                              }}
-                              data-testid={`customer-option-${customer.id}`}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  selectedCustomer === customer.id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              <div className="flex flex-col">
-                                <span>{customer.name}</span>
-                                <span className="text-xs text-muted-foreground font-mono">
-                                  {customer.customerNumber} {customer.mobileNumber ? `• ${customer.mobileNumber}` : ''}
-                                </span>
-                              </div>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
+                        {profileCustomerMutation.isPending ? (
+                          <CommandEmpty>Profiling customer, please wait...</CommandEmpty>
+                        ) : (
+                          customers.filter(c => !c.isArchived).length === 0 &&
+                          globalCustomerMatches.length === 0 && (
+                            <CommandEmpty>No customer found.</CommandEmpty>
+                          )
+                        )}
+                        
+                        {!profileCustomerMutation.isPending && (
+                          <>
+                            {/* Local matches */}
+                            <CommandGroup heading="Local Store Branch">
+                              {customers
+                                .filter((c) => !c.isArchived)
+                                .filter((c) => {
+                                  if (!customerSearchQuery.trim()) return true;
+                                  const query = customerSearchQuery.toLowerCase();
+                                  return (
+                                    c.name.toLowerCase().includes(query) ||
+                                    c.customerNumber.toLowerCase().includes(query) ||
+                                    (c.mobileNumber || "").toLowerCase().includes(query)
+                                  );
+                                })
+                                .map((customer) => {
+                                  const presenter = new CustomerPresenter(customer);
+                                  return (
+                                    <CommandItem
+                                      key={customer.id}
+                                      value={`${customer.name} ${customer.customerNumber} ${customer.mobileNumber || ''}`}
+                                      onSelect={() => {
+                                        setSelectedCustomer(customer.id);
+                                        setCustomerOpen(false);
+                                      }}
+                                      data-testid={`customer-option-${customer.id}`}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          selectedCustomer === customer.id ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+                                      <EntityDisplay presenter={presenter} />
+                                    </CommandItem>
+                                  );
+                                })}
+                            </CommandGroup>
+
+                            {/* Cross-branch matches */}
+                            {globalCustomerMatches.length > 0 && (
+                              <CommandGroup heading="Other Branches (Same Business)">
+                                {globalCustomerMatches.map((customer) => {
+                                  const presenter = new CustomerPresenter(customer);
+                                  return (
+                                    <CommandItem
+                                      key={customer.id}
+                                      value={`${customer.name} ${customer.customerNumber} ${customer.mobileNumber || ''}`}
+                                      onSelect={() => {
+                                        profileCustomerMutation.mutate(customer.id);
+                                      }}
+                                      data-testid={`customer-global-option-${customer.id}`}
+                                      className="flex items-center justify-between cursor-pointer"
+                                    >
+                                      <div className="flex items-center flex-1">
+                                        <Check className="mr-2 h-4 w-4 opacity-0" />
+                                        <EntityDisplay presenter={presenter} />
+                                      </div>
+                                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0 ml-2">
+                                        {customer.storeName}
+                                      </span>
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            )}
+                          </>
+                        )}
                       </CommandList>
                     </Command>
                   </PopoverContent>
@@ -1286,28 +1838,28 @@ export default function NewSale() {
                       <CommandList>
                         <CommandEmpty>No staff found.</CommandEmpty>
                         <CommandGroup>
-                          {staffList.filter(s => !s.isArchived).map((staff) => (
-                            <CommandItem
-                              key={staff.id}
-                              value={`${staff.name} ${staff.staffNumber}`}
-                              onSelect={() => {
-                                setSelectedStaff(staff.id);
-                                setStaffOpen(false);
-                              }}
-                              data-testid={`staff-option-${staff.id}`}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  selectedStaff === staff.id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              <div className="flex flex-col">
-                                <span>{staff.name}</span>
-                                <span className="text-xs text-muted-foreground font-mono">{staff.staffNumber}</span>
-                              </div>
-                            </CommandItem>
-                          ))}
+                          {staffList.filter(s => !s.isArchived).map((staff) => {
+                            const presenter = new StaffPresenter(staff);
+                            return (
+                              <CommandItem
+                                key={staff.id}
+                                value={`${staff.name} ${staff.staffNumber}`}
+                                onSelect={() => {
+                                  setSelectedStaff(staff.id);
+                                  setStaffOpen(false);
+                                }}
+                                data-testid={`staff-option-${staff.id}`}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    selectedStaff === staff.id ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                <EntityDisplay presenter={presenter} />
+                              </CommandItem>
+                            );
+                          })}
                         </CommandGroup>
                       </CommandList>
                     </Command>
@@ -1601,8 +2153,8 @@ export default function NewSale() {
             <CardFooter>
               <Button
                 className="w-full"
-                disabled={!canCheckout || checkoutMutation.isPending}
-                onClick={() => checkoutMutation.mutate()}
+                disabled={checkoutMutation.isPending}
+                onClick={handleCheckoutClick}
                 data-testid="button-checkout"
               >
                 {checkoutMutation.isPending ? (
@@ -1618,6 +2170,72 @@ export default function NewSale() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={openRegisterDialogOpen} onOpenChange={setOpenRegisterDialogOpen}>
+        <DialogContent className="max-w-md border-primary/20 shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary font-bold">
+              <Banknote className="h-5 w-5 text-emerald-500" />
+              Open Register Drawer
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              There is currently no active cash register session. You must open the drawer with an initial float to start checking out customers.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Opening Float (₦)</Label>
+              <Input
+                type="number"
+                min="0"
+                placeholder="0.00"
+                className="font-mono h-10 text-lg"
+                value={openingFloat === 0 ? "0" : openingFloat || ""}
+                onChange={(e) => {
+                  const valStr = e.target.value;
+                  let cleanValStr = valStr;
+                  if (/^0\d+/.test(valStr)) cleanValStr = valStr.replace(/^0+/, '');
+                  const val = parseFloat(cleanValStr);
+                  setOpeningFloat(isNaN(val) || val < 0 ? 0 : val);
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes (Optional)</Label>
+              <Textarea
+                placeholder="Initial cash breakdown or details..."
+                className="h-20 text-sm resize-none"
+                value={registerNotes}
+                onChange={(e) => setRegisterNotes(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpenRegisterDialogOpen(false);
+                setOpeningFloat(0);
+                setRegisterNotes("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={openRegisterMutation.isPending}
+              onClick={() => {
+                openRegisterMutation.mutate({ openingFloat, notes: registerNotes });
+              }}
+            >
+              {openRegisterMutation.isPending ? "Opening..." : "Open Drawer Session"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={newCustomerDialogOpen} onOpenChange={setNewCustomerDialogOpen}>
         <DialogContent className="max-w-lg">
@@ -1697,11 +2315,6 @@ export default function NewSale() {
         open={supervisorOverrideOpen} 
         onOpenChange={(open) => {
           if (!open) {
-            // Cancelling the override resets the discount
-            setApplyDiscount(false);
-            setDiscountAmount(0);
-            setDiscountPercent(0);
-            setDiscountApprovedBy("");
             setSupervisorEmail("");
             setSupervisorPassword("");
           }
@@ -1751,10 +2364,6 @@ export default function NewSale() {
               variant="outline"
               className="text-xs h-9"
               onClick={() => {
-                setApplyDiscount(false);
-                setDiscountAmount(0);
-                setDiscountPercent(0);
-                setDiscountApprovedBy("");
                 setSupervisorEmail("");
                 setSupervisorPassword("");
                 setSupervisorOverrideOpen(false);
@@ -1827,6 +2436,237 @@ export default function NewSale() {
           </Button>
         </div>
       )}
+
+      {/* 1. Cash Drop Dialog */}
+      <Dialog open={cashDropDialogOpen} onOpenChange={setCashDropDialogOpen}>
+        <DialogContent className="max-w-md border-primary/20 shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary font-bold">
+              <Banknote className="h-5 w-5 text-amber-500" />
+              Record Cash Drop (Safe Transfer)
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Record a transfer of excess physical cash from the till drawer into the back-office secure safe.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Amount to Drop (₦)</Label>
+              <Input
+                type="number"
+                min="1"
+                max={activeSession?.expectedCash || 9999999}
+                placeholder="0.00"
+                className="font-mono h-10 text-lg"
+                value={cashDropAmount}
+                onChange={(e) => setCashDropAmount(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Max drop eligible: ₦{(activeSession?.expectedCash || 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Drawer Drop Notes</Label>
+              <Textarea
+                placeholder="e.g. ₦50k rush drop to safe by shift supervisor."
+                className="text-xs resize-none h-20"
+                value={cashDropNotes}
+                onChange={(e) => setCashDropNotes(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setCashDropAmount("");
+                setCashDropNotes("");
+                setCashDropDialogOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={recordCashDropMutation.isPending || !cashDropAmount || Number(cashDropAmount) <= 0}
+              onClick={() => {
+                recordCashDropMutation.mutate({
+                  amount: Number(cashDropAmount),
+                  notes: cashDropNotes,
+                });
+              }}
+            >
+              {recordCashDropMutation.isPending ? "Recording Drop..." : "Confirm Drop to Safe"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2. Close Register Dialog */}
+      <Dialog open={closeRegisterDialogOpen} onOpenChange={setCloseRegisterDialogOpen}>
+        <DialogContent className="max-w-md border-primary/20 shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary font-bold">
+              <AlertCircle className="h-5 w-5 text-rose-500 animate-pulse" />
+              Close Shift Register Drawer
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Reconcile your physical cash draw. Key in your counted till balance to calculate variance reports.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="p-3 bg-slate-950/60 border rounded-xl space-y-1.5 text-xs text-slate-300">
+              <div className="flex justify-between items-center text-[10px]">
+                <span>Shift Started At:</span>
+                <span className="font-semibold text-white">
+                  {activeSession?.openedAt ? new Date(activeSession.openedAt).toLocaleString() : ""}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span>Opening Float:</span>
+                <span className="font-mono text-white">₦{(activeSession?.openingFloat || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center text-[11px] pt-1.5 border-t">
+                <span className="font-bold">Expected Till Balance:</span>
+                <span className="font-mono font-bold text-emerald-400">
+                  ₦{(activeSession?.expectedCash || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Counted Drawer Cash (₦) <span className="text-red-500">*</span></Label>
+              <Input
+                type="number"
+                min="0"
+                placeholder="0.00"
+                className="font-mono h-10 text-lg"
+                value={actualCashCount}
+                onChange={(e) => setActualCashCount(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Count all physical notes/coins in the till. Do not subtract the starting float.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Closing Notes</Label>
+              <Textarea
+                placeholder="e.g. End of morning shift. Drawer checks out cleanly."
+                className="text-xs resize-none h-20"
+                value={closeRegisterNotes}
+                onChange={(e) => setCloseRegisterNotes(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setActualCashCount("");
+                setCloseRegisterNotes("");
+                setCloseRegisterDialogOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+              disabled={closeRegisterMutation.isPending || !actualCashCount}
+              onClick={() => {
+                closeRegisterMutation.mutate({
+                  actualCash: Number(actualCashCount),
+                  notes: closeRegisterNotes,
+                });
+              }}
+            >
+              {closeRegisterMutation.isPending ? "Reconciling..." : "Reconcile & Close Drawer"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 3. Reconciliation Summary Report Modal */}
+      <Dialog open={showCloseSummary} onOpenChange={setShowCloseSummary}>
+        <DialogContent className="max-w-md border-primary/20 shadow-lg p-6">
+          <DialogHeader className="text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 mb-2">
+              <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+            </div>
+            <DialogTitle className="text-lg font-extrabold text-white font-outfit">
+              Shift Reconciled Successfully!
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              The register session is now closed. Your shift metrics are saved to the platform's audit ledger.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="my-4 space-y-3.5 text-xs font-medium">
+            <div className="grid grid-cols-2 gap-2.5 p-3.5 bg-slate-950/60 border rounded-2xl">
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-500 uppercase font-semibold">Expected till count</span>
+                <span className="block font-mono text-sm text-slate-300">
+                  ₦{(closeSummaryData?.expectedCash || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-500 uppercase font-semibold">Counted till count</span>
+                <span className="block font-mono text-sm text-white">
+                  ₦{(closeSummaryData?.actualCash || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center p-3 bg-slate-900 border rounded-xl">
+              <span className="font-semibold text-slate-300">Shift Discrepancy (Drift)</span>
+              <Badge 
+                variant="outline"
+                className={cn(
+                  "border-none font-bold text-xs uppercase px-2.5 py-1",
+                  (closeSummaryData?.difference || 0) === 0
+                    ? "bg-slate-800 text-slate-300"
+                    : (closeSummaryData?.difference || 0) > 0
+                    ? "bg-emerald-500/10 text-emerald-400"
+                    : "bg-rose-500/10 text-rose-400"
+                )}
+              >
+                {(closeSummaryData?.difference || 0) === 0
+                  ? "Balanced"
+                  : (closeSummaryData?.difference || 0) > 0
+                  ? `+₦${(closeSummaryData?.difference || 0).toLocaleString()} (Surplus)`
+                  : `-₦${Math.abs(closeSummaryData?.difference || 0).toLocaleString()} (Shortage)`
+                }
+              </Badge>
+            </div>
+
+            <div className="space-y-1 text-[11px] text-slate-400 pt-1">
+              <span className="font-bold text-slate-500 block uppercase text-[10px]">Reconciliation Notes:</span>
+              <span className="italic block p-2.5 bg-slate-950/40 rounded-xl">
+                "{closeSummaryData?.notes || "No shift notes provided."}"
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-center pt-2">
+            <Button
+              type="button"
+              className="w-full py-5 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl"
+              onClick={() => {
+                setShowCloseSummary(false);
+                setCloseSummaryData(null);
+              }}
+            >
+              Done / Sync Complete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

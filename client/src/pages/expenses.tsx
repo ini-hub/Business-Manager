@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,6 +56,11 @@ const expenseSchema = z.object({
   date: z.string().min(1, "Date is required"),
   notes: z.string().optional(),
   inventoryId: z.string().optional().nullable(),
+  storeId: z.string().optional(),
+  paymentMethod: z.string().default("cash"),
+  splitCash: z.coerce.number().min(0).default(0),
+  splitTransfer: z.coerce.number().min(0).default(0),
+  splitPos: z.coerce.number().min(0).default(0),
 }).superRefine((data, ctx) => {
   const isLinked = data.inventoryId && data.inventoryId !== "none";
   if (!isLinked && (!data.categoryId || data.categoryId.trim() === "")) {
@@ -64,12 +70,23 @@ const expenseSchema = z.object({
       message: "Category is required for general operational expenses",
     });
   }
+
+  if (data.paymentMethod === "split") {
+    const totalSplits = (data.splitCash || 0) + (data.splitTransfer || 0) + (data.splitPos || 0);
+    if (Math.abs(totalSplits - data.amount) > 0.01) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["splitCash"],
+        message: `Total splits (₦${totalSplits.toLocaleString()}) must equal total amount (₦${data.amount.toLocaleString()})`,
+      });
+    }
+  }
 });
 
 type ExpenseFormValues = z.infer<typeof expenseSchema>;
 
 export default function ExpensesPage() {
-  const { currentStore } = useStore();
+  const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
   const storeCurrency = currentStore?.currency || "NGN";
@@ -97,35 +114,84 @@ export default function ExpensesPage() {
     queryKey: [
       "/api/expenses", 
       currentStore?.id,
+      stores.map(s => s.id).join(","),
       dateRange?.from?.toISOString(),
       dateRange?.to?.toISOString()
     ],
     queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const params = new URLSearchParams({ storeId: s.id });
+              if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
+              if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
+              const res = await fetch(`/api/expenses?${params.toString()}`);
+              if (!res.ok) return [];
+              const list = await res.json() as ExpenseWithCategory[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        return responses.flat().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
       const params = new URLSearchParams({ storeId: currentStore!.id });
       if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
       if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
       const res = await apiRequest("GET", `/api/expenses?${params.toString()}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   const { data: categories = [] } = useQuery<ExpenseCategory[]>({
-    queryKey: ["/api/expense-categories", currentStore?.id],
+    queryKey: ["/api/expense-categories", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/expense-categories?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as ExpenseCategory[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        return responses.flat();
+      }
       const res = await apiRequest("GET", `/api/expense-categories?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
   
   const { data: inventoryItems = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id],
+    queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/inventory?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as Inventory[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        return responses.flat();
+      }
       const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
   const form = useForm<ExpenseFormValues>({
@@ -137,6 +203,10 @@ export default function ExpensesPage() {
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
       inventoryId: null,
+      paymentMethod: "cash",
+      splitCash: 0,
+      splitTransfer: 0,
+      splitPos: 0,
     },
   });
 
@@ -149,6 +219,10 @@ export default function ExpensesPage() {
       date: format(new Date(), "yyyy-MM-dd"),
       notes: "",
       inventoryId: null,
+      paymentMethod: "cash",
+      splitCash: 0,
+      splitTransfer: 0,
+      splitPos: 0,
     },
   });
 
@@ -179,11 +253,22 @@ export default function ExpensesPage() {
         catId = categories.find(c => !c.isSystem)?.id || categories[0]?.id || "";
       }
 
+      const splitPayments = data.paymentMethod === "split" ? [
+        { method: "cash", amount: data.splitCash || 0 },
+        { method: "transfer", amount: data.splitTransfer || 0 },
+        { method: "pos", amount: data.splitPos || 0 },
+      ].filter(p => p.amount > 0) : null;
+
       const submissionData = {
-        ...data,
-        storeId: currentStore!.id,
+        title: data.title,
+        amount: data.amount,
+        categoryId: catId,
+        date: data.date,
+        notes: data.notes,
         inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
-        categoryId: catId
+        storeId: data.storeId || currentStore!.id,
+        paymentMethod: data.paymentMethod,
+        splitPayments
       };
       await apiRequest("POST", "/api/expenses", submissionData);
     },
@@ -220,11 +305,22 @@ export default function ExpensesPage() {
         catId = categories.find(c => !c.isSystem)?.id || categories[0]?.id || "";
       }
 
+      const splitPayments = data.paymentMethod === "split" ? [
+        { method: "cash", amount: data.splitCash || 0 },
+        { method: "transfer", amount: data.splitTransfer || 0 },
+        { method: "pos", amount: data.splitPos || 0 },
+      ].filter(p => p.amount > 0) : null;
+
       const submissionData = {
-        ...data,
-        storeId: currentStore!.id,
+        title: data.title,
+        amount: data.amount,
+        categoryId: catId,
+        date: data.date,
+        notes: data.notes,
         inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
-        categoryId: catId
+        storeId: currentStore!.id,
+        paymentMethod: data.paymentMethod,
+        splitPayments
       };
       await apiRequest("PATCH", `/api/expenses/${data.id}`, submissionData);
     },
@@ -243,6 +339,12 @@ export default function ExpensesPage() {
     setExpenseToEdit(e);
     setIsEditNewCategoryMode(false);
     setEditCustomCategoryName("");
+    
+    const splits = (e as any).splitPayments || [];
+    const splitCash = splits.find((p: any) => p.method === "cash")?.amount || 0;
+    const splitTransfer = splits.find((p: any) => p.method === "transfer")?.amount || 0;
+    const splitPos = splits.find((p: any) => p.method === "pos")?.amount || 0;
+
     editForm.reset({
       title: e.title,
       amount: e.amount,
@@ -250,6 +352,10 @@ export default function ExpensesPage() {
       date: e.date,
       notes: e.notes || "",
       inventoryId: e.inventoryId || "none",
+      paymentMethod: (e as any).paymentMethod || "cash",
+      splitCash,
+      splitTransfer,
+      splitPos,
     });
     setIsEditExpenseOpen(true);
   };
@@ -317,6 +423,15 @@ export default function ExpensesPage() {
   const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   const columns = [
+    ...(currentStore?.id === "all" ? [{
+      key: "storeName",
+      header: "Store",
+      render: (e: any) => (
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+          {e.storeName || "Global"}
+        </Badge>
+      ),
+    }] : []),
     {
       key: "date",
       header: "Date",
@@ -347,6 +462,35 @@ export default function ExpensesPage() {
           {e.category.name}
         </Badge>
       ),
+    },
+    {
+      key: "paymentMethod",
+      header: "Payment Method",
+      render: (e: ExpenseWithCategory) => {
+        const method = (e as any).paymentMethod || "cash";
+        
+        if (method === "split" && (e as any).splitPayments) {
+          const splits = (e as any).splitPayments as Array<{method: string, amount: number}>;
+          const splitLabel = splits.map(s => `${s.method.toUpperCase()}: ${formatCurrency(s.amount)}`).join(", ");
+          return (
+            <Badge variant="outline" className="capitalize cursor-help" title={splitLabel}>
+              Split ℹ️
+            </Badge>
+          );
+        }
+
+        const methodMap: Record<string, string> = {
+          cash: "Cash",
+          transfer: "Transfer",
+          pos: "POS / Card"
+        };
+
+        return (
+          <Badge variant="secondary" className="capitalize">
+            {methodMap[method] || method}
+          </Badge>
+        );
+      }
     },
     {
       key: "amount",
@@ -428,7 +572,7 @@ export default function ExpensesPage() {
                 <DialogTrigger asChild>
                   <Button variant="outline"><Settings2 className="mr-2 h-4 w-4" /> Categories</Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Manage Expense Categories</DialogTitle>
                   </DialogHeader>
@@ -511,159 +655,9 @@ export default function ExpensesPage() {
               </Dialog>
             )}
 
-            <Dialog open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
-              <DialogTrigger asChild>
-                <Button><Plus className="mr-2 h-4 w-4" /> Add Expense</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Log New Expense</DialogTitle>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit((d) => addExpenseMutation.mutate(d))} className="space-y-4 pt-4">
-                    <FormField
-                      control={form.control}
-                      name="title"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Description / Title</FormLabel>
-                          <FormControl><Input {...field} placeholder="e.g. Office Supplies" /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="amount"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Amount ({storeCurrency})</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                placeholder="0"
-                                value={field.value === 0 ? "0" : field.value ?? ""}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  let cleanVal = val;
-                                  if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
-                                  field.onChange(cleanVal === "" ? 0 : parseFloat(cleanVal) || 0);
-                                }}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="date"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Date</FormLabel>
-                            <FormControl><Input type="date" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    {(!selectedInventoryId || selectedInventoryId === "none") && (
-                      <FormField
-                        control={form.control}
-                        name="categoryId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <div className="flex justify-between items-center">
-                              <FormLabel>{isNewCategoryMode ? "New Category Name" : "Category"}</FormLabel>
-                              <Button 
-                                type="button" 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-auto p-0 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                                onClick={() => {
-                                  setIsNewCategoryMode(!isNewCategoryMode);
-                                  field.onChange("");
-                                  setCustomCategoryName("");
-                                }}
-                              >
-                                {isNewCategoryMode ? "Select Existing" : "+ New Category"}
-                              </Button>
-                            </div>
-                            {isNewCategoryMode ? (
-                              <FormControl>
-                                <Input 
-                                  placeholder="e.g. Subscriptions, Advertising, Office" 
-                                  value={customCategoryName}
-                                  onChange={(e) => {
-                                    setCustomCategoryName(e.target.value);
-                                    field.onChange(e.target.value);
-                                  }}
-                                />
-                              </FormControl>
-                            ) : (
-                              <Select onValueChange={field.onChange} value={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select a category" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {categories.filter(c => !c.isSystem).map((c) => (
-                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                    <FormField
-                      control={form.control}
-                      name="inventoryId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Related Service / Product (Optional)</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value || "none"}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select an item" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              {inventoryItems.map((item) => (
-                                <SelectItem key={item.id} value={item.id}>
-                                  {item.name} ({item.type})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="notes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Additional Notes</FormLabel>
-                          <FormControl><Input {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" className="w-full" disabled={addExpenseMutation.isPending}>
-                      Save Expense
-                    </Button>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
+            <Link href="/expenses/new">
+              <Button><Plus className="mr-2 h-4 w-4" /> Add Expense</Button>
+            </Link>
           </div>
         }
       />
@@ -773,7 +767,7 @@ export default function ExpensesPage() {
 
       {/* Edit Expense Dialog */}
       <Dialog open={isEditExpenseOpen} onOpenChange={setIsEditExpenseOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Expense</DialogTitle>
           </DialogHeader>
@@ -919,6 +913,113 @@ export default function ExpensesPage() {
                   </FormItem>
                 )}
               />
+              <FormField
+                control={editForm.control}
+                name="paymentMethod"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Payment Method</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a payment method" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="pos">POS / Card</SelectItem>
+                        <SelectItem value="split">Split Payment</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {editForm.watch("paymentMethod") === "split" && (
+                <div className="p-4 bg-muted/40 rounded-lg space-y-4 border border-dashed animate-in fade-in duration-200">
+                  <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
+                    <span>Split Breakdown</span>
+                    {(() => {
+                      const totalAmount = editForm.watch("amount") || 0;
+                      const splitCash = editForm.watch("splitCash") || 0;
+                      const splitTransfer = editForm.watch("splitTransfer") || 0;
+                      const splitPos = editForm.watch("splitPos") || 0;
+                      const allocated = splitCash + splitTransfer + splitPos;
+                      const remaining = totalAmount - allocated;
+                      
+                      if (Math.abs(remaining) < 0.01) {
+                        return <span className="text-emerald-600">✓ Splits Balanced</span>;
+                      }
+                      return (
+                        <span className={remaining > 0 ? "text-amber-600" : "text-rose-600"}>
+                          Remaining: {formatCurrency(remaining)}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <FormField
+                      control={editForm.control}
+                      name="splitCash"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-[10px]">Cash Portion</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="0"
+                              value={field.value === 0 ? "" : field.value ?? ""}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              className="h-8 text-xs font-mono"
+                            />
+                          </FormControl>
+                          <FormMessage className="text-[9px]" />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={editForm.control}
+                      name="splitTransfer"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-[10px]">Transfer Portion</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="0"
+                              value={field.value === 0 ? "" : field.value ?? ""}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              className="h-8 text-xs font-mono"
+                            />
+                          </FormControl>
+                          <FormMessage className="text-[9px]" />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={editForm.control}
+                      name="splitPos"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-[10px]">POS Portion</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="0"
+                              value={field.value === 0 ? "" : field.value ?? ""}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                              className="h-8 text-xs font-mono"
+                            />
+                          </FormControl>
+                          <FormMessage className="text-[9px]" />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={updateExpenseMutation.isPending}>
                 {updateExpenseMutation.isPending ? "Updating..." : "Update Expense"}
               </Button>

@@ -24,6 +24,35 @@ export class CreditController extends BaseController {
       if (!storeId) {
         return this.badRequest(res, "Please select a store first.");
       }
+
+      if (storeId === "all") {
+        const stores = await this.getUserStores(req);
+        if (stores.length === 0) {
+          return this.ok(res, {
+            totalOwed: 0,
+            totalOwedCount: 0,
+            totalOverdue: 0,
+            totalOverdueCount: 0,
+            totalDueThisWeek: 0,
+            totalDueThisWeekCount: 0,
+            totalCollectedThisMonth: 0,
+          });
+        }
+        const summaries = await Promise.all(
+          stores.map(s => storage.creditRepo.getCreditSummary(s.id))
+        );
+        const combined = {
+          totalOwed: summaries.reduce((sum, s) => sum + s.totalOwed, 0),
+          totalOwedCount: summaries.reduce((sum, s) => sum + s.totalOwedCount, 0),
+          totalOverdue: summaries.reduce((sum, s) => sum + s.totalOverdue, 0),
+          totalOverdueCount: summaries.reduce((sum, s) => sum + s.totalOverdueCount, 0),
+          totalDueThisWeek: summaries.reduce((sum, s) => sum + s.totalDueThisWeek, 0),
+          totalDueThisWeekCount: summaries.reduce((sum, s) => sum + s.totalDueThisWeekCount, 0),
+          totalCollectedThisMonth: summaries.reduce((sum, s) => sum + s.totalCollectedThisMonth, 0),
+        };
+        return this.ok(res, combined);
+      }
+
       if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       const summary = await storage.creditRepo.getCreditSummary(storeId);
@@ -40,7 +69,6 @@ export class CreditController extends BaseController {
       if (!storeId) {
         return this.badRequest(res, "Please select a store first.");
       }
-      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       const status = req.query.status ? (req.query.status as string).split(",") : undefined;
       const minOutstanding = req.query.minOutstanding ? parseFloat(req.query.minOutstanding as string) : undefined;
@@ -49,6 +77,30 @@ export class CreditController extends BaseController {
       const search = req.query.search as string;
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
+
+      if (storeId === "all") {
+        const stores = await this.getUserStores(req);
+        if (stores.length === 0) return this.ok(res, []);
+
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            const list = await storage.creditRepo.getCreditLedger(s.id, {
+              status,
+              minOutstanding,
+              maxOutstanding,
+              customerId,
+              search,
+              startDate,
+              endDate,
+            });
+            return list.map(item => ({ ...item, storeName: s.name }));
+          })
+        );
+        const merged = responses.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return this.ok(res, merged);
+      }
+
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       const ledger = await storage.creditRepo.getCreditLedger(storeId, {
         status,
@@ -272,10 +324,64 @@ export class CreditController extends BaseController {
       if (!storeId) {
         return this.badRequest(res, "Please select a store first.");
       }
-      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
+
+      if (storeId === "all") {
+        const stores = await this.getUserStores(req);
+        if (stores.length === 0) {
+          return this.ok(res, {
+            totalExtended: 0,
+            totalCollected: 0,
+            collectionRate: 100,
+            totalWrittenOff: 0,
+            aging: { zeroToSeven: 0, eightToThirty: 0, thirtyOneToSixty: 0, sixtyPlus: 0 },
+            topOwing: [],
+          });
+        }
+
+        const reports = await Promise.all(
+          stores.map(s => storage.creditRepo.getBorrowBookReport(s.id, startDate, endDate))
+        );
+
+        const aging = {
+          zeroToSeven: reports.reduce((sum, r) => sum + r.aging.zeroToSeven, 0),
+          eightToThirty: reports.reduce((sum, r) => sum + r.aging.eightToThirty, 0),
+          thirtyOneToSixty: reports.reduce((sum, r) => sum + r.aging.thirtyOneToSixty, 0),
+          sixtyPlus: reports.reduce((sum, r) => sum + r.aging.sixtyPlus, 0),
+        };
+
+        const totalExtended = reports.reduce((sum, r) => sum + r.totalExtended, 0);
+        const totalCollected = reports.reduce((sum, r) => sum + r.totalCollected, 0);
+        const totalWrittenOff = reports.reduce((sum, r) => sum + r.totalWrittenOff, 0);
+        const collectionRate = totalExtended > 0 ? (totalCollected / totalExtended) * 100 : 100;
+
+        const customerMap: Record<string, { name: string; phone: string; balance: number }> = {};
+        for (const r of reports) {
+          for (const c of (r.topOwing || [])) {
+            const key = c.phone || c.name;
+            if (!customerMap[key]) {
+              customerMap[key] = { name: c.name, phone: c.phone, balance: 0 };
+            }
+            customerMap[key].balance += c.balance;
+          }
+        }
+        const topOwing = Object.values(customerMap)
+          .sort((a, b) => b.balance - a.balance)
+          .slice(0, 5);
+
+        return this.ok(res, {
+          totalExtended,
+          totalCollected,
+          collectionRate,
+          totalWrittenOff,
+          aging,
+          topOwing,
+        });
+      }
+
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
       const report = await storage.creditRepo.getBorrowBookReport(storeId, startDate, endDate);
       return this.ok(res, report);

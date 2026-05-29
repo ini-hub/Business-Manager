@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, AlertCircle } from "lucide-react";
+import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, AlertCircle, Building2 } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,8 @@ import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/useAuth";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface DashboardStats {
   totalCustomers: number;
@@ -24,12 +26,16 @@ interface DashboardStats {
   totalServices: number;
   totalTransactions: number;
   totalRevenue: number;
+  grossRevenue?: number;
+  returnedRevenue?: number;
   totalProfit: number;
   lowStockItems: Inventory[];
 }
 
 export default function Dashboard() {
-  const { currentStore } = useStore();
+  const { currentStore, business, stores } = useStore();
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
 
   const [dateRange, setDateRange] = useState<DateRange>(() => {
     const saved = sessionStorage.getItem("dashboard_date_range");
@@ -62,30 +68,91 @@ export default function Dashboard() {
   const deepLinkQuery = deepLinkParams.toString() ? `?${deepLinkParams.toString()}` : "";
 
   const { data: stats, isLoading } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats", currentStore?.id, queryString],
+    queryKey: ["/api/dashboard/stats", currentStore?.id, business?.id, queryString],
     queryFn: async () => {
-      const res = await fetch(`/api/dashboard/stats?storeId=${currentStore?.id}${queryString ? '&' + queryString.substring(1) : ''}`);
+      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
+      const res = await fetch(`/api/dashboard/stats?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch dashboard stats");
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     refetchInterval: 30000, // Dashboard stats refresh every 30 seconds
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss", currentStore?.id],
-    enabled: !!currentStore?.id,
+    queryKey: ["/api/profit-loss", currentStore?.id, business?.id],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && business?.id && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/profit-loss?storeId=${s.id}`);
+              if (!res.ok) return [];
+              return await res.json() as ProfitLossWithInventory[];
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedMap = new Map<string, ProfitLossWithInventory>();
+        for (const list of responses) {
+          for (const item of list) {
+            const id = item.inventoryId;
+            const existing = mergedMap.get(id);
+            if (existing) {
+              existing.totalQuantitySold += item.totalQuantitySold;
+              existing.totalRevenue += item.totalRevenue;
+              existing.totalGrossProfit += item.totalGrossProfit;
+            } else {
+              mergedMap.set(id, { ...item });
+            }
+          }
+        }
+        return Array.from(mergedMap.values());
+      }
+      const res = await fetch(`/api/profit-loss?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     refetchInterval: 30000, // Profit/Loss trend data refresh every 30 seconds
   });
 
   const { data: topCustomers = [] } = useQuery<any[]>({
-    queryKey: ["/api/reports/top-customers", currentStore?.id],
+    queryKey: ["/api/reports/top-customers", currentStore?.id, business?.id],
     queryFn: async () => {
+      if (currentStore?.id === "all" && business?.id && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/reports/top-customers?storeId=${s.id}`);
+              if (!res.ok) return [];
+              return await res.json();
+            } catch {
+              return [];
+            }
+          })
+        );
+        const mergedMap = new Map<string, any>();
+        for (const list of responses) {
+          for (const cust of list) {
+            const key = cust.id;
+            const existing = mergedMap.get(key);
+            if (existing) {
+              existing.transactionCount += cust.transactionCount;
+              existing.totalSpent += cust.totalSpent;
+            } else {
+              mergedMap.set(key, { ...cust });
+            }
+          }
+        }
+        return Array.from(mergedMap.values()).sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 5);
+      }
       const res = await fetch(`/api/reports/top-customers?storeId=${currentStore?.id}`);
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     refetchInterval: 30000, // Top customers metric refresh every 30 seconds
   });
 
@@ -110,11 +177,11 @@ export default function Dashboard() {
     <div className="space-y-8">
       <PageHeader
         title="Dashboard"
-        description={`Overview for ${currentStore.name}`}
+        description={currentStore?.id === "all" ? `Consolidated overview for all ${stores.length} branches` : `Overview for ${currentStore?.name}`}
         actions={
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
             <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} />
-            <Button asChild data-testid="button-new-sale">
+            <Button asChild data-testid="button-new-sale" className="w-full sm:w-auto">
               <Link href="/sales/new">
                 <ShoppingCart className="mr-2 h-4 w-4" />
                 New Sale
@@ -158,8 +225,9 @@ export default function Dashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <MetricCard
-          title="Total Revenue"
+          title="Actual Revenue (Net)"
           value={formatCurrency(stats?.totalRevenue ?? 0)}
+          description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Gross: ${formatCurrency(stats.grossRevenue ?? 0)} (Refunded: ${formatCurrency(stats.returnedRevenue)})` : "Net revenue after returns"}
           icon={<Coins className="h-4 w-4" />}
           trend="up"
           trendValue="All time"
@@ -178,11 +246,26 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <SalesTrendChart storeId={currentStore.id} storeCurrency={storeCurrency} queryString={queryString} />
-        <RevenueByItemChart storeId={currentStore.id} storeCurrency={storeCurrency} queryString={queryString} />
+        <SalesTrendChart 
+          storeId={currentStore?.id === "all" ? undefined : currentStore?.id} 
+          businessId={currentStore?.id === "all" ? business?.id : undefined}
+          storeCurrency={storeCurrency} 
+          queryString={queryString} 
+        />
+        <RevenueByItemChart 
+          storeId={currentStore?.id === "all" ? undefined : currentStore?.id} 
+          businessId={currentStore?.id === "all" ? business?.id : undefined}
+          storeCurrency={storeCurrency} 
+          queryString={queryString} 
+        />
       </div>
 
-      <RevenueBreakdownChart storeId={currentStore.id} storeCurrency={storeCurrency} queryString={queryString} />
+      <RevenueBreakdownChart 
+        storeId={currentStore?.id === "all" ? undefined : currentStore?.id} 
+        businessId={currentStore?.id === "all" ? business?.id : undefined}
+        storeCurrency={storeCurrency} 
+        queryString={queryString} 
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

@@ -13,6 +13,7 @@ interface ReceiptPayload {
       subtotal: number;
       discountAmount: number;
       discountPercent: number;
+      pointsRedeemed?: number;
       totalCharged: number;
       paymentMethod: string;
       paymentStatus: string;
@@ -33,6 +34,7 @@ interface ReceiptPayload {
       discountPercent: number;
       totalCharged: number;
       discountReason?: string | null;
+      taxTotal?: number;
     };
     order: {
       id: string;
@@ -87,6 +89,21 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
   const totalChargedSum = items.reduce((sum, item) => sum + (item.checkout?.totalCharged ?? 0), 0);
   const bookingDepositAmount = checkout?.bookingDepositAmount ?? 0;
   const balanceCollectedTodaySum = Math.max(0, totalChargedSum - bookingDepositAmount);
+  let pointsRedeemed = checkout?.pointsRedeemed ?? 0;
+  let loyaltyDiscount = pointsRedeemed * 10;
+
+  // Fallback deduction formula for historical transactions that completed before the schema upgrade
+  if (pointsRedeemed === 0) {
+    const taxTotalSum = items.reduce((sum, item) => sum + (item.checkout?.taxTotal ?? 0), 0);
+    const calculatedPointsDiscount = subtotal - discountAmount + taxTotalSum - totalChargedSum;
+    if (calculatedPointsDiscount > 0.01) {
+      const deducedPoints = Math.round(calculatedPointsDiscount / 10);
+      if (deducedPoints > 0) {
+        pointsRedeemed = deducedPoints;
+        loyaltyDiscount = deducedPoints * 10;
+      }
+    }
+  }
 
   return (
     <div
@@ -186,6 +203,12 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
         <div className="flex justify-between text-xs mb-1 text-red-600">
           <span>Discount ({discountPercent.toFixed(0)}%)</span>
           <span>− {fmt(discountAmount)}</span>
+        </div>
+      )}
+      {loyaltyDiscount > 0 && (
+        <div className="flex justify-between text-xs mb-1 text-emerald-600 font-semibold">
+          <span>Loyalty Redeemed ({pointsRedeemed} pts)</span>
+          <span>− {fmt(loyaltyDiscount)}</span>
         </div>
       )}
       <div className="flex justify-between font-bold text-sm">
