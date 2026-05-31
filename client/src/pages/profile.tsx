@@ -37,7 +37,7 @@ export default function ProfilePage() {
     mutationFn: (data: { name: string; profilePhotoUrl: string }) => 
       apiRequest("PATCH", "/api/auth/user/profile", data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       toast({ title: "Profile updated successfully" });
     },
     onError: (error: Error) => {

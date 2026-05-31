@@ -6,6 +6,8 @@ export function useAuth() {
   const { data: user, isLoading } = useQuery<User>({
     queryKey: ["/api/auth/user"],
     retry: false,
+    refetchOnWindowFocus: false, // Prevent frequent polling when refocusing browser tab
+    staleTime: Infinity,          // Auth state is highly stable; only invalidate on explicit actions
   });
 
   const logout = async () => {

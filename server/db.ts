@@ -7,6 +7,9 @@ import path from "path";
 // Automatically parse decimal/numeric columns (OID 1700) as numbers
 types.setTypeParser(1700, (val: string) => parseFloat(val));
 
+// Force PostgreSQL timestamps (without timezone, OID 1114) to be parsed as UTC
+types.setTypeParser(1114, (val: string) => new Date(val + "Z"));
+
 // Manually load .env file if DATABASE_URL is not already in env
 if (!process.env.DATABASE_URL) {
   try {
