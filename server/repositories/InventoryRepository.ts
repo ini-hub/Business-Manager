@@ -36,14 +36,14 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
   }
 
   async getInventory(storeId: string): Promise<Inventory[]> {
-    return await db.select().from(inventory).where(eq(inventory.storeId, storeId));
+    return await db.select().from(inventory).where(and(eq(inventory.storeId, storeId), eq(inventory.isDeleted, false)));
   }
 
   async getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
     const { page, limit, search } = options;
     const offset = (page - 1) * limit;
 
-    const conditions = [eq(inventory.storeId, storeId)];
+    const conditions = [eq(inventory.storeId, storeId), eq(inventory.isDeleted, false)];
     if (search) {
       conditions.push(
         or(
@@ -89,6 +89,7 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
       .from(inventory)
       .where(and(
         eq(inventory.storeId, storeId),
+        eq(inventory.isDeleted, false),
         sql`lower(${inventory.name}) = ${name.toLowerCase().trim()}`
       ));
     return item;
@@ -105,7 +106,10 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
   }
 
   async deleteInventoryItem(id: string): Promise<boolean> {
-    const result = await db.delete(inventory).where(eq(inventory.id, id)).returning();
+    const result = await db.update(inventory)
+      .set({ isDeleted: true, deletedAt: new Date() })
+      .where(eq(inventory.id, id))
+      .returning();
     return result.length > 0;
   }
 
@@ -176,9 +180,11 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
   async deductFIFO(inventoryId: string, quantityToDeduct: number, externalTx?: any): Promise<void> {
     const client = externalTx || db;
 
-    // Fetch all active cohorts of this item ordered by expiryDate (oldest first)
+    // Fetch active batch IDs ordered by FIFO (oldest expiry/creation first).
+    // We only read IDs and use atomic UPDATE … WHERE quantity >= deduct to avoid
+    // read-then-write race conditions under concurrent checkouts.
     const activeBatches = await client
-      .select()
+      .select({ id: inventoryBatches.id, quantity: inventoryBatches.quantity })
       .from(inventoryBatches)
       .where(and(eq(inventoryBatches.inventoryId, inventoryId), gt(inventoryBatches.quantity, 0)))
       .orderBy(asc(inventoryBatches.expiryDate), asc(inventoryBatches.createdAt));
@@ -188,21 +194,26 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
     for (const batch of activeBatches) {
       if (remaining <= 0) break;
 
-      if (batch.quantity >= remaining) {
-        // This batch satisfies the remainder
-        await client
-          .update(inventoryBatches)
-          .set({ quantity: batch.quantity - remaining })
-          .where(eq(inventoryBatches.id, batch.id));
-        remaining = 0;
-      } else {
-        // Fully exhaust this batch and keep looking
-        await client
-          .update(inventoryBatches)
-          .set({ quantity: 0 })
-          .where(eq(inventoryBatches.id, batch.id));
-        remaining -= batch.quantity;
+      const deductFromBatch = Math.min(batch.quantity, remaining);
+
+      // Atomic deduction: only succeeds if the row still has enough quantity.
+      // Uses SQL arithmetic so no stale read can cause a negative result.
+      const updated = await client
+        .update(inventoryBatches)
+        .set({ quantity: sql`quantity - ${deductFromBatch}` })
+        .where(
+          and(
+            eq(inventoryBatches.id, batch.id),
+            sql`quantity >= ${deductFromBatch}`
+          )
+        )
+        .returning({ newQty: inventoryBatches.quantity });
+
+      if (updated.length > 0) {
+        remaining -= deductFromBatch;
       }
+      // If the atomic update found no rows (concurrent deduction already consumed
+      // this batch), we skip it and let the next batch absorb the remainder.
     }
   }
 }

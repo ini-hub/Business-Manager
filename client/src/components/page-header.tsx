@@ -199,17 +199,18 @@ const PAGE_GUIDES: Record<string, GuideContent> = {
       "Approved stock shortage audits are automatically logged as operations expenses for tax compliance."
     ]
   },
-  "/borrow-book": {
-    title: "Resource & Book Borrowing",
-    badge: "Logistics & Lending",
+  "/credit-sales": {
+    title: "Credit Sales Ledger",
+    badge: "Arrears & Credit Control",
     steps: [
-      "Lend business books or learning materials to staff members for operational and training growth.",
-      "Track return due boundaries, transit logistics, and document physical item conditions.",
-      "Review historical borrow sheets to maintain asset inventories."
+      "Monitor outstanding customer credit balances, payment terms, and expected due date boundaries.",
+      "Send automated reminders via WhatsApp and SMS using templates in standard dialects.",
+      "Record customer partial or full debt repayments directly to settle outstanding invoices.",
+      "Review unified transaction timelines and repayment histories for specific directory accounts."
     ],
     tips: [
-      "Ensure books are physically checked back in to make them available for other team members.",
-      "Lending logs keep team resources accounted for and trace branch asset velocities."
+      "Outstanding balances can be partially repaid or settled in full with automated P&L adjustment tracking.",
+      "Leverage the Credit Sales Reminder panel under Settings to configure automatic bilingual notification schedules."
     ]
   },
   "/reports/staff-performance": {

@@ -257,7 +257,7 @@ export default function CustomerDetails() {
     },
     {
       value: "credit",
-      label: `Borrow Book Ledger (${creditEntries.length})`,
+      label: `Credit Sales Ledger (${creditEntries.length})`,
       icon: <BookOpen className="h-3.5 w-3.5 text-amber-500" />,
     },
     {
@@ -426,7 +426,7 @@ export default function CustomerDetails() {
                     <div className="flex flex-col items-center justify-center py-8 text-center bg-background/50 rounded-lg border border-dashed border-border p-6">
                       <BookOpen className="h-10 w-10 text-muted-foreground/50 mb-3" />
                       <p className="text-sm text-muted-foreground">
-                        No active or past credit records found in Borrow Book.
+                        No active or past credit records found in Credit Sales.
                       </p>
                     </div>
                   ) : (
@@ -667,7 +667,7 @@ export default function CustomerDetails() {
                 <ul className="text-xs text-slate-200 list-disc pl-4 space-y-1">
                   <li>All appointment/order bookings will be transferred to the Surviving Profile.</li>
                   <li>All POS sales ledgers and transaction history will be consolidated.</li>
-                  <li>Any active Borrow Book outstanding debt ledger records will be unified.</li>
+                  <li>Any active Credit Sales outstanding debt ledger records will be unified.</li>
                   <li>The Duplicate Profile will be archived/retired and cannot be logged into.</li>
                 </ul>
               </div>

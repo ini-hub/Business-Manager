@@ -22,23 +22,27 @@ export abstract class BaseController {
   }
 
   protected badRequest(res: Response, message: string): Response {
-    return res.status(400).json({ error: message });
+    return res.status(400).json({ error: { code: "VALIDATION_ERROR", message } });
   }
 
   protected unauthorized(res: Response, message: string): Response {
-    return res.status(401).json({ error: message });
+    return res.status(401).json({ error: { code: "UNAUTHORIZED", message } });
   }
 
   protected forbidden(res: Response, message: string): Response {
-    return res.status(403).json({ error: message });
+    return res.status(403).json({ error: { code: "FORBIDDEN", message } });
   }
 
   protected notFound(res: Response, message: string): Response {
-    return res.status(404).json({ error: message });
+    return res.status(404).json({ error: { code: "NOT_FOUND", message } });
+  }
+
+  protected conflict(res: Response, message: string): Response {
+    return res.status(409).json({ error: { code: "CONFLICT", message } });
   }
 
   protected error(res: Response, message: string): Response {
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: { code: "INTERNAL_ERROR", message } });
   }
 
   protected async checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
@@ -67,8 +71,16 @@ export abstract class BaseController {
 
     const store = await storage.getStore(storeId);
     if (!store) return false;
+    if (store.businessId !== user.businessId) return false;
 
-    return store.businessId === user.businessId;
+    // Strict isolation: if role is staff, restrict to their assigned storeId branch
+    if (user.role === "staff") {
+      const staffRecord = await storage.getStaffByUserId(user.id);
+      if (staffRecord && staffRecord.storeId !== storeId) {
+        return false;
+      }
+    }
+    return true;
   }
 
   protected async getUserStores(req: any): Promise<any[]> {

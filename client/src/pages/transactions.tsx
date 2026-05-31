@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { startOfDay, endOfDay, subDays } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/data-table";
@@ -566,7 +566,9 @@ export default function Transactions() {
                 searchPlaceholder="Search receipt no., customer, item or staff..."
                 searchKeys={["receiptNumber", "customerName", "inventoryName", "staffName", "paymentMethod"]}
                 isLoading={isLoading}
-                emptyMessage="No transactions found for the selected date range."
+                emptyTitle="No Transactions"
+                emptyMessage="No transactions found for the selected date range. Try adjusting the filters or date range."
+                emptyIcon={<ShoppingBag className="h-6 w-6" />}
                 onRowClick={(tx) => setLocation("/transactions/" + tx.id)}
                 filterConfigs={filterConfigs}
               />

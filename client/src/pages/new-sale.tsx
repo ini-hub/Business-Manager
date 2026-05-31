@@ -22,6 +22,7 @@ import {
   Sparkles,
   BookOpen,
   CheckCircle2,
+  WifiOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -63,11 +64,7 @@ import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { ReceiptModal } from "@/components/receipt-modal";
-import type { Customer, Staff, Inventory, InsertCustomer } from "@shared/schema";
-import { insertCustomerSchema } from "@shared/schema";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import type { Customer, Staff, Inventory } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { saveOfflineCheckout } from "@/lib/offline-db";
 import {
@@ -77,43 +74,21 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { CustomerPresenter, StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
-
-
-const newCustomerSchema = insertCustomerSchema.extend({
-  mobileNumber: z.string().optional().default(""),
-});
-
-interface CartItem {
-  inventory: Inventory;
-  quantity: number;
-  customPrice: number; // Allow negotiable pricing
-  totalPrice: number;
-  // Per-item staff assignment (services only)
-  leadStaffId?: string | null;
-  assistingStaff1Id?: string | null;
-  assistingStaff2Id?: string | null;
-  commissionSplit: "standard" | "equal";
-  showAsst1?: boolean; // UI toggle
-  showAsst2?: boolean; // UI toggle
-}
+import { NewCustomerDialog } from "./new-sale/NewCustomerDialog";
+import { ProductGrid } from "./new-sale/ProductGrid";
+import { CartItemRow } from "./new-sale/CartItemRow";
+import type { CartItem } from "./new-sale/types";
 
 export default function NewSale() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { currentStore } = useStore();
   const [, setLocation] = useLocation();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [lastOnlineAt, setLastOnlineAt] = useState<number | null>(navigator.onLine ? Date.now() : null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [selectedStaff, setSelectedStaff] = useState<string>("");
@@ -306,42 +281,6 @@ export default function NewSale() {
   });
   const [isDateModified, setIsDateModified] = useState<boolean>(false);
 
-  const customerForm = useForm<InsertCustomer>({
-    resolver: zodResolver(newCustomerSchema),
-    defaultValues: {
-      storeId: currentStore?.id || "",
-      name: "",
-      countryCode: "NG",
-      mobileNumber: "",
-      address: "",
-      customerNumber: "",
-    },
-  });
-
-  const createCustomerMutation = useMutation({
-    mutationFn: async (data: InsertCustomer) => {
-      const response = await apiRequest("POST", "/api/customers", { ...data, storeId: currentStore?.id });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
-      toast({ title: "Customer created successfully" });
-      setSelectedCustomer(data.id);
-      setNewCustomerDialogOpen(false);
-      customerForm.reset();
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Add Customer", 
-        description: getUserFriendlyError(error, "customer"), 
-        variant: "destructive" 
-      });
-    },
-  });
-
-  const onCustomerSubmit = (data: InsertCustomer) => {
-    createCustomerMutation.mutate(data);
-  };
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
@@ -406,6 +345,18 @@ export default function NewSale() {
   const availableInventory = inventory.filter(
     (item) => item.type === "service" || item.quantity > 0
   );
+
+  // Track online/offline state for stale-data warning
+  useEffect(() => {
+    const handleOnline = () => { setIsOnline(true); setLastOnlineAt(Date.now()); };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (bookingDetails && inventory.length > 0 && cart.length === 0) {
@@ -931,8 +882,23 @@ export default function NewSale() {
     );
   }
 
+  const staleMinutes = lastOnlineAt ? Math.floor((Date.now() - lastOnlineAt) / 60_000) : null;
+
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${!isOnline ? "pb-14" : ""}`}>
+      {/* Stale-data warning when offline */}
+      {!isOnline && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>
+            <strong>You're offline.</strong> Prices and stock levels shown are
+            {staleMinutes !== null && staleMinutes > 0
+              ? ` as of ${staleMinutes < 60 ? `${staleMinutes} min` : `${Math.floor(staleMinutes / 60)}h`} ago`
+              : " from your last visit"}
+            . Completed sales will be queued and synced when you reconnect.
+          </span>
+        </div>
+      )}
       <PageHeader
         title="New Sale"
         description={`Create a new sales transaction for ${currentStore.name}`}
@@ -1004,83 +970,16 @@ export default function NewSale() {
 
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-medium flex items-center gap-2">
-                <Package className="h-4 w-4" />
-                Select Items
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search products and services..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                  data-testid="input-search-items"
-                />
-              </div>
-              {isLoading ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="p-4 rounded-lg border animate-pulse">
-                      <div className="h-4 w-32 bg-muted rounded mb-2" />
-                      <div className="h-3 w-20 bg-muted rounded" />
-                    </div>
-                  ))}
-                </div>
-              ) : filteredInventory.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Package className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                  <p className="text-sm text-muted-foreground">
-                    {searchTerm ? "No items found" : "No items available for sale"}
-                  </p>
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {filteredInventory.map((item) => {
-                    const inCart = cart.find((c) => c.inventory.id === item.id);
-                    return (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between p-4 rounded-lg border hover-elevate cursor-pointer"
-                        onClick={() => addToCart(item)}
-                        data-testid={`item-${item.id}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
-                            {item.type === "product" ? (
-                              <Package className="h-5 w-5 text-muted-foreground" />
-                            ) : (
-                              <Wrench className="h-5 w-5 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm">{item.name}</p>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-muted-foreground font-mono">
-                                {formatCurrency(item.sellingPrice)}
-                              </p>
-                              {item.type === "product" && (
-                                <span className="text-xs text-muted-foreground">
-                                  ({item.quantity} in stock)
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {inCart && (
-                          <Badge>{inCart.quantity}</Badge>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <ProductGrid
+            inventory={availableInventory}
+            isLoading={isLoading}
+            cart={cart}
+            searchTerm={searchTerm}
+            onSearchChange={setSearchTerm}
+            onAddToCart={addToCart}
+            formatCurrency={formatCurrency}
+            isOffline={!isOnline}
+          />
         </div>
 
         <div id="pos-cart-section" className="space-y-6">
@@ -1103,242 +1002,17 @@ export default function NewSale() {
                 <ScrollArea className="h-[300px] pr-4">
                   <div className="space-y-3">
                     {cart.map((item) => (
-                      <div
+                      <CartItemRow
                         key={item.inventory.id}
-                        className="flex flex-col gap-2 p-3 rounded-lg bg-muted/50"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <p className="font-medium text-sm truncate">{item.inventory.name}</p>
-                              <Badge variant="outline" className="text-[10px] h-5 py-0 capitalize">
-                                {item.inventory.type}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground flex items-center gap-2">
-                              <span>List price: {formatCurrency(item.inventory.sellingPrice)}</span>
-                              {item.customPrice !== item.inventory.sellingPrice && (
-                                <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-                                  Custom Price
-                                </Badge>
-                              )}
-                            </p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            onClick={() => removeFromCart(item.inventory.id)}
-                            data-testid={`button-remove-${item.inventory.id}`}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="flex items-center gap-1">
-                            <Label className="text-xs text-muted-foreground whitespace-nowrap">Price:</Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={item.customPrice === 0 ? "0" : item.customPrice || ""}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                let cleanVal = val;
-                                if (/^0\d+/.test(val)) cleanVal = val.replace(/^0+/, '');
-                                updateCustomPrice(item.inventory.id, cleanVal === "" ? 0 : parseFloat(cleanVal) || 0);
-                              }}
-                              className="h-7 w-20 font-mono text-sm"
-                              data-testid={`input-price-${item.inventory.id}`}
-                            />
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => updateQuantity(item.inventory.id, -1)}
-                              data-testid={`button-decrease-${item.inventory.id}`}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <Input
-                              type="number"
-                              step="1"
-                              min="1"
-                              max={item.inventory.type === "service" ? 999 : item.inventory.quantity}
-                              value={item.quantity || ""}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === "") {
-                                  // Temporary empty state handled by a local override or just forcing it to 1 is better?
-                                  // For simplicity, we can let the input be empty but don't commit it to state until parsed.
-                                  // Wait, if it's controlled by item.quantity, we can't type an empty string. 
-                                  // Let's use parseInt(val) or 1
-                                  setExactQuantity(item.inventory.id, 1);
-                                } else {
-                                  setExactQuantity(item.inventory.id, parseInt(val) || 1);
-                                }
-                              }}
-                              className="h-7 w-14 text-center font-mono text-sm px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              data-testid={`input-quantity-${item.inventory.id}`}
-                            />
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => updateQuantity(item.inventory.id, 1)}
-                              disabled={item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
-                              data-testid={`button-increase-${item.inventory.id}`}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                          <span className="font-mono text-sm font-medium ml-auto">
-                            {formatCurrency(item.totalPrice)}
-                          </span>
-                        </div>
-                        {/* Staff assignment for service items */}
-                        {item.inventory.type === "service" && (
-                          <div className="mt-2 pt-2 border-t border-muted space-y-2">
-                            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                              <UserCog className="h-3 w-3" />
-                              Staff Assignment
-                            </p>
-                            {/* Lead staff */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground w-16 shrink-0">Lead *</span>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button variant="outline" size="sm" className={`flex-1 justify-between font-normal h-7 text-xs ${!item.leadStaffId ? "border-destructive/50" : ""}`}>
-                                    {item.leadStaffId ? staffList.find(s => s.id === item.leadStaffId)?.name : "Select lead…"}
-                                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-52 p-0" align="start">
-                                  <Command>
-                                    <CommandInput placeholder="Search staff…" />
-                                    <CommandList>
-                                      <CommandEmpty>Not found</CommandEmpty>
-                                      <CommandGroup>
-                                        {staffList.filter(s => !s.isArchived).map(s => {
-                                          const presenter = new StaffPresenter(s);
-                                          return (
-                                            <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "leadStaffId", s.id)}>
-                                              <Check className={cn("mr-2 h-3 w-3", item.leadStaffId === s.id ? "opacity-100" : "opacity-0")} />
-                                              <EntityDisplay presenter={presenter} />
-                                            </CommandItem>
-                                          );
-                                        })}
-                                      </CommandGroup>
-                                    </CommandList>
-                                  </Command>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-
-                            {/* Assisting staff 1 */}
-                            {item.showAsst1 ? (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground w-16 shrink-0">Asst. #1</span>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Button variant="outline" size="sm" className="flex-1 justify-between font-normal h-7 text-xs">
-                                      {item.assistingStaff1Id ? staffList.find(s => s.id === item.assistingStaff1Id)?.name : "Select…"}
-                                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-52 p-0" align="start">
-                                    <Command>
-                                      <CommandInput placeholder="Search staff…" />
-                                      <CommandList>
-                                        <CommandEmpty>Not found</CommandEmpty>
-                                        <CommandGroup>
-                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId).map(s => {
-                                            const presenter = new StaffPresenter(s);
-                                            return (
-                                              <CommandItem key={s.id} value={s.name} onSelect={() => {
-                                                updateStaffAssignment(item.inventory.id, "assistingStaff1Id", s.id);
-                                              }}>
-                                                <Check className={cn("mr-2 h-3 w-3", item.assistingStaff1Id === s.id ? "opacity-100" : "opacity-0")} />
-                                                <EntityDisplay presenter={presenter} />
-                                              </CommandItem>
-                                            );
-                                          })}
-                                        </CommandGroup>
-                                      </CommandList>
-                                    </Command>
-                                  </PopoverContent>
-                                </Popover>
-                                {item.assistingStaff1Id && !item.showAsst2 && (
-                                  <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => updateStaffAssignment(item.inventory.id, "showAsst2", true)}>
-                                    +Asst
-                                  </Button>
-                                )}
-                              </div>
-                            ) : (
-                              <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" onClick={() => updateStaffAssignment(item.inventory.id, "showAsst1", true)}>
-                                + Add Assisting Staff
-                              </Button>
-                            )}
-
-                            {/* Assisting staff 2 */}
-                            {item.showAsst2 && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground w-16 shrink-0">Asst. #2</span>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Button variant="outline" size="sm" className="flex-1 justify-between font-normal h-7 text-xs">
-                                      {item.assistingStaff2Id ? staffList.find(s => s.id === item.assistingStaff2Id)?.name : "Select…"}
-                                      <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-52 p-0" align="start">
-                                    <Command>
-                                      <CommandInput placeholder="Search staff…" />
-                                      <CommandList>
-                                        <CommandEmpty>Not found</CommandEmpty>
-                                        <CommandGroup>
-                                          {staffList.filter(s => !s.isArchived && s.id !== item.leadStaffId && s.id !== item.assistingStaff1Id).map(s => {
-                                             const presenter = new StaffPresenter(s);
-                                             return (
-                                               <CommandItem key={s.id} value={s.name} onSelect={() => updateStaffAssignment(item.inventory.id, "assistingStaff2Id", s.id)}>
-                                                 <Check className={cn("mr-2 h-3 w-3", item.assistingStaff2Id === s.id ? "opacity-100" : "opacity-0")} />
-                                                 <EntityDisplay presenter={presenter} />
-                                               </CommandItem>
-                                             );
-                                           })}
-                                        </CommandGroup>
-                                      </CommandList>
-                                    </Command>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
-                            )}
-
-                            {/* Commission Split Override (only if assistants exist) */}
-                            {(item.assistingStaff1Id || item.assistingStaff2Id) && (
-                              <div className="pt-1 flex flex-col gap-1">
-                                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">Commission Split</p>
-                                <RadioGroup 
-                                  value={item.commissionSplit} 
-                                  onValueChange={(v) => updateStaffAssignment(item.inventory.id, "commissionSplit", v)}
-                                  className="flex gap-3"
-                                >
-                                  <div className="flex items-center space-x-1">
-                                    <RadioGroupItem value="standard" id={`split-std-${item.inventory.id}`} className="h-3 w-3" />
-                                    <Label htmlFor={`split-std-${item.inventory.id}`} className="text-[10px] font-normal cursor-pointer">Standard (80/20)</Label>
-                                  </div>
-                                  <div className="flex items-center space-x-1">
-                                    <RadioGroupItem value="equal" id={`split-eq-${item.inventory.id}`} className="h-3 w-3" />
-                                    <Label htmlFor={`split-eq-${item.inventory.id}`} className="text-[10px] font-normal cursor-pointer">Equal (50/50)</Label>
-                                  </div>
-                                </RadioGroup>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                        item={item}
+                        staffList={staffList}
+                        formatCurrency={formatCurrency}
+                        onUpdateQuantity={updateQuantity}
+                        onSetExactQuantity={setExactQuantity}
+                        onUpdatePrice={updateCustomPrice}
+                        onRemove={removeFromCart}
+                        onUpdateStaff={updateStaffAssignment}
+                      />
                     ))}
                   </div>
                 </ScrollArea>
@@ -1724,8 +1398,15 @@ export default function NewSale() {
                         ) : (
                           customers.filter(c => !c.isArchived).length === 0 &&
                           globalCustomerMatches.length === 0 && (
-                            <CommandEmpty>No customer found.</CommandEmpty>
+                            <CommandEmpty>
+                              {!isOnline ? "No cached customers — add one below." : "No customer found."}
+                            </CommandEmpty>
                           )
+                        )}
+                        {!isOnline && customers.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <WifiOff className="h-2.5 w-2.5" />Showing cached customers
+                          </div>
                         )}
                         
                         {!profileCustomerMutation.isPending && (
@@ -1939,7 +1620,7 @@ export default function NewSale() {
                       <BookOpen className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="font-medium text-sm">Credit (Owe)</p>
-                        <p className="text-xs text-muted-foreground">Borrow Book entry (needs customer)</p>
+                        <p className="text-xs text-muted-foreground">Credit Sales entry (needs customer)</p>
                       </div>
                     </label>
                     <label
@@ -2068,7 +1749,7 @@ export default function NewSale() {
                 <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-3 animate-in fade-in-50 duration-200">
                   <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
                     <BookOpen className="h-3.5 w-3.5" />
-                    Borrow Book Details
+                    Credit Sales Details
                   </h4>
                   
                   {!selectedCustomer ? (
@@ -2171,7 +1852,10 @@ export default function NewSale() {
         </div>
       </div>
 
-      <Dialog open={openRegisterDialogOpen} onOpenChange={setOpenRegisterDialogOpen}>
+      <Dialog open={openRegisterDialogOpen} onOpenChange={(open) => {
+        if (!open) { setOpeningFloat(0); setRegisterNotes(""); }
+        setOpenRegisterDialogOpen(open);
+      }}>
         <DialogContent className="max-w-md border-primary/20 shadow-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-primary font-bold">
@@ -2237,73 +1921,15 @@ export default function NewSale() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={newCustomerDialogOpen} onOpenChange={setNewCustomerDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add New Customer</DialogTitle>
-            <DialogDescription>
-              Create a new customer quickly during checkout.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...customerForm}>
-            <form onSubmit={customerForm.handleSubmit(onCustomerSubmit)} className="space-y-4">
-              <FormField
-                control={customerForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="John Doe" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={customerForm.control}
-                name="mobileNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mobile Number (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="8012345678" {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      Enter number without country code
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={customerForm.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address (Optional)</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="123 Main St, City" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={() => setNewCustomerDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createCustomerMutation.isPending}
-                >
-                  {createCustomerMutation.isPending ? "Creating..." : "Create Customer"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
+      <NewCustomerDialog
+        open={newCustomerDialogOpen}
+        storeId={currentStore?.id ?? ""}
+        onClose={() => setNewCustomerDialogOpen(false)}
+        onCreated={(id) => {
+          setSelectedCustomer(id);
+          setNewCustomerDialogOpen(false);
+        }}
+      />
 
       <ReceiptModal
         checkoutId={receiptCheckoutId}
@@ -2438,7 +2064,10 @@ export default function NewSale() {
       )}
 
       {/* 1. Cash Drop Dialog */}
-      <Dialog open={cashDropDialogOpen} onOpenChange={setCashDropDialogOpen}>
+      <Dialog open={cashDropDialogOpen} onOpenChange={(open) => {
+        if (!open) { setCashDropAmount(""); setCashDropNotes(""); }
+        setCashDropDialogOpen(open);
+      }}>
         <DialogContent className="max-w-md border-primary/20 shadow-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-primary font-bold">
@@ -2506,7 +2135,10 @@ export default function NewSale() {
       </Dialog>
 
       {/* 2. Close Register Dialog */}
-      <Dialog open={closeRegisterDialogOpen} onOpenChange={setCloseRegisterDialogOpen}>
+      <Dialog open={closeRegisterDialogOpen} onOpenChange={(open) => {
+        if (!open) { setActualCashCount(""); setCloseRegisterNotes(""); }
+        setCloseRegisterDialogOpen(open);
+      }}>
         <DialogContent className="max-w-md border-primary/20 shadow-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-primary font-bold">

@@ -15,7 +15,7 @@ import {
   isToday,
   parseISO
 } from "date-fns";
-import { Plus, Calendar, List as ListIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Calendar, List as ListIcon, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { 
   Card, 
   CardContent, 
@@ -187,7 +187,14 @@ export default function BookingsPage() {
               searchPlaceholder="Search reference, customer, or notes..."
               searchKeys={["bookingRef", "customerName", "notes"]}
               isLoading={isLoading}
-              emptyMessage="No bookings found."
+              emptyTitle="No Bookings Yet"
+              emptyMessage="Schedule your first appointment or order to start managing bookings."
+              emptyIcon={<CalendarDays className="h-6 w-6" />}
+              emptyAction={
+                <Link href="/bookings/new">
+                  <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />New Booking</Button>
+                </Link>
+              }
               filterConfigs={filterConfigs}
               onRowClick={(booking) => setLocation(`/bookings/${booking.id}`)}
             />

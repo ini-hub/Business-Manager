@@ -56,7 +56,7 @@ export class ExpenseRepository extends BaseRepository<typeof expenses> {
     type?: "all" | "general" | "linked" | "service" | "product",
     inventoryId?: string
   ): Promise<ExpenseWithCategory[]> {
-    let conditions = [eq(expenses.storeId, storeId)];
+    let conditions = [eq(expenses.storeId, storeId), eq(expenses.isDeleted, false)];
     if (startDate) conditions.push(gte(expenses.date, startDate));
     if (endDate) conditions.push(lte(expenses.date, endDate));
     if (inventoryId && inventoryId !== "none" && inventoryId !== "all") {
@@ -132,6 +132,6 @@ export class ExpenseRepository extends BaseRepository<typeof expenses> {
   }
 
   async deleteExpense(id: string): Promise<void> {
-    await db.delete(expenses).where(eq(expenses.id, id));
+    await db.update(expenses).set({ isDeleted: true, deletedAt: new Date() }).where(eq(expenses.id, id));
   }
 }

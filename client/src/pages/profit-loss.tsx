@@ -772,7 +772,9 @@ export default function ProfitLossPage() {
                 searchPlaceholder="Search items..."
                 searchKeys={["inventoryId"]}
                 isLoading={isLoadingPL}
-                emptyMessage="No historical data available."
+                emptyTitle="No P&L Data"
+                emptyMessage="No historical data yet. Complete sales to see per-item profit and loss breakdowns."
+                emptyIcon={<BarChart3 className="h-6 w-6" />}
               />
             </CardContent>
           </Card>

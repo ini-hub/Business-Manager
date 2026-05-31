@@ -1,21 +1,7 @@
-import nodemailer from "nodemailer";
-
-// Parse Gmail credentials from environment or fall back to user-provided static credentials
-const GMAIL_USER = (process.env.GMAIL_USER || "ebolujo101@gmail.com").trim();
-const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || "yfbr epll pzch cjcp")
-  .replace(/\s/g, "");
+import { sendEmail as queueEmail } from "./services/EmailQueue";
 
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Excellent Bolujo";
 const APP_URL = process.env.APP_URL || "http://localhost:5001";
-
-// Create nodemailer transport using Gmail SMTP
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: GMAIL_USER,
-    pass: GMAIL_APP_PASSWORD,
-  },
-});
 
 interface EmailPayload {
   to: string;
@@ -23,18 +9,8 @@ interface EmailPayload {
   html: string;
 }
 
-export async function sendEmail(payload: EmailPayload): Promise<void> {
-  try {
-    await transporter.sendMail({
-      from: `"${BUSINESS_NAME}" <${GMAIL_USER}>`,
-      to: payload.to,
-      subject: payload.subject,
-      html: payload.html,
-    });
-    console.log(`[Email Service] Successfully sent email to ${payload.to}`);
-  } catch (error) {
-    console.error(`[Email Service] Failed to send email to ${payload.to}:`, error);
-  }
+export function sendEmail(payload: EmailPayload): void {
+  queueEmail(payload);
 }
 
 /**
@@ -67,7 +43,7 @@ export async function sendActivationEmail(
     </div>
   `;
 
-  await sendEmail({
+  sendEmail({
     to,
     subject: `You've been added to ${businessName} — Activate your account`,
     html,
@@ -99,7 +75,7 @@ export async function sendAddedToOrgEmail(
     </div>
   `;
 
-  await sendEmail({
+  sendEmail({
     to,
     subject: `You've been added to ${businessName}`,
     html,
@@ -130,7 +106,7 @@ export async function sendOtpEmail(
     </div>
   `;
 
-  await sendEmail({
+  sendEmail({
     to,
     subject: `Your password reset code — ${businessName}`,
     html,
@@ -156,7 +132,7 @@ export async function sendPasswordChangedEmail(
     </div>
   `;
 
-  await sendEmail({
+  sendEmail({
     to,
     subject: `Your password was changed — ${businessName}`,
     html,
@@ -187,7 +163,7 @@ export async function sendAccountLockedEmail(
     </div>
   `;
 
-  await sendEmail({
+  sendEmail({
     to,
     subject: `Your account has been locked — ${businessName}`,
     html,
@@ -225,7 +201,7 @@ export async function sendEmailVerificationOtpEmail(
     </div>
   `;
 
-  await sendEmail({
+  sendEmail({
     to,
     subject: `Your email verification code — ${businessName}`,
     html,

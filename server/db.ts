@@ -1,8 +1,11 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
 import fs from "fs";
 import path from "path";
+
+// Automatically parse decimal/numeric columns (OID 1700) as numbers
+types.setTypeParser(1700, (val: string) => parseFloat(val));
 
 // Manually load .env file if DATABASE_URL is not already in env
 if (!process.env.DATABASE_URL) {

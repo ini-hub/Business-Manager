@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, real, timestamp, unique, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, real, timestamp, unique, index, jsonb, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -71,7 +71,7 @@ export const stores = pgTable("stores", {
   phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
-  commissionRate: real("commission_rate").notNull().default(0.30), // Default 30% service commission
+  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).$type<number>().notNull().default(0.3000), // Default 30% service commission
   managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -102,6 +102,7 @@ export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, cre
   phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
+  commissionRate: z.number().optional(),
 });
 export type InsertStore = z.infer<typeof insertStoreSchema>;
 export type Store = typeof stores.$inferSelect;
@@ -137,7 +138,7 @@ export const customers = pgTable("customers", {
   address: text("address").notNull(),
   birthday: timestamp("birthday"),
   loyaltyPoints: integer("loyalty_points").notNull().default(0),
-  storeCreditBalance: real("store_credit_balance").notNull().default(0),
+  storeCreditBalance: numeric("store_credit_balance", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   isArchived: boolean("is_archived").notNull().default(false),
   globalCustomerId: varchar("global_customer_id"), // Links local profiles sharing same phone
   isConfirmedDistinct: boolean("is_confirmed_distinct").notNull().default(false),
@@ -146,6 +147,7 @@ export const customers = pgTable("customers", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
+  index("idx_customers_store").on(table.storeId),
 ]);
 
 export const customersRelations = relations(customers, ({ one, many }) => ({
@@ -163,6 +165,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
   mobileNumber: z.string().transform(s => s.trim()).optional().default(""),
   address: z.string().transform(s => s.trim()).default(""),
   birthday: z.string().optional().nullable(),
+  storeCreditBalance: z.number().optional(),
 });
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
@@ -181,8 +184,8 @@ export const staff = pgTable("staff", {
   staffNumber: text("staff_number").notNull(),
   mobileNumber: text("mobile_number").notNull(),
   countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
-  payPerMonth: real("pay_per_month").notNull(),
-  commissionRateOverride: real("commission_rate_override"), // Nullable: overrides store commission rate
+  payPerMonth: numeric("pay_per_month", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  commissionRateOverride: numeric("commission_rate_override", { precision: 5, scale: 4 }).$type<number>(), // Nullable: overrides store commission rate
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
   role: text("role").notNull().default("staff"), // manager or staff
@@ -190,22 +193,23 @@ export const staff = pgTable("staff", {
   overridePaymentMethod: boolean("override_payment_method").notNull().default(false),
   overrideCommission: boolean("override_commission").notNull().default(false),
   commissionTypeOverride: text("commission_type_override"), // percentage or fixed_per_service
-  commissionFixedAmountOverride: real("commission_fixed_amount_override"),
+  commissionFixedAmountOverride: numeric("commission_fixed_amount_override", { precision: 12, scale: 2 }).$type<number>(),
   overrideFormula: boolean("override_formula").notNull().default(false),
   commissionFormulaOverride: text("commission_formula_override"), // formula_a, formula_b, formula_c, formula_d
   overrideAttendanceRates: boolean("override_attendance_rates").notNull().default(false),
-  activeDayRateOverride: real("active_day_rate_override"),
-  passiveDayRateOverride: real("passive_day_rate_override"),
-  leaveDayRateOverride: real("leave_day_rate_override"),
+  activeDayRateOverride: numeric("active_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
+  passiveDayRateOverride: numeric("passive_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
+  leaveDayRateOverride: numeric("leave_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
   payLeaveDaysOverride: boolean("pay_leave_days_override").notNull().default(false),
-  holidayDayRateOverride: real("holiday_day_rate_override"),
+  holidayDayRateOverride: numeric("holiday_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
   payHolidayDaysOverride: boolean("pay_holiday_days_override").notNull().default(false),
-  offDayRateOverride: real("off_day_rate_override"),
+  offDayRateOverride: numeric("off_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
   payOffDaysOverride: boolean("pay_off_days_override").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
   unique("staff_email_unique").on(table.storeId, table.email),
+  index("idx_staff_store").on(table.storeId),
 ]);
 
 export const staffRelations = relations(staff, ({ one, many }) => ({
@@ -228,6 +232,14 @@ export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isAr
   mobileNumber: trimmedString(1, "Mobile number is required"),
   role: z.string().default("staff"),
   paymentMethod: z.string().default("hybrid"),
+  payPerMonth: z.number(),
+  commissionRateOverride: z.number().nullable().optional(),
+  commissionFixedAmountOverride: z.number().nullable().optional(),
+  activeDayRateOverride: z.number().nullable().optional(),
+  passiveDayRateOverride: z.number().nullable().optional(),
+  leaveDayRateOverride: z.number().nullable().optional(),
+  holidayDayRateOverride: z.number().nullable().optional(),
+  offDayRateOverride: z.number().nullable().optional(),
 });
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 export type Staff = typeof staff.$inferSelect;
@@ -238,8 +250,8 @@ export const inventory = pgTable("inventory", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
   type: text("type").notNull(), // 'product' or 'service'
-  costPrice: real("cost_price").notNull(),
-  sellingPrice: real("selling_price").notNull(),
+  costPrice: numeric("cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   quantity: integer("quantity").notNull().default(0), // Only relevant for products
   commissionSplitOverride: boolean("commission_split_override").default(false).notNull(),
   commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
@@ -247,8 +259,11 @@ export const inventory = pgTable("inventory", {
   isBundle: boolean("is_bundle").default(false).notNull(),
   parentInventoryId: varchar("parent_inventory_id"), // Self-referencing foreign key later
   variantDimensions: jsonb("variant_dimensions"),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
 }, (table) => [
   unique("inventory_store_name_unique").on(table.storeId, table.name),
+  index("idx_inventory_store_qty").on(table.storeId, table.quantity),
 ]);
 
 export const inventoryRelations = relations(inventory, ({ one, many }) => ({
@@ -281,18 +296,21 @@ export const bookings = pgTable("bookings", {
   expectedReadyAt: timestamp("expected_ready_at"),
   leadStaffId: varchar("lead_staff_id").references(() => staff.id),
   assistingStaffId: varchar("assisting_staff_id").references(() => staff.id),
-  depositAmount: real("deposit_amount").notNull().default(0),
+  depositAmount: numeric("deposit_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   depositPaymentMethod: text("deposit_payment_method"),
-  subtotal: real("subtotal").notNull().default(0),
-  discountAmount: real("discount_amount").notNull().default(0),
-  discountPercent: real("discount_percent").notNull().default(0),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).$type<number>().notNull().default(0),
   discountReason: text("discount_reason"),
   discountApprovedBy: text("discount_approved_by"),
-  totalPrice: real("total_price").notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   reminderPreference: text("reminder_preference").notNull().default("whatsapp"),
+  reminderSentAt: timestamp("reminder_sent_at"),
   notes: text("notes"),
   rescheduleReason: text("reschedule_reason"),
   rescheduleHistory: jsonb("reschedule_history").notNull().default(sql`'[]'::jsonb`),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -302,8 +320,8 @@ export const bookingItems = pgTable("booking_items", {
   bookingId: varchar("booking_id").notNull().references(() => bookings.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   quantity: integer("quantity").notNull().default(1),
-  unitPrice: real("unit_price").notNull().default(0),
-  totalPrice: real("total_price").notNull().default(0),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
 });
 
 export const bookingsRelations = relations(bookings, ({ one, many }) => ({
@@ -339,17 +357,28 @@ export const bookingItemsRelations = relations(bookingItems, ({ one }) => ({
   }),
 }));
 
-export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, bookingRef: true, createdAt: true, updatedAt: true });
+export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, bookingRef: true, createdAt: true, updatedAt: true }).extend({
+  depositAmount: z.number().optional(),
+  subtotal: z.number().optional(),
+  discountAmount: z.number().optional(),
+  discountPercent: z.number().optional(),
+  totalPrice: z.number().optional(),
+});
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
 
-export const insertBookingItemSchema = createInsertSchema(bookingItems).omit({ id: true });
+export const insertBookingItemSchema = createInsertSchema(bookingItems).omit({ id: true }).extend({
+  unitPrice: z.number().optional(),
+  totalPrice: z.number().optional(),
+});
 export type InsertBookingItem = z.infer<typeof insertBookingItemSchema>;
 export type BookingItem = typeof bookingItems.$inferSelect;
 
 export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true }).extend({
   name: trimmedString(1, "Item name is required"),
   type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
+  costPrice: z.number(),
+  sellingPrice: z.number(),
 });
 export type InsertInventory = z.infer<typeof insertInventorySchema>;
 export type Inventory = typeof inventory.$inferSelect;
@@ -368,11 +397,11 @@ export const inventoryRestockEvents = pgTable("inventory_restock_events", {
   quantityAdded: integer("quantity_added").notNull(),
   previousQuantity: integer("previous_quantity").notNull(),
   newQuantity: integer("new_quantity").notNull(),
-  unitCost: real("unit_cost").notNull(), // Cost per unit for this restock
-  previousCostPrice: real("previous_cost_price").notNull(),
-  newCostPrice: real("new_cost_price").notNull(),
-  previousSellingPrice: real("previous_selling_price").notNull(),
-  newSellingPrice: real("new_selling_price").notNull(),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(), // Cost per unit for this restock
+  previousCostPrice: numeric("previous_cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  newCostPrice: numeric("new_cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  previousSellingPrice: numeric("previous_selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  newSellingPrice: numeric("new_selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   costStrategy: text("cost_strategy").notNull().default("keep"), // keep, last, weighted, override
   notes: text("notes"), // Optional notes for this restock
   reason: text("reason").notNull().default("Regular Restock"), // Regular Restock, Returned Stock, Correction, Opening Stock
@@ -427,10 +456,13 @@ export const orders = pgTable("orders", {
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   quantity: integer("quantity").notNull(),
   returnedQuantity: integer("returned_quantity").notNull().default(0),
-  totalPrice: real("total_price").notNull(),
-  refundedAmount: real("refunded_amount").notNull().default(0),
-  taxApplied: real("tax_applied").notNull().default(0),
-});
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  refundedAmount: numeric("refunded_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  taxApplied: numeric("tax_applied", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+}, (table) => [
+  index("idx_orders_inventory").on(table.inventoryId),
+  index("idx_orders_store").on(table.storeId),
+]);
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   store: one(stores, {
@@ -444,7 +476,11 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   checkouts: many(checkouts),
 }));
 
-export const insertOrderSchema = createInsertSchema(orders).omit({ id: true });
+export const insertOrderSchema = createInsertSchema(orders).omit({ id: true }).extend({
+  totalPrice: z.number(),
+  refundedAmount: z.number().optional(),
+  taxApplied: z.number().optional(),
+});
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;
 
@@ -458,11 +494,11 @@ export const checkouts = pgTable("checkouts", {
   assistingStaff2Id: varchar("assisting_staff2_id").references(() => staff.id), // Optional assisting staff #2
   orderId: varchar("order_id").notNull().references(() => orders.id),
   bookingId: varchar("booking_id").references(() => bookings.id),
-  bookingDepositAmount: real("booking_deposit_amount").notNull().default(0),
+  bookingDepositAmount: numeric("booking_deposit_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   bookingDepositMethod: text("booking_deposit_method"),
-  balanceCollectedToday: real("balance_collected_today").notNull().default(0),
+  balanceCollectedToday: numeric("balance_collected_today", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
-  totalPrice: real("total_price").notNull(),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave, credit, split
   splitPayments: jsonb("split_payments").$type<Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>>(), // only populated if paymentMethod === "split"
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
@@ -475,16 +511,20 @@ export const checkouts = pgTable("checkouts", {
   voidReason: text("void_reason"),
   isPartiallyReturned: boolean("is_partially_returned").notNull().default(false),
   // New transaction-level Discount Option B columns
-  subtotal: real("subtotal").notNull().default(0),
-  discountAmount: real("discount_amount").notNull().default(0),
-  discountPercent: real("discount_percent").notNull().default(0),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).$type<number>().notNull().default(0),
   discountReason: text("discount_reason"),
   discountApprovedBy: text("discount_approved_by"),
   pointsRedeemed: integer("points_redeemed").notNull().default(0),
-  totalCharged: real("total_charged").notNull().default(0),
-  taxTotal: real("tax_total").notNull().default(0),
+  totalCharged: numeric("total_charged", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  taxTotal: numeric("tax_total", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_checkouts_store_created").on(table.storeId, table.createdAt),
+  index("idx_checkouts_receipt").on(table.receiptNumber),
+  index("idx_checkouts_order").on(table.orderId),
+]);
 
 export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
   store: one(stores, {
@@ -522,7 +562,16 @@ export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({
   transactions: many(transactions),
 }));
 
-export const insertCheckoutSchema = createInsertSchema(checkouts).omit({ id: true, createdAt: true });
+export const insertCheckoutSchema = createInsertSchema(checkouts).omit({ id: true, createdAt: true }).extend({
+  bookingDepositAmount: z.number().optional(),
+  balanceCollectedToday: z.number().optional(),
+  totalPrice: z.number(),
+  subtotal: z.number().optional(),
+  discountAmount: z.number().optional(),
+  discountPercent: z.number().optional(),
+  totalCharged: z.number().optional(),
+  taxTotal: z.number().optional(),
+});
 export type InsertCheckout = z.infer<typeof insertCheckoutSchema>;
 export type Checkout = typeof checkouts.$inferSelect;
 
@@ -532,7 +581,7 @@ export const transactions = pgTable("transactions", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  amount: real("amount").notNull().default(0),
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   transactionDate: timestamp("transaction_date").notNull().defaultNow(),
 });
@@ -556,7 +605,9 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   }),
 }));
 
-export const insertTransactionSchema = createInsertSchema(transactions).omit({ id: true, transactionDate: true });
+export const insertTransactionSchema = createInsertSchema(transactions).omit({ id: true, transactionDate: true }).extend({
+  amount: z.number().optional(),
+});
 export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Transaction = typeof transactions.$inferSelect;
 
@@ -567,8 +618,8 @@ export const profitLoss = pgTable("profit_loss", {
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   totalQuantitySold: integer("total_quantity_sold").notNull().default(0),
   quantityRemaining: integer("quantity_remaining").notNull().default(0),
-  totalRevenue: real("total_revenue").notNull().default(0),
-  totalGrossProfit: real("total_gross_profit").notNull().default(0),
+  totalRevenue: numeric("total_revenue", { precision: 15, scale: 2 }).$type<number>().notNull().default(0),
+  totalGrossProfit: numeric("total_gross_profit", { precision: 15, scale: 2 }).$type<number>().notNull().default(0),
 }, (table) => [
   unique("profit_loss_store_inventory_unique").on(table.storeId, table.inventoryId),
 ]);
@@ -584,7 +635,10 @@ export const profitLossRelations = relations(profitLoss, ({ one }) => ({
   }),
 }));
 
-export const insertProfitLossSchema = createInsertSchema(profitLoss).omit({ id: true });
+export const insertProfitLossSchema = createInsertSchema(profitLoss).omit({ id: true }).extend({
+  totalRevenue: z.number().optional(),
+  totalGrossProfit: z.number().optional(),
+});
 export type InsertProfitLoss = z.infer<typeof insertProfitLossSchema>;
 export type ProfitLoss = typeof profitLoss.$inferSelect;
 
@@ -817,9 +871,9 @@ export type UserWithBusiness = User & {
 export const settings = pgTable("settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id).unique(),
-  activeDayTransport: real("active_day_transport").notNull().default(1000),
-  passiveDayTransport: real("passive_day_transport").notNull().default(500),
-  commissionRate: real("commission_rate").notNull().default(0.30),
+  activeDayTransport: numeric("active_day_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(1000),
+  passiveDayTransport: numeric("passive_day_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(500),
+  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).$type<number>().notNull().default(0.3000),
   defaultPayrollPeriod: text("default_payroll_period").notNull().default("monthly"), // weekly, biweekly, monthly
   maxAssistingStaff: integer("max_assisting_staff").notNull().default(2),
   // Receipt settings
@@ -839,20 +893,20 @@ export const settings = pgTable("settings", {
   // Payroll Settings defaults
   defaultPaymentMethod: text("default_payment_method").notNull().default("hybrid"), // fixed, commission, hybrid
   commissionType: text("commission_type").notNull().default("percentage"), // percentage, fixed_per_service
-  commissionFixedAmount: real("commission_fixed_amount").notNull().default(0),
+  commissionFixedAmount: numeric("commission_fixed_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   commissionFormula: text("commission_formula").notNull().default("formula_b"), // formula_a, formula_b, formula_c, formula_d
-  leaveDayRate: real("leave_day_rate").notNull().default(0),
+  leaveDayRate: numeric("leave_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   payLeaveDays: boolean("pay_leave_days").notNull().default(false),
-  holidayDayRate: real("holiday_day_rate").notNull().default(0),
+  holidayDayRate: numeric("holiday_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   payHolidayDays: boolean("pay_holiday_days").notNull().default(false),
-  offDayRate: real("off_day_rate").notNull().default(0),
+  offDayRate: numeric("off_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   payOffDays: boolean("pay_off_days").notNull().default(false),
   leadSplit2: integer("lead_split_2").notNull().default(80),
   asstSplit2: integer("asst_split_2").notNull().default(20),
   leadSplit3: integer("lead_split_3").notNull().default(60),
   asst1Split3: integer("asst1_split_3").notNull().default(20),
   asst2Split3: integer("asst2_split_3").notNull().default(20),
-  fixedBaseAmount: real("fixed_base_amount").notNull().default(30000),
+  fixedBaseAmount: numeric("fixed_base_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(30000),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -863,7 +917,16 @@ export const settingsRelations = relations(settings, ({ one }) => ({
   }),
 }));
 
-export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
+export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true }).extend({
+  activeDayTransport: z.number().optional(),
+  passiveDayTransport: z.number().optional(),
+  commissionRate: z.number().optional(),
+  commissionFixedAmount: z.number().optional(),
+  leaveDayRate: z.number().optional(),
+  holidayDayRate: z.number().optional(),
+  offDayRate: z.number().optional(),
+  fixedBaseAmount: z.number().optional(),
+});
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Settings = typeof settings.$inferSelect;
 
@@ -873,9 +936,9 @@ export const creditEntries = pgTable("credit_entries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
-  amountOwed: real("amount_owed").notNull(),
-  amountPaidUpfront: real("amount_paid_upfront").notNull().default(0),
-  outstandingBalance: real("outstanding_balance").notNull(),
+  amountOwed: numeric("amount_owed", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amountPaidUpfront: numeric("amount_paid_upfront", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2 }).$type<number>().notNull(),
   dueDate: timestamp("due_date"),
   description: text("description"),
   linkedTransactionId: varchar("linked_transaction_id").references(() => checkouts.id),
@@ -889,7 +952,7 @@ export const creditEntries = pgTable("credit_entries", {
 export const repayments = pgTable("repayments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   creditEntryId: varchar("credit_entry_id").notNull().references(() => creditEntries.id),
-  amountReceived: real("amount_received").notNull(),
+  amountReceived: numeric("amount_received", { precision: 12, scale: 2 }).$type<number>().notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos
   notes: text("notes"),
   recordedByStaffId: varchar("recorded_by_staff_id").references(() => staff.id),
@@ -943,11 +1006,17 @@ export const reminderLogsRelations = relations(reminderLogs, ({ one }) => ({
 }));
 
 // Schemas & Types
-export const insertCreditEntrySchema = createInsertSchema(creditEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCreditEntrySchema = createInsertSchema(creditEntries).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  amountOwed: z.number(),
+  amountPaidUpfront: z.number().optional(),
+  outstandingBalance: z.number(),
+});
 export type InsertCreditEntry = z.infer<typeof insertCreditEntrySchema>;
 export type CreditEntry = typeof creditEntries.$inferSelect;
 
-export const insertRepaymentSchema = createInsertSchema(repayments).omit({ id: true, createdAt: true });
+export const insertRepaymentSchema = createInsertSchema(repayments).omit({ id: true, createdAt: true }).extend({
+  amountReceived: z.number(),
+});
 export type InsertRepayment = z.infer<typeof insertRepaymentSchema>;
 export type Repayment = typeof repayments.$inferSelect;
 
@@ -974,6 +1043,7 @@ export const attendanceRecords = pgTable("attendance_records", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   unique("attendance_staff_date_unique").on(table.storeId, table.staffId, table.date),
+  index("idx_attendance_staff_date").on(table.staffId, table.date),
 ]);
 
 export const attendanceRecordsRelations = relations(attendanceRecords, ({ one }) => ({
@@ -1051,18 +1121,18 @@ export const payrollEntries = pgTable("payroll_entries", {
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   activeDays: integer("active_days").notNull().default(0),
   passiveDays: integer("passive_days").notNull().default(0),
-  activeTransport: real("active_transport").notNull().default(0),
-  passiveTransport: real("passive_transport").notNull().default(0),
-  totalTransport: real("total_transport").notNull().default(0),
-  grossCommission: real("gross_commission").notNull().default(0),
-  netPay: real("net_pay").notNull().default(0),
+  activeTransport: numeric("active_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  passiveTransport: numeric("passive_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  totalTransport: numeric("total_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  grossCommission: numeric("gross_commission", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  netPay: numeric("net_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   leaveDays: integer("leave_days").notNull().default(0),
   holidayDays: integer("holiday_days").notNull().default(0),
   offDays: integer("off_days").notNull().default(0),
   absentDays: integer("absent_days").notNull().default(0),
-  leavePay: real("leave_pay").notNull().default(0),
-  holidayPay: real("holiday_pay").notNull().default(0),
-  offDayPay: real("off_day_pay").notNull().default(0),
+  leavePay: numeric("leave_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  holidayPay: numeric("holiday_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  offDayPay: numeric("off_day_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   calculationDetails: jsonb("calculation_details"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1085,7 +1155,16 @@ export const payrollEntriesRelations = relations(payrollEntries, ({ one }) => ({
   }),
 }));
 
-export const insertPayrollEntrySchema = createInsertSchema(payrollEntries).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPayrollEntrySchema = createInsertSchema(payrollEntries).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  activeTransport: z.number().optional(),
+  passiveTransport: z.number().optional(),
+  totalTransport: z.number().optional(),
+  grossCommission: z.number().optional(),
+  netPay: z.number().optional(),
+  leavePay: z.number().optional(),
+  holidayPay: z.number().optional(),
+  offDayPay: z.number().optional(),
+});
 export type InsertPayrollEntry = z.infer<typeof insertPayrollEntrySchema>;
 export type PayrollEntry = typeof payrollEntries.$inferSelect;
 
@@ -1148,7 +1227,7 @@ export const expenses = pgTable("expenses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   title: text("title").notNull(),
-  amount: real("amount").notNull().default(0),
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   categoryId: varchar("category_id").notNull().references(() => expenseCategories.id),
   inventoryId: varchar("inventory_id").references(() => inventory.id),
   date: text("date").notNull(), // ISO Date YYYY-MM-DD
@@ -1157,9 +1236,13 @@ export const expenses = pgTable("expenses", {
   isAutoGenerated: boolean("is_auto_generated").notNull().default(false), // true if from Payroll module
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos, split, credit
   splitPayments: jsonb("split_payments").$type<Array<{method: string, amount: number}>>(),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_expenses_store_date").on(table.storeId, table.date),
+]);
 
 export const expensesRelations = relations(expenses, ({ one }) => ({
   store: one(stores, {
@@ -1183,6 +1266,7 @@ export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true,
       amount: z.number(),
     })
   ).nullable().optional(),
+  amount: z.number(),
 });
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
@@ -1257,8 +1341,10 @@ export const promotions = pgTable("promotions", {
   buyQuantity: integer("buy_quantity"),
   getItemId: varchar("get_item_id").references(() => inventory.id),
   getQuantity: integer("get_quantity"),
-  spendAmount: real("spend_amount"),
+  spendAmount: numeric("spend_amount", { precision: 12, scale: 2 }).$type<number>(),
   isActive: boolean("is_active").notNull().default(true),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -1299,6 +1385,8 @@ export const customRoles = pgTable("custom_roles", {
   name: text("name").notNull(),
   description: text("description"),
   permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`), // array of accessible modules/features
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1329,7 +1417,7 @@ export const returnLogs = pgTable("return_logs", {
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   orderId: varchar("order_id").notNull().references(() => orders.id),
   quantity: integer("quantity").notNull(),
-  refundAmount: real("refund_amount").notNull(),
+  refundAmount: numeric("refund_amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
   refundMethod: text("refund_method").notNull(),
   reason: text("reason"),
   staffId: varchar("staff_id").references(() => staff.id),
@@ -1347,7 +1435,9 @@ export const returnLogsRelations = relations(returnLogs, ({ one }) => ({
   restockEvent: one(inventoryRestockEvents, { fields: [returnLogs.restockEventId], references: [inventoryRestockEvents.id] }),
 }));
 
-export const insertReturnLogSchema = createInsertSchema(returnLogs).omit({ id: true, createdAt: true });
+export const insertReturnLogSchema = createInsertSchema(returnLogs).omit({ id: true, createdAt: true }).extend({
+  refundAmount: z.number(),
+});
 export type InsertReturnLog = z.infer<typeof insertReturnLogSchema>;
 export type ReturnLog = typeof returnLogs.$inferSelect;
 
@@ -1356,7 +1446,7 @@ export const storeCreditTransactions = pgTable("store_credit_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   storeId: varchar("store_id").notNull().references(() => stores.id),
-  amount: real("amount").notNull(), // positive for additions, negative for redemptions
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(), // positive for additions, negative for redemptions
   type: text("type").notNull(), // 'issued_refund', 'purchase_redemption', 'manual_adjustment'
   checkoutId: varchar("checkout_id").references(() => checkouts.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1368,7 +1458,9 @@ export const storeCreditTransactionsRelations = relations(storeCreditTransaction
   checkout: one(checkouts, { fields: [storeCreditTransactions.checkoutId], references: [checkouts.id] }),
 }));
 
-export const insertStoreCreditTransactionSchema = createInsertSchema(storeCreditTransactions).omit({ id: true, createdAt: true });
+export const insertStoreCreditTransactionSchema = createInsertSchema(storeCreditTransactions).omit({ id: true, createdAt: true }).extend({
+  amount: z.number(),
+});
 export type InsertStoreCreditTransaction = z.infer<typeof insertStoreCreditTransactionSchema>;
 export type StoreCreditTransaction = typeof storeCreditTransactions.$inferSelect;
 
@@ -1381,17 +1473,17 @@ export const cashRegisterSessions = pgTable("cash_register_sessions", {
   closedAt: timestamp("closed_at"),
   openedByUserId: varchar("opened_by_user_id").references(() => users.id),
   closedByUserId: varchar("closed_by_user_id").references(() => users.id),
-  openingFloat: real("opening_float").notNull().default(0),
-  expectedCash: real("expected_cash").notNull().default(0),
-  actualCash: real("actual_cash"),
-  difference: real("difference"),
+  openingFloat: numeric("opening_float", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  expectedCash: numeric("expected_cash", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  actualCash: numeric("actual_cash", { precision: 12, scale: 2 }).$type<number>(),
+  difference: numeric("difference", { precision: 12, scale: 2 }).$type<number>(),
   notes: text("notes"),
 });
 
 export const cashDrops = pgTable("cash_drops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sessionId: varchar("session_id").notNull().references(() => cashRegisterSessions.id),
-  amount: real("amount").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
   droppedAt: timestamp("dropped_at").notNull().defaultNow(),
   droppedByUserId: varchar("dropped_by_user_id").references(() => users.id),
   notes: text("notes"),
@@ -1406,8 +1498,15 @@ export const cashDropsRelations = relations(cashDrops, ({ one }) => ({
   session: one(cashRegisterSessions, { fields: [cashDrops.sessionId], references: [cashRegisterSessions.id] }),
 }));
 
-export const insertCashRegisterSessionSchema = createInsertSchema(cashRegisterSessions).omit({ id: true });
-export const insertCashDropSchema = createInsertSchema(cashDrops).omit({ id: true });
+export const insertCashRegisterSessionSchema = createInsertSchema(cashRegisterSessions).omit({ id: true }).extend({
+  openingFloat: z.number().optional(),
+  expectedCash: z.number().optional(),
+  actualCash: z.number().nullable().optional(),
+  difference: z.number().nullable().optional(),
+});
+export const insertCashDropSchema = createInsertSchema(cashDrops).omit({ id: true }).extend({
+  amount: z.number(),
+});
 export type CashRegisterSession = typeof cashRegisterSessions.$inferSelect;
 export type CashDrop = typeof cashDrops.$inferSelect;
 
@@ -1428,8 +1527,8 @@ export const vendorBills = pgTable("vendor_bills", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
-  amount: real("amount").notNull(),
-  amountPaid: real("amount_paid").notNull().default(0),
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   status: text("status").notNull().default("unpaid"), // unpaid, partial, paid
   dueDate: timestamp("due_date"),
   billDate: timestamp("bill_date").notNull().defaultNow(),
@@ -1448,7 +1547,10 @@ export const vendorBillRelations = relations(vendorBills, ({ one }) => ({
 }));
 
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true });
-export const insertVendorBillSchema = createInsertSchema(vendorBills).omit({ id: true, createdAt: true });
+export const insertVendorBillSchema = createInsertSchema(vendorBills).omit({ id: true, createdAt: true }).extend({
+  amount: z.number(),
+  amountPaid: z.number().optional(),
+});
 export type Vendor = typeof vendors.$inferSelect;
 export type VendorBill = typeof vendorBills.$inferSelect;
 export type InsertVendor = z.infer<typeof insertVendorSchema>;
@@ -1516,7 +1618,7 @@ export const quotes = pgTable("quotes", {
   customerId: varchar("customer_id").references(() => customers.id),
   quoteRef: text("quote_ref").notNull().unique(),
   status: text("status").notNull().default("draft"),
-  totalPrice: real("total_price").notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   notes: text("notes"),
   validUntil: timestamp("valid_until"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1528,8 +1630,8 @@ export const quoteItems = pgTable("quote_items", {
   quoteId: varchar("quote_id").notNull().references(() => quotes.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   quantity: integer("quantity").notNull().default(1),
-  unitPrice: real("unit_price").notNull().default(0),
-  totalPrice: real("total_price").notNull().default(0),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
 });
 
 export const quotesRelations = relations(quotes, ({ one, many }) => ({
@@ -1543,8 +1645,13 @@ export const quoteItemsRelations = relations(quoteItems, ({ one }) => ({
   inventory: one(inventory, { fields: [quoteItems.inventoryId], references: [inventory.id] }),
 }));
 
-export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertQuoteItemSchema = createInsertSchema(quoteItems).omit({ id: true });
+export const insertQuoteSchema = createInsertSchema(quotes).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  totalPrice: z.number().optional(),
+});
+export const insertQuoteItemSchema = createInsertSchema(quoteItems).omit({ id: true }).extend({
+  unitPrice: z.number().optional(),
+  totalPrice: z.number().optional(),
+});
 export type InsertQuote = z.infer<typeof insertQuoteSchema>;
 export type InsertQuoteItem = z.infer<typeof insertQuoteItemSchema>;
 export type Quote = typeof quotes.$inferSelect;
@@ -1557,7 +1664,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
   vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
   poNumber: text("po_number").notNull().unique(),
   status: text("status").notNull().default("draft"),
-  totalAmount: real("total_amount").notNull().default(0),
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   expectedDelivery: timestamp("expected_delivery"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1569,8 +1676,8 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   quantity: integer("quantity").notNull(),
   receivedQuantity: integer("received_quantity").notNull().default(0),
-  unitCost: real("unit_cost").notNull(),
-  totalCost: real("total_cost").notNull(),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  totalCost: numeric("total_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
 });
 
 export const purchaseOrderRelations = relations(purchaseOrders, ({ one, many }) => ({
@@ -1584,8 +1691,13 @@ export const purchaseOrderItemRelations = relations(purchaseOrderItems, ({ one }
   inventory: one(inventory, { fields: [purchaseOrderItems.inventoryId], references: [inventory.id] }),
 }));
 
-export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true });
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  totalAmount: z.number().optional(),
+});
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true }).extend({
+  unitCost: z.number(),
+  totalCost: z.number(),
+});
 export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
 export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
@@ -1632,7 +1744,7 @@ export const taxRates = pgTable("tax_rates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
-  rate: real("rate").notNull(),
+  rate: numeric("rate", { precision: 5, scale: 2 }).$type<number>().notNull(),
   isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -1641,7 +1753,9 @@ export const taxRateRelations = relations(taxRates, ({ one }) => ({
   store: one(stores, { fields: [taxRates.storeId], references: [stores.id] }),
 }));
 
-export const insertTaxRateSchema = createInsertSchema(taxRates).omit({ id: true, createdAt: true });
+export const insertTaxRateSchema = createInsertSchema(taxRates).omit({ id: true, createdAt: true }).extend({
+  rate: z.number(),
+});
 export type InsertTaxRate = z.infer<typeof insertTaxRateSchema>;
 export type TaxRate = typeof taxRates.$inferSelect;
 

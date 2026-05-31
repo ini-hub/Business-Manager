@@ -10,6 +10,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  LifeBuoy,
   CalendarDays,
   DollarSign,
   Wallet,
@@ -21,6 +22,8 @@ import {
   Truck,
   FileText,
   Percent,
+  Building2,
+  Coins,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -52,6 +55,7 @@ interface MenuItem {
   url: string;
   icon: React.ComponentType<{ className?: string }>;
   allowedRoles: UserRole[];
+  shortcut?: string;
 }
 
 const managementItems: MenuItem[] = [
@@ -60,12 +64,14 @@ const managementItems: MenuItem[] = [
     url: "/",
     icon: LayoutDashboard,
     allowedRoles: ["owner", "manager", "staff"],
+    shortcut: "⌥D",
   },
   {
     title: "Customers",
     url: "/customers",
     icon: Users,
     allowedRoles: ["owner", "manager", "staff"],
+    shortcut: "⌥C",
   },
   {
     title: "Staff",
@@ -84,6 +90,7 @@ const managementItems: MenuItem[] = [
     url: "/inventory",
     icon: Package,
     allowedRoles: ["owner"],
+    shortcut: "⌥I",
   },
   {
     title: "Stock Transfers",
@@ -97,6 +104,12 @@ const managementItems: MenuItem[] = [
     icon: Truck,
     allowedRoles: ["owner", "manager"],
   },
+  {
+    title: "Vendors",
+    url: "/vendors",
+    icon: Building2,
+    allowedRoles: ["owner", "manager"],
+  },
 ];
 
 const salesItems: MenuItem[] = [
@@ -105,16 +118,18 @@ const salesItems: MenuItem[] = [
     url: "/sales/new",
     icon: ShoppingCart,
     allowedRoles: ["owner", "manager", "staff"],
+    shortcut: "⌥N",
   },
   {
     title: "Transactions",
     url: "/transactions",
     icon: Receipt,
     allowedRoles: ["owner", "manager", "staff"],
+    shortcut: "⌥T",
   },
   {
-    title: "Borrow Book",
-    url: "/borrow-book",
+    title: "Credit Sales",
+    url: "/credit-sales",
     icon: BookOpen,
     allowedRoles: ["owner", "manager"],
   },
@@ -228,12 +243,14 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Package className="h-5 w-5" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+            <Coins className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="text-base font-semibold">Business Manager</span>
-            <span className="text-xs text-muted-foreground">Management System</span>
+            <span className="text-base font-black tracking-tight leading-tight">
+              Ko<span className="text-primary">wope</span>
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium leading-tight">Business Management System</span>
           </div>
         </div>
         
@@ -262,11 +279,18 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={location === item.url}
-                      className="gap-3"
+                      className="gap-3 w-full"
                     >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick} className="flex items-center w-full justify-between">
+                        <div className="flex items-center gap-3">
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </div>
+                        {item.shortcut && (
+                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
+                            {item.shortcut}
+                          </kbd>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -288,11 +312,18 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={location === item.url}
-                      className="gap-3"
+                      className="gap-3 w-full"
                     >
-                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick} className="flex items-center w-full justify-between">
+                        <div className="flex items-center gap-3">
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </div>
+                        {item.shortcut && (
+                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
+                            {item.shortcut}
+                          </kbd>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -359,9 +390,20 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border p-3">
+      <SidebarFooter className="border-t border-sidebar-border p-3 space-y-2">
         <SidebarMenu>
           <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              className="gap-3 text-muted-foreground hover:text-foreground hover:bg-muted/50 w-full"
+            >
+              <a href="mailto:support@ini-hub.com?subject=Business%20Manager%20Help%20Request" className="flex items-center gap-3 px-2 py-1.5 w-full">
+                <LifeBuoy className="h-4 w-4 text-primary shrink-0 animate-pulse" />
+                <span className="text-xs font-semibold">Help & Support</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem className="mt-1">
             <div className="flex items-center gap-3 px-2 py-1.5 w-full">
               <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 group hover:opacity-80 transition-opacity" onClick={handleLinkClick}>
                 <Avatar className="h-9 w-9 border-2 border-primary/10 transition-transform group-hover:scale-105">

@@ -951,9 +951,19 @@ export default function InventoryPage() {
               searchPlaceholder="Search inventory..."
               searchKeys={["name"]}
               isLoading={isLoading}
-              emptyMessage="No items found. Add your first item to get started."
+              emptyMessage="Track wholesale product stocks, services catalog, and split commission margins."
               onRowClick={navigateToDetails}
               filterConfigs={filterConfigs}
+              emptyIcon={<Package className="h-6 w-6" />}
+              emptyTitle="No Inventory Items"
+              emptyAction={
+                user?.role !== "staff" && (
+                  <Button onClick={openCreateForm} size="sm" className="h-8">
+                    <Plus className="mr-2 h-3.5 w-3.5" />
+                    Add Item
+                  </Button>
+                )
+              }
             />
           );
         })()

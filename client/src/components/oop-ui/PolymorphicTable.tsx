@@ -42,6 +42,7 @@ import {
   ArrowUp,
   ArrowDown,
   Filter,
+  PackageOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -94,6 +95,11 @@ export interface PolymorphicTableProps<T> {
   multiselect?: boolean;
   selectedIds?: (string | number)[];
   onSelectedIdsChange?: (ids: (string | number)[]) => void;
+
+  // Premium empty state enhancements
+  emptyIcon?: React.ReactNode;
+  emptyAction?: React.ReactNode;
+  emptyTitle?: string;
 }
 
 interface DropdownFilterProps {
@@ -396,6 +402,11 @@ export function PolymorphicTable<T extends { id: string | number }>({
   multiselect = false,
   selectedIds,
   onSelectedIdsChange,
+
+  // Premium empty state enhancements
+  emptyIcon,
+  emptyAction,
+  emptyTitle = "No Records Available",
 }: PolymorphicTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -779,16 +790,27 @@ export function PolymorphicTable<T extends { id: string | number }>({
           <TableBody>
             {paginatedData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (multiselect ? 1 : 0)} className="h-24 text-center text-muted-foreground italic">
+                <TableCell colSpan={columns.length + (multiselect ? 1 : 0)} className="py-16 text-center">
                   {hasActiveFilters || searchTerm ? (
                     <div className="flex flex-col items-center justify-center gap-2 py-4">
-                      <span>No records match your filters.</span>
+                      <span className="text-sm text-muted-foreground">No records match your filters.</span>
                       <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-primary hover:underline hover:bg-transparent font-semibold">
                         Clear Filters
                       </Button>
                     </div>
                   ) : (
-                    emptyMessage
+                    <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-center space-y-4 py-4">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/5 text-primary border border-primary/10 shadow-xs">
+                        {emptyIcon || <PackageOpen className="h-6 w-6 opacity-70" />}
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-foreground">{emptyTitle}</h3>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {emptyMessage || "No data records logged for this branch."}
+                        </p>
+                      </div>
+                      {emptyAction}
+                    </div>
                   )}
                 </TableCell>
               </TableRow>
@@ -852,16 +874,27 @@ export function PolymorphicTable<T extends { id: string | number }>({
       {/* Mobile / Tablet View: Beautiful Card List */}
       <div className="lg:hidden space-y-4">
         {paginatedData.length === 0 ? (
-          <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground italic shadow-xs border-muted/80">
+          <div className="rounded-xl border bg-card p-12 text-center shadow-xs border-muted/80">
             {hasActiveFilters || searchTerm ? (
               <div className="flex flex-col items-center justify-center gap-2">
-                <span>No records match your filters.</span>
+                <span className="text-sm text-muted-foreground">No records match your filters.</span>
                 <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-primary hover:underline hover:bg-transparent font-semibold">
                   Clear Filters
                 </Button>
               </div>
             ) : (
-              emptyMessage
+              <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-center space-y-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/5 text-primary border border-primary/10 shadow-xs">
+                  {emptyIcon || <PackageOpen className="h-6 w-6 opacity-70" />}
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-foreground">{emptyTitle}</h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {emptyMessage || "No data records logged for this branch."}
+                  </p>
+                </div>
+                {emptyAction}
+              </div>
             )}
           </div>
         ) : (

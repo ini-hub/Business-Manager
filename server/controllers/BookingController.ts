@@ -60,6 +60,7 @@ export class BookingController extends BaseController {
     router.get("/bookings", isAuthenticated, this.getBookings.bind(this));
     router.get("/bookings/:id", isAuthenticated, this.getBooking.bind(this));
     router.post("/bookings", isAuthenticated, this.createBooking.bind(this));
+    router.patch("/bookings/:id", isAuthenticated, this.updateBooking.bind(this));
     router.patch("/bookings/:id/status", isAuthenticated, this.updateBookingStatus.bind(this));
     router.patch("/bookings/:id/reschedule", isAuthenticated, this.rescheduleBooking.bind(this));
   }
@@ -162,6 +163,35 @@ export class BookingController extends BaseController {
         return this.badRequest(res, error.errors.map((err) => err.message).join(". "));
       }
       return this.error(res, "Unable to create booking. Please try again. " + String(error) + (error instanceof Error ? " - " + error.message : ""));
+    }
+  }
+
+  private async updateBooking(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!userHasManagerAccess(req)) {
+        return this.forbidden(res, "Only managers and owners can edit bookings.");
+      }
+      const bookingId = req.params.id;
+      const existing = await storage.getBooking(bookingId);
+      if (!existing) return this.notFound(res, "Booking not found.");
+      if (existing.status === "completed") {
+        return this.badRequest(res, "Completed bookings cannot be edited.");
+      }
+      if (!(await this.checkStoreAccess(existing.storeId, req, res))) return res;
+
+      const updateSchema = createBookingSchema.omit({ storeId: true }).partial().extend({
+        bookingItems: z.array(bookingItemSchema).min(1).optional(),
+      });
+      const parsed = updateSchema.parse(req.body);
+      const updated = await storage.updateBooking(bookingId, parsed as any);
+      if (!updated) return this.error(res, "Could not update booking.");
+      const items = await storage.getBookingItems(bookingId);
+      return this.ok(res, { ...updated, items });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return this.badRequest(res, error.errors.map((e) => e.message).join(". "));
+      }
+      return this.error(res, "Unable to update booking. Please try again.");
     }
   }
 

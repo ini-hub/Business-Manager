@@ -25,6 +25,27 @@ import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./au
 
 const JWT_TEMP_SECRET = process.env.JWT_ADMIN_SECRET || "temp_secret_mfa_token";
 
+// Safe user field projection — never returns credentials or OTP secrets
+const safeUserFields = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  phone: users.phone,
+  role: users.role,
+  status: users.status,
+  isVerified: users.isVerified,
+  isEmailVerified: users.isEmailVerified,
+  isPhoneVerified: users.isPhoneVerified,
+  profilePhotoUrl: users.profilePhotoUrl,
+  loginAttempts: users.loginAttempts,
+  lockedUntil: users.lockedUntil,
+  lastLoginAt: users.lastLoginAt,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+  suspensionReason: users.suspensionReason,
+  suspendedAt: users.suspendedAt,
+} as const;
+
 export const adminRouter = Router();
 
 // Immutable Audit Log Helper
@@ -631,7 +652,7 @@ adminRouter.get("/businesses", isAdminAuthenticated, async (req: Request, res: R
       let ownerName = "Unconfigured";
       let ownerEmail = "Unconfigured";
       if (primaryMember) {
-        const [ownerUser] = await db.select().from(users).where(eq(users.id, primaryMember.userId)).limit(1);
+        const [ownerUser] = await db.select(safeUserFields).from(users).where(eq(users.id, primaryMember.userId)).limit(1);
         if (ownerUser) {
           ownerName = ownerUser.name || "Owner Account";
           ownerEmail = ownerUser.email || ownerUser.phone || "No Email";
@@ -774,7 +795,7 @@ adminRouter.get("/businesses/:id", isAdminAuthenticated, async (req: Request, re
 
     let ownerUser = null;
     if (primaryMember) {
-      const [userRec] = await db.select().from(users).where(eq(users.id, primaryMember.userId)).limit(1);
+      const [userRec] = await db.select(safeUserFields).from(users).where(eq(users.id, primaryMember.userId)).limit(1);
       ownerUser = userRec;
     }
 
@@ -782,7 +803,7 @@ adminRouter.get("/businesses/:id", isAdminAuthenticated, async (req: Request, re
     const memberRoster = await db
       .select({
         member: organisationMembers,
-        user: users,
+        user: safeUserFields,
       })
       .from(organisationMembers)
       .innerJoin(users, eq(organisationMembers.userId, users.id))
@@ -1026,7 +1047,7 @@ adminRouter.get("/onboarding/pipeline", isAdminAuthenticated, async (req: Reques
       let ownerName = "Unconfigured";
       let ownerEmail = "Unconfigured";
       if (primaryMember) {
-        const [ownerUser] = await db.select().from(users).where(eq(users.id, primaryMember.userId)).limit(1);
+        const [ownerUser] = await db.select(safeUserFields).from(users).where(eq(users.id, primaryMember.userId)).limit(1);
         if (ownerUser) {
           ownerName = ownerUser.name || "Owner";
           ownerEmail = ownerUser.email || ownerUser.phone || "No Contact";
@@ -1168,7 +1189,7 @@ adminRouter.post("/users/:id/reset-password", isAdminAuthenticated, requireAdmin
   }
 
   try {
-    const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    const [user] = await db.select(safeUserFields).from(users).where(eq(users.id, id)).limit(1);
     if (!user) {
       return res.status(404).json({ error: "User account not found." });
     }
@@ -1200,7 +1221,7 @@ adminRouter.post("/users/:id/suspend", isAdminAuthenticated, requireAdminRole(["
   const { reason } = req.body;
 
   try {
-    const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    const [user] = await db.select(safeUserFields).from(users).where(eq(users.id, id)).limit(1);
     if (!user) {
       return res.status(404).json({ error: "User account not found." });
     }
@@ -1232,7 +1253,7 @@ adminRouter.post("/users/:id/suspend", isAdminAuthenticated, requireAdminRole(["
 // Scan anomalous flagged accounts
 adminRouter.get("/users/flagged", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
-    const allUsers = await db.select().from(users);
+    const allUsers = await db.select(safeUserFields).from(users);
     const flagged = [];
 
     const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);

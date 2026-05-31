@@ -1,3 +1,4 @@
+import { KowopeBrand } from "@/components/kowope-brand";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -272,7 +273,7 @@ export default function Login() {
     onSuccess: (data) => {
       toast({
         title: "Password Set Successfully!",
-        description: "Welcome to Business Manager.",
+        description: "Welcome to Kowope.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       setLocation("/");
@@ -299,7 +300,7 @@ export default function Login() {
     onSuccess: () => {
       toast({
         title: "Email Verified!",
-        description: "Welcome back to Business Manager.",
+        description: "Welcome back to Kowope.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       setLocation("/");
@@ -413,7 +414,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/50 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] p-4 gap-5">
+      <KowopeBrand />
       <Card className="w-full max-w-md relative">
         {step !== "identifier" && (
           <Button
@@ -433,16 +435,16 @@ export default function Login() {
 
         <CardHeader className="text-center pt-12">
           <CardTitle className="text-2xl">
-            Business Manager
+            {step === "identifier" ? "Sign in to Kowope" : "Welcome back"}
           </CardTitle>
           <CardDescription>
-            {step === "identifier" && "Enter your email or phone number to sign in"}
-            {step === "password" && `Welcome back! Enter password for ${identifier}`}
-            {step === "verify_otp" && `Verify email address for ${identifier}`}
-            {step === "activation_code" && `Activate staff invitation for ${identifier}`}
-            {step === "create_password" && `Create password for ${identifier}`}
-            {step === "almost_there" && `Complete your registration for ${identifier}`}
-            {step === "org_select" && "Choose your active organisation workspace"}
+            {step === "identifier" && "Kowope Business Management System — enter your email or phone to continue"}
+            {step === "password" && `Enter your password for ${identifier}`}
+            {step === "verify_otp" && `Verify your email address for ${identifier}`}
+            {step === "activation_code" && `Activate your staff invitation for ${identifier}`}
+            {step === "create_password" && `Create a password for ${identifier}`}
+            {step === "almost_there" && `Complete your Kowope registration for ${identifier}`}
+            {step === "org_select" && "Select the business workspace you want to access"}
           </CardDescription>
         </CardHeader>
 

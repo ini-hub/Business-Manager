@@ -715,9 +715,19 @@ export default function Customers() {
                   searchPlaceholder="Search active customers..."
                   searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
                   isLoading={isLoading}
-                  emptyMessage="No active customers found. Add your first customer to get started."
+                  emptyMessage="Add active profiles to start tracking their credit limits, transactions, and retention logs."
                   onRowClick={navigateToCustomerDetails}
                   filterConfigs={filterConfigs}
+                  emptyIcon={<Users className="h-6 w-6" />}
+                  emptyTitle="No Active Customers"
+                  emptyAction={
+                    user?.role !== "staff" && (
+                      <Button onClick={openCreateForm} size="sm" className="h-8">
+                        <Plus className="mr-2 h-3.5 w-3.5" />
+                        Add Customer
+                      </Button>
+                    )
+                  }
                 />
               </TabsContent>
               <TabsContent value="archived" className="mt-4">
@@ -728,8 +738,10 @@ export default function Customers() {
                   searchPlaceholder="Search archived customers..."
                   searchKeys={["name", "customerNumber", "mobileNumber"]}
                   isLoading={isLoading}
-                  emptyMessage="No archived customers. Deleted customers will appear here."
+                  emptyMessage="Archived or deleted customers will be filed here for compliance histories."
                   filterConfigs={filterConfigs}
+                  emptyIcon={<Users className="h-6 w-6 opacity-40" />}
+                  emptyTitle="No Archived Profiles"
                 />
               </TabsContent>
             </>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar } from "lucide-react";
+import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar, Banknote } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -707,7 +707,14 @@ export default function ExpensesPage() {
                 searchPlaceholder="Search descriptions..."
                 searchKeys={["title", "notes"]}
                 isLoading={isLoadingExpenses}
-                emptyMessage="No expenses recorded for this period."
+                emptyTitle="No Expenses"
+                emptyMessage="No expenses recorded for this period. Log overheads, salaries, and operational costs to track profitability."
+                emptyIcon={<Banknote className="h-6 w-6" />}
+                emptyAction={
+                  <Button size="sm" className="gap-2" onClick={() => document.getElementById("add-expense-trigger")?.click()}>
+                    <Plus className="h-4 w-4" />Log Expense
+                  </Button>
+                }
                 filterConfigs={filterConfigs}
               />
             );

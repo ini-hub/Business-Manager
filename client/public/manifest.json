@@ -1,0 +1,43 @@
+{
+  "name": "Kowope — Business Management System",
+  "short_name": "Kowope",
+  "description": "Gather every sale, customer, and naira. Complete business management for growing businesses.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#1169C7",
+  "background_color": "#0a1219",
+  "lang": "en",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "New Sale",
+      "short_name": "New Sale",
+      "description": "Open a new POS checkout",
+      "url": "/sales/new",
+      "icons": [{ "src": "/favicon.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Bookings",
+      "short_name": "Bookings",
+      "description": "View and manage bookings",
+      "url": "/bookings",
+      "icons": [{ "src": "/favicon.png", "sizes": "96x96" }]
+    }
+  ]
+}

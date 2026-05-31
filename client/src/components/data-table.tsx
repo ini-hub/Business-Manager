@@ -25,6 +25,11 @@ export interface DataTableProps<T> {
   multiselect?: boolean;
   selectedIds?: (string | number)[];
   onSelectedIdsChange?: (ids: (string | number)[]) => void;
+
+  // Premium empty state enhancements
+  emptyIcon?: React.ReactNode;
+  emptyAction?: React.ReactNode;
+  emptyTitle?: string;
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -41,6 +46,9 @@ export function DataTable<T extends { id: string | number }>({
   multiselect,
   selectedIds,
   onSelectedIdsChange,
+  emptyIcon,
+  emptyAction,
+  emptyTitle,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -65,6 +73,9 @@ export function DataTable<T extends { id: string | number }>({
       multiselect={multiselect}
       selectedIds={selectedIds}
       onSelectedIdsChange={onSelectedIdsChange}
+      emptyIcon={emptyIcon}
+      emptyAction={emptyAction}
+      emptyTitle={emptyTitle}
     />
   );
 }

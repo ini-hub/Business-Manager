@@ -52,7 +52,7 @@ import { DataTable } from "@/components/data-table";
 import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 
 
-export default function BorrowBookPage() {
+export default function CreditSalesPage() {
   const { currentStore } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -385,11 +385,11 @@ export default function BorrowBookPage() {
   if (!currentStore) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Borrow Book" description="Manage credit sales and outstanding customer debt" />
+        <PageHeader title="Credit Sales" description="Manage credit sales and outstanding customer debt" />
         <Card className="glassmorphism p-6 flex flex-col items-center justify-center text-center">
           <BookOpen className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
           <h3 className="text-lg font-medium">Select a Store</h3>
-          <p className="text-sm text-muted-foreground mt-1">Please select a store from the sidebar header to access its Borrow Book ledger.</p>
+          <p className="text-sm text-muted-foreground mt-1">Please select a store from the sidebar header to access its Credit Sales ledger.</p>
         </Card>
       </div>
     );
@@ -398,7 +398,7 @@ export default function BorrowBookPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader
-        title="Borrow Book Ledger"
+        title="Credit Sales Ledger"
         description="Digital ledger for tracking customer credits, partial repayments, and pidgin notifications"
       />
 
@@ -487,7 +487,7 @@ export default function BorrowBookPage() {
       {/* Main Ledger Table & Filters Card */}
       <Card className="border-border/50 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-base font-medium">Borrow Book Ledger</CardTitle>
+          <CardTitle className="text-base font-medium">Credit Sales Ledger</CardTitle>
           <Button variant="ghost" size="icon" onClick={() => refetchLedger()} title="Refresh list" className="h-8 w-8">
             <RefreshCw className="h-4 w-4" />
           </Button>

@@ -5,6 +5,9 @@ import { createServer } from "http";
 import helmet from "helmet";
 import fs from "fs";
 import path from "path";
+import { csrfMiddleware } from "./csrf";
+import { startBookingReminderService } from "./services/BookingReminderService";
+import { startCreditReminderService } from "./services/CreditReminderService";
 
 // Manually load .env file if DATABASE_URL is not already in env
 if (!process.env.DATABASE_URL) {
@@ -29,6 +32,18 @@ if (!process.env.DATABASE_URL) {
     }
   } catch (err) {
     console.warn("Could not load .env manually:", err);
+  }
+}
+
+// Enforce secure environments in production - crash on default/missing secrets
+if (process.env.NODE_ENV === "production") {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "excellent_bolujo_secret_key") {
+    console.error("FATAL: JWT_SECRET environment variable is missing or insecure in production.");
+    process.exit(1);
+  }
+  if (!process.env.JWT_ADMIN_SECRET || process.env.JWT_ADMIN_SECRET === "excellent_bolujo_super_admin_secret_key") {
+    console.error("FATAL: JWT_ADMIN_SECRET environment variable is missing or insecure in production.");
+    process.exit(1);
   }
 }
 
@@ -69,6 +84,9 @@ app.use(
 );
 
 app.use(express.urlencoded({ limit: "10mb", extended: false }));
+
+// Enforce CSRF protection on state-mutating API requests
+app.use(csrfMiddleware);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -114,7 +132,7 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
+    res.status(status).json({ error: { code: "INTERNAL_ERROR", message } });
     throw err;
   });
 
@@ -127,6 +145,9 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
+
+  startBookingReminderService();
+  startCreditReminderService();
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

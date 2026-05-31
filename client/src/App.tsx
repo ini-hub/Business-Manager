@@ -32,8 +32,9 @@ import ExpensesPage from "@/pages/expenses";
 import AddExpensePage from "@/pages/add-expense";
 import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
-import BorrowBookPage from "@/pages/borrow-book";
+import CreditSalesPage from "@/pages/credit-sales";
 import SettingsStoresPage from "@/pages/settings-stores";
+import SettingsIndexPage from "@/pages/settings/index";
 import PromotionsPage from "@/pages/settings/promotions";
 import OnboardingWizard from "@/pages/onboarding";
 import StaffPerformancePage from "@/pages/staff-performance";
@@ -43,6 +44,7 @@ import NotFound from "@/pages/not-found";
 import ServiceProfitabilityPage from "@/pages/service-profitability";
 import QuotesPage from "@/pages/quotes";
 import PurchaseOrdersPage from "@/pages/purchase-orders";
+import VendorsPage from "@/pages/vendors";
 import StockTransfersPage from "@/pages/stock-transfers";
 import TaxesCompliancePage from "@/pages/settings/taxes-compliance";
 import { GlobalSearch } from "@/components/global-search";
@@ -202,6 +204,50 @@ function AuthenticatedLayout() {
     }
   }, [storesLoading, hasStores, location, setLocation]);
 
+  // Global power-user navigation keyboard shortcuts (Alt/Option modifier)
+  useEffect(() => {
+    const handleNavigationShortcuts = (e: KeyboardEvent) => {
+      // Ignore if user is currently typing in input, textarea, or contenteditable fields
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.hasAttribute("contenteditable"))
+      ) {
+        return;
+      }
+
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        switch (e.key.toLowerCase()) {
+          case "n":
+            e.preventDefault();
+            setLocation("/sales/new");
+            break;
+          case "i":
+            e.preventDefault();
+            setLocation("/inventory");
+            break;
+          case "c":
+            e.preventDefault();
+            setLocation("/customers");
+            break;
+          case "d":
+            e.preventDefault();
+            setLocation("/");
+            break;
+          case "t":
+            e.preventDefault();
+            setLocation("/transactions");
+            break;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleNavigationShortcuts);
+    return () => window.removeEventListener("keydown", handleNavigationShortcuts);
+  }, [setLocation]);
+
   if (storesLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -258,7 +304,7 @@ function AuthenticatedLayout() {
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
                   <Route path="/expenses/new" component={AddExpensePage} />
-                  <Route path="/borrow-book" component={BorrowBookPage} />
+                  <Route path="/credit-sales" component={CreditSalesPage} />
                   <Route path="/bookings/new" component={BookingFormPage} />
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
                   <Route path="/bookings/:id" component={BookingDetailsPage} />
@@ -268,6 +314,9 @@ function AuthenticatedLayout() {
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/profile" component={ProfilePage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
+                  <Route path="/settings">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsIndexPage />}
+                  </Route>
                   <Route path="/settings/stores">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStoresPage />}
                   </Route>
@@ -289,6 +338,7 @@ function AuthenticatedLayout() {
                   <Route path="/settings/roles/:id/edit">
                     {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
                   </Route>
+                  <Route path="/vendors" component={VendorsPage} />
                   <Route path="/quotes" component={QuotesPage} />
                   <Route path="/purchase-orders" component={PurchaseOrdersPage} />
                   <Route path="/stock-transfers" component={StockTransfersPage} />

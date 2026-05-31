@@ -55,6 +55,7 @@ export class PayrollService {
       .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
       .where(and(
         eq(checkouts.storeId, period.storeId),
+        eq(checkouts.isVoided, false),
         gte(checkouts.createdAt, new Date(period.startDate + "T00:00:00.000Z")),
         lte(checkouts.createdAt, new Date(period.endDate + "T23:59:59.999Z")),
       ));
@@ -598,6 +599,7 @@ export class PayrollService {
       .innerJoin(transactions, eq(transactions.checkoutId, checkouts.id))
       .where(and(
         eq(checkouts.storeId, period.storeId),
+        eq(checkouts.isVoided, false),
         gte(checkouts.createdAt, new Date(period.startDate + "T00:00:00.000Z")),
         lte(checkouts.createdAt, new Date(period.endDate + "T23:59:59.999Z")),
       ));

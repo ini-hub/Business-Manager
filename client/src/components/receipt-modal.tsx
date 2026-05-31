@@ -22,13 +22,7 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = () => {
-    const printContent = document.getElementById("receipt-print-area");
-    if (!printContent) return;
-    const originalBody = document.body.innerHTML;
-    document.body.innerHTML = printContent.outerHTML;
     window.print();
-    document.body.innerHTML = originalBody;
-    window.location.reload();
   };
 
   const handleDownloadPDF = async () => {
@@ -115,8 +109,8 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
               </Button>
             </div>
 
-            {/* Receipt */}
-            <div ref={printRef}>
+            {/* Receipt — id targets @media print CSS */}
+            <div ref={printRef} id="receipt-print-area">
               <ReceiptView payload={payload} />
             </div>
           </>

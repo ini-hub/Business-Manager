@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle, RefreshCw, Home, ShieldAlert, Copy, Check, LifeBuoy } from "lucide-react";
+import { AlertCircle, RefreshCw, Home, ShieldAlert, Copy, Check, LifeBuoy, Mail, Send } from "lucide-react";
 import { Link } from "wouter";
 
 interface ServerErrorProps {
@@ -9,18 +9,45 @@ interface ServerErrorProps {
   reset?: () => void;
 }
 
+// Simple deterministic hash function to generate user-friendly troubleshooting codes
+const getErrorCode = (msg: string) => {
+  let hash = 0;
+  for (let i = 0; i < msg.length; i++) {
+    const char = msg.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  const hex = Math.abs(hash).toString(16).toUpperCase().padStart(4, "0");
+  return `ERR-BM-${hex.slice(0, 4)}`;
+};
+
 export default function ServerError({ error, reset }: ServerErrorProps) {
   const [copied, setCopied] = useState(false);
   const errorMessage = typeof error === 'string' ? error : error?.message || "An unexpected error occurred while communicating with the server.";
+  
+  const errorCode = getErrorCode(errorMessage);
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(errorMessage);
+      await navigator.clipboard.writeText(`Error Code: ${errorCode}\nDiagnostics: ${errorMessage}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy error details:", err);
     }
+  };
+
+  const handleReportIssue = () => {
+    const subject = encodeURIComponent(`Application Crash Report: [${errorCode}]`);
+    const body = encodeURIComponent(
+      `Hi Support Team,\n\nI encountered an application error. Here are the diagnostics:\n\n` +
+      `Error Code: ${errorCode}\n` +
+      `Error Message: ${errorMessage}\n` +
+      `Browser Environment: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown'}\n` +
+      `Local Time: ${new Date().toISOString()}\n\n` +
+      `Please help me resolve this issue.`
+    );
+    window.location.href = `mailto:support@ini-hub.com?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -53,6 +80,15 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
 
           {/* Interactive, copyable error details container */}
           <div className="bg-muted/30 hover:bg-muted/40 rounded-xl p-4 text-left border border-border/40 relative group transition-colors duration-200">
+            <div className="flex flex-col mb-3 pb-2 border-b border-border/40">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                Troubleshooting Code
+              </span>
+              <span className="text-sm font-mono font-bold text-destructive mt-0.5" data-testid="troubleshooting-code">
+                {errorCode}
+              </span>
+            </div>
+
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
               <div className="space-y-1.5 w-full pr-8">
@@ -78,19 +114,42 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
             </button>
           </div>
 
+          {/* Support Helpline Card */}
+          <div className="flex items-center gap-3 p-3.5 bg-primary/5 border border-primary/10 rounded-xl text-left animate-in fade-in duration-300">
+            <Mail className="h-5 w-5 text-primary shrink-0" />
+            <div className="space-y-0.5">
+              <p className="text-xs font-bold">Need Direct Assistance?</p>
+              <p className="text-[11px] text-muted-foreground">
+                Email support at <span className="font-semibold text-foreground">support@ini-hub.com</span> or report the issue below.
+              </p>
+            </div>
+          </div>
+
           {/* Premium Dynamic Action Buttons */}
-          <div className="flex flex-col gap-2.5 pt-4 sm:flex-row justify-center">
-            <Button 
-              variant="default" 
-              className="gap-2 font-medium px-5 shadow-sm group active:scale-[0.98] transition-transform duration-100 cursor-pointer"
-              onClick={() => reset ? reset() : window.location.reload()}
-            >
-              <RefreshCw className="h-4 w-4 group-hover:rotate-45 transition-transform duration-300" />
-              Try Again
-            </Button>
-            <Button variant="outline" asChild className="gap-2 font-medium px-5 active:scale-[0.98] transition-transform duration-100 cursor-pointer">
+          <div className="flex flex-col gap-2 pt-2">
+            <div className="flex flex-col gap-2.5 sm:flex-row justify-center">
+              <Button 
+                variant="default" 
+                className="gap-2 font-medium px-5 shadow-sm group active:scale-[0.98] transition-transform duration-100 cursor-pointer flex-1"
+                onClick={() => reset ? reset() : window.location.reload()}
+              >
+                <RefreshCw className="h-4 w-4 group-hover:rotate-45 transition-transform duration-300" />
+                Try Again
+              </Button>
+              
+              <Button 
+                variant="outline"
+                className="gap-2 font-medium px-5 group active:scale-[0.98] transition-transform duration-100 cursor-pointer flex-1"
+                onClick={handleReportIssue}
+              >
+                <Send className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                Report Issue
+              </Button>
+            </div>
+
+            <Button variant="ghost" asChild className="gap-2 font-medium active:scale-[0.98] transition-transform duration-100 cursor-pointer w-full mt-1">
               <Link href="/">
-                <Home className="h-4 w-4" />
+                <Home className="h-4 w-4 text-muted-foreground" />
                 Back to Dashboard
               </Link>
             </Button>

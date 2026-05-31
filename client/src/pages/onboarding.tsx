@@ -140,8 +140,9 @@ export default function OnboardingWizard() {
       <div className="w-full max-w-2xl space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Welcome to Business Manager</h1>
-          <p className="text-muted-foreground">Let's set up your business in just a few steps</p>
+          <h1 className="text-3xl font-bold tracking-tight">Welcome to Kowope</h1>
+          <p className="text-sm text-primary font-semibold">Business Management System</p>
+          <p className="text-muted-foreground text-sm">Let's set up your business in just a few steps</p>
         </div>
 
         {/* Progress */}

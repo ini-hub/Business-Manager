@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -509,7 +509,14 @@ export default function StaffPage() {
                   searchPlaceholder="Search active staff..."
                   searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
                   isLoading={isLoading}
-                  emptyMessage="No active staff members found. Add your first staff member to get started."
+                  emptyTitle="No Active Staff"
+                  emptyMessage="Add your first staff member to start tracking attendance, payroll, and commissions."
+                  emptyIcon={<Users className="h-6 w-6" />}
+                  emptyAction={
+                    <Link href="/staff/new">
+                      <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />Add Staff Member</Button>
+                    </Link>
+                  }
                   filterConfigs={filterConfigs}
                 />
               </TabsContent>
@@ -521,7 +528,9 @@ export default function StaffPage() {
                   searchPlaceholder="Search archived staff..."
                   searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
                   isLoading={isLoading}
-                  emptyMessage="No archived staff members. Deleted staff will appear here."
+                  emptyTitle="No Archived Staff"
+                  emptyMessage="Archived staff members will appear here. Their history is preserved for payroll and audit records."
+                  emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
                   filterConfigs={filterConfigs}
                 />
               </TabsContent>

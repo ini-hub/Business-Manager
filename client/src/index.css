@@ -171,7 +171,7 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased bg-background text-foreground transition-colors duration-300;
   }
 }
 
@@ -310,3 +310,55 @@ input[type="number"] {
   }
 }
 
+
+/* ── Thermal Receipt Print Styles ─────────────────────────────────── */
+@media print {
+  /* Hide everything except the receipt area */
+  body > *:not(#receipt-print-root) {
+    display: none !important;
+  }
+
+  /* Thermal paper: 80mm wide, no margins */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #receipt-print-area {
+    display: block !important;
+    width: 72mm;
+    margin: 4mm auto;
+    font-size: 11px;
+    font-family: "Courier New", Courier, monospace;
+    color: black !important;
+    background: white !important;
+  }
+
+  /* Strip colours and shadows on receipt content */
+  #receipt-print-area * {
+    color: black !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-color: #000 !important;
+  }
+
+  /* Keep dividers visible as dashed lines */
+  #receipt-print-area hr,
+  #receipt-print-area .receipt-divider {
+    border-top: 1px dashed #000 !important;
+  }
+}
+
+/* Portal root for the receipt so @media print can target it */
+#receipt-print-root {
+  display: contents;
+}

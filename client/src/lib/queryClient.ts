@@ -7,7 +7,11 @@ async function throwIfResNotOk(res: Response) {
     // Try to parse JSON error response and extract just the message
     try {
       const jsonError = JSON.parse(text);
-      const errorMessage = jsonError.message || jsonError.error || text;
+      const rawError = jsonError.error;
+      const errorMessage =
+        (rawError !== null && typeof rawError === "object" ? rawError.message : rawError) ||
+        jsonError.message ||
+        text;
       throw new Error(errorMessage);
     } catch (parseError) {
       // If not JSON, use the text directly (without status code prefix)
@@ -73,13 +77,15 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
-      staleTime: 0, // 0 min — always check for fresh data on mount/focus
-      gcTime: 10 * 60 * 1000, // 10 min — keep in cache after unmount
-      refetchOnWindowFocus: true, // enable focus-refetch to keep data in sync across tabs/windows
+      staleTime: 0,          // always check for fresh data when online
+      gcTime: 24 * 60 * 60 * 1000, // 24 h — keep cache alive for offline POS sessions
+      networkMode: "offlineFirst", // serve cached data immediately; don't pause queries when offline
+      refetchOnWindowFocus: true,
       retry: false,
     },
     mutations: {
       retry: false,
+      networkMode: "offlineFirst", // allow mutations to run offline (they'll be queued by offline-db)
     },
   },
 });

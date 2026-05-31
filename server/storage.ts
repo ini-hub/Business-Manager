@@ -118,6 +118,17 @@ import { normalizePhoneNumber } from "./sanitize";
 import { PurchaseOrderRepository } from "./repositories/PurchaseOrderRepository";
 import { StockTransferRepository } from "./repositories/StockTransferRepository";
 import { TaxRateRepository } from "./repositories/TaxRateRepository";
+import { BusinessRepository } from "./repositories/BusinessRepository";
+import { CustomerRepository } from "./repositories/CustomerRepository";
+import { StaffRepository } from "./repositories/StaffRepository";
+import { BookingRepository } from "./repositories/BookingRepository";
+import { TransactionRepository } from "./repositories/TransactionRepository";
+import { SalesRepository } from "./repositories/SalesRepository";
+import { AnalyticsRepository } from "./repositories/AnalyticsRepository";
+import { RestockRepository } from "./repositories/RestockRepository";
+import { AttendanceRepository } from "./repositories/AttendanceRepository";
+import { PayrollRepository } from "./repositories/PayrollRepository";
+import { NotificationRepository } from "./repositories/NotificationRepository";
 
 export function serializeUser(user: any) {
   if (!user) return null;
@@ -210,7 +221,7 @@ export interface IStorage {
   getStaff(id: string): Promise<Staff | undefined>;
   getStaffByUserId(userId: string): Promise<Staff | undefined>;
   getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined>;
-  createStaff(staffMember: InsertStaff): Promise<Staff>;
+  createStaff(staffMember: InsertStaff & { userId?: string | null }): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined>;
   transferStaff(id: string, targetStoreId: string): Promise<Staff | undefined>;
   deleteStaff(id: string): Promise<boolean>;
@@ -256,6 +267,7 @@ export interface IStorage {
   getBooking(id: string): Promise<Booking | undefined>;
   getBookingItems(bookingId: string): Promise<BookingItem[]>;
   createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking>;
+  updateBooking(id: string, data: Partial<InsertBooking> & { bookingItems?: InsertBookingItem[] }): Promise<Booking | undefined>;
   updateBookingStatus(id: string, status: string): Promise<Booking | undefined>;
   rescheduleBooking(id: string, scheduledAt: Date, reason: string): Promise<Booking | undefined>;
 
@@ -264,7 +276,7 @@ export interface IStorage {
   updateProfitLoss(inventoryId: string, storeId: string): Promise<void>;
 
   // Dashboard Stats
-  getDashboardStats(storeId: string): Promise<{
+  getDashboardStats(storeId: string, startDate?: string, endDate?: string): Promise<{
     totalCustomers: number;
     totalStaff: number;
     totalInventory: number;
@@ -272,13 +284,15 @@ export interface IStorage {
     totalServices: number;
     totalTransactions: number;
     totalRevenue: number;
+    grossRevenue: number;
+    returnedRevenue: number;
     totalProfit: number;
     lowStockItems: Inventory[];
   }>;
 
   // Chart Data
-  getSalesTrends(storeId: string): Promise<{ date: string; revenue: number; transactions: number }[]>;
-  getRevenueByType(storeId: string): Promise<{ name: string; value: number; type: string }[]>;
+  getSalesTrends(storeId: string, startDate?: string, endDate?: string): Promise<{ date: string; revenue: number; transactions: number }[]>;
+  getRevenueByType(storeId: string, startDate?: string, endDate?: string): Promise<{ name: string; value: number; type: string }[]>;
   
   // Transactional Checkout (atomic operation)
   processCheckout(data: {
@@ -380,7 +394,7 @@ export interface IStorage {
   }>;
 
   // Void
-  voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string }>;
+  voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }>;
 
   // Returns & Store Credits
   processReturn(data: {
@@ -475,6 +489,22 @@ export class DatabaseStorage implements IStorage {
   public readonly purchaseOrderRepo = new PurchaseOrderRepository();
   public readonly stockTransferRepo = new StockTransferRepository();
   public readonly taxRateRepo = new TaxRateRepository();
+  private businessRepo = new BusinessRepository();
+  private customerRepo = new CustomerRepository();
+  private staffRepo = new StaffRepository();
+  private bookingRepo = new BookingRepository();
+  private transactionRepo = new TransactionRepository();
+  private salesRepo = new SalesRepository();
+  private analyticsRepo: AnalyticsRepository;
+  private restockRepo = new RestockRepository();
+  private attendanceRepo = new AttendanceRepository();
+  private payrollRepo = new PayrollRepository();
+  private notificationRepo = new NotificationRepository();
+
+  constructor() {
+    this.analyticsRepo = new AnalyticsRepository(this.salesRepo);
+    this.salesRepo.setNotificationRepo(this.notificationRepo);
+  }
 
   // Users & Auth
   async getUser(id: string): Promise<User | undefined> {
@@ -494,99 +524,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOrganisationsByUserId(userId: string): Promise<any[]> {
-    const rows = await db
-      .select({
-        id: organisations.id,
-        organisationId: organisations.id,
-        name: organisations.name,
-        slug: organisations.slug,
-        role: organisationMembers.role,
-        status: organisationMembers.status,
-        memberId: organisationMembers.id,
-      })
-      .from(organisationMembers)
-      .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
-      .where(eq(organisationMembers.userId, userId));
-    return rows;
+    return this.businessRepo.getOrganisationsByUserId(userId);
   }
 
+
+  // ─── Business Repo Delegation ──────────────────────────────────────────────
   async getOrganisationMember(userId: string, organisationId: string): Promise<OrganisationMember | undefined> {
-    const [member] = await db
-      .select()
-      .from(organisationMembers)
-      .where(and(eq(organisationMembers.userId, userId), eq(organisationMembers.organisationId, organisationId)));
-    return member;
+    return this.businessRepo.getOrganisationMember(userId, organisationId);
   }
 
   async createOrganisation(data: InsertOrganisation): Promise<Organisation> {
-    const [org] = await db.insert(organisations).values(data).returning();
-    return org;
+    return this.businessRepo.createOrganisation(data);
   }
 
   async createOrganisationMember(data: InsertOrganisationMember): Promise<OrganisationMember> {
-    const [member] = await db.insert(organisationMembers).values(data).returning();
-    return member;
+    return this.businessRepo.createOrganisationMember(data);
   }
 
   async updateOrganisationMemberStatus(id: string, status: string, activatedAt?: Date): Promise<OrganisationMember> {
-    const updateData: Partial<OrganisationMember> = { status };
-    if (activatedAt) {
-      updateData.activatedAt = activatedAt;
-    }
-    const [member] = await db
-      .update(organisationMembers)
-      .set(updateData)
-      .where(eq(organisationMembers.id, id))
-      .returning();
-    if (!member) throw new Error("Organisation member not found.");
-    return member;
+    return this.businessRepo.updateOrganisationMemberStatus(id, status, activatedAt);
   }
 
   async getOrganisationMembers(organisationId: string): Promise<(OrganisationMember & { user: User })[]> {
-    const rows = await db
-      .select({
-        member: organisationMembers,
-        user: users,
-      })
-      .from(organisationMembers)
-      .innerJoin(users, eq(users.id, organisationMembers.userId))
-      .where(eq(organisationMembers.organisationId, organisationId));
-    
-    return rows.map(r => ({
-      ...r.member,
-      user: r.user,
-    }));
+    return this.businessRepo.getOrganisationMembers(organisationId);
   }
 
   async getOrganisationMemberById(id: string): Promise<OrganisationMember | undefined> {
-    const [member] = await db.select().from(organisationMembers).where(eq(organisationMembers.id, id));
-    return member;
+    return this.businessRepo.getOrganisationMemberById(id);
   }
 
   async getOrganisationBySlug(slug: string): Promise<Organisation | undefined> {
-    const [org] = await db.select().from(organisations).where(eq(organisations.slug, slug.trim().toLowerCase()));
-    return org;
+    return this.businessRepo.getOrganisationBySlug(slug);
   }
 
   async deleteOrganisationMember(id: string): Promise<void> {
-    await db.delete(organisationMembers).where(eq(organisationMembers.id, id));
+    return this.businessRepo.deleteOrganisationMember(id);
   }
 
   async updateOrganisationMember(id: string, data: Partial<OrganisationMember>): Promise<OrganisationMember> {
-    const [member] = await db
-      .update(organisationMembers)
-      .set(data)
-      .where(eq(organisationMembers.id, id))
-      .returning();
-    if (!member) throw new Error("Organisation member not found.");
-    return member;
+    return this.businessRepo.updateOrganisationMember(id, data);
   }
 
-  async createUser(userData: { 
-    email: string; 
-    password: string; 
-    businessId: string; 
-    role?: UserRole; 
+  async createUser(userData: {
+    email: string;
+    password: string;
+    businessId: string;
+    role?: UserRole;
     isVerified?: boolean;
     activationCode?: string;
     activationCodeExpiry?: Date;
@@ -606,817 +589,187 @@ export class DatabaseStorage implements IStorage {
 
   // OTP Codes
   async createOtpCode(data: { userId: string; code: string; type: string; expiresAt: Date }): Promise<OtpCode> {
-    const [otp] = await db.insert(otpCodes).values({
-      userId: data.userId,
-      code: data.code,
-      type: data.type,
-      expiresAt: data.expiresAt,
-      isUsed: false,
-    }).returning();
-    return otp;
+    return this.businessRepo.createOtpCode(data);
   }
 
   async getValidOtpCode(userId: string, code: string, type: string): Promise<OtpCode | undefined> {
-    const [otp] = await db.select().from(otpCodes).where(
-      and(
-        eq(otpCodes.userId, userId),
-        eq(otpCodes.code, code),
-        eq(otpCodes.type, type),
-        eq(otpCodes.isUsed, false),
-        gt(otpCodes.expiresAt, new Date())
-      )
-    );
-    return otp;
+    return this.businessRepo.getValidOtpCode(userId, code, type);
   }
 
   async markOtpCodeAsUsed(id: string): Promise<void> {
-    await db.update(otpCodes).set({ isUsed: true }).where(eq(otpCodes.id, id));
+    return this.businessRepo.markOtpCodeAsUsed(id);
   }
 
   // Business for user
   async getBusinessByUserId(userId: string): Promise<Business | undefined> {
-    const user = await this.getUser(userId);
-    if (!user || !user.businessId) return undefined;
-    const [business] = await db.select().from(businesses).where(eq(businesses.id, user.businessId));
-    return business;
+    return this.businessRepo.getBusinessByUserId(userId, (id) => this.userRepo.getUser(id));
   }
 
   // Business
   async getBusiness(): Promise<Business | undefined> {
-    const [business] = await db.select().from(businesses).limit(1);
-    return business;
+    return this.businessRepo.getBusiness();
   }
 
   async getBusinessById(id: string): Promise<Business | undefined> {
-    const [business] = await db.select().from(businesses).where(eq(businesses.id, id));
-    return business;
+    return this.businessRepo.getBusinessById(id);
   }
 
   async createBusiness(business: InsertBusiness): Promise<Business> {
-    const [newBusiness] = await db.insert(businesses).values(business).returning();
-    return newBusiness;
+    return this.businessRepo.createBusiness(business);
   }
 
   async updateBusiness(id: string, businessData: Partial<InsertBusiness>): Promise<Business | undefined> {
-    const [updated] = await db.update(businesses).set(businessData).where(eq(businesses.id, id)).returning();
-    return updated;
+    return this.businessRepo.updateBusiness(id, businessData);
   }
 
   // Stores
   async getStores(businessId: string): Promise<Store[]> {
-    return await db.select().from(stores).where(eq(stores.businessId, businessId));
+    return this.businessRepo.getStores(businessId);
   }
 
   async getStore(id: string): Promise<Store | undefined> {
-    const [store] = await db.select().from(stores).where(eq(stores.id, id));
-    return store;
+    return this.businessRepo.getStore(id);
   }
 
   async getStoreByName(businessId: string, name: string): Promise<Store | undefined> {
-    const [store] = await db
-      .select()
-      .from(stores)
-      .where(and(eq(stores.businessId, businessId), ilike(stores.name, name)))
-      .limit(1);
-    return store;
+    return this.businessRepo.getStoreByName(businessId, name);
   }
 
   async getStoreByCode(businessId: string, code: string): Promise<Store | undefined> {
-    const [store] = await db
-      .select()
-      .from(stores)
-      .where(and(eq(stores.businessId, businessId), eq(stores.code, code.trim().toUpperCase())))
-      .limit(1);
-    return store;
+    return this.businessRepo.getStoreByCode(businessId, code);
   }
 
   async createStore(store: InsertStore): Promise<Store> {
-    const [newStore] = await db.insert(stores).values(store).returning();
-    await db.insert(storeCounters).values({ storeId: newStore.id, nextCustomerNumber: 1 });
-    return newStore;
+    return this.businessRepo.createStore(store);
   }
 
   async updateStore(id: string, storeData: Partial<InsertStore>): Promise<Store | undefined> {
-    const [updated] = await db.update(stores).set(storeData).where(eq(stores.id, id)).returning();
-    return updated;
+    return this.businessRepo.updateStore(id, storeData);
   }
 
   async deleteStore(id: string): Promise<boolean> {
-    return await db.transaction(async (tx) => {
-      // 1. Delete all staff records associated with this store
-      await tx.delete(staff).where(eq(staff.storeId, id));
-
-      // 2. Clear storeCounters
-      await tx.delete(storeCounters).where(eq(storeCounters.storeId, id));
-
-      // 3. Set managerStaffId to null in the store to avoid cyclic dependency before deleting
-      await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.id, id));
-
-      // 4. Delete the store
-      const result = await tx.delete(stores).where(eq(stores.id, id)).returning();
-      return result.length > 0;
-    });
+    return this.businessRepo.deleteStore(id);
   }
 
   async hasStoreData(id: string): Promise<boolean> {
-    const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, id));
-    const staffCount = await db.select({ count: count() }).from(staff).where(eq(staff.storeId, id));
-    const inventoryCount = await db.select({ count: count() }).from(inventory).where(eq(inventory.storeId, id));
-    return customerCount[0].count > 0 || staffCount[0].count > 0 || inventoryCount[0].count > 0;
+    return this.businessRepo.hasStoreData(id);
   }
 
-  // Customer ID Generation - finds next available number without gaps
-  private async getNextAvailableCustomerNumber(storeId: string): Promise<string> {
-    const store = await this.getStore(storeId);
-    if (!store) throw new Error("Store not found");
-
-    // Get all existing customer numbers for this store
-    const existingCustomers = await db.select({ customerNumber: customers.customerNumber })
-      .from(customers)
-      .where(eq(customers.storeId, storeId));
-    
-    // Extract the numeric suffix from each customer number
-    const usedNumbers = new Set<number>();
-    const prefix = store.code;
-    
-    for (const c of existingCustomers) {
-      if (c.customerNumber.startsWith(prefix)) {
-        const numPart = c.customerNumber.slice(prefix.length);
-        const num = parseInt(numPart, 10);
-        if (!isNaN(num)) {
-          usedNumbers.add(num);
-        }
-      }
-    }
-    
-    // Find the smallest available number starting from 1
-    let nextNumber = 1;
-    while (usedNumbers.has(nextNumber)) {
-      nextNumber++;
-    }
-    
-    return `${prefix}${nextNumber.toString().padStart(3, '0')}`;
-  }
-
-  // Transaction Receipt Number Generation
-  private async getNextAvailableTransactionNumber(tx: any, storeId: string): Promise<string> {
-    const [store] = await tx.select().from(stores).where(eq(stores.id, storeId));
-    if (!store) throw new Error("Store not found");
-
-    const [storeSetting] = await tx.select().from(settings).where(eq(settings.storeId, storeId));
-    const [business] = await tx.select().from(businesses).where(eq(businesses.id, store.businessId));
-
-    let prefix = "RCP";
-    if (storeSetting?.receiptPrefix && storeSetting.receiptPrefix !== "RCP") {
-      prefix = storeSetting.receiptPrefix;
-    } else if (business?.receiptPrefix) {
-      prefix = `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
-    } else {
-      prefix = `RCP-${store.code.trim().toUpperCase()}`;
-    }
-
-    const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
-    if (!counter) {
-      await tx.insert(storeCounters).values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 });
-      return `${prefix}-TN-1`;
-    }
-
-    const nextNum = counter.nextTransactionNumber;
-    await tx.update(storeCounters)
-      .set({ nextTransactionNumber: nextNum + 1 })
-      .where(eq(storeCounters.id, counter.id));
-
-    return `${prefix}-TN-${nextNum}`;
-  }
-
-  // Customers
+  // ─── Customer Repo Delegation ──────────────────────────────────────────────
   async getCustomers(storeId: string, includeArchived: boolean = true): Promise<Customer[]> {
-    if (includeArchived) {
-      return await db.select().from(customers).where(eq(customers.storeId, storeId));
-    }
-    return await db.select().from(customers).where(
-      and(eq(customers.storeId, storeId), eq(customers.isArchived, false))
-    );
+    return this.customerRepo.getCustomers(storeId, includeArchived);
   }
 
   async getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>> {
-    const { page, limit, search, includeArchived = false } = options;
-    const offset = (page - 1) * limit;
-
-    // Build base conditions
-    const conditions = [eq(customers.storeId, storeId)];
-    if (!includeArchived) {
-      conditions.push(eq(customers.isArchived, false));
-    }
-    if (search) {
-      conditions.push(
-        or(
-          ilike(customers.name, `%${search}%`),
-          ilike(customers.customerNumber, `%${search}%`),
-          ilike(customers.mobileNumber, `%${search}%`)
-        )!
-      );
-    }
-
-    // Get total count
-    const [countResult] = await db.select({ count: count() })
-      .from(customers)
-      .where(and(...conditions));
-    const total = countResult.count;
-
-    // Get paginated data
-    const data = await db.select()
-      .from(customers)
-      .where(and(...conditions))
-      .orderBy(asc(customers.customerNumber))
-      .limit(limit)
-      .offset(offset);
-
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
-    };
+    return this.customerRepo.getCustomersPaginated(storeId, options);
   }
 
   async getCustomer(id: string): Promise<Customer | undefined> {
-    const [customer] = await db.select().from(customers).where(eq(customers.id, id));
-    return customer;
+    return this.customerRepo.getCustomer(id);
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
-    // Generate customer number at save time to avoid gaps
-    const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
-    const { birthday, ...rest } = customer;
-    
-    // Normalize phone number on create
-    const normalizedPhone = customer.mobileNumber ? normalizePhoneNumber(customer.mobileNumber) : null;
-
-    const [newCustomer] = await db.insert(customers).values({
-      ...rest,
-      mobileNumber: normalizedPhone || null,
-      customerNumber,
-      birthday: birthday ? new Date(birthday) : null,
-    }).returning();
-
-    // Perform global linking
-    await this.linkGlobalCustomerIds(newCustomer.id);
-
-    return (await this.getCustomer(newCustomer.id)) || newCustomer;
+    return this.customerRepo.createCustomer(customer);
   }
 
   async updateCustomer(id: string, customerData: Partial<InsertCustomer>): Promise<Customer | undefined> {
-    const { birthday, ...rest } = customerData;
-    const updateData: any = { ...rest };
-    if (birthday !== undefined) {
-      updateData.birthday = birthday ? new Date(birthday) : null;
-    }
-    // Normalize phone number on update
-    if (customerData.mobileNumber !== undefined) {
-      updateData.mobileNumber = customerData.mobileNumber ? normalizePhoneNumber(customerData.mobileNumber) : null;
-    }
-
-    const [updated] = await db.update(customers).set(updateData).where(eq(customers.id, id)).returning();
-    if (updated) {
-      // Re-trigger global linking
-      await this.linkGlobalCustomerIds(updated.id);
-      return (await this.getCustomer(updated.id)) || updated;
-    }
-    return updated;
-  }
-
-  async linkGlobalCustomerIds(customerId: string): Promise<void> {
-    const customer = await this.getCustomer(customerId);
-    if (!customer) return;
-
-    const normalizedPhone = customer.mobileNumber ? normalizePhoneNumber(customer.mobileNumber) : "";
-    if (!normalizedPhone) {
-      await db.update(customers).set({ globalCustomerId: null }).where(eq(customers.id, customerId));
-      return;
-    }
-
-    // Get current store to find businessId
-    const store = await this.getStore(customer.storeId);
-    if (!store) return;
-
-    // Get all stores in this business
-    const businessStores = await db.select({ id: stores.id }).from(stores).where(eq(stores.businessId, store.businessId));
-    const storeIds = businessStores.map(s => s.id);
-    if (storeIds.length === 0) return;
-
-    // Find all matching customers in these stores with same phone number
-    const matches = await db
-      .select()
-      .from(customers)
-      .where(
-        and(
-          inArray(customers.storeId, storeIds),
-          eq(customers.mobileNumber, normalizedPhone),
-          eq(customers.isArchived, false)
-        )
-      );
-
-    if (matches.length > 0) {
-      // Check if any existing customer already has a globalCustomerId
-      let globalId = matches.find(c => c.globalCustomerId)?.globalCustomerId || null;
-      if (!globalId) {
-        const crypto = await import("crypto");
-        globalId = crypto.randomUUID();
-      }
-
-      // Update all matching profiles to share the same globalCustomerId
-      const idsToUpdate = matches.map(c => c.id);
-      await db
-        .update(customers)
-        .set({ globalCustomerId: globalId })
-        .where(inArray(customers.id, idsToUpdate));
-    } else {
-      // Just set a unique globalCustomerId for this customer
-      const crypto = await import("crypto");
-      const globalId = crypto.randomUUID();
-      await db
-        .update(customers)
-        .set({ globalCustomerId: globalId })
-        .where(eq(customers.id, customerId));
-    }
-  }
-
-  async getBusinessCustomerCount(businessId: string, startDate?: string, endDate?: string): Promise<number> {
-    const storeList = await this.getStores(businessId);
-    const storeIds = storeList.map(s => s.id);
-    if (storeIds.length === 0) return 0;
-
-    let conditions: any[] = [
-      inArray(customers.storeId, storeIds),
-      eq(customers.isArchived, false)
-    ];
-
-    if (startDate) conditions.push(gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(customers.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-    const [globalCountResult] = await db
-      .select({
-        count: sql<number>`count(distinct ${customers.globalCustomerId})`
-      })
-      .from(customers)
-      .where(
-        and(
-          ...conditions,
-          sql`${customers.globalCustomerId} is not null`
-        )
-      );
-
-    const [nullGlobalCountResult] = await db
-      .select({
-        count: sql<number>`count(*)`
-      })
-      .from(customers)
-      .where(
-        and(
-          ...conditions,
-          sql`${customers.globalCustomerId} is null`
-        )
-      );
-
-    return Number(globalCountResult?.count || 0) + Number(nullGlobalCountResult?.count || 0);
-  }
-
-  async searchGlobalCustomers(businessId: string, currentStoreId: string, query: string): Promise<any[]> {
-    const storeList = await this.getStores(businessId);
-    const storeIds = storeList.map(s => s.id);
-    if (storeIds.length === 0) return [];
-
-    const searchQuery = `%${query.trim()}%`;
-    const normalizedPhone = normalizePhoneNumber(query);
-    const phonePattern = normalizedPhone ? `%${normalizedPhone}%` : searchQuery;
-
-    // Search active customers in stores belonging to the same business (excluding current store)
-    const matches = await db
-      .select({
-        customer: customers,
-        storeName: stores.name,
-      })
-      .from(customers)
-      .innerJoin(stores, eq(customers.storeId, stores.id))
-      .where(
-        and(
-          inArray(customers.storeId, storeIds),
-          eq(customers.isArchived, false),
-          sql`${customers.storeId} != ${currentStoreId}`,
-          or(
-            ilike(customers.name, searchQuery),
-            ilike(customers.customerNumber, searchQuery),
-            normalizedPhone ? ilike(customers.mobileNumber, phonePattern) : sql`false`
-          )
-        )
-      )
-      .limit(30);
-
-    return matches.map(m => ({
-      ...m.customer,
-      storeName: m.storeName,
-    }));
-  }
-
-  async profileGlobalCustomer(customerId: string, targetStoreId: string): Promise<Customer> {
-    const sourceCustomer = await this.getCustomer(customerId);
-    if (!sourceCustomer) {
-      throw new Error("Source customer not found.");
-    }
-
-    // Check if a customer with same globalCustomerId or normalized phone already exists in the target store
-    if (sourceCustomer.globalCustomerId) {
-      const [existing] = await db
-        .select()
-        .from(customers)
-        .where(
-          and(
-            eq(customers.storeId, targetStoreId),
-            eq(customers.globalCustomerId, sourceCustomer.globalCustomerId),
-            eq(customers.isArchived, false)
-          )
-        );
-      if (existing) return existing;
-    }
-
-    if (sourceCustomer.mobileNumber) {
-      const normalizedPhone = normalizePhoneNumber(sourceCustomer.mobileNumber);
-      const [existing] = await db
-        .select()
-        .from(customers)
-        .where(
-          and(
-            eq(customers.storeId, targetStoreId),
-            eq(customers.mobileNumber, normalizedPhone),
-            eq(customers.isArchived, false)
-          )
-        );
-      if (existing) {
-        // Link them globally just in case
-        if (!existing.globalCustomerId && sourceCustomer.globalCustomerId) {
-          await db
-            .update(customers)
-            .set({ globalCustomerId: sourceCustomer.globalCustomerId })
-            .where(eq(customers.id, existing.id));
-          existing.globalCustomerId = sourceCustomer.globalCustomerId;
-        }
-        return existing;
-      }
-    }
-
-    // Otherwise, create a brand new local profile!
-    const customerNumber = await this.getNextAvailableCustomerNumber(targetStoreId);
-    const [newCustomer] = await db
-      .insert(customers)
-      .values({
-        storeId: targetStoreId,
-        name: sourceCustomer.name,
-        customerNumber,
-        mobileNumber: sourceCustomer.mobileNumber ? normalizePhoneNumber(sourceCustomer.mobileNumber) : null,
-        countryCode: sourceCustomer.countryCode || "NG",
-        address: sourceCustomer.address || "",
-        birthday: sourceCustomer.birthday,
-        globalCustomerId: sourceCustomer.globalCustomerId,
-        isConfirmedDistinct: false,
-        loyaltyPoints: 0,
-      })
-      .returning();
-
-    // Call linking to ensure everything is perfectly linked
-    await this.linkGlobalCustomerIds(newCustomer.id);
-
-    return (await this.getCustomer(newCustomer.id)) || newCustomer;
+    return this.customerRepo.updateCustomer(id, customerData);
   }
 
   async deleteCustomer(id: string): Promise<boolean> {
-    const result = await db.delete(customers).where(eq(customers.id, id)).returning();
-    return result.length > 0;
+    return this.customerRepo.deleteCustomer(id);
   }
 
   async archiveCustomer(id: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ isArchived: true }).where(eq(customers.id, id)).returning();
-    return updated;
+    return this.customerRepo.archiveCustomer(id);
   }
 
   async restoreCustomer(id: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ isArchived: false }).where(eq(customers.id, id)).returning();
-    return updated;
+    return this.customerRepo.restoreCustomer(id);
   }
 
   async hasCustomerTransactions(id: string): Promise<boolean> {
-    const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.customerId, id));
-    return result[0].count > 0;
+    return this.customerRepo.hasCustomerTransactions(id);
   }
 
   async findCustomerByPhone(storeId: string, phone: string): Promise<Customer | undefined> {
-    const [customer] = await db
-      .select()
-      .from(customers)
-      .where(
-        and(
-          eq(customers.storeId, storeId),
-          eq(customers.mobileNumber, phone),
-          eq(customers.isArchived, false)
-        )
-      );
-    return customer;
+    return this.customerRepo.findCustomerByPhone(storeId, phone);
   }
 
   async dismissDuplicate(targetId: string, duplicateId: string): Promise<void> {
-    await db.transaction(async (tx) => {
-      await tx
-        .update(customers)
-        .set({ isConfirmedDistinct: true })
-        .where(eq(customers.id, targetId));
-      await tx
-        .update(customers)
-        .set({ isConfirmedDistinct: true })
-        .where(eq(customers.id, duplicateId));
-    });
+    return this.customerRepo.dismissDuplicate(targetId, duplicateId);
   }
 
-  async mergeCustomers(
-    targetId: string,
-    duplicateId: string,
-    customFields?: Partial<InsertCustomer>
-  ): Promise<Customer> {
-    return await db.transaction(async (tx) => {
-      const [target] = await tx.select().from(customers).where(eq(customers.id, targetId));
-      const [duplicate] = await tx.select().from(customers).where(eq(customers.id, duplicateId));
-
-      if (!target || !duplicate) {
-        throw new Error("Target or Duplicate customer not found.");
-      }
-
-      // Combine loyalty points
-      const combinedPoints = (target.loyaltyPoints || 0) + (duplicate.loyaltyPoints || 0);
-
-      const updateData: any = {
-        loyaltyPoints: combinedPoints,
-      };
-
-      if (customFields) {
-        const { birthday, ...rest } = customFields;
-        Object.assign(updateData, rest);
-        if (birthday !== undefined) {
-          updateData.birthday = birthday ? new Date(birthday) : null;
-        }
-      }
-
-      const [updatedTarget] = await tx
-        .update(customers)
-        .set(updateData)
-        .where(eq(customers.id, targetId))
-        .returning();
-
-      // Transfer bookings
-      await tx
-        .update(bookings)
-        .set({ customerId: targetId })
-        .where(eq(bookings.customerId, duplicateId));
-
-      // Transfer transactions
-      await tx
-        .update(transactions)
-        .set({ customerId: targetId })
-        .where(eq(transactions.customerId, duplicateId));
-
-      // Transfer credit entries
-      await tx
-        .update(creditEntries)
-        .set({ customerId: targetId })
-        .where(eq(creditEntries.customerId, duplicateId));
-
-      // Transfer quotes
-      await tx
-        .update(quotes)
-        .set({ customerId: targetId })
-        .where(eq(quotes.customerId, duplicateId));
-
-      // Retire/Archive the duplicate profile
-      await tx
-        .update(customers)
-        .set({
-          isArchived: true,
-          mergedIntoId: targetId,
-        })
-        .where(eq(customers.id, duplicateId));
-
-      return updatedTarget;
-    });
+  async mergeCustomers(targetId: string, duplicateId: string, customFields?: Partial<InsertCustomer>): Promise<Customer> {
+    return this.customerRepo.mergeCustomers(targetId, duplicateId, customFields);
   }
 
-  // Staff ID Generation - finds next available number without gaps
-  private async getNextAvailableStaffNumber(storeId: string): Promise<string> {
-    const store = await this.getStore(storeId);
-    if (!store) throw new Error("Store not found");
-
-    // Get all existing staff numbers for this store
-    const existingStaff = await db.select({ staffNumber: staff.staffNumber })
-      .from(staff)
-      .where(eq(staff.storeId, storeId));
-    
-    // Extract the numeric suffix from each staff number
-    const usedNumbers = new Set<number>();
-    const prefix = `${store.code}-`;
-    
-    for (const s of existingStaff) {
-      if (s.staffNumber.startsWith(prefix)) {
-        const numPart = s.staffNumber.slice(prefix.length);
-        const num = parseInt(numPart, 10);
-        if (!isNaN(num)) {
-          usedNumbers.add(num);
-        }
-      }
-    }
-    
-    // Find the smallest available number starting from 1
-    let nextNumber = 1;
-    while (usedNumbers.has(nextNumber)) {
-      nextNumber++;
-    }
-    
-    return `${prefix}${nextNumber.toString().padStart(3, '0')}`;
+  async linkGlobalCustomerIds(customerId: string): Promise<void> {
+    return this.customerRepo.linkGlobalCustomerIds(customerId);
   }
 
-  // Staff
+  async getBusinessCustomerCount(businessId: string, startDate?: string, endDate?: string): Promise<number> {
+    return this.customerRepo.getBusinessCustomerCount(businessId, startDate, endDate);
+  }
+
+  async searchGlobalCustomers(businessId: string, currentStoreId: string, query: string): Promise<any[]> {
+    return this.customerRepo.searchGlobalCustomers(businessId, currentStoreId, query);
+  }
+
+  async profileGlobalCustomer(customerId: string, targetStoreId: string): Promise<Customer> {
+    return this.customerRepo.profileGlobalCustomer(customerId, targetStoreId);
+  }
+
+  // ─── Staff Repo Delegation ─────────────────────────────────────────────────
   async getStaffList(storeId: string, includeArchived: boolean = true): Promise<Staff[]> {
-    if (includeArchived) {
-      return await db.select().from(staff).where(eq(staff.storeId, storeId));
-    }
-    return await db.select().from(staff).where(
-      and(eq(staff.storeId, storeId), eq(staff.isArchived, false))
-    );
+    return this.staffRepo.getStaffList(storeId, includeArchived);
   }
 
   async getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>> {
-    const { page, limit, search, includeArchived = false } = options;
-    const offset = (page - 1) * limit;
-
-    const conditions = [eq(staff.storeId, storeId)];
-    if (!includeArchived) {
-      conditions.push(eq(staff.isArchived, false));
-    }
-    if (search) {
-      conditions.push(
-        or(
-          ilike(staff.name, `%${search}%`),
-          ilike(staff.staffNumber, `%${search}%`),
-          ilike(staff.mobileNumber, `%${search}%`)
-        )!
-      );
-    }
-
-    const [countResult] = await db.select({ count: count() })
-      .from(staff)
-      .where(and(...conditions));
-    const total = countResult.count;
-
-    const data = await db.select()
-      .from(staff)
-      .where(and(...conditions))
-      .orderBy(asc(staff.staffNumber))
-      .limit(limit)
-      .offset(offset);
-
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
-    };
+    return this.staffRepo.getStaffPaginated(storeId, options);
   }
 
   async getStaff(id: string): Promise<Staff | undefined> {
-    const [staffMember] = await db.select().from(staff).where(eq(staff.id, id));
-    return staffMember;
+    return this.staffRepo.getStaff(id);
   }
 
   async getStaffByUserId(userId: string): Promise<Staff | undefined> {
-    const [result] = await db.select().from(staff).where(eq(staff.userId, userId));
-    return result;
+    return this.staffRepo.getStaffByUserId(userId);
   }
 
   async getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined> {
-    const [result] = await db
-      .select()
-      .from(staff)
-      .innerJoin(stores, eq(staff.storeId, stores.id))
-      .where(and(eq(staff.email, email.toLowerCase()), eq(staff.isArchived, false)));
-    
-    if (!result) return undefined;
-    
-    return {
-      ...result.staff,
-      store: result.stores,
-    };
+    return this.staffRepo.getStaffByEmail(email);
   }
 
   async createStaff(staffMember: InsertStaff & { userId?: string | null }): Promise<Staff> {
-    // Generate staff number at save time to avoid gaps
-    const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
-    const [newStaff] = await db.insert(staff).values({
-      ...staffMember,
-      email: staffMember.email.toLowerCase(), // Normalize email to lowercase
-      staffNumber,
-    }).returning();
-    return newStaff;
+    return this.staffRepo.createStaff(staffMember);
   }
 
-  async updateStaff(id: string, staffData: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined> {
-    // Normalize email if provided
-    const normalizedData = staffData.email 
-      ? { ...staffData, email: staffData.email.toLowerCase() }
-      : staffData;
-    const [updated] = await db.update(staff).set(normalizedData).where(eq(staff.id, id)).returning();
-    return updated;
+  async updateStaff(id: string, staffMember: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined> {
+    return this.staffRepo.updateStaff(id, staffMember);
   }
 
   async transferStaff(id: string, targetStoreId: string): Promise<Staff | undefined> {
-    // Get the staff member to check their current store
-    const staffMember = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
-    if (!staffMember.length) return undefined;
-    
-    const sourceStoreId = staffMember[0].storeId;
-    
-    // Check if this staff is the manager of the source store
-    const sourceStore = await db.select().from(stores).where(eq(stores.id, sourceStoreId)).limit(1);
-    
-    // Generate a new staff number for the target store
-    const newStaffNumber = await this.getNextAvailableStaffNumber(targetStoreId);
-    
-    // Update the staff member with the new store and staff number
-    const [updated] = await db.update(staff).set({ 
-      storeId: targetStoreId,
-      staffNumber: newStaffNumber
-    }).where(eq(staff.id, id)).returning();
-    
-    // If this staff was the source store's manager, clear the manager reference
-    if (sourceStore.length && sourceStore[0].managerStaffId === id) {
-      await db.update(stores).set({ managerStaffId: null }).where(eq(stores.id, sourceStoreId));
-    }
-    
-    return updated;
+    return this.staffRepo.transferStaff(id, targetStoreId);
   }
 
   async deleteStaff(id: string): Promise<boolean> {
-    return await db.transaction(async (tx) => {
-      // 1. Clear manager staff reference in stores
-      await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.managerStaffId, id));
-
-      // 2. Clear staff references in inventoryRestockEvents
-      await tx.update(inventoryRestockEvents).set({ staffId: null }).where(eq(inventoryRestockEvents.staffId, id));
-
-      // 3. Delete attendance records for this staff member
-      await tx.delete(attendanceRecords).where(eq(attendanceRecords.staffId, id));
-
-      // 4. Delete payroll entries for this staff member
-      await tx.delete(payrollEntries).where(eq(payrollEntries.staffId, id));
-
-      // 5. Finally delete the staff record itself
-      const result = await tx.delete(staff).where(eq(staff.id, id)).returning();
-      return result.length > 0;
-    });
+    return this.staffRepo.deleteStaff(id);
   }
 
   async archiveStaff(id: string): Promise<Staff | undefined> {
-    const [updated] = await db.update(staff).set({ isArchived: true }).where(eq(staff.id, id)).returning();
-    return updated;
+    return this.staffRepo.archiveStaff(id);
   }
 
   async restoreStaff(id: string): Promise<Staff | undefined> {
-    const [updated] = await db.update(staff).set({ isArchived: false }).where(eq(staff.id, id)).returning();
-    return updated;
+    return this.staffRepo.restoreStaff(id);
   }
 
   async hasStaffCheckouts(id: string): Promise<boolean> {
-    const result = await db.select({ count: count() })
-      .from(checkouts)
-      .where(
-        or(
-          eq(checkouts.staffId, id),
-          eq(checkouts.leadStaffId, id),
-          eq(checkouts.assistingStaff1Id, id),
-          eq(checkouts.assistingStaff2Id, id)
-        )
-      );
-    return result[0].count > 0;
+    return this.staffRepo.hasStaffCheckouts(id);
   }
 
-  // Inventory
+  // ─── Inventory Repo Delegation ─────────────────────────────────────────────
   async getInventory(storeId: string): Promise<Inventory[]> {
     return this.inventoryRepo.getInventory(storeId);
   }
@@ -1457,198 +810,53 @@ export class DatabaseStorage implements IStorage {
     return this.inventoryRepo.setBundleComponents(parentInventoryId, components);
   }
 
-  // Orders
+  // ─── Transaction Repo Delegation ───────────────────────────────────────────
   async createOrder(order: InsertOrder): Promise<Order> {
-    const [newOrder] = await db.insert(orders).values(order).returning();
-    return newOrder;
+    return this.transactionRepo.createOrder(order);
   }
 
-  // Checkouts
   async createCheckout(checkout: InsertCheckout): Promise<Checkout> {
-    const checkoutInsert = {
-      ...checkout,
-      splitPayments: checkout.splitPayments as Array<{
-        method: "cash" | "transfer" | "flutterwave" | "credit";
-        amount: number;
-      }> | null | undefined,
-    };
-    const [newCheckout] = await db.insert(checkouts).values(checkoutInsert).returning();
-    return newCheckout;
+    return this.transactionRepo.createCheckout(checkout);
   }
 
   async updateCheckoutPaymentStatus(id: string, status: "pending" | "completed" | "failed"): Promise<Checkout | undefined> {
-    const [updated] = await db.update(checkouts)
-      .set({ paymentStatus: status })
-      .where(eq(checkouts.id, id))
-      .returning();
-    return updated;
+    return this.transactionRepo.updateCheckoutPaymentStatus(id, status);
   }
 
-  // Transactions
   async getTransactions(storeId: string): Promise<TransactionWithRelations[]> {
-    const txs = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.storeId, storeId))
-      .orderBy(desc(transactions.transactionDate));
-
-    const result: TransactionWithRelations[] = [];
-
-    for (const tx of txs) {
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      if (!checkout) continue;
-
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
-      if (!inventoryItem) continue;
-
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      if (!customer) continue;
-
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      if (!store) continue;
-
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-
-      let voidedByUser: any = null;
-      if (checkout.voidedByUserId) {
-        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
-        voidedByUser = serializeUser(user) || null;
-      }
-
-      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
-      const quantity = order?.quantity ?? 1;
-      const returnedQuantity = order?.returnedQuantity ?? 0;
-      const refundedAmount = order?.refundedAmount ?? 0;
-
-      const basketSubtotal = Number(checkout.subtotal) || 1;
-      const orderPrice = Number(order?.totalPrice) || tx.amount;
-      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
-
-      result.push({
-        ...tx,
-        customer,
-        inventory: inventoryItem,
-        checkout: {
-          ...checkout,
-          totalPrice: tx.amount,
-          subtotal: orderPrice,
-          discountAmount: proportionalDiscount,
-          quantity,
-          returnedQuantity,
-          refundedAmount,
-          staff: foundStaff,
-          voidedByUser,
-        },
-        store,
-      });
-    }
-
-    return result;
+    return this.transactionRepo.getTransactions(storeId);
   }
 
   async getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>> {
-    const { page, limit, search } = options;
-
-    const txs = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.storeId, storeId))
-      .orderBy(desc(transactions.transactionDate));
-
-    const data: TransactionWithRelations[] = [];
-
-    for (const tx of txs) {
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      if (!checkout) continue;
-
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
-      if (!inventoryItem) continue;
-
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      if (!customer) continue;
-
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      if (!store) continue;
-
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-
-      let voidedByUser: any = null;
-      if (checkout.voidedByUserId) {
-        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
-        voidedByUser = serializeUser(user) || null;
-      }
-
-      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
-      const quantity = order?.quantity ?? 1;
-      const returnedQuantity = order?.returnedQuantity ?? 0;
-      const refundedAmount = order?.refundedAmount ?? 0;
-
-      const basketSubtotal = Number(checkout.subtotal) || 1;
-      const orderPrice = Number(order?.totalPrice) || tx.amount;
-      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
-
-      data.push({
-        ...tx,
-        customer,
-        inventory: inventoryItem,
-        checkout: {
-          ...checkout,
-          totalPrice: tx.amount,
-          subtotal: orderPrice,
-          discountAmount: proportionalDiscount,
-          quantity,
-          returnedQuantity,
-          refundedAmount,
-          staff: foundStaff,
-          voidedByUser,
-        },
-        store,
-      });
-    }
-
-    // Apply search filter if provided
-    let filteredData = data;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredData = data.filter(tx => 
-        tx.customer?.name?.toLowerCase().includes(searchLower) ||
-        tx.inventory?.name?.toLowerCase().includes(searchLower) ||
-        tx.checkout?.receiptNumber?.toLowerCase().includes(searchLower) ||
-        tx.checkout?.paymentMethod?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    const total = filteredData.length;
-    const offset = (page - 1) * limit;
-    const paginatedData = filteredData.slice(offset, offset + limit);
-    const totalPages = Math.max(1, Math.ceil(total / limit));
-
-    return {
-      data: paginatedData,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
-    };
+    return this.transactionRepo.getTransactionsPaginated(storeId, options);
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
-    const [newTransaction] = await db.insert(transactions).values(transaction).returning();
-    return newTransaction;
+    return this.transactionRepo.createTransaction(transaction);
   }
 
+  async getTransactionsByCustomer(customerId: string): Promise<TransactionWithRelations[]> {
+    return this.transactionRepo.getTransactionsByCustomer(customerId);
+  }
+
+  async getReceiptPayload(checkoutId: string) {
+    return this.transactionRepo.getReceiptPayload(checkoutId);
+  }
+
+  async updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean> {
+    return this.transactionRepo.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus);
+  }
+
+  async searchTransactions(storeId: string, query: string): Promise<any[]> {
+    return this.transactionRepo.searchTransactions(storeId, query);
+  }
+
+  // ─── Booking Repo Delegation ───────────────────────────────────────────────
   async getBookings(storeId: string): Promise<Booking[]> {
-    return db
-      .select()
-      .from(bookings)
-      .where(eq(bookings.storeId, storeId))
-      .orderBy(desc(bookings.createdAt));
+    return this.bookingRepo.getBookings(storeId);
   }
 
-  async getBookingsPaginated(storeId: string, options: PaginationOptions, filters: {
+  async getBookingsPaginated(storeId: string, options: PaginationOptions, filters?: {
     status?: string[];
     type?: string[];
     staffId?: string;
@@ -1656,411 +864,64 @@ export class DatabaseStorage implements IStorage {
     startDate?: string;
     endDate?: string;
     search?: string;
-  } = {}): Promise<PaginatedResult<Booking>> {
-    const page = Math.max(1, options.page);
-    const limit = Math.max(1, options.limit);
-    const offset = (page - 1) * limit;
-
-    const conditions: any[] = [eq(bookings.storeId, storeId)];
-
-    if (filters.status?.length) {
-      conditions.push(inArray(bookings.status, filters.status));
-    }
-    if (filters.type?.length) {
-      conditions.push(inArray(bookings.type, filters.type));
-    }
-    if (filters.staffId) {
-      const staffId = filters.staffId;
-      conditions.push(or(eq(bookings.leadStaffId, staffId), eq(bookings.assistingStaffId, staffId)));
-    }
-    if (filters.customerId) {
-      conditions.push(eq(bookings.customerId, filters.customerId));
-    }
-    if (filters.startDate) {
-      conditions.push(gte(bookings.scheduledAt, new Date(filters.startDate + "T00:00:00.000Z")));
-    }
-    if (filters.endDate) {
-      conditions.push(lte(bookings.scheduledAt, new Date(filters.endDate + "T23:59:59.999Z")));
-    }
-
-    if (filters.search) {
-      const searchPattern = `%${filters.search.trim()}%`;
-      const bookingRefPattern = sql`LOWER(${bookings.bookingRef}) LIKE LOWER(${searchPattern})`;
-      const notesPattern = sql`LOWER(COALESCE(${bookings.notes}, '')) LIKE LOWER(${searchPattern})`;
-      conditions.push(or(bookingRefPattern, notesPattern));
-    }
-
-    const [countResult] = await db
-      .select({ total: count() })
-      .from(bookings)
-      .where(and(...conditions));
-
-    const total = Number(countResult?.total ?? 0);
-    const data = await db
-      .select()
-      .from(bookings)
-      .where(and(...conditions))
-      .orderBy(desc(bookings.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    const totalPages = Math.max(1, Math.ceil(total / limit));
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
-    };
+  }): Promise<PaginatedResult<Booking>> {
+    return this.bookingRepo.getBookingsPaginated(storeId, options, filters);
   }
 
   async getBooking(id: string): Promise<Booking | undefined> {
-    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id));
-    return booking;
+    return this.bookingRepo.getBooking(id);
   }
 
   async getBookingItems(bookingId: string): Promise<BookingItem[]> {
-    return db
-      .select()
-      .from(bookingItems)
-      .where(eq(bookingItems.bookingId, bookingId));
+    return this.bookingRepo.getBookingItems(bookingId);
   }
 
   async createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking> {
-    return db.transaction(async (tx) => {
-      const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, data.storeId));
-      const nextBookingNumber = counter?.nextBookingNumber ?? 1;
-      const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const bookingRef = `BKG-${datePart}-${String(nextBookingNumber).padStart(4, "0")}`;
+    return this.bookingRepo.createBooking(data);
+  }
 
-      const [booking] = await tx
-        .insert(bookings)
-        .values({
-          storeId: data.storeId,
-          customerId: data.customerId,
-          bookingRef,
-          type: data.type,
-          status: data.status,
-          scheduledAt: data.scheduledAt,
-          expectedReadyAt: data.expectedReadyAt,
-          leadStaffId: data.leadStaffId,
-          assistingStaffId: data.assistingStaffId,
-          depositAmount: data.depositAmount,
-          depositPaymentMethod: data.depositPaymentMethod,
-          subtotal: data.subtotal,
-          discountAmount: data.discountAmount,
-          discountPercent: data.discountPercent,
-          discountReason: data.discountReason,
-          discountApprovedBy: data.discountApprovedBy,
-          totalPrice: data.totalPrice,
-          reminderPreference: data.reminderPreference,
-          notes: data.notes,
-        })
-        .returning();
-
-      if (data.bookingItems?.length) {
-        const bookingItemRows = data.bookingItems.map((item) => ({
-          ...item,
-          bookingId: booking.id,
-        }));
-        await tx.insert(bookingItems).values(bookingItemRows);
-      }
-
-      await tx
-        .update(storeCounters)
-        .set({ nextBookingNumber: sql`${storeCounters.nextBookingNumber} + 1` })
-        .where(eq(storeCounters.storeId, data.storeId));
-
-      return booking;
-    });
+  async updateBooking(id: string, data: Partial<InsertBooking> & { bookingItems?: InsertBookingItem[] }): Promise<Booking | undefined> {
+    return this.bookingRepo.updateBooking(id, data);
   }
 
   async updateBookingStatus(id: string, status: string): Promise<Booking | undefined> {
-    const [booking] = await db
-      .update(bookings)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(bookings.id, id))
-      .returning();
-    return booking;
+    return this.bookingRepo.updateBookingStatus(id, status);
   }
 
   async rescheduleBooking(id: string, scheduledAt: Date, reason: string): Promise<Booking | undefined> {
-    const [existingBooking] = await db.select().from(bookings).where(eq(bookings.id, id));
-    if (!existingBooking) {
-      return undefined;
-    }
-
-    const history = Array.isArray(existingBooking.rescheduleHistory)
-      ? existingBooking.rescheduleHistory
-      : [];
-
-    history.push({
-      previousScheduledAt: existingBooking.scheduledAt,
-      reason,
-      changedAt: new Date().toISOString(),
-    });
-
-    const [updatedBooking] = await db
-      .update(bookings)
-      .set({
-        scheduledAt,
-        status: "rescheduled",
-        rescheduleReason: reason,
-        rescheduleHistory: JSON.stringify(history),
-        updatedAt: new Date(),
-      })
-      .where(eq(bookings.id, id))
-      .returning();
-
-    return updatedBooking;
+    return this.bookingRepo.rescheduleBooking(id, scheduledAt, reason);
   }
 
-  async getTransactionsByCustomer(customerId: string): Promise<TransactionWithRelations[]> {
-    const txs = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.customerId, customerId))
-      .orderBy(desc(transactions.transactionDate));
-
-    const result: TransactionWithRelations[] = [];
-
-    for (const tx of txs) {
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      if (!checkout) continue;
-
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
-      if (!inventoryItem) continue;
-
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      if (!customer) continue;
-
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      if (!store) continue;
-
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-
-      let voidedByUser: any = null;
-      if (checkout.voidedByUserId) {
-        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
-        voidedByUser = serializeUser(user) || null;
-      }
-
-      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
-      const quantity = order?.quantity ?? 1;
-
-      const basketSubtotal = Number(checkout.subtotal) || 1;
-      const orderPrice = Number(order?.totalPrice) || tx.amount;
-      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
-
-      result.push({
-        ...tx,
-        customer,
-        inventory: inventoryItem,
-        checkout: {
-          ...checkout,
-          totalPrice: tx.amount,
-          subtotal: orderPrice,
-          discountAmount: proportionalDiscount,
-          quantity,
-          staff: foundStaff,
-          voidedByUser,
-        },
-        store,
-      });
-    }
-
-    return result;
-  }
-
-  // Profit & Loss
+  // ─── Sales Repo Delegation ─────────────────────────────────────────────────
   async getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]> {
-    const plRecords = await db.select().from(profitLoss).where(eq(profitLoss.storeId, storeId));
-    const result: ProfitLossWithInventory[] = [];
-
-    for (const pl of plRecords) {
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, pl.inventoryId));
-      result.push({
-        ...pl,
-        inventory: inventoryItem,
-      });
-    }
-
-    return result;
+    return this.salesRepo.getProfitLoss(storeId);
   }
 
   async updateProfitLoss(inventoryId: string, storeId: string): Promise<void> {
-    const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, inventoryId));
-    if (!inventoryItem) return;
-
-    const allOrders = await db.select().from(orders).where(
-      and(eq(orders.inventoryId, inventoryId), eq(orders.storeId, storeId))
-    );
-
-    const totalQuantitySold = allOrders.reduce((sum, order) => sum + order.quantity, 0);
-    const totalRevenue = allOrders.reduce((sum, order) => sum + order.totalPrice, 0);
-    const totalGrossProfit = totalRevenue - (totalQuantitySold * inventoryItem.costPrice);
-    const quantityRemaining = inventoryItem.type === "product"
-      ? inventoryItem.quantity
-      : 0;
-
-    const [existingPL] = await db.select().from(profitLoss).where(
-      and(eq(profitLoss.inventoryId, inventoryId), eq(profitLoss.storeId, storeId))
-    );
-
-    if (existingPL) {
-      await db.update(profitLoss)
-        .set({
-          totalQuantitySold,
-          quantityRemaining,
-          totalRevenue,
-          totalGrossProfit,
-        })
-        .where(and(eq(profitLoss.inventoryId, inventoryId), eq(profitLoss.storeId, storeId)));
-    } else {
-      await db.insert(profitLoss).values({
-        storeId,
-        inventoryId,
-        totalQuantitySold,
-        quantityRemaining,
-        totalRevenue,
-        totalGrossProfit,
-      });
-    }
+    return this.salesRepo.updateProfitLoss(inventoryId, storeId);
   }
 
-  // Dashboard Stats
-  async getDashboardStats(storeId: string, startDate?: string, endDate?: string) {
-    const storeEq = eq(customers.storeId, storeId);
-    
-    // Customers (filtered by date)
-    let customerConditions: any[] = [storeEq];
-    if (startDate) customerConditions.push(gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) customerConditions.push(lte(customers.createdAt, new Date(endDate + "T23:59:59.999Z")));
-    const matchedCustomers = await db.select().from(customers).where(and(...customerConditions));
-
-    // Staff and Inventory (totals)
-    const allStaff = await db.select().from(staff).where(eq(staff.storeId, storeId));
-    const allInventory = await db.select().from(inventory).where(eq(inventory.storeId, storeId));
-    const products = allInventory.filter((i) => i.type === "product");
-    const services = allInventory.filter((i) => i.type === "service");
-
-    // Low stock items
-    const lowStockThresholdResult = await db.select().from(settings).where(eq(settings.storeId, storeId));
-    const lowStockThreshold = lowStockThresholdResult[0]?.lowStockThreshold || 5;
-    const lowStockItems = products.filter((p) => p.quantity <= lowStockThreshold);
-
-    // Transactions (filtered by date and excluding voided)
-    let txConditions: any[] = [
-      eq(checkouts.storeId, storeId),
-      eq(checkouts.isVoided, false),
-      eq(checkouts.paymentStatus, "completed")
-    ];
-    if (startDate) txConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) txConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-    const matchedCheckouts = await db.select().from(checkouts).where(and(...txConditions));
-
-    // Revenue and Profit (filtered by date using getProfitLossSummary)
-    const plSummary = await this.getProfitLossSummary(storeId, startDate, endDate);
-
-    return {
-      totalCustomers: matchedCustomers.length,
-      totalStaff: allStaff.length,
-      totalInventory: allInventory.length,
-      totalProducts: products.length,
-      totalServices: services.length,
-      totalTransactions: matchedCheckouts.length,
-      totalRevenue: plSummary.totalRevenue,
-      grossRevenue: plSummary.grossRevenue,
-      returnedRevenue: plSummary.returnedRevenue,
-      totalProfit: plSummary.grossProfit,
-      lowStockItems,
-    };
+  async getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
+    serviceRevenue: number;
+    productRevenue: number;
+    grossRevenue: number;
+    returnedRevenue: number;
+    totalRevenue: number;
+    costOfGoodsSold: number;
+    grossProfit: number;
+    discountsGiven: number;
+    discountsList: Array<{
+      receiptNumber: string;
+      discountAmount: number;
+      discountPercent: number;
+      discountReason: string | null;
+      discountApprovedBy: string | null;
+      createdAt: Date;
+    }>;
+  }> {
+    return this.salesRepo.getProfitLossSummary(storeId, startDate, endDate);
   }
 
-  // Chart Data - Sales Trends
-  async getSalesTrends(storeId: string, startDate?: string, endDate?: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
-    const conditions: any[] = [eq(transactions.storeId, storeId)];
-    if (startDate) conditions.push(gte(transactions.transactionDate, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(transactions.transactionDate, new Date(endDate + "T23:59:59.999Z")));
-
-    const allTransactions = await db
-      .select()
-      .from(transactions)
-      .where(and(...conditions))
-      .orderBy(transactions.transactionDate);
-
-    const allCheckouts = await db
-      .select({
-        checkout: checkouts,
-        refundedAmount: orders.refundedAmount,
-      })
-      .from(checkouts)
-      .leftJoin(orders, eq(checkouts.orderId, orders.id))
-      .where(eq(checkouts.storeId, storeId));
-    const checkoutMap = new Map(allCheckouts.map(c => [c.checkout.id, c]));
-
-    const trendMap = new Map<string, { revenue: number; transactions: number }>();
-
-    for (const tx of allTransactions) {
-      const dateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
-      const checkoutData = checkoutMap.get(tx.checkoutId);
-      if (!checkoutData || checkoutData.checkout.isVoided) continue;
-      const revenue = Math.max(0, (checkoutData.checkout.totalPrice || 0) - (checkoutData.refundedAmount || 0));
-
-      const existing = trendMap.get(dateStr) ?? { revenue: 0, transactions: 0 };
-      trendMap.set(dateStr, {
-        revenue: existing.revenue + revenue,
-        transactions: existing.transactions + 1,
-      });
-    }
-
-    const result = Array.from(trendMap.entries())
-      .map(([date, data]) => ({ date, ...data }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    const last30 = result.slice(-30);
-    return last30;
-  }
-
-  // Chart Data - Revenue by Type (Product vs Service)
-  async getRevenueByType(storeId: string, startDate?: string, endDate?: string): Promise<{ name: string; value: number; type: string }[]> {
-    const conditions: any[] = [
-      eq(checkouts.storeId, storeId),
-      eq(checkouts.paymentStatus, "completed"),
-      eq(checkouts.isVoided, false),
-    ];
-    if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-    const rows = await db
-      .select({
-        inventoryName: inventory.name,
-        inventoryType: inventory.type,
-        revenue: orders.totalPrice,
-        refundedAmount: orders.refundedAmount,
-      })
-      .from(orders)
-      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
-      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
-      .where(and(...conditions));
-
-    const grouped = new Map<string, { name: string; value: number; type: string }>();
-    
-    for (const row of rows) {
-      const existing = grouped.get(row.inventoryName) || { name: row.inventoryName, value: 0, type: row.inventoryType };
-      existing.value += Math.max(0, row.revenue - (row.refundedAmount || 0));
-      grouped.set(row.inventoryName, existing);
-    }
-
-    const result = Array.from(grouped.values());
-    return result.sort((a, b) => b.value - a.value).slice(0, 10);
-  }
-
-  // Transactional Checkout - atomic operation with rollback on failure
   async processCheckout(data: {
     storeId: string;
     customerId: string;
@@ -2089,662 +950,62 @@ export class DatabaseStorage implements IStorage {
     balanceCollectedToday?: number;
     pointsRedeemed?: number;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
-    const checkoutIds: string[] = [];
-    const lowStockItems: Array<{ name: string; quantity: number }> = [];
-
-    try {
-      // Use database transaction for atomicity
-      await db.transaction(async (tx) => {
-        let txDate: Date;
-        if (data.effectiveDate) {
-          const parts = data.effectiveDate.split("-");
-          if (parts.length === 3) {
-            const year = parseInt(parts[0], 10);
-            const month = parseInt(parts[1], 10) - 1; // 0-indexed
-            const day = parseInt(parts[2], 10);
-            txDate = new Date(year, month, day, 0, 0, 0, 0); // Strictly midnight local time
-          } else {
-            txDate = new Date(data.effectiveDate);
-            txDate.setHours(0, 0, 0, 0);
-          }
-        } else {
-          txDate = new Date(); // Carry now time when unchanged
-        }
-        // Validate paymentMethod and splitPayments exclusivity
-        if (data.paymentMethod === "flutterwave" && data.splitPayments && data.splitPayments.length > 0) {
-          throw new Error("Flutterwave cannot be combined with split payments. Choose either Flutterwave OR split payment.");
-        }
-
-        // Validate customer exists
-        const [customer] = await tx.select().from(customers).where(eq(customers.id, data.customerId));
-        if (!customer) {
-          throw new Error("Please select a valid customer to complete this sale.");
-        }
-
-        // Validate staff exists and belongs to this store
-        const [staffMember] = await tx.select().from(staff).where(eq(staff.id, data.staffId));
-        if (!staffMember) {
-          throw new Error("Please select a valid staff member to complete this sale.");
-        }
-        if (staffMember.storeId !== data.storeId) {
-          throw new Error(`Staff member "${staffMember.name}" does not belong to this store branch.`);
-        }
-
-        // Check if cash payment requires an open register session
-        const hasCashPayment = data.paymentMethod === "cash" || 
-          (data.paymentMethod === "split" && data.splitPayments?.some(p => p.method === "cash"));
-
-        let activeSessionId: string | null = null;
-        if (hasCashPayment) {
-          const [activeSession] = await tx
-            .select()
-            .from(cashRegisterSessions)
-            .where(and(eq(cashRegisterSessions.storeId, data.storeId), eq(cashRegisterSessions.status, "open")))
-            .limit(1);
-
-          if (!activeSession) {
-            throw new Error("bad_request:Cannot complete sale. The cash drawer is currently closed. Please open the register first.");
-          }
-          activeSessionId = activeSession.id;
-        }
-
-        // Get store settings for low stock threshold
-        const storeSettings = await this.getSettings(data.storeId);
-        const lowStockThreshold = storeSettings?.lowStockThreshold ?? 5;
-
-        // Fetch active promotions for this store
-        const storePromotions = await tx.select().from(promotions).where(
-          and(eq(promotions.storeId, data.storeId), eq(promotions.isActive, true))
-        );
-
-        // Pre-process items list and apply promotions
-        const processedItems: Array<{
-          inventoryId: string;
-          quantity: number;
-          customPrice?: number;
-          unitPrice: number;
-          leadStaffId?: string | null;
-          assistingStaff1Id?: string | null;
-          assistingStaff2Id?: string | null;
-          commissionSplit?: "standard" | "equal";
-          isPromoLine?: boolean;
-          promoName?: string;
-        }> = [];
-
-        for (const item of data.items) {
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
-          if (!inventoryItem) {
-            throw new Error("One of the items in your cart is no longer available.");
-          }
-          if (item.quantity <= 0) {
-            throw new Error(`Invalid quantity for item ${inventoryItem.name}. Quantity must be at least 1.`);
-          }
-
-          const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
-
-          if (unitPrice <= 0) {
-            throw new Error(`Item ${inventoryItem.name} cannot be sold for ₦0. Only active promotions can apply ₦0 items.`);
-          }
-
-          // Validate lead staff belongs to the store if assigned
-          if (item.leadStaffId) {
-            const [leadStaffMember] = await tx.select().from(staff).where(eq(staff.id, item.leadStaffId));
-            if (!leadStaffMember) {
-              throw new Error("One of the assigned lead staff members is invalid.");
-            }
-            if (leadStaffMember.storeId !== data.storeId) {
-              throw new Error(`Lead staff member "${leadStaffMember.name}" does not belong to this store branch.`);
-            }
-          }
-
-          // Validate assisting staff 1 belongs to the store if assigned
-          if (item.assistingStaff1Id) {
-            const [ass1Member] = await tx.select().from(staff).where(eq(staff.id, item.assistingStaff1Id));
-            if (!ass1Member) {
-              throw new Error("One of the assigned assisting staff members is invalid.");
-            }
-            if (ass1Member.storeId !== data.storeId) {
-              throw new Error(`Assisting staff member "${ass1Member.name}" does not belong to this store branch.`);
-            }
-          }
-
-          // Validate assisting staff 2 belongs to the store if assigned
-          if (item.assistingStaff2Id) {
-            const [ass2Member] = await tx.select().from(staff).where(eq(staff.id, item.assistingStaff2Id));
-            if (!ass2Member) {
-              throw new Error("One of the assigned assisting staff members is invalid.");
-            }
-            if (ass2Member.storeId !== data.storeId) {
-              throw new Error(`Assisting staff member "${ass2Member.name}" does not belong to this store branch.`);
-            }
-          }
-
-          processedItems.push({
-            ...item,
-            unitPrice,
-            isPromoLine: false,
-          });
-        }
-
-        // Apply Buy X Get Y (Same Item) first
-        for (const promo of storePromotions) {
-          if (promo.type === "buy_x_get_y" && promo.buyItemId === promo.getItemId && promo.buyItemId) {
-            const buyQty = promo.buyQuantity || 1;
-            const getQty = promo.getQuantity || 1;
-            const cycle = buyQty + getQty;
-
-            const itemIdx = processedItems.findIndex(i => i.inventoryId === promo.buyItemId && !i.isPromoLine);
-            if (itemIdx !== -1) {
-              const item = processedItems[itemIdx];
-              const qty = item.quantity;
-              if (qty >= cycle) {
-                const times = Math.floor(qty / cycle);
-                const freeQty = times * getQty;
-                const paidQty = qty - freeQty;
-
-                processedItems.splice(itemIdx, 1);
-                if (paidQty > 0) {
-                  processedItems.push({
-                    ...item,
-                    quantity: paidQty,
-                  });
-                }
-                processedItems.push({
-                  ...item,
-                  quantity: freeQty,
-                  unitPrice: 0,
-                  customPrice: 0,
-                  isPromoLine: true,
-                  promoName: promo.name,
-                });
-              }
-            }
-          }
-        }
-
-        // Apply Buy X Get Y (Different Item)
-        for (const promo of storePromotions) {
-          if (promo.type === "buy_x_get_y" && promo.buyItemId !== promo.getItemId && promo.buyItemId && promo.getItemId) {
-            const buyQty = promo.buyQuantity || 1;
-            const getQty = promo.getQuantity || 1;
-
-            const buyItemPaidQty = processedItems
-              .filter(i => i.inventoryId === promo.buyItemId && !i.isPromoLine)
-              .reduce((sum, i) => sum + i.quantity, 0);
-
-            if (buyItemPaidQty >= buyQty) {
-              const times = Math.floor(buyItemPaidQty / buyQty);
-              const freeQty = times * getQty;
-
-              processedItems.push({
-                inventoryId: promo.getItemId,
-                quantity: freeQty,
-                unitPrice: 0,
-                customPrice: 0,
-                isPromoLine: true,
-                promoName: promo.name,
-                leadStaffId: data.staffId,
-                commissionSplit: "standard",
-              });
-            }
-          }
-        }
-
-        // Apply Spend X Get Y Free
-        for (const promo of storePromotions) {
-          if (promo.type === "spend_x_get_y" && promo.spendAmount && promo.getItemId) {
-            const spendReq = promo.spendAmount;
-            const getQty = promo.getQuantity || 1;
-
-            const paidSubtotal = processedItems
-              .filter(i => !i.isPromoLine)
-              .reduce((sum, i) => sum + (i.unitPrice * i.quantity), 0);
-
-            if (paidSubtotal >= spendReq) {
-              processedItems.push({
-                inventoryId: promo.getItemId,
-                quantity: getQty,
-                unitPrice: 0,
-                customPrice: 0,
-                isPromoLine: true,
-                promoName: promo.name,
-                leadStaffId: data.staffId,
-                commissionSplit: "standard",
-              });
-            }
-          }
-        }
-
-        // 1. Calculate Gross Cart Total
-        let grossCartTotal = 0;
-        for (const item of processedItems) {
-          grossCartTotal += item.unitPrice * item.quantity;
-        }
-
-        // 2. Generate a single transaction receipt number
-        const receiptNumber = await this.getNextAvailableTransactionNumber(tx, data.storeId);
-
-        // Fetch dynamic tax rate
-        const storeTaxRates = await tx.select().from(taxRates).where(eq(taxRates.storeId, data.storeId));
-        const defaultTax = storeTaxRates.find(r => r.isDefault);
-        const taxRatePercent = defaultTax ? defaultTax.rate : 0;
-
-        // Loyalty points discount calculation
-        if (data.pointsRedeemed && data.pointsRedeemed > customer.loyaltyPoints) {
-          throw new Error(`Insufficient loyalty points. Customer has only ${customer.loyaltyPoints} points.`);
-        }
-        const pointsValueRate = 10; // 1 loyalty point = ₦10 discount
-        const pointsDiscount = (data.pointsRedeemed || 0) * pointsValueRate;
-
-        // 3. Define transaction-level discount variables
-        let totalDiscount = data.discountAmount || 0;
-        let discountPct = data.discountPercent || (grossCartTotal > 0 ? (totalDiscount / grossCartTotal) * 100 : 0);
-        
-        // Ensure totalDiscount does not exceed grossCartTotal
-        if (totalDiscount > grossCartTotal) {
-          totalDiscount = grossCartTotal;
-        }
-
-        // Final discounted amount (before tax)
-        const discountedSubtotal = Math.max(0, grossCartTotal - totalDiscount - pointsDiscount);
-        
-        // Dynamic tax total
-        const taxTotalGlobal = discountedSubtotal * (taxRatePercent / 100);
-
-        const totalCharged = discountedSubtotal + taxTotalGlobal;
-        
-        // Validate booking deposit matching if a bookingId is provided
-        const bookingDepositAmount = data.bookingDepositAmount || 0;
-        const balanceCollectedToday = data.balanceCollectedToday ?? (totalCharged - bookingDepositAmount);
-
-        if (data.bookingId) {
-          const [booking] = await tx.select().from(bookings).where(eq(bookings.id, data.bookingId));
-          if (!booking) {
-            throw new Error("Invalid booking ID provided.");
-          }
-          if (booking.status === "completed") {
-            throw new Error(`This booking has already been converted to a sale.`);
-          }
-          if (Math.abs(Number(booking.depositAmount || 0) - bookingDepositAmount) > 0.01) {
-            throw new Error(`Deposit amount (₦${bookingDepositAmount}) does not match booking record (₦${booking.depositAmount}).`);
-          }
-        }
-
-        if (Math.abs(balanceCollectedToday - (totalCharged - bookingDepositAmount)) > 0.01) {
-          throw new Error("Balance calculation mismatch.");
-        }
-        
-        if (balanceCollectedToday < 0) {
-          throw new Error("Deposit cannot exceed total charge. Adjust items or issue a refund.");
-        }
-
-        // Validate Split Payments match balanceCollectedToday (if method is split)
-        if (data.paymentMethod === "split") {
-          if (!data.splitPayments || data.splitPayments.length === 0) {
-            throw new Error("Split payments array must be provided when paymentMethod is 'split'");
-          }
-          
-          const sumOfSplits = data.splitPayments.reduce((sum, p) => sum + p.amount, 0);
-          
-          // Tolerate minor floating point issues
-          if (Math.abs(sumOfSplits - balanceCollectedToday) > 0.01) {
-            throw new Error(`Sum of split payments (₦${sumOfSplits.toLocaleString()}) does not match the balance collected today (₦${balanceCollectedToday.toLocaleString()}).`);
-          }
-        }
-
-        // 4. Process each item
-        for (const item of processedItems) {
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId));
-          if (!inventoryItem) {
-            throw new Error("One of the items in your cart is no longer available.");
-          }
-
-          // Check stock for products
-          if (inventoryItem.type === "product") {
-            if (inventoryItem.isBundle) {
-              const childComponents = await tx
-                .select({
-                  name: inventory.name,
-                  compQty: inventory.quantity,
-                  qtyNeeded: bundleComponents.quantity,
-                })
-                .from(bundleComponents)
-                .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
-                .where(eq(bundleComponents.parentInventoryId, item.inventoryId));
-
-              for (const comp of childComponents) {
-                const totalNeeded = comp.qtyNeeded * item.quantity;
-                if (comp.compQty < totalNeeded) {
-                  throw new Error(`Sorry, we do not have enough stock for the component ${comp.name} inside bundle ${inventoryItem.name}.`);
-                }
-              }
-            } else if (inventoryItem.quantity < item.quantity) {
-              throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
-            }
-          }
-
-          const totalPrice = item.unitPrice * item.quantity;
-
-          // Compute how much of the global transaction discount applies to this item
-          const itemDiscountPortion = item.isPromoLine ? 0 : (totalDiscount * (totalPrice / grossCartTotal || 1));
-          const itemPointsDiscountPortion = item.isPromoLine ? 0 : (pointsDiscount * (totalPrice / grossCartTotal || 1));
-          const itemDiscountedSubtotal = Math.max(0, totalPrice - itemDiscountPortion - itemPointsDiscountPortion);
-          const itemTaxTotal = itemDiscountedSubtotal * (taxRatePercent / 100);
-          const itemCharged = itemDiscountedSubtotal + itemTaxTotal;
-
-          // Create order
-          const [order] = await tx.insert(orders).values({
-            storeId: data.storeId,
-            inventoryId: item.inventoryId,
-            quantity: item.quantity,
-            totalPrice,
-          }).returning();
-
-          // Create checkout
-          const [checkout] = await tx.insert(checkouts).values({
-            storeId: data.storeId,
-            bookingId: data.bookingId || null,
-            staffId: data.staffId,
-            leadStaffId: item.leadStaffId || null,
-            assistingStaff1Id: item.assistingStaff1Id || null,
-            assistingStaff2Id: item.assistingStaff2Id || null,
-            commissionSplit: item.commissionSplit || "standard",
-            orderId: order.id,
-            receiptNumber,
-            totalPrice,
-            paymentMethod: data.paymentMethod,
-            splitPayments: data.paymentMethod === "split" ? data.splitPayments : null,
-            paymentStatus: data.paymentMethod === "flutterwave" ? "pending" : "completed",
-            subtotal: grossCartTotal,
-            discountAmount: item.isPromoLine ? 0 : totalDiscount,
-            discountPercent: item.isPromoLine ? 0 : discountPct,
-            discountReason: item.isPromoLine ? `Promo - ${item.promoName}` : (data.discountReason || null),
-            discountApprovedBy: data.discountApprovedBy || null,
-            pointsRedeemed: data.pointsRedeemed || 0,
-            totalCharged: itemCharged,
-            taxTotal: itemTaxTotal,
-            bookingDepositAmount,
-            bookingDepositMethod: data.bookingDepositMethod || null,
-            balanceCollectedToday: Math.max(0, itemCharged - bookingDepositAmount),
-            createdAt: txDate,
-          }).returning();
-
-          checkoutIds.push(checkout.id);
-
-          // Create transaction record
-          await tx.insert(transactions).values({
-            storeId: data.storeId,
-            customerId: data.customerId,
-            inventoryId: item.inventoryId,
-            checkoutId: checkout.id,
-            amount: itemCharged,
-            transactionDate: txDate,
-          });
-
-          // Update inventory quantity
-          if (inventoryItem.type === "product") {
-            if (inventoryItem.isBundle) {
-              const childComponents = await tx
-                .select({
-                  id: bundleComponents.componentInventoryId,
-                  name: inventory.name,
-                  quantity: inventory.quantity,
-                  qtyNeeded: bundleComponents.quantity,
-                })
-                .from(bundleComponents)
-                .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
-                .where(eq(bundleComponents.parentInventoryId, item.inventoryId));
-
-              for (const comp of childComponents) {
-                const totalDeduction = comp.qtyNeeded * item.quantity;
-                const newCompQty = comp.quantity - totalDeduction;
-                await tx.update(inventory)
-                  .set({ quantity: newCompQty })
-                  .where(eq(inventory.id, comp.id));
-
-                // FIFO Batch Deduction for bundle component
-                await this.inventoryRepo.deductFIFO(comp.id, totalDeduction, tx);
-
-                if (newCompQty <= lowStockThreshold) {
-                  lowStockItems.push({ name: comp.name, quantity: newCompQty });
-                }
-              }
-            } else {
-              const newQuantity = inventoryItem.quantity - item.quantity;
-              await tx.update(inventory)
-                .set({ quantity: newQuantity })
-                .where(eq(inventory.id, item.inventoryId));
-              
-              // FIFO Batch Deduction
-              await this.inventoryRepo.deductFIFO(item.inventoryId, item.quantity, tx);
-              
-              if (newQuantity <= lowStockThreshold) {
-                lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
-              }
-            }
-          }
-
-          // Update profit/loss record
-          const costPrice = inventoryItem.costPrice;
-          const revenue = totalPrice;
-          const profit = revenue - (costPrice * item.quantity);
-
-          const [existingPL] = await tx.select().from(profitLoss)
-            .where(and(
-              eq(profitLoss.inventoryId, item.inventoryId),
-              eq(profitLoss.storeId, data.storeId)
-            ));
-
-          if (existingPL) {
-            await tx.update(profitLoss)
-              .set({
-                totalQuantitySold: existingPL.totalQuantitySold + item.quantity,
-                quantityRemaining: inventoryItem.quantity - item.quantity,
-                totalRevenue: existingPL.totalRevenue + revenue,
-                totalGrossProfit: existingPL.totalGrossProfit + profit,
-              })
-              .where(eq(profitLoss.id, existingPL.id));
-          } else {
-            await tx.insert(profitLoss).values({
-              storeId: data.storeId,
-              inventoryId: item.inventoryId,
-              totalQuantitySold: item.quantity,
-              quantityRemaining: inventoryItem.quantity - item.quantity,
-              totalRevenue: revenue,
-              totalGrossProfit: profit,
-            });
-          }
-        }
-
-        // Determine the credit amount from the payment method or split payments
-        let creditAmount = 0;
-        let upfrontPaid = 0;
-
-        if (data.paymentMethod === "credit") {
-          creditAmount = balanceCollectedToday;
-          upfrontPaid = data.creditUpfrontPaid || 0;
-        } else if (data.paymentMethod === "split" && data.splitPayments) {
-          const creditPayments = data.splitPayments.filter(p => p.method === "credit");
-          if (creditPayments.length > 0) {
-            creditAmount = creditPayments.reduce((sum, p) => sum + p.amount, 0);
-            upfrontPaid = 0;
-          }
-        }
-
-        // If there's a credit amount involved, create a single credit entry for the receipt
-        if (creditAmount > 0) {
-          const outstanding = Math.max(0, creditAmount - upfrontPaid);
-          const creditStatus = outstanding <= 0 ? "settled" : "owing";
-
-          const [creditEntry] = await tx.insert(creditEntries).values({
-            storeId: data.storeId,
-            customerId: data.customerId,
-            amountOwed: creditAmount,
-            amountPaidUpfront: upfrontPaid,
-            outstandingBalance: outstanding,
-            dueDate: data.creditDueDate ? new Date(data.creditDueDate) : null,
-            description: `Checkout Receipt #${receiptNumber}`,
-            linkedTransactionId: checkoutIds[0], // link to first checkout record
-            status: creditStatus,
-            notes: `Auto-generated from POS checkout #${receiptNumber}`,
-          }).returning();
-
-          // If there is a positive upfront payment, record it as the first repayment!
-          if (upfrontPaid > 0) {
-            await tx.insert(repayments).values({
-              creditEntryId: creditEntry.id,
-              amountReceived: upfrontPaid,
-              paymentMethod: "cash", // default cash for upfront
-              notes: `Upfront payment during checkout #${receiptNumber}`,
-              recordedByStaffId: data.staffId,
-            });
-          }
-        }
-
-        // If this sale was converted from a booking, mark the booking as completed
-        if (data.bookingId) {
-          await tx.update(bookings)
-            .set({ status: "completed" })
-            .where(eq(bookings.id, data.bookingId));
-        }
-
-        // Update cash session expected cash if needed
-        if (hasCashPayment && activeSessionId) {
-          let cashReceived = 0;
-          if (data.paymentMethod === "cash") {
-            cashReceived = balanceCollectedToday;
-          } else if (data.paymentMethod === "split" && data.splitPayments) {
-            const cashSplit = data.splitPayments.find(p => p.method === "cash");
-            if (cashSplit) {
-              cashReceived = cashSplit.amount;
-            }
-          }
-
-          if (cashReceived > 0) {
-            await tx
-              .update(cashRegisterSessions)
-              .set({
-                expectedCash: sql`${cashRegisterSessions.expectedCash} + ${cashReceived}`,
-              })
-              .where(eq(cashRegisterSessions.id, activeSessionId));
-          }
-        }
-
-        // Update customer loyalty points (accrual & deduction)
-        const pointsEarned = Math.floor(discountedSubtotal / 100); // 1 point per ₦100 spent (before tax)
-        const newPointsBalance = Math.max(0, customer.loyaltyPoints - (data.pointsRedeemed || 0) + pointsEarned);
-        await tx
-          .update(customers)
-          .set({ loyaltyPoints: newPointsBalance })
-          .where(eq(customers.id, data.customerId));
-
-        // Deduct customer store credit if used
-        let storeCreditUsed = 0;
-        if (data.paymentMethod === "store_credit") {
-          storeCreditUsed = balanceCollectedToday;
-        } else if (data.paymentMethod === "split" && data.splitPayments) {
-          const storeCreditSplit = data.splitPayments.find(p => p.method === "store_credit");
-          if (storeCreditSplit) {
-            storeCreditUsed = storeCreditSplit.amount;
-          }
-        }
-
-        if (storeCreditUsed > 0) {
-          if (!customer) {
-            throw new Error("A customer profile is required to redeem store credit.");
-          }
-          if (Number(customer.storeCreditBalance || 0) < storeCreditUsed) {
-            throw new Error(`Insufficient store credit balance. Available: ₦${customer.storeCreditBalance?.toLocaleString() || 0}`);
-          }
-
-          // Deduct from customer balance
-          await tx
-            .update(customers)
-            .set({ storeCreditBalance: sql`${customers.storeCreditBalance} - ${storeCreditUsed}` })
-            .where(eq(customers.id, customer.id));
-
-          // Log the store credit redemption transaction
-          await tx.insert(storeCreditTransactions).values({
-            customerId: customer.id,
-            storeId: data.storeId,
-            amount: -storeCreditUsed, // negative for redemptions
-            type: "purchase_redemption",
-            checkoutId: checkoutIds[0],
-          });
-        }
-      });
-
-      // Notify managers about low stock items
-      for (const item of lowStockItems) {
-        await this.notifyManagers(data.storeId, "low_stock", `Low stock alert: ${item.name} has only ${item.quantity} units left.`);
-      }
-
-      return { success: true, message: "Sale completed successfully", checkoutIds };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "We couldn't complete this sale right now. Please try again.";
-      return { success: false, message };
-    }
+    return this.salesRepo.processCheckout(data);
   }
 
-  // Inventory Restock Events
+  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }> {
+    return this.salesRepo.voidCheckout(checkoutId, reason, voidedByUserId);
+  }
+
+  async processReturn(data: {
+    storeId: string;
+    checkoutId: string;
+    items: Array<{ orderId: string; quantity: number; restock: boolean }>;
+    refundMethod: string;
+    refundAmount: number;
+    reason: string;
+    userId: string;
+    staffId: string;
+  }): Promise<{ success: boolean; message: string; returnLogIds?: string[] }> {
+    return this.salesRepo.processReturn(data);
+  }
+
+  async getStoreCreditTransactions(customerId: string): Promise<any[]> {
+    return this.salesRepo.getStoreCreditTransactions(customerId);
+  }
+
+  // ─── Analytics Repo Delegation ─────────────────────────────────────────────
+  async getDashboardStats(storeId: string, startDate?: string, endDate?: string): Promise<{
+    totalCustomers: number;
+    totalStaff: number;
+    totalInventory: number;
+    totalProducts: number;
+    totalServices: number;
+    totalTransactions: number;
+    totalRevenue: number;
+    grossRevenue: number;
+    returnedRevenue: number;
+    totalProfit: number;
+    lowStockItems: Inventory[];
+  }> {
+    return this.analyticsRepo.getDashboardStats(storeId, startDate, endDate);
+  }
+
+  async getSalesTrends(storeId: string, startDate?: string, endDate?: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
+    return this.analyticsRepo.getSalesTrends(storeId, startDate, endDate);
+  }
+
+  async getRevenueByType(storeId: string, startDate?: string, endDate?: string): Promise<{ name: string; value: number; type: string }[]> {
+    return this.analyticsRepo.getRevenueByType(storeId, startDate, endDate);
+  }
+
+  // ─── Restock Repo Delegation ───────────────────────────────────────────────
   async getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null; user: User | null })[]> {
-    const events = await db.select({
-      restockEvent: inventoryRestockEvents,
-      staffMember: staff,
-      userRecord: users,
-    })
-      .from(inventoryRestockEvents)
-      .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
-      .leftJoin(users, eq(inventoryRestockEvents.userId, users.id))
-      .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
-      .orderBy(desc(inventoryRestockEvents.restockedAt));
-    
-    return events.map(e => ({
-      ...e.restockEvent,
-      staff: e.staffMember,
-      user: e.userRecord,
-    }));
+    return this.restockRepo.getRestockEvents(inventoryId);
   }
 
   async getRestockEventsPaginated(inventoryId: string, options: PaginationOptions): Promise<PaginatedResult<RestockEvent & { staff: Staff | null; user: User | null }>> {
-    const { page = 1, limit = 20 } = options;
-    const offset = (page - 1) * limit;
-
-    const [totalResult] = await db.select({ count: count() })
-      .from(inventoryRestockEvents)
-      .where(eq(inventoryRestockEvents.inventoryId, inventoryId));
-
-    const total = totalResult?.count ?? 0;
-
-    const events = await db.select({
-      restockEvent: inventoryRestockEvents,
-      staffMember: staff,
-      userRecord: users,
-    })
-      .from(inventoryRestockEvents)
-      .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
-      .leftJoin(users, eq(inventoryRestockEvents.userId, users.id))
-      .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
-      .orderBy(desc(inventoryRestockEvents.restockedAt))
-      .limit(limit)
-      .offset(offset);
-
-    const data = events.map(e => ({
-      ...e.restockEvent,
-      staff: e.staffMember,
-      user: e.userRecord,
-    }));
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-        hasMore: page * limit < total,
-      },
-    };
+    return this.restockRepo.getRestockEventsPaginated(inventoryId, options);
   }
 
   async createRestockEvent(data: {
@@ -2760,133 +1021,24 @@ export class DatabaseStorage implements IStorage {
     reason?: string;
     attachment?: string | null;
   }): Promise<{ restockEvent: RestockEvent; updatedInventory: Inventory }> {
-    const [currentInventory] = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId));
-    
-    if (!currentInventory) {
-      throw new Error("Inventory item not found");
-    }
-
-    const previousQuantity = currentInventory.quantity;
-    const newQuantity = previousQuantity + data.quantityAdded;
-    const previousCostPrice = currentInventory.costPrice;
-    const previousSellingPrice = currentInventory.sellingPrice;
-
-    let newCostPrice = previousCostPrice;
-    
-    switch (data.costStrategy) {
-      case "keep":
-        newCostPrice = previousCostPrice;
-        break;
-      case "last":
-        newCostPrice = data.unitCost;
-        break;
-      case "weighted":
-        const totalOldValue = previousQuantity * previousCostPrice;
-        const totalNewValue = data.quantityAdded * data.unitCost;
-        newCostPrice = newQuantity > 0 ? (totalOldValue + totalNewValue) / newQuantity : data.unitCost;
-        break;
-      case "override":
-        newCostPrice = data.unitCost;
-        break;
-    }
-
-    const newSellingPrice = data.newSellingPrice ?? previousSellingPrice;
-
-    const result = await db.transaction(async (tx) => {
-      const [updatedInventory] = await tx.update(inventory)
-        .set({
-          quantity: newQuantity,
-          costPrice: newCostPrice,
-          sellingPrice: newSellingPrice,
-        })
-        .where(eq(inventory.id, data.inventoryId))
-        .returning();
-
-      const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
-        storeId: data.storeId,
-        inventoryId: data.inventoryId,
-        staffId: data.staffId,
-        userId: data.userId,
-        quantityAdded: data.quantityAdded,
-        previousQuantity,
-        newQuantity,
-        unitCost: data.unitCost,
-        previousCostPrice,
-        newCostPrice,
-        previousSellingPrice,
-        newSellingPrice,
-        costStrategy: data.costStrategy,
-        notes: data.notes,
-        reason: data.reason || "Regular Restock",
-        attachment: data.attachment || null,
-      }).returning();
-
-      const [existingPL] = await tx.select().from(profitLoss)
-        .where(and(
-          eq(profitLoss.inventoryId, data.inventoryId),
-          eq(profitLoss.storeId, data.storeId)
-        ));
-
-      if (existingPL) {
-        await tx.update(profitLoss)
-          .set({ quantityRemaining: newQuantity })
-          .where(eq(profitLoss.id, existingPL.id));
-      }
-
-      return { restockEvent, updatedInventory };
-    });
-
-    return result;
+    return this.restockRepo.createRestockEvent(data);
   }
-  // Attendance Records
+
+  // ─── Attendance Repo Delegation ────────────────────────────────────────────
   async getAttendanceRecords(storeId: string, options: {
     staffId?: string;
     startDate?: string;
     endDate?: string;
   } = {}): Promise<AttendanceRecord[]> {
-    const conditions = [eq(attendanceRecords.storeId, storeId)];
-    if (options.staffId) conditions.push(eq(attendanceRecords.staffId, options.staffId));
-    if (options.startDate) conditions.push(gte(attendanceRecords.date, options.startDate));
-    if (options.endDate) conditions.push(lte(attendanceRecords.date, options.endDate));
-
-    return await db.select().from(attendanceRecords)
-      .where(and(...conditions))
-      .orderBy(asc(attendanceRecords.date));
+    return this.attendanceRepo.getAttendanceRecords(storeId, options);
   }
 
   async upsertAttendanceRecord(data: InsertAttendanceRecord): Promise<AttendanceRecord> {
-    const existing = await db.select().from(attendanceRecords).where(
-      and(
-        eq(attendanceRecords.storeId, data.storeId),
-        eq(attendanceRecords.staffId, data.staffId),
-        eq(attendanceRecords.date, data.date)
-      )
-    );
-    if (existing.length > 0) {
-      const [updated] = await db.update(attendanceRecords)
-        .set({
-          status: data.status,
-          notes: data.notes ?? null,
-          markedByUserId: data.markedByUserId ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(attendanceRecords.id, existing[0].id))
-        .returning();
-      return updated;
-    }
-    const [inserted] = await db.insert(attendanceRecords)
-      .values({ ...data, updatedAt: new Date() })
-      .returning();
-    return inserted;
+    return this.attendanceRepo.upsertAttendanceRecord(data);
   }
 
   async bulkMarkAttendance(storeId: string, date: string, status: AttendanceStatus, staffIds: string[], markedByUserId?: string): Promise<AttendanceRecord[]> {
-    const results: AttendanceRecord[] = [];
-    for (const staffId of staffIds) {
-      const record = await this.upsertAttendanceRecord({ storeId, staffId, date, status, markedByUserId });
-      results.push(record);
-    }
-    return results;
+    return this.attendanceRepo.bulkMarkAttendance(storeId, date, status, staffIds, markedByUserId);
   }
 
   async getAttendanceSummary(storeId: string, staffId: string, startDate: string, endDate: string): Promise<{
@@ -2896,217 +1048,105 @@ export class DatabaseStorage implements IStorage {
     holiday: number;
     totalWorkingDays: number;
   }> {
-    const records = await this.getAttendanceRecords(storeId, { staffId, startDate, endDate });
-    const summary = { present: 0, absent: 0, offDay: 0, holiday: 0, totalWorkingDays: 0 };
-    for (const r of records) {
-      if (r.status === "present") { summary.present++; summary.totalWorkingDays++; }
-      else if (r.status === "absent") { summary.absent++; summary.totalWorkingDays++; }
-      else if (r.status === "off_day") summary.offDay++;
-      else if (r.status === "holiday") summary.holiday++;
-    }
-    return summary;
+    return this.attendanceRepo.getAttendanceSummary(storeId, staffId, startDate, endDate);
   }
 
-  // Payroll Periods
+  // ─── Payroll Repo Delegation ───────────────────────────────────────────────
   async getPayrollPeriods(storeId: string): Promise<PayrollPeriod[]> {
-    return await db.select().from(payrollPeriods)
-      .where(eq(payrollPeriods.storeId, storeId))
-      .orderBy(desc(payrollPeriods.createdAt));
+    return this.payrollRepo.getPayrollPeriods(storeId);
   }
 
   async getPayrollPeriod(id: string): Promise<PayrollPeriod | undefined> {
-    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, id));
-    return period;
+    return this.payrollRepo.getPayrollPeriod(id);
   }
 
   async createPayrollPeriod(data: InsertPayrollPeriod): Promise<PayrollPeriod> {
-    const [period] = await db.insert(payrollPeriods).values(data).returning();
-    return period;
+    return this.payrollRepo.createPayrollPeriod(data);
   }
 
-  async updatePayrollPeriodStatus(
-    id: string,
-    status: PayrollPeriodStatus,
-    userId?: string
-  ): Promise<PayrollPeriod | undefined> {
-    const setData: Partial<PayrollPeriod> = { status };
-    if (status === "approved") {
-      setData.approvedByUserId = userId;
-      setData.approvedAt = new Date();
-    }
-    if (status === "paid") {
-      setData.paidAt = new Date();
-      
-      // Validation: Ensure no overlapping paid periods for any staff in this store
-      const period = await this.getPayrollPeriod(id);
-      if (!period) throw new Error("Period not found");
-
-      const overlaps = await db.select()
-        .from(payrollPeriods)
-        .where(and(
-          eq(payrollPeriods.storeId, period.storeId),
-          eq(payrollPeriods.status, "paid"),
-          sql`${payrollPeriods.id} != ${id}`,
-          sql`(${payrollPeriods.startDate}::DATE, ${payrollPeriods.endDate}::DATE) OVERLAPS (${period.startDate}::DATE, ${period.endDate}::DATE)`
-        ));
-      
-      if (overlaps.length > 0) {
-        throw new Error(`This period overlaps with an existing Paid period: ${overlaps[0].startDate} to ${overlaps[0].endDate}`);
-      }
-    }
-    const [updated] = await db.update(payrollPeriods).set(setData).where(eq(payrollPeriods.id, id)).returning();
-    return updated;
+  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string): Promise<PayrollPeriod | undefined> {
+    return this.payrollRepo.updatePayrollPeriodStatus(id, status, userId);
   }
 
   async deletePayrollPeriod(id: string): Promise<boolean> {
-    const period = await this.getPayrollPeriod(id);
-    if (!period) return false;
-    
-    // Only allow deletion of pending or approved periods
-    if (period.status === "paid") {
-      throw new Error("You cannot delete a payroll period that has already been marked as Paid.");
-    }
-
-    await db.transaction(async (tx) => {
-      // Delete entries first
-      await tx.delete(payrollEntries).where(eq(payrollEntries.periodId, id));
-      // Delete the period
-      await tx.delete(payrollPeriods).where(eq(payrollPeriods.id, id));
-    });
-
-    return true;
+    return this.payrollRepo.deletePayrollPeriod(id);
   }
 
-  // Payroll Entries
   async getPayrollEntries(periodId: string): Promise<PayrollEntryWithStaff[]> {
-    const rows = await db.select({
-      entry: payrollEntries,
-      staffMember: staff,
-    })
-      .from(payrollEntries)
-      .leftJoin(staff, eq(payrollEntries.staffId, staff.id))
-      .where(eq(payrollEntries.periodId, periodId))
-      .orderBy(desc(payrollEntries.netPay));
-
-    return rows.map(r => ({ ...r.entry, staff: r.staffMember! }));
+    return this.payrollRepo.getPayrollEntries(periodId);
   }
 
   CommissionSplitCalculator = OOPCommissionSplitCalculator;
 
   async calculatePayrollForPeriod(periodId: string): Promise<PayrollEntryWithStaff[]> {
-    return await payrollService.calculatePayrollForPeriod(periodId);
+    return this.payrollRepo.calculatePayrollForPeriod(periodId);
   }
 
   async getPayrollDrillDown(periodId: string, staffId: string): Promise<{
     dailySummary: DailySummaryLine[];
     transactions: CommissionBreakdown[];
   }> {
-    return await payrollService.getPayrollDrillDown(periodId, staffId);
+    return this.payrollRepo.getPayrollDrillDown(periodId, staffId);
   }
 
-  // Settings CRUD
+  // ─── Settings / Promotions / Custom Roles / Store Integrations Delegation ──
   async getSettings(storeId: string): Promise<Settings> {
-    const [row] = await db.select().from(settings).where(eq(settings.storeId, storeId));
-    if (row) return row;
-    const [inserted] = await db.insert(settings).values({ storeId }).returning();
-    return inserted;
+    return this.businessRepo.getSettings(storeId);
   }
 
   async upsertSettings(storeId: string, data: Partial<InsertSettings>): Promise<Settings> {
-    const [updated] = await db.insert(settings)
-      .values({ storeId, ...data })
-      .onConflictDoUpdate({
-        target: settings.storeId,
-        set: { ...data, updatedAt: new Date() },
-      })
-      .returning();
-    return updated;
+    return this.businessRepo.upsertSettings(storeId, data);
   }
 
-  // Promotions CRUD
   async getPromotions(storeId: string): Promise<Promotion[]> {
-    return await db.select().from(promotions).where(eq(promotions.storeId, storeId)).orderBy(asc(promotions.name));
+    return this.businessRepo.getPromotions(storeId);
   }
 
   async createPromotion(data: InsertPromotion & { storeId: string }): Promise<Promotion> {
-    const [row] = await db.insert(promotions).values(data).returning();
-    return row;
+    return this.businessRepo.createPromotion(data);
   }
 
   async updatePromotion(id: string, data: Partial<InsertPromotion>): Promise<Promotion | undefined> {
-    const [row] = await db.update(promotions).set(data).where(eq(promotions.id, id)).returning();
-    return row;
+    return this.businessRepo.updatePromotion(id, data);
   }
 
   async deletePromotion(id: string): Promise<boolean> {
-    const res = await db.delete(promotions).where(eq(promotions.id, id)).returning();
-    return res.length > 0;
+    return this.businessRepo.deletePromotion(id);
   }
 
-  // Custom Roles CRUD
   async getCustomRoles(businessId: string): Promise<CustomRole[]> {
-    return await db.select().from(customRoles).where(eq(customRoles.businessId, businessId)).orderBy(asc(customRoles.name));
+    return this.businessRepo.getCustomRoles(businessId);
   }
 
   async createCustomRole(data: InsertCustomRole & { businessId: string }): Promise<CustomRole> {
-    const [row] = await db.insert(customRoles).values({
-      businessId: data.businessId,
-      name: data.name,
-      description: data.description || null,
-      permissions: data.permissions || [],
-    }).returning();
-    return row;
+    return this.businessRepo.createCustomRole(data);
   }
 
   async updateCustomRole(id: string, data: Partial<InsertCustomRole>): Promise<CustomRole | undefined> {
-    const [row] = await db.update(customRoles).set({
-      ...data,
-      updatedAt: new Date(),
-    }).where(eq(customRoles.id, id)).returning();
-    return row;
+    return this.businessRepo.updateCustomRole(id, data);
   }
 
   async deleteCustomRole(id: string): Promise<boolean> {
-    const res = await db.delete(customRoles).where(eq(customRoles.id, id)).returning();
-    return res.length > 0;
+    return this.businessRepo.deleteCustomRole(id);
   }
 
-  // Store Integrations
   async getStoreIntegrations(storeId: string): Promise<StoreIntegration[]> {
-    return await db.select().from(storeIntegrations).where(eq(storeIntegrations.storeId, storeId));
+    return this.businessRepo.getStoreIntegrations(storeId);
   }
 
   async getStoreIntegrationByProvider(storeId: string, provider: string): Promise<StoreIntegration | undefined> {
-    const [row] = await db
-      .select()
-      .from(storeIntegrations)
-      .where(and(eq(storeIntegrations.storeId, storeId), eq(storeIntegrations.provider, provider)));
-    return row;
+    return this.businessRepo.getStoreIntegrationByProvider(storeId, provider);
   }
 
   async upsertStoreIntegration(data: InsertStoreIntegration & { storeId: string; provider: string }): Promise<StoreIntegration> {
-    const existing = await this.getStoreIntegrationByProvider(data.storeId, data.provider);
-    if (existing) {
-      const [updated] = await db
-        .update(storeIntegrations)
-        .set({
-          ...data,
-          updatedAt: new Date(),
-        })
-        .where(eq(storeIntegrations.id, existing.id))
-        .returning();
-      return updated;
-    }
-    
-    const [inserted] = await db.insert(storeIntegrations).values(data).returning();
-    return inserted;
+    return this.businessRepo.upsertStoreIntegration(data);
   }
 
   async deleteStoreIntegration(id: string): Promise<void> {
-    await db.delete(storeIntegrations).where(eq(storeIntegrations.id, id));
+    return this.businessRepo.deleteStoreIntegration(id);
   }
 
-  // Expense Categories CRUD
+  // ─── Expense Repo Delegation ───────────────────────────────────────────────
   async getExpenseCategories(storeId: string): Promise<ExpenseCategory[]> {
     return this.expenseRepo.getExpenseCategories(storeId);
   }
@@ -3123,7 +1163,6 @@ export class DatabaseStorage implements IStorage {
     return this.expenseRepo.deleteExpenseCategory(id);
   }
 
-  // Expenses CRUD
   async getExpenses(
     storeId: string,
     startDate?: string,
@@ -3134,658 +1173,61 @@ export class DatabaseStorage implements IStorage {
     return this.expenseRepo.getExpenses(storeId, startDate, endDate, type, inventoryId);
   }
 
-  async updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense> {
-    return this.expenseRepo.updateExpense(id, data);
-  }
-
-  async getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {
-    return this.expenseRepo.getPaidPayrollExpenses(storeId, startDate, endDate);
-  }
-
   async createExpense(data: InsertExpense): Promise<Expense> {
     return this.expenseRepo.createExpense(data);
+  }
+
+  async updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense> {
+    return this.expenseRepo.updateExpense(id, data);
   }
 
   async deleteExpense(id: string): Promise<void> {
     return this.expenseRepo.deleteExpense(id);
   }
 
-  async getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
-    serviceRevenue: number;
-    productRevenue: number;
-    grossRevenue: number;
-    returnedRevenue: number;
-    totalRevenue: number;
-    costOfGoodsSold: number;
-    grossProfit: number;
-    discountsGiven: number;
-    discountsList: Array<{
-      receiptNumber: string;
-      discountAmount: number;
-      discountPercent: number;
-      discountReason: string | null;
-      discountApprovedBy: string | null;
-      createdAt: Date;
-    }>;
-  }> {
-    // Build checkout date filter conditions
-    const conditions: any[] = [
-      eq(checkouts.storeId, storeId),
-      eq(checkouts.paymentStatus, "completed"),
-      eq(checkouts.isVoided, false),
-    ];
-    if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-    // Join orders → checkouts → inventory to get per-item revenue and cost
-    const rows = await db
-      .select({
-        inventoryType: inventory.type,
-        costPrice: inventory.costPrice,
-        quantity: orders.quantity,
-        returnedQuantity: orders.returnedQuantity,
-        refundedAmount: orders.refundedAmount,
-        totalPrice: orders.totalPrice,
-      })
-      .from(orders)
-      .innerJoin(checkouts, eq(checkouts.orderId, orders.id))
-      .innerJoin(inventory, eq(inventory.id, orders.inventoryId))
-      .where(and(...conditions));
-
-    let serviceRevenue = 0;
-    let productRevenue = 0;
-    let costOfGoodsSold = 0;
-    let grossRevenue = 0;
-    let returnedRevenue = 0;
-
-    for (const row of rows) {
-      const netQuantity = Math.max(0, row.quantity - (row.returnedQuantity || 0));
-      const netTotalPrice = Math.max(0, row.totalPrice - (row.refundedAmount || 0));
-
-      grossRevenue += row.totalPrice;
-      returnedRevenue += (row.refundedAmount || 0);
-
-      if (row.inventoryType === "service") {
-        serviceRevenue += netTotalPrice;
-      } else {
-        productRevenue += netTotalPrice;
-      }
-      costOfGoodsSold += (row.costPrice ?? 0) * netQuantity;
-    }
-
-    const totalRevenue = serviceRevenue + productRevenue;
-    const grossProfit = totalRevenue - costOfGoodsSold;
-
-    // Fetch unique transaction discounts in the period (either direct cash discount or loyalty point redemption)
-    const discountConditions: any[] = [
-      eq(checkouts.storeId, storeId),
-      eq(checkouts.paymentStatus, "completed"),
-      eq(checkouts.isVoided, false),
-      or(gt(checkouts.discountAmount, 0), gt(checkouts.pointsRedeemed, 0)),
-    ];
-    if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-    const uniqueTxDiscounts = await db
-      .select({
-        receiptNumber: checkouts.receiptNumber,
-        discountAmount: checkouts.discountAmount,
-        discountPercent: checkouts.discountPercent,
-        discountReason: checkouts.discountReason,
-        discountApprovedBy: checkouts.discountApprovedBy,
-        pointsRedeemed: checkouts.pointsRedeemed,
-        createdAt: checkouts.createdAt,
-        subtotal: sql<number>`sum(${checkouts.totalPrice})`,
-      })
-      .from(checkouts)
-      .where(and(...discountConditions))
-      .groupBy(
-        checkouts.receiptNumber,
-        checkouts.discountAmount,
-        checkouts.discountPercent,
-        checkouts.discountReason,
-        checkouts.discountApprovedBy,
-        checkouts.pointsRedeemed,
-        checkouts.createdAt
-      );
-
-    const processedDiscounts = uniqueTxDiscounts.map((d) => {
-      const loyaltyDiscount = (d.pointsRedeemed || 0) * 10;
-      const totalDiscountVal = (d.discountAmount || 0) + loyaltyDiscount;
-      const subtotalVal = Number(d.subtotal || 0);
-      const totalPct = subtotalVal > 0 ? (totalDiscountVal / subtotalVal) * 100 : 0;
-      
-      let finalReason = d.discountReason || "";
-      if (d.pointsRedeemed && d.pointsRedeemed > 0) {
-        const loyaltyText = `Redeemed ${d.pointsRedeemed} Loyalty Points (₦${loyaltyDiscount})`;
-        finalReason = finalReason ? `${finalReason} | ${loyaltyText}` : loyaltyText;
-      }
-
-      return {
-        receiptNumber: d.receiptNumber,
-        discountAmount: totalDiscountVal,
-        discountPercent: totalPct,
-        discountReason: finalReason || "Loyalty Point Redemption",
-        discountApprovedBy: d.discountApprovedBy || (d.pointsRedeemed ? "Loyalty System" : "N/A"),
-        createdAt: d.createdAt,
-        subtotal: subtotalVal,
-      };
-    });
-
-    const discountsGiven = processedDiscounts.reduce((sum, d) => sum + d.discountAmount, 0);
-
-    return { 
-      serviceRevenue, 
-      productRevenue, 
-      grossRevenue,
-      returnedRevenue,
-      totalRevenue, 
-      costOfGoodsSold, 
-      grossProfit, 
-      discountsGiven,
-      discountsList: processedDiscounts
-    };
+  async getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {
+    return this.expenseRepo.getPaidPayrollExpenses(storeId, startDate, endDate);
   }
 
-  // ─── Void a checkout ───────────────────────────────────────────────────────
-  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await db.transaction(async (tx) => {
-        // Fetch the checkout
-        const [primaryCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, checkoutId));
-        if (!primaryCheckout) throw new Error("Transaction not found.");
-
-        // Find all checkouts with the same receiptNumber
-        const matchedCheckouts = await tx.select().from(checkouts)
-          .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
-
-        for (const checkout of matchedCheckouts) {
-          if (checkout.isVoided) continue; // Already voided
-
-          // Mark as voided
-          await tx.update(checkouts)
-            .set({ isVoided: true, voidedAt: new Date(), voidedByUserId, voidReason: reason })
-            .where(eq(checkouts.id, checkout.id));
-
-          // Fetch the order
-          const [order] = await tx.select().from(orders).where(eq(orders.id, checkout.orderId));
-          if (!order) continue;
-
-          // Fetch inventory item
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
-          if (!inventoryItem) continue;
-
-          // Restore stock for product-type items
-          if (inventoryItem.type === "product") {
-            await tx.update(inventory)
-              .set({ quantity: inventoryItem.quantity + order.quantity })
-              .where(eq(inventory.id, inventoryItem.id));
-          }
-
-          // Reverse the P&L record
-          const [existingPL] = await tx.select().from(profitLoss)
-            .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, checkout.storeId)));
-          if (existingPL) {
-            const revenue = order.totalPrice;
-            const profit = revenue - inventoryItem.costPrice * order.quantity;
-            await tx.update(profitLoss)
-              .set({
-                totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - order.quantity),
-                quantityRemaining: inventoryItem.quantity + order.quantity,
-                totalRevenue: Math.max(0, existingPL.totalRevenue - revenue),
-                totalGrossProfit: existingPL.totalGrossProfit - profit,
-              })
-              .where(eq(profitLoss.id, existingPL.id));
-          }
-        }
-      });
-
-      // Fetch checkout details for notification
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
-      if (checkout) {
-        await this.notifyManagers(checkout.storeId, "void_transaction", `Transaction ${checkout.receiptNumber} was voided.`);
-      }
-
-      return { success: true, message: "Transaction voided successfully." };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not void transaction.";
-      return { success: false, message };
-    }
-  }
-
-  // ─── Returns & Store Credits ────────────────────────────────────────────────
-  async getStoreCreditTransactions(customerId: string): Promise<any[]> {
-    return db.select()
-      .from(storeCreditTransactions)
-      .where(eq(storeCreditTransactions.customerId, customerId))
-      .orderBy(desc(storeCreditTransactions.createdAt));
-  }
-
-  async processReturn(data: {
-    storeId: string;
-    checkoutId: string;
-    items: Array<{ orderId: string; quantity: number; restock: boolean }>;
-    refundMethod: string;
-    refundAmount: number;
-    reason: string;
-    userId: string;
-    staffId: string;
-  }): Promise<{ success: boolean; message: string; returnLogIds?: string[] }> {
-    try {
-      const returnLogIds: string[] = [];
-
-      await db.transaction(async (tx) => {
-        // 1. Fetch checkout
-        const [checkout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
-        if (!checkout) throw new Error("Transaction not found.");
-        if (checkout.isVoided) throw new Error("Cannot return items from a voided transaction.");
-
-        // 2. Fetch customer (if any) using transactions table link
-        let customerProfile: any = null;
-        const [txRow] = await tx.select().from(transactions).where(eq(transactions.checkoutId, checkout.id)).limit(1);
-        if (txRow && txRow.customerId) {
-          const [cust] = await tx.select().from(customers).where(eq(customers.id, txRow.customerId));
-          customerProfile = cust;
-        }
-
-        // Check if we are doing store credit, customer profile is strictly required
-        if (data.refundMethod === "store_credit" && (!txRow || !txRow.customerId)) {
-          throw new Error("A profiled customer is required to issue store credit.");
-        }
-
-        let calculatedTotalRefund = 0;
-
-        // 3. Process each return item
-        for (const item of data.items) {
-          // Fetch order row
-          const [order] = await tx.select().from(orders).where(eq(orders.id, item.orderId));
-          if (!order) throw new Error(`Line item not found: ${item.orderId}`);
-
-          const maxAvailable = order.quantity - order.returnedQuantity;
-          if (item.quantity <= 0 || item.quantity > maxAvailable) {
-            throw new Error(`Invalid return quantity (${item.quantity}). Max available: ${maxAvailable}`);
-          }
-
-          // Calculate refund amount portion for this item
-          const unitPrice = order.totalPrice / order.quantity;
-          const lineRefundAmount = unitPrice * item.quantity;
-          calculatedTotalRefund += lineRefundAmount;
-
-          // Add to returnLogs
-          let restockEventId: string | null = null;
-
-          // 4. Handle inventory restocking for product type
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
-          if (inventoryItem && inventoryItem.type === "product" && item.restock) {
-            const newQty = inventoryItem.quantity + item.quantity;
-            // Create a restock event
-            const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
-              storeId: data.storeId,
-              inventoryId: inventoryItem.id,
-              quantityAdded: item.quantity,
-              previousQuantity: inventoryItem.quantity,
-              newQuantity: newQty,
-              unitCost: inventoryItem.costPrice || 0,
-              previousCostPrice: inventoryItem.costPrice || 0,
-              newCostPrice: inventoryItem.costPrice || 0,
-              previousSellingPrice: inventoryItem.sellingPrice || 0,
-              newSellingPrice: inventoryItem.sellingPrice || 0,
-              costStrategy: "keep",
-              notes: `Customer return from receipt ${checkout.receiptNumber}`,
-              reason: "Returned Stock",
-              staffId: data.staffId || null,
-              userId: data.userId || null,
-            }).returning();
-            
-            restockEventId = restockEvent.id;
-
-            // Update inventory count
-            await tx.update(inventory)
-              .set({ quantity: inventoryItem.quantity + item.quantity })
-              .where(eq(inventory.id, inventoryItem.id));
-          }
-
-          // Insert the return log
-          const beforeQty = inventoryItem ? inventoryItem.quantity : 0;
-          const afterQty = inventoryItem ? (inventoryItem.quantity + (item.restock && inventoryItem.type === "product" ? item.quantity : 0)) : 0;
-
-          const [log] = await tx.insert(returnLogs).values({
-            storeId: data.storeId,
-            checkoutId: checkout.id,
-            orderId: order.id,
-            quantity: item.quantity,
-            refundAmount: lineRefundAmount,
-            refundMethod: data.refundMethod,
-            reason: data.reason,
-            staffId: data.staffId || null,
-            userId: data.userId || null,
-            restockEventId,
-            inventoryQuantityBeforeReturn: beforeQty,
-            inventoryQuantityAfterReturn: afterQty,
-          }).returning();
-
-          returnLogIds.push(log.id);
-
-          // Update order's returnedQuantity and refundedAmount
-          await tx.update(orders)
-            .set({
-              returnedQuantity: order.returnedQuantity + item.quantity,
-              refundedAmount: order.refundedAmount + lineRefundAmount,
-            })
-            .where(eq(orders.id, order.id));
-
-          // 5. Update profit/loss metrics
-          if (inventoryItem) {
-            const [existingPL] = await tx.select().from(profitLoss)
-              .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, data.storeId)));
-            if (existingPL) {
-              const profit = lineRefundAmount - (inventoryItem.costPrice || 0) * item.quantity;
-              await tx.update(profitLoss)
-                .set({
-                  totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - item.quantity),
-                  quantityRemaining: existingPL.quantityRemaining + (item.restock && inventoryItem.type === "product" ? item.quantity : 0),
-                  totalRevenue: Math.max(0, existingPL.totalRevenue - lineRefundAmount),
-                  totalGrossProfit: existingPL.totalGrossProfit - profit,
-                })
-                .where(eq(profitLoss.id, existingPL.id));
-            }
-          }
-        }
-
-        // Validate that requested refundAmount doesn't exceed the total price of returned goods
-        if (data.refundAmount > calculatedTotalRefund + 0.01) {
-          throw new Error(`Refund amount exceeds the maximum value of returned items (${calculatedTotalRefund.toFixed(2)}).`);
-        }
-
-        // 6. Update checkout's returned status
-        await tx.update(checkouts)
-          .set({ isPartiallyReturned: true })
-          .where(eq(checkouts.id, checkout.id));
-
-        // 7. Issue Store Credit if refund method is store_credit
-        if (data.refundMethod === "store_credit" && customerProfile) {
-          // Increment customer store credit balance
-          await tx.update(customers)
-            .set({ storeCreditBalance: (customerProfile.storeCreditBalance || 0) + data.refundAmount })
-            .where(eq(customers.id, customerProfile.id));
-
-          // Create store credit transaction log
-          await tx.insert(storeCreditTransactions).values({
-            customerId: customerProfile.id,
-            storeId: data.storeId,
-            amount: data.refundAmount,
-            type: "issued_refund",
-            checkoutId: checkout.id,
-          });
-        }
-      });
-
-      // Notify managers
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
-      if (checkout) {
-        await this.notifyManagers(checkout.storeId, "return_transaction", `A return was processed on transaction ${checkout.receiptNumber}.`);
-      }
-
-      return { success: true, message: "Return processed successfully.", returnLogIds };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not process return.";
-      return { success: false, message };
-    }
-  }
-
-  // ─── Get receipt payload ───────────────────────────────────────────────────
-  async getReceiptPayload(checkoutId: string) {
-    const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
-    if (!primaryCheckout) return null;
-
-    // Get all checkouts in the same transaction
-    const matchedCheckouts = await db.select().from(checkouts)
-      .where(and(
-        eq(checkouts.receiptNumber, primaryCheckout.receiptNumber),
-        eq(checkouts.storeId, primaryCheckout.storeId)
-      ));
-
-    const items = [];
-    for (const ch of matchedCheckouts) {
-      const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
-      const [inventoryItem] = order ? await db.select().from(inventory).where(eq(inventory.id, order.inventoryId)) : [null];
-      const [leadStaffMember] = ch.leadStaffId
-        ? await db.select().from(staff).where(eq(staff.id, ch.leadStaffId))
-        : [null];
-      items.push({
-        checkout: ch,
-        order,
-        inventory: inventoryItem,
-        leadStaff: leadStaffMember,
-      });
-    }
-
-    const [store] = await db.select().from(stores).where(eq(stores.id, primaryCheckout.storeId));
-    const [business] = store ? await db.select().from(businesses).where(eq(businesses.id, store.businessId)) : [null];
-    const [storeSettings] = await db.select().from(settings).where(eq(settings.storeId, primaryCheckout.storeId));
-    const [staffMember] = await db.select().from(staff).where(eq(staff.id, primaryCheckout.staffId));
-
-    // Find transaction for customer
-    const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, checkoutId));
-    const [customer] = tx ? await db.select().from(customers).where(eq(customers.id, tx.customerId)) : [null];
-
-    const [creditEntry] = await db
-      .select()
-      .from(creditEntries)
-      .where(eq(creditEntries.linkedTransactionId, checkoutId));
-
-    const rawReturnLogs = await db
-      .select()
-      .from(returnLogs)
-      .where(eq(returnLogs.checkoutId, checkoutId));
-
-    const resolvedReturnLogs = [];
-    for (const log of rawReturnLogs) {
-      const [order] = await db.select().from(orders).where(eq(orders.id, log.orderId));
-      const [inventoryItem] = order
-        ? await db.select().from(inventory).where(eq(inventory.id, order.inventoryId))
-        : [null];
-      const [staffMember] = log.staffId
-        ? await db.select().from(staff).where(eq(staff.id, log.staffId))
-        : [null];
-      resolvedReturnLogs.push({
-        ...log,
-        inventory: inventoryItem,
-        staff: staffMember,
-      });
-    }
-
-    let resolvedPrefix = "RCP";
-    if (storeSettings?.receiptPrefix && storeSettings.receiptPrefix !== "RCP") {
-      resolvedPrefix = storeSettings.receiptPrefix;
-    } else if (business?.receiptPrefix) {
-      resolvedPrefix = `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
-    } else {
-      resolvedPrefix = `RCP-${store.code.trim().toUpperCase()}`;
-    }
-
-    return {
-      business: business ? { name: business.name } : null,
-      store: store ? { name: store.name, currency: store.currency, phone: store.phone, address: store.address } : null,
-      settings: storeSettings ? { receiptPrefix: resolvedPrefix, receiptThankYouMessage: storeSettings.receiptThankYouMessage } : null,
-      checkout: primaryCheckout,
-      order: items[0]?.order || null,
-      inventory: items[0]?.inventory || null,
-      customer,
-      staff: staffMember,
-      leadStaff: items[0]?.leadStaff || null,
-      items, // Group of all items in this transaction
-      creditEntry: creditEntry || null,
-      returnLogs: resolvedReturnLogs,
-    };
-  }
-
-  // ─── Update checkout payment method/status ─────────────────────────────────
-  async updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean> {
-    const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
-    if (!primaryCheckout) return false;
-
-    const result = await db.update(checkouts)
-      .set({ paymentMethod, paymentStatus })
-      .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber))
-      .returning();
-    return result.length > 0;
-  }
-
+  // ─── Staff Performance / Search ────────────────────────────────────────────
   async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
-    const activeStaff = await db.select().from(staff).where(and(eq(staff.storeId, storeId), eq(staff.isArchived, false)));
-    
-    // Checkouts in range
-    const checkoutConditions = [
-      eq(checkouts.storeId, storeId),
-      eq(checkouts.paymentStatus, "completed"),
-      eq(checkouts.isVoided, false),
-    ];
-    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-
-    const rows = await db.select({
-      checkout: checkouts,
-      order: orders,
-      inventoryItem: inventory,
-    })
-      .from(orders)
-      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
-      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
-      .where(and(...checkoutConditions));
-
-    // Attendance in range
-    const attendanceConditions = [eq(attendanceRecords.storeId, storeId)];
-    if (startDate) attendanceConditions.push(gte(attendanceRecords.date, startDate));
-    if (endDate) attendanceConditions.push(lte(attendanceRecords.date, endDate));
-    
-    const attendanceList = await db.select().from(attendanceRecords).where(and(...attendanceConditions));
-
-    return activeStaff.map(s => {
-      const staffCheckouts = rows.filter(r => 
-        r.checkout.leadStaffId === s.id || 
-        r.checkout.staffId === s.id || 
-        r.checkout.assistingStaff1Id === s.id || 
-        r.checkout.assistingStaff2Id === s.id
-      );
-
-      const leadCheckouts = rows.filter(r => r.checkout.leadStaffId === s.id || (r.checkout.staffId === s.id && !r.checkout.leadStaffId));
-      
-      const totalRevenue = leadCheckouts.reduce((sum, r) => sum + r.order.totalPrice, 0);
-      const servicesCount = leadCheckouts.filter(r => r.inventoryItem.type === "service").length;
-      const productsCount = leadCheckouts.filter(r => r.inventoryItem.type === "product").length;
-
-      const staffAttendance = attendanceList.filter(a => a.staffId === s.id);
-      const presentDays = staffAttendance.filter(a => a.status === "present").length;
-      const absentDays = staffAttendance.filter(a => a.status === "absent").length;
-
-      return {
-        id: s.id,
-        name: s.name,
-        email: s.email,
-        role: s.role,
-        totalRevenue,
-        servicesCount,
-        productsCount,
-        presentDays,
-        absentDays,
-      };
-    });
+    return this.staffRepo.getStaffPerformance(storeId, startDate, endDate);
   }
 
   async searchCustomers(storeId: string, query: string): Promise<Customer[]> {
-    return db.select()
-      .from(customers)
-      .where(and(eq(customers.storeId, storeId), ilike(customers.name, `%${query}%`)))
-      .limit(10);
+    return this.customerRepo.searchCustomers(storeId, query);
   }
 
   async searchInventory(storeId: string, query: string): Promise<Inventory[]> {
     return this.inventoryRepo.searchInventory(storeId, query);
   }
 
-  async searchTransactions(storeId: string, query: string): Promise<any[]> {
-    return db.select()
-      .from(checkouts)
-      .where(and(eq(checkouts.storeId, storeId), or(ilike(checkouts.receiptNumber, `%${query}%`), ilike(checkouts.paymentReference, `%${query}%`))))
-      .limit(10);
-  }
-
+  // ─── Notification Repo Delegation ─────────────────────────────────────────
   async getNotifications(userId: string): Promise<Notification[]> {
-    return db.select()
-      .from(notifications)
-      .where(eq(notifications.userId, userId))
-      .orderBy(desc(notifications.createdAt))
-      .limit(50);
+    return this.notificationRepo.getNotifications(userId);
   }
 
   async markNotificationAsRead(id: string): Promise<void> {
-    await db.update(notifications)
-      .set({ isRead: true })
-      .where(eq(notifications.id, id));
+    return this.notificationRepo.markNotificationAsRead(id);
   }
 
   async markAllNotificationsAsRead(userId: string): Promise<void> {
-    await db.update(notifications)
-      .set({ isRead: true })
-      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    return this.notificationRepo.markAllNotificationsAsRead(userId);
   }
 
   async createNotification(data: InsertNotification): Promise<Notification> {
-    const [notification] = await db.insert(notifications).values(data).returning();
-    
-    // Broadcast the notification in real-time to all active WebSocket connections
-    try {
-      broadcastNotification(notification);
-    } catch (err) {
-      console.error("Failed to broadcast notification over WebSocket:", err);
-    }
-
-    return notification;
+    return this.notificationRepo.createNotification(data);
   }
 
   async getTopCustomers(storeId: string): Promise<any[]> {
-    return db.select({
-      id: customers.id,
-      name: customers.name,
-      customerNumber: customers.customerNumber,
-      totalSpent: sql<number>`sum(${checkouts.totalPrice})`,
-      transactionCount: sql<number>`count(${checkouts.id})`,
-    })
-      .from(customers)
-      .innerJoin(transactions, eq(customers.id, transactions.customerId))
-      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
-      .where(and(eq(customers.storeId, storeId), eq(checkouts.isVoided, false)))
-      .groupBy(customers.id, customers.name, customers.customerNumber)
-      .orderBy(desc(sql`sum(${checkouts.totalPrice})`))
-      .limit(10);
+    return this.customerRepo.getTopCustomers(storeId);
   }
 
   async notifyManagers(storeId: string, type: string, message: string): Promise<void> {
-    // Get store to find businessId
-    const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
-    if (!store) return;
-
-    // Find all owners and managers for this business
-    const managers = await db.select().from(users).where(
-      and(
-        eq(users.businessId, store.businessId),
-        or(eq(users.role, "owner"), eq(users.role, "manager"))
-      )
-    );
-
-    // Create notification for each
-    for (const mgr of managers) {
-      await this.createNotification({
-        storeId,
-        userId: mgr.id,
-        type,
-        message,
-      });
-    }
+    return this.notificationRepo.notifyManagers(storeId, type, message);
   }
 
-
 }
+
 
 export const storage = new DatabaseStorage();
