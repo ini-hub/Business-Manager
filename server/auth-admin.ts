@@ -4,7 +4,11 @@ import { db } from "./db";
 import { superAdmins } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
-const JWT_ADMIN_SECRET = process.env.JWT_ADMIN_SECRET || "excellent_bolujo_super_admin_secret_key";
+const JWT_ADMIN_SECRET = process.env.JWT_ADMIN_SECRET;
+if (!JWT_ADMIN_SECRET) {
+  throw new Error("FATAL: JWT_ADMIN_SECRET environment variable must be set.");
+}
+const JWT_ADMIN_SECRET_VALUE: string = JWT_ADMIN_SECRET;
 const SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
 
 export interface AdminJWTPayload {
@@ -22,13 +26,13 @@ export function generateAdminToken(payload: Omit<AdminJWTPayload, "lastActivity"
     lastActivity: Date.now(),
   };
   // Token expires in 2 hours but we also renew it dynamically in middleware
-  return jwt.sign(fullPayload, JWT_ADMIN_SECRET, { expiresIn: "2h" });
+  return jwt.sign(fullPayload, JWT_ADMIN_SECRET_VALUE, { expiresIn: "2h" });
 }
 
 // Verify secure JWT token
 export function verifyAdminToken(token: string): AdminJWTPayload | undefined {
   try {
-    const decoded = jwt.verify(token, JWT_ADMIN_SECRET) as AdminJWTPayload;
+    const decoded = jwt.verify(token, JWT_ADMIN_SECRET_VALUE) as AdminJWTPayload;
     return decoded;
   } catch (error) {
     return undefined;

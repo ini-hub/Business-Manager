@@ -30,11 +30,6 @@ function getCookie(cookieHeader: string | undefined, name: string): string | und
 }
 
 export function csrfMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Only enforce CSRF in production to prevent blocking local development test suites
-  if (process.env.NODE_ENV !== "production") {
-    return next();
-  }
-
   const method = req.method.toUpperCase();
   const isSafe = SAFE_METHODS.has(method);
 

@@ -28,7 +28,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useEffect } from "react";
 import { useStore } from "@/lib/store-context";
-import { deduplicatedCountryCodes } from "@/lib/phone-utils";
+import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
@@ -84,6 +84,13 @@ export default function BusinessFormPage() {
   }, [business, form]);
 
   const onSubmit = async (values: z.infer<typeof businessFormSchema>) => {
+    if (values.phone) {
+      const phoneCheck = validatePhoneNumber(values.phone, values.phoneCountryCode);
+      if (!phoneCheck.valid) {
+        form.setError("phone", { message: phoneCheck.error });
+        return;
+      }
+    }
     try {
       if (business) {
         await updateBusiness(business.id, values);

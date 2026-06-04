@@ -35,17 +35,6 @@ if (!process.env.DATABASE_URL) {
   }
 }
 
-// Enforce secure environments in production - crash on default/missing secrets
-if (process.env.NODE_ENV === "production") {
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "excellent_bolujo_secret_key") {
-    console.error("FATAL: JWT_SECRET environment variable is missing or insecure in production.");
-    process.exit(1);
-  }
-  if (!process.env.JWT_ADMIN_SECRET || process.env.JWT_ADMIN_SECRET === "excellent_bolujo_super_admin_secret_key") {
-    console.error("FATAL: JWT_ADMIN_SECRET environment variable is missing or insecure in production.");
-    process.exit(1);
-  }
-}
 
 const app = express();
 app.set("trust proxy", 1);
@@ -104,20 +93,22 @@ app.use((req, res, next) => {
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+  // Only capture the response body in development for debugging — never in production
+  if (isDev) {
+    const originalResJson = res.json;
+    res.json = function (bodyJson, ...args) {
+      capturedJsonResponse = bodyJson;
+      return originalResJson.apply(res, [bodyJson, ...args]);
+    };
+  }
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      if (isDev && capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
-
       log(logLine);
     }
   });

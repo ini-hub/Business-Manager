@@ -3,7 +3,11 @@ import type { Express, Request, Response, NextFunction, RequestHandler } from "e
 
 import { storage } from "./storage";
 
-const JWT_SECRET = process.env.JWT_SECRET || "excellent_bolujo_secret_key";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("FATAL: JWT_SECRET environment variable must be set.");
+}
+const JWT_SECRET_VALUE: string = JWT_SECRET;
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
 
 export interface JWTPayload {
@@ -16,12 +20,12 @@ export interface JWTPayload {
 
 export function generateToken(payload: JWTPayload, stayLoggedIn?: boolean): string {
   const expiry = stayLoggedIn ? "30d" : JWT_EXPIRY;
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: expiry as any });
+  return jwt.sign(payload, JWT_SECRET_VALUE, { expiresIn: expiry as any });
 }
 
 export function verifyToken(token: string): JWTPayload | undefined {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+    return jwt.verify(token, JWT_SECRET_VALUE) as JWTPayload;
   } catch (error) {
     return undefined;
   }

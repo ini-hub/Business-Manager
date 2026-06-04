@@ -46,6 +46,8 @@ interface ReceiptPayload {
       name: string;
       type: string;
       sellingPrice: number;
+      unit?: string | null;
+      allowFractional?: boolean | null;
     } | null;
     leadStaff?: { name: string } | null;
   }>;
@@ -175,11 +177,13 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
         const unitPrice = qty > 0 ? (totalPrice / qty) : 0;
         const isPromo = item.checkout?.discountReason?.startsWith("Promo -");
         const promoName = isPromo ? item.checkout?.discountReason?.replace("Promo - ", "") : "";
+        const unit = item.inventory?.unit;
+        const displayQty = parseFloat(Number(qty).toFixed(4));
         return (
           <div key={idx} className="mb-2">
             <div className="grid grid-cols-12 text-xs">
               <div className="col-span-5 truncate">{item.inventory?.name ?? "Unknown Item"}</div>
-              <div className="col-span-2 text-center">{qty}</div>
+              <div className="col-span-2 text-center">{displayQty}{unit ? ` ${unit}` : ""}</div>
               <div className="col-span-2 text-right">{fmt(unitPrice)}</div>
               <div className="col-span-3 text-right">{fmt(totalPrice)}</div>
             </div>

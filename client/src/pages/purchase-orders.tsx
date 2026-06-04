@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, FileText, Truck, CheckSquare, Clock, AlertTriangle, Printer, PlusCircle, Trash, RefreshCw, UserCheck, Inbox, Coins } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -759,12 +760,18 @@ export default function PurchaseOrdersPage() {
                         </div>
 
                         <div className="w-24">
-                          <Label className="text-xs text-muted-foreground">Order Qty</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            Order Qty{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}
+                          </Label>
                           <Input
                             type="number"
-                            min="1"
+                            min={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
+                            step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
                             value={item.quantity}
-                            onChange={(e) => updateItemRow(index, "quantity", Number(e.target.value))}
+                            onChange={(e) => {
+                              const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
+                              updateItemRow(index, "quantity", isFrac ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1);
+                            }}
                           />
                         </div>
 
@@ -964,17 +971,22 @@ export default function PurchaseOrdersPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <Label className="text-xs text-muted-foreground">Receive Now:</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            Receive Now{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}:
+                          </Label>
                           <Input
                             type="number"
                             min="0"
+                            step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
                             max={maxAllowed}
                             className="w-24 text-right"
                             value={receivedNow}
                             onChange={(e) => {
-                              const val = Math.min(maxAllowed, Math.max(0, Number(e.target.value)));
+                              const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
+                              const parsed = isFrac ? parseFloat(e.target.value) : parseInt(e.target.value);
+                              const val = Math.min(maxAllowed, Math.max(0, parsed || 0));
                               setItemsToReceive(
-                                itemsToReceive.map(itr => 
+                                itemsToReceive.map(itr =>
                                   itr.inventoryId === item.inventoryId ? { ...itr, quantity: val } : itr
                                 )
                               );
@@ -1102,10 +1114,10 @@ export default function PurchaseOrdersPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="vendor-contact">Contact Person (Optional)</Label>
+              <Label htmlFor="vendor-contact">Contact Person / Organization / Company (Optional)</Label>
               <Input
                 id="vendor-contact"
-                placeholder="e.g. John Doe"
+                placeholder="e.g. John Doe or Acme Ltd."
                 value={newVendorContact}
                 onChange={(e) => setNewVendorContact(e.target.value)}
               />
@@ -1168,6 +1180,19 @@ export default function PurchaseOrdersPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {activeTab === "list" && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "New PO",
+              icon: <FileText className="h-5 w-5" />,
+              onClick: () => setActiveTab("create"),
+              testId: "fab-new-po",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

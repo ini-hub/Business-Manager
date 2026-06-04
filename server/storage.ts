@@ -66,6 +66,15 @@ import {
   type PayrollPeriodStatus,
   type PayrollEntryWithStaff,
   type CommissionBreakdown,
+  payrollDeductions,
+  type PayrollDeduction,
+  type InsertPayrollDeduction,
+  payrollDisbursements,
+  type PayrollDisbursement,
+  type InsertPayrollDisbursement,
+  salaryAdvances,
+  type SalaryAdvance,
+  type InsertSalaryAdvance,
   settings,
   type Settings,
   type InsertSettings,
@@ -100,14 +109,16 @@ import {
   inventoryBatches,
   quotes,
   storeCreditTransactions,
+  type Product,
+  type InsertProduct,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, count, and, asc, or, inArray, ilike, gt, gte, lte } from "drizzle-orm";
-import { broadcastNotification } from "./websocket";
 import { payrollService } from "./services/PayrollService";
 import { CommissionSplitCalculator as OOPCommissionSplitCalculator } from "./services/CommissionService";
 import { UserRepository } from "./repositories/UserRepository";
 import { InventoryRepository } from "./repositories/InventoryRepository";
+import { ProductRepository } from "./repositories/ProductRepository";
 import { ExpenseRepository } from "./repositories/ExpenseRepository";
 import { CreditRepository } from "./repositories/CreditRepository";
 import { VendorRepository } from "./repositories/VendorRepository";
@@ -122,7 +133,7 @@ import { BusinessRepository } from "./repositories/BusinessRepository";
 import { CustomerRepository } from "./repositories/CustomerRepository";
 import { StaffRepository } from "./repositories/StaffRepository";
 import { BookingRepository } from "./repositories/BookingRepository";
-import { TransactionRepository } from "./repositories/TransactionRepository";
+import { TransactionRepository, type TransactionFilters } from "./repositories/TransactionRepository";
 import { SalesRepository } from "./repositories/SalesRepository";
 import { AnalyticsRepository } from "./repositories/AnalyticsRepository";
 import { RestockRepository } from "./repositories/RestockRepository";
@@ -184,6 +195,7 @@ export interface IStorage {
   // Business
   getBusiness(): Promise<Business | undefined>;
   getBusinessById(id: string): Promise<Business | undefined>;
+  getBusinessesByIds(ids: string[]): Promise<Business[]>;
   createBusiness(business: InsertBusiness): Promise<Business>;
   updateBusiness(id: string, business: Partial<InsertBusiness>): Promise<Business | undefined>;
 
@@ -229,9 +241,22 @@ export interface IStorage {
   restoreStaff(id: string): Promise<Staff | undefined>;
   hasStaffCheckouts(id: string): Promise<boolean>;
 
+  // Products
+  getProducts(storeId: string): Promise<any[]>;
+  getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>>;
+  getProduct(id: string): Promise<any>;
+  getProductByName(storeId: string, name: string): Promise<Product | undefined>;
+  createProduct(product: InsertProduct): Promise<Product>;
+  updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
+  deleteProduct(id: string): Promise<boolean>;
+  getArchivedProducts(storeId: string): Promise<any[]>;
+  restoreProduct(id: string): Promise<boolean>;
+  getProductByIdRaw(id: string): Promise<any>;
+
   // Inventory
   getInventory(storeId: string): Promise<Inventory[]>;
   getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
+  getInventoryForStores(storeIds: string[], options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
   getInventoryItem(id: string): Promise<Inventory | undefined>;
   getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
@@ -249,8 +274,8 @@ export interface IStorage {
   updateCheckoutPaymentStatus(id: string, status: "pending" | "completed" | "failed"): Promise<Checkout | undefined>;
 
   // Transactions
-  getTransactions(storeId: string): Promise<TransactionWithRelations[]>;
-  getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>>;
+  getTransactions(storeId: string, filters?: TransactionFilters): Promise<TransactionWithRelations[]>;
+  getTransactionById(id: string): Promise<TransactionWithRelations | null>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
 
   // Bookings
@@ -370,6 +395,7 @@ export interface IStorage {
     type?: "all" | "general" | "linked" | "service" | "product",
     inventoryId?: string
   ): Promise<ExpenseWithCategory[]>;
+  getExpenseById(id: string): Promise<ExpenseWithCategory | null>;
   createExpense(data: InsertExpense): Promise<Expense>;
   updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense>;
   deleteExpense(id: string): Promise<void>;
@@ -475,11 +501,13 @@ export interface IStorage {
   purchaseOrderRepo: PurchaseOrderRepository;
   stockTransferRepo: StockTransferRepository;
   taxRateRepo: TaxRateRepository;
+  productRepo: ProductRepository;
 }
 
 export class DatabaseStorage implements IStorage {
   private userRepo = new UserRepository();
   public readonly inventoryRepo = new InventoryRepository();
+  public readonly productRepo = new ProductRepository();
   private expenseRepo = new ExpenseRepository();
   public readonly creditRepo = new CreditRepository();
   public readonly vendorRepo = new VendorRepository();
@@ -612,6 +640,11 @@ export class DatabaseStorage implements IStorage {
 
   async getBusinessById(id: string): Promise<Business | undefined> {
     return this.businessRepo.getBusinessById(id);
+  }
+
+  async getBusinessesByIds(ids: string[]): Promise<Business[]> {
+    if (!ids.length) return [];
+    return db.select().from(businesses).where(inArray(businesses.id, ids));
   }
 
   async createBusiness(business: InsertBusiness): Promise<Business> {
@@ -769,6 +802,47 @@ export class DatabaseStorage implements IStorage {
     return this.staffRepo.hasStaffCheckouts(id);
   }
 
+  // ─── Product Repo Delegation ───────────────────────────────────────────────
+  async getProducts(storeId: string): Promise<any[]> {
+    return this.productRepo.getProducts(storeId);
+  }
+
+  async getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>> {
+    return this.productRepo.getProductsPaginated(storeId, options);
+  }
+
+  async getProduct(id: string): Promise<any> {
+    return this.productRepo.getProduct(id);
+  }
+
+  async getProductByName(storeId: string, name: string): Promise<Product | undefined> {
+    return this.productRepo.getProductByName(storeId, name);
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    return this.productRepo.createProduct(product);
+  }
+
+  async updateProduct(id: string, productData: Partial<InsertProduct>): Promise<Product | undefined> {
+    return this.productRepo.updateProduct(id, productData);
+  }
+
+  async deleteProduct(id: string): Promise<boolean> {
+    return this.productRepo.deleteProduct(id);
+  }
+
+  async getArchivedProducts(storeId: string): Promise<any[]> {
+    return this.productRepo.getArchivedProducts(storeId);
+  }
+
+  async restoreProduct(id: string): Promise<boolean> {
+    return this.productRepo.restoreProduct(id);
+  }
+
+  async getProductByIdRaw(id: string): Promise<any> {
+    return this.productRepo.getProductByIdRaw(id);
+  }
+
   // ─── Inventory Repo Delegation ─────────────────────────────────────────────
   async getInventory(storeId: string): Promise<Inventory[]> {
     return this.inventoryRepo.getInventory(storeId);
@@ -776,6 +850,10 @@ export class DatabaseStorage implements IStorage {
 
   async getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
     return this.inventoryRepo.getInventoryPaginated(storeId, options);
+  }
+
+  async getInventoryForStores(storeIds: string[], options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
+    return this.inventoryRepo.getInventoryForStores(storeIds, options);
   }
 
   async getInventoryItem(id: string): Promise<Inventory | undefined> {
@@ -787,7 +865,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {
-    return this.inventoryRepo.createInventoryItem(item);
+    let productId = item.productId;
+    if (!productId) {
+      // Find or create product group for simple items
+      let product = await this.productRepo.getProductByName(item.storeId, item.name);
+      if (!product) {
+        product = await this.productRepo.createProduct({
+          storeId: item.storeId,
+          name: item.name,
+          type: item.type,
+        });
+      }
+      productId = product.id;
+    }
+    return this.inventoryRepo.createInventoryItem({
+      ...item,
+      productId,
+    });
   }
 
   async updateInventoryItem(id: string, itemData: Partial<InsertInventory>): Promise<Inventory | undefined> {
@@ -823,12 +917,12 @@ export class DatabaseStorage implements IStorage {
     return this.transactionRepo.updateCheckoutPaymentStatus(id, status);
   }
 
-  async getTransactions(storeId: string): Promise<TransactionWithRelations[]> {
-    return this.transactionRepo.getTransactions(storeId);
+  async getTransactions(storeId: string, filters?: TransactionFilters): Promise<TransactionWithRelations[]> {
+    return this.transactionRepo.getTransactions(storeId, filters);
   }
 
-  async getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>> {
-    return this.transactionRepo.getTransactionsPaginated(storeId, options);
+  async getTransactionById(id: string): Promise<TransactionWithRelations | null> {
+    return this.transactionRepo.getTransactionById(id);
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
@@ -1089,6 +1183,99 @@ export class DatabaseStorage implements IStorage {
     return this.payrollRepo.getPayrollDrillDown(periodId, staffId);
   }
 
+  // ─── Payroll Deductions ─────────────────────────────────────────────────────
+  async getPayrollDeductions(periodId: string, staffId?: string): Promise<PayrollDeduction[]> {
+    const conditions: any[] = [eq(payrollDeductions.periodId, periodId)];
+    if (staffId) conditions.push(eq(payrollDeductions.staffId, staffId));
+    return db.select().from(payrollDeductions).where(and(...conditions));
+  }
+
+  async createPayrollDeduction(data: InsertPayrollDeduction): Promise<PayrollDeduction> {
+    const [row] = await db.insert(payrollDeductions).values(data).returning();
+    return row;
+  }
+
+  async deletePayrollDeduction(id: string): Promise<void> {
+    await db.delete(payrollDeductions).where(eq(payrollDeductions.id, id));
+  }
+
+  // ─── Payroll Disbursements ──────────────────────────────────────────────────
+  async getPayrollDisbursements(periodId: string): Promise<PayrollDisbursement[]> {
+    return db.select().from(payrollDisbursements).where(eq(payrollDisbursements.periodId, periodId));
+  }
+
+  async upsertPayrollDisbursement(data: InsertPayrollDisbursement): Promise<PayrollDisbursement> {
+    const existing = await db.select().from(payrollDisbursements).where(
+      and(eq(payrollDisbursements.periodId, data.periodId), eq(payrollDisbursements.staffId, data.staffId))
+    );
+    if (existing.length > 0) {
+      const [updated] = await db.update(payrollDisbursements)
+        .set({ amountPaid: data.amountPaid, method: data.method, reference: data.reference, notes: data.notes, paidByUserId: data.paidByUserId, paidAt: new Date() })
+        .where(eq(payrollDisbursements.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [row] = await db.insert(payrollDisbursements).values(data).returning();
+    return row;
+  }
+
+  // ─── Salary Advances ────────────────────────────────────────────────────────
+  async getSalaryAdvances(storeId: string, staffId?: string): Promise<SalaryAdvance[]> {
+    const conditions: any[] = [eq(salaryAdvances.storeId, storeId)];
+    if (staffId) conditions.push(eq(salaryAdvances.staffId, staffId));
+    return db.select().from(salaryAdvances).where(and(...conditions)).orderBy(desc(salaryAdvances.createdAt));
+  }
+
+  async createSalaryAdvance(data: InsertSalaryAdvance): Promise<SalaryAdvance> {
+    const [row] = await db.insert(salaryAdvances).values(data).returning();
+    return row;
+  }
+
+  async markAdvanceRecovered(advanceId: string, periodId: string): Promise<SalaryAdvance> {
+    const [row] = await db.update(salaryAdvances)
+      .set({ isRecovered: true, recoveredPeriodId: periodId })
+      .where(eq(salaryAdvances.id, advanceId))
+      .returning();
+    return row;
+  }
+
+  async deleteSalaryAdvance(id: string): Promise<void> {
+    await db.delete(salaryAdvances).where(eq(salaryAdvances.id, id));
+  }
+
+  // ─── Unrecorded attendance days check ───────────────────────────────────────
+  async getUnrecordedAttendanceDays(storeId: string, startDate: string, endDate: string): Promise<{
+    staffId: string; staffName: string; unrecordedDates: string[];
+  }[]> {
+    const allStaff = await db.select().from(staff).where(and(eq(staff.storeId, storeId), eq(staff.isArchived, false)));
+    const records = await db.select().from(attendanceRecords).where(and(
+      eq(attendanceRecords.storeId, storeId),
+      gte(attendanceRecords.date, startDate),
+      lte(attendanceRecords.date, endDate),
+    ));
+    const recordedSet = new Set(records.map(r => `${r.staffId}:${r.date}`));
+
+    const getDates = (start: string, end: string) => {
+      const dates: string[] = [];
+      const curr = new Date(start);
+      while (curr <= new Date(end)) {
+        const d = curr.toISOString().split("T")[0];
+        if (curr.getDay() !== 0) dates.push(d); // skip Sundays (auto off-day)
+        curr.setDate(curr.getDate() + 1);
+      }
+      return dates;
+    };
+
+    const workingDates = getDates(startDate, endDate);
+    return allStaff
+      .map(s => ({
+        staffId: s.id,
+        staffName: s.name,
+        unrecordedDates: workingDates.filter(d => !recordedSet.has(`${s.id}:${d}`)),
+      }))
+      .filter(r => r.unrecordedDates.length > 0);
+  }
+
   // ─── Settings / Promotions / Custom Roles / Store Integrations Delegation ──
   async getSettings(storeId: string): Promise<Settings> {
     return this.businessRepo.getSettings(storeId);
@@ -1171,6 +1358,10 @@ export class DatabaseStorage implements IStorage {
     inventoryId?: string
   ): Promise<ExpenseWithCategory[]> {
     return this.expenseRepo.getExpenses(storeId, startDate, endDate, type, inventoryId);
+  }
+
+  async getExpenseById(id: string): Promise<ExpenseWithCategory | null> {
+    return this.expenseRepo.getExpenseById(id);
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {

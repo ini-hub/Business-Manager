@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { z } from "zod";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -50,8 +51,9 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { buildSlug } from "@/lib/slug";
 
-type FilterType = "all" | "product" | "service" | "low-stock" | "audits";
+type FilterType = "all" | "product" | "service" | "low-stock" | "audits" | "archived";
 
 const inventoryFormSchema = insertInventorySchema.refine(
   (data) => data.costPrice > 0,
@@ -85,6 +87,7 @@ export default function InventoryPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [shouldRedirectBack, setShouldRedirectBack] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deleteBlockedBySales, setDeleteBlockedBySales] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
   const [duplicateItem, setDuplicateItem] = useState<Inventory | null>(null);
@@ -114,23 +117,23 @@ export default function InventoryPage() {
     receiptUrl: "",
   });
 
-  const { data: inventoryList = [], isLoading } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(",")],
+  const { data: inventoryList = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/products", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/inventory?storeId=${s.id}`);
+              const res = await fetch(`/api/products?storeId=${s.id}`);
               if (!res.ok) return [];
-              const list = await res.json() as Inventory[];
+              const list = await res.json() as any[];
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
             }
           })
         );
-        const mergedMap = new Map<string, Inventory & { storeName?: string }>();
+        const mergedMap = new Map<string, any>();
         for (const list of responses) {
           for (const item of list) {
             const key = item.id;
@@ -146,11 +149,34 @@ export default function InventoryPage() {
         }
         return Array.from(mergedMap.values());
       }
-      const res = await fetch(`/api/inventory?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch inventory");
+      const res = await fetch(`/api/products?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch products");
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
+  });
+
+  const { data: archivedList = [], isLoading: isLoadingArchived } = useQuery<any[]>({
+    queryKey: ["/api/products/archived", currentStore?.id],
+    queryFn: async () => {
+      if (currentStore?.id === "all" && stores.length > 0) {
+        const responses = await Promise.all(
+          stores.map(async (s) => {
+            try {
+              const res = await fetch(`/api/products/archived?storeId=${s.id}`);
+              if (!res.ok) return [];
+              const list = await res.json() as any[];
+              return list.map(item => ({ ...item, storeName: s.name }));
+            } catch { return []; }
+          })
+        );
+        return responses.flat();
+      }
+      const res = await fetch(`/api/products/archived?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to fetch archived items");
+      return res.json();
+    },
+    enabled: filterType === "archived" && (currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id),
   });
 
   const { data: settingsData } = useQuery<any>({
@@ -222,7 +248,7 @@ export default function InventoryPage() {
     mutationFn: (data: any) => apiRequest("POST", "/api/stock-audits", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       toast({ title: "Stock audit submitted successfully." });
       setIsAuditFormOpen(false);
       setAuditNotes("");
@@ -243,7 +269,7 @@ export default function InventoryPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", selectedAuditId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Stock audit approved. Inventory quantities updated." });
       setIsAuditDetailOpen(false);
@@ -270,7 +296,7 @@ export default function InventoryPage() {
         return inventoryList.filter((item) => item.type === "service");
       case "low-stock":
         return inventoryList.filter(
-          (item) => item.type === "product" && item.quantity <= lowStockThreshold
+          (item) => item.type === "product" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
         );
       default:
         return inventoryList;
@@ -279,7 +305,7 @@ export default function InventoryPage() {
 
   const lowStockCount = useMemo(() => {
     return inventoryList.filter(
-      (item) => item.type === "product" && item.quantity <= lowStockThreshold
+      (item) => item.type === "product" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
     ).length;
   }, [inventoryList, lowStockThreshold]);
 
@@ -306,17 +332,27 @@ export default function InventoryPage() {
   const createMutation = useMutation({
     mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item created successfully" });
       closeForm();
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Add Item", 
-        description: getUserFriendlyError(error, "adding this item"), 
-        variant: "destructive" 
-      });
+      const msg = error.message ?? "";
+      if (msg.startsWith("archived:")) {
+        toast({
+          title: "Item Is Archived",
+          description: msg.replace("archived:", "").trim() + " Switch to the Archived tab to restore it.",
+          variant: "destructive",
+        });
+        setFilterType("archived");
+      } else {
+        toast({
+          title: "Couldn't Add Item",
+          description: getUserFriendlyError(error, "adding this item"),
+          variant: "destructive",
+        });
+      }
     },
   });
 
@@ -324,7 +360,7 @@ export default function InventoryPage() {
     mutationFn: (data: InsertInventory) =>
       apiRequest("PATCH", `/api/inventory/${selectedItem?.id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item updated successfully" });
       const itemId = selectedItem?.id;
@@ -345,22 +381,59 @@ export default function InventoryPage() {
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/inventory/${selectedItem?.id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Item deleted successfully" });
       setIsDeleteOpen(false);
+      setDeleteBlockedBySales(false);
       setSelectedItem(null);
     },
     onError: (error: Error) => {
-      const errorMessage = error.message?.toLowerCase().includes("transaction") || 
-                          error.message?.toLowerCase().includes("order") ||
-                          error.message?.toLowerCase().includes("constraint")
-        ? "Inventory is connected to a transaction. Contact support if the problem persists."
-        : getUserFriendlyError(error);
-      toast({ 
-        title: "Couldn't Delete Item", 
-        description: errorMessage, 
-        variant: "destructive" 
+      const msg = error.message ?? "";
+      if (msg.includes("sales records") || msg.includes("existing sales") || msg.includes("history")) {
+        setDeleteBlockedBySales(true);
+      } else {
+        toast({
+          title: "Couldn't Delete Item",
+          description: getUserFriendlyError(error, "deleting this item"),
+          variant: "destructive",
+        });
+      }
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/inventory/${selectedItem?.id}/archive`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Item archived", description: `"${selectedItem?.name}" has been archived and is no longer active.` });
+      setIsDeleteOpen(false);
+      setDeleteBlockedBySales(false);
+      setSelectedItem(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Couldn't Archive Item",
+        description: getUserFriendlyError(error, "archiving this item"),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (itemId: string) => apiRequest("POST", `/api/products/${itemId}/restore`),
+    onSuccess: (_, itemId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Item restored", description: "The item is now active in your inventory." });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Couldn't Restore Item",
+        description: getUserFriendlyError(error, "restoring this item"),
+        variant: "destructive",
       });
     },
   });
@@ -380,7 +453,7 @@ export default function InventoryPage() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Stock updated successfully" });
       setIsRestockOpen(false);
@@ -413,37 +486,22 @@ export default function InventoryPage() {
   };
 
   const openCreateForm = () => {
-    form.reset({
-      storeId: currentStore?.id === "all" ? "" : (currentStore?.id || ""),
-      name: "",
-      type: "product",
-      costPrice: 0,
-      sellingPrice: 0,
-      quantity: 1,
-    });
-    setSelectedItem(null);
-    setIsFormOpen(true);
+    setLocation("/inventory/new");
   };
 
-  const totalCostValue = filteredInventory.reduce((acc, item) => item.type === "product" ? acc + (item.costPrice * item.quantity) : acc, 0);
-  const totalRetailValue = filteredInventory.reduce((acc, item) => item.type === "product" ? acc + (item.sellingPrice * item.quantity) : acc, 0);
+  const totalCostValue = filteredInventory.reduce((acc, item) => {
+    if (item.type === "service") return acc;
+    const cost = item.variants?.reduce((sum: number, v: any) => sum + (v.costPrice * v.quantity), 0) ?? 0;
+    return acc + cost;
+  }, 0);
+  const totalRetailValue = filteredInventory.reduce((acc, item) => {
+    if (item.type === "service") return acc;
+    const retail = item.variants?.reduce((sum: number, v: any) => sum + (v.sellingPrice * v.quantity), 0) ?? 0;
+    return acc + retail;
+  }, 0);
   const projectedGrossMargin = totalRetailValue > 0 ? ((totalRetailValue - totalCostValue) / totalRetailValue) * 100 : 0;
 
-  const openEditForm = (item: Inventory) => {
-    form.reset({
-      storeId: item.storeId,
-      name: item.name,
-      type: item.type as "product" | "service",
-      costPrice: item.costPrice,
-      sellingPrice: item.sellingPrice,
-      quantity: item.quantity,
-      commissionSplitOverride: (item as any).commissionSplitOverride ?? false,
-      commissionSplitBusinessShare: (item as any).commissionSplitBusinessShare ?? 80,
-      commissionSplitStaffShare: (item as any).commissionSplitStaffShare ?? 20,
-    });
-    setSelectedItem(item);
-    setIsFormOpen(true);
-  };
+  const openEditForm = (item: any) => setLocation(`/inventory/${buildSlug(item.name, item.id)}/edit`);
 
   const closeForm = () => {
     setIsFormOpen(false);
@@ -468,7 +526,7 @@ export default function InventoryPage() {
   }, [inventoryList]);
 
   const navigateToDetails = (item: Inventory) => {
-    setLocation(`/inventory/${item.id}`);
+    setLocation(`/inventory/${buildSlug(item.name, item.id)}`);
   };
 
   const onSubmit = (data: InsertInventory) => {
@@ -493,14 +551,18 @@ export default function InventoryPage() {
     }
   };
 
-  const getStockBadge = (item: Inventory) => {
+  const getStockBadge = (item: any) => {
     if (item.type === "service") {
       return <Badge variant="secondary">Service</Badge>;
     }
-    if (item.quantity === 0) {
+    const totalQty = item.type === "service" ? 0 : (item.variants?.reduce((sum: number, v: any) => sum + v.quantity, 0) ?? 0);
+    // Use per-item reorderPoint when available, else global threshold
+    const itemThreshold = item.variants?.[0]?.reorderPoint ?? item.reorderPoint;
+    const threshold = itemThreshold != null ? itemThreshold : lowStockThreshold;
+    if (totalQty === 0) {
       return <Badge variant="destructive">Out of Stock</Badge>;
     }
-    if (item.quantity <= lowStockThreshold) {
+    if (totalQty <= threshold) {
       return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100">Low Stock</Badge>;
     }
     return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">In Stock</Badge>;
@@ -519,7 +581,7 @@ export default function InventoryPage() {
     {
       key: "name",
       header: "Item Name",
-      render: (item: Inventory) => (
+      render: (item: any) => (
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
             {item.type === "product" ? (
@@ -528,15 +590,25 @@ export default function InventoryPage() {
               <Wrench className="h-4 w-4 text-muted-foreground" />
             )}
           </div>
-          <span className="font-medium">{item.name}</span>
+          <div className="flex flex-col">
+            <span className="font-medium">{item.name}</span>
+            {item.type === "product" && item.variants && (
+              <span className="text-[10px] text-muted-foreground font-mono">
+                {item.variants.length} variant{item.variants.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
       ),
     },
     {
       key: "type",
       header: "Type",
-      render: (item: Inventory) => (
-        <Badge variant="outline" className="capitalize">
+      render: (item: any) => (
+        <Badge variant="outline" className={`capitalize ${
+          item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+          : item.type === "product" ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
+          : ""}`}>
           {item.type}
         </Badge>
       ),
@@ -544,49 +616,80 @@ export default function InventoryPage() {
     {
       key: "costPrice",
       header: "Cost",
-      render: (item: Inventory) => (
-        <span className={`font-mono text-sm ${item.costPrice === 0 ? "text-amber-600 dark:text-amber-400 font-medium" : ""}`}>
-          {item.costPrice === 0 ? "Unset (₦0)" : formatCurrency(item.costPrice)}
-        </span>
-      ),
+      render: (item: any) => {
+        if (!item.variants || item.variants.length === 0) return <span className="font-mono text-sm">—</span>;
+        const costs = item.variants.map((v: any) => v.costPrice);
+        const min = Math.min(...costs);
+        const max = Math.max(...costs);
+        return (
+          <span className="font-mono text-sm">
+            {min === max ? formatCurrency(min) : `${formatCurrency(min)} - ${formatCurrency(max)}`}
+          </span>
+        );
+      },
     },
     {
       key: "sellingPrice",
       header: "Selling Price",
-      render: (item: Inventory) => (
-        <span className="font-mono text-sm font-medium">{formatCurrency(item.sellingPrice)}</span>
-      ),
+      render: (item: any) => {
+        if (!item.variants || item.variants.length === 0) return <span className="font-mono text-sm">—</span>;
+        const prices = item.variants.map((v: any) => v.sellingPrice);
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        return (
+          <span className="font-mono text-sm font-medium font-outfit">
+            {min === max ? formatCurrency(min) : `${formatCurrency(min)} - ${formatCurrency(max)}`}
+          </span>
+        );
+      },
     },
     {
       key: "quantity",
       header: "Stock",
-      render: (item: Inventory) => (
-        <div className="flex items-center gap-2">
-          {item.type === "product" ? (
-            <>
-              <Boxes className="h-3 w-3 text-muted-foreground" />
-              <span className="font-mono">{item.quantity}</span>
-            </>
-          ) : (
-            <span className="flex items-center gap-1 text-muted-foreground">
-              <Infinity className="h-3 w-3" /> N/A
-            </span>
-          )}
-          {getStockBadge(item)}
-        </div>
-      ),
+      render: (item: any) => {
+        if (item.type === "service") {
+          return (
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Infinity className="h-3 w-3" /> N/A
+              </span>
+              {getStockBadge(item)}
+            </div>
+          );
+        }
+        const totalStock = item.variants?.reduce((sum: number, v: any) => sum + v.quantity, 0) ?? 0;
+        const unit = item.unit || item.variants?.[0]?.unit;
+        const displayQty = parseFloat(Number(totalStock).toFixed(4));
+        return (
+          <div className="flex items-center gap-2">
+            <Boxes className="h-3 w-3 text-muted-foreground" />
+            <span className="font-mono">{displayQty}{unit ? ` ${unit}` : ""}</span>
+            {getStockBadge(item)}
+          </div>
+        );
+      },
     },
     {
       key: "margin",
       header: "Margin",
-      render: (item: Inventory) => {
-        const marginVal = item.sellingPrice - item.costPrice;
-        const marginPct = item.sellingPrice > 0 ? (marginVal / item.sellingPrice) * 100 : 0;
+      render: (item: any) => {
+        if (!item.variants || item.variants.length === 0) return <span className="font-mono text-sm">—</span>;
+        const margins = item.variants.map((v: any) => {
+          const marginVal = v.sellingPrice - v.costPrice;
+          const marginPct = v.sellingPrice > 0 ? (marginVal / v.sellingPrice) * 100 : 0;
+          return { val: marginVal, pct: marginPct };
+        });
+        const minVal = Math.min(...margins.map((m: any) => m.val));
+        const maxVal = Math.max(...margins.map((m: any) => m.val));
+        const minPct = Math.min(...margins.map((m: any) => m.pct));
+        const maxPct = Math.max(...margins.map((m: any) => m.pct));
         return (
           <div className="flex flex-col">
-            <span className="font-mono text-sm font-medium">{formatCurrency(marginVal)}</span>
+            <span className="font-mono text-sm font-medium">
+              {minVal === maxVal ? formatCurrency(minVal) : `${formatCurrency(minVal)} - ${formatCurrency(maxVal)}`}
+            </span>
             <span className="font-mono text-xs text-muted-foreground">
-              {marginPct.toFixed(1)}%
+              {minPct === maxPct ? `${minPct.toFixed(1)}%` : `${minPct.toFixed(1)}% - ${maxPct.toFixed(1)}%`}
             </span>
           </div>
         );
@@ -596,26 +699,16 @@ export default function InventoryPage() {
       key: "actions",
       header: "",
       className: "w-32",
-      render: (item: Inventory) => (
+      render: (item: any) => (
         <div className="flex items-center gap-1">
-          {item.type === "product" && (
+          {item.type === "product" && item.variants && item.variants.length === 1 && (
             <Button
               variant="ghost"
               size="icon"
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedItem(item);
-                setRestockData({ 
-                  quantity: 1, 
-                  unitCost: item.costPrice, 
-                  costStrategy: "keep",
-                  newSellingPrice: item.sellingPrice,
-                  reason: "Restock",
-                  receiptUrl: "",
-                  updateSellingPrice: false,
-                  notes: "",
-                });
-                setIsRestockOpen(true);
+                const variant = item.variants[0];
+                setLocation(`/inventory/${buildSlug(item.name, variant.id)}/restock`);
               }}
               data-testid={`button-restock-${item.id}`}
               title="Restock"
@@ -682,7 +775,7 @@ export default function InventoryPage() {
         actions={
           <div className="flex items-center gap-2">
             {filterType === "audits" ? (
-              <Button onClick={() => setIsAuditFormOpen(true)} data-testid="button-new-audit">
+              <Button onClick={() => setLocation("/inventory/audits/new")} data-testid="button-new-audit">
                 <Plus className="mr-2 h-4 w-4" />
                 New Stock Audit
               </Button>
@@ -802,8 +895,15 @@ export default function InventoryPage() {
               label: "Stock Audits",
               icon: <ClipboardList className="mr-1 h-3 w-3" />,
               testId: "tab-audits",
+            },
+            {
+              value: "archived",
+              label: `Archived${archivedList.length > 0 ? ` (${archivedList.length})` : ""}`,
+              icon: <Archive className="mr-1 h-3 w-3" />,
+              testId: "tab-archived",
+              className: archivedList.length > 0 ? "text-muted-foreground" : "",
             }
-          ]} 
+          ]}
         />
       </Tabs>
 
@@ -916,19 +1016,104 @@ export default function InventoryPage() {
             />
           );
         })()
+      ) : filterType === "archived" ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 bg-muted/40 rounded-lg border border-dashed">
+            <Archive className="h-4 w-4 shrink-0" />
+            <span>Archived items are hidden from active inventory and cannot be sold. Restore them to make them active again.</span>
+          </div>
+          {isLoadingArchived ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">Loading archived items…</div>
+          ) : archivedList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+              <Archive className="h-10 w-10 opacity-30" />
+              <p className="text-sm">No archived items</p>
+            </div>
+          ) : (
+            <DataTable
+              data={archivedList}
+              columns={[
+                ...(currentStore?.id === "all" ? [{
+                  key: "storeName",
+                  header: "Store",
+                  render: (item: any) => (
+                    <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+                      {item.storeName || "Global"}
+                    </Badge>
+                  ),
+                }] : []),
+                {
+                  key: "name",
+                  header: "Item Name",
+                  render: (item: any) => (
+                    <div className="flex items-center gap-3 opacity-60">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
+                        {item.type === "product" ? <Package className="h-4 w-4 text-muted-foreground" /> : <Wrench className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                      <span className="font-medium line-through text-muted-foreground">{item.name}</span>
+                    </div>
+                  ),
+                },
+                {
+                  key: "type",
+                  header: "Type",
+                  render: (item: any) => (
+                    <Badge variant="outline" className={`capitalize ${item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30" : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
+                      {item.type}
+                    </Badge>
+                  ),
+                },
+                {
+                  key: "archivedAt",
+                  header: "Archived",
+                  render: (item: any) => (
+                    <span className="text-sm text-muted-foreground">
+                      {item.deletedAt ? new Date(item.deletedAt).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                    </span>
+                  ),
+                },
+                {
+                  key: "restore",
+                  header: "",
+                  render: (item: any) => (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                      disabled={restoreMutation.isPending}
+                      onClick={() => restoreMutation.mutate(item.id)}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Restore
+                    </Button>
+                  ),
+                },
+              ]}
+              searchable
+              searchPlaceholder="Search archived items…"
+            />
+          )}
+        </div>
       ) : (
         (() => {
           const tableData = filteredInventory.map((item) => {
-            const margin = item.sellingPrice > 0 
-              ? Math.round(((item.sellingPrice - item.costPrice) / item.sellingPrice) * 100) 
-              : 0;
+            const totalStock = item.type === "service" ? 0 : (item.variants?.reduce((sum: number, v: any) => sum + v.quantity, 0) ?? 0);
             const stockStatus = item.type === "service" 
               ? "In Stock" 
-              : (item.quantity === 0 ? "Out of Stock" : (item.quantity <= lowStockThreshold ? "Low Stock" : "In Stock"));
+              : (totalStock === 0 ? "Out of Stock" : (item.variants?.some((v: any) => v.quantity <= lowStockThreshold) ? "Low Stock" : "In Stock"));
+            
+            const marginPct = item.variants && item.variants.length > 0
+              ? item.variants.reduce((acc: number, v: any) => {
+                  const mVal = v.sellingPrice - v.costPrice;
+                  const mPct = v.sellingPrice > 0 ? (mVal / v.sellingPrice) * 100 : 0;
+                  return acc + mPct;
+                }, 0) / item.variants.length
+              : 0;
+
             return {
               ...item,
               stockStatus,
-              margin
+              margin: Math.round(marginPct)
             };
           });
 
@@ -969,429 +1154,53 @@ export default function InventoryPage() {
         })()
       )}
 
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedItem ? "Edit Item" : "Add New Item"}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedItem
-                ? "Update the inventory item details below."
-                : "Fill in the details to add a new inventory item."}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {currentStore?.id === "all" && !selectedItem && (
-                <FormField
-                  control={form.control}
-                  name="storeId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Target Store Location</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-store">
-                            <SelectValue placeholder="Select a branch..." />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {stores.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Item Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Widget Pro" {...field} data-testid="input-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-type">
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="product">Product</SelectItem>
-                        <SelectItem value="service">Service</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="costPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Cost Price ({currencyInfo?.symbol || "₦"})</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          data-testid="input-cost"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="sellingPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Selling Price ({currencyInfo?.symbol || "₦"})</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          data-testid="input-selling"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              {watchType === "product" && (
-                <FormField
-                  control={form.control}
-                  name="quantity"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Quantity in Stock</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                          data-testid="input-quantity"
-                          min="1"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              {watchType === "service" && (
-                <div className="border border-muted/80 p-3 rounded-lg bg-muted/10 space-y-3 animate-in fade-in duration-200">
-                  <FormField
-                    control={form.control}
-                    name="commissionSplitOverride"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background shadow-xs">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-xs font-semibold">Override Standard Split</FormLabel>
-                          <FormDescription className="text-[10px]">
-                            Customise business & staff commission split for this service
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="switch-service-split-override"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
 
-                  {form.watch("commissionSplitOverride") && (
-                    <div className="grid grid-cols-2 gap-4 pt-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitBusinessShare"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-[11px]">Business Share (%)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                {...field}
-                                onChange={(e) => field.onChange(Number(e.target.value))}
-                                placeholder="80"
-                                data-testid="input-service-split-business"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitStaffShare"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-[11px]">Staff Share (%)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                {...field}
-                                onChange={(e) => field.onChange(Number(e.target.value))}
-                                placeholder="20"
-                                data-testid="input-service-split-staff"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-              {watchSellingPrice < watchCostPrice && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Selling price cannot be less than cost price.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {hasZeroMargin && (
-                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-medium">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span>This item has 0% margin. You will break even on every sale.</span>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={closeForm}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending || watchSellingPrice < watchCostPrice}
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending || updateMutation.isPending
-                    ? "Saving..."
-                    : selectedItem
-                    ? "Update Item"
-                    : "Add Item"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={isRestockOpen} onOpenChange={setIsRestockOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5" />
-              Restock "{selectedItem?.name}"
-            </DialogTitle>
-            <DialogDescription>
-              Add more stock to this item. Current stock: {selectedItem?.quantity ?? 0}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="restock-quantity">Quantity to Add</Label>
-              <Input
-                id="restock-quantity"
-                type="number"
-                min="1"
-                value={restockData.quantity}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  quantity: parseInt(e.target.value) || 1 
-                }))}
-                data-testid="input-restock-quantity"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="restock-reason">Reason</Label>
-              <Select
-                value={restockData.reason}
-                onValueChange={(value) => setRestockData(prev => ({ ...prev, reason: value as any }))}
+      {/* Delete / Archive dialog */}
+      {deleteBlockedBySales ? (
+        <Dialog open={isDeleteOpen} onOpenChange={(open) => { setIsDeleteOpen(open); if (!open) setDeleteBlockedBySales(false); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ArchiveX className="h-5 w-5 text-amber-500" />
+                Cannot Delete "{selectedItem?.name}"
+              </DialogTitle>
+              <DialogDescription className="pt-1">
+                This item has existing sales records that must be preserved for your reports and history.
+                <br /><br />
+                You can <strong>archive</strong> it instead — it will be hidden from your active inventory and can no longer be sold, but all past sales and reports remain unaffected.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-2 pt-2">
+              <Button
+                onClick={() => archiveMutation.mutate()}
+                disabled={archiveMutation.isPending}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white"
               >
-                <SelectTrigger id="restock-reason">
-                  <SelectValue placeholder="Select a reason" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Restock">Regular Restock</SelectItem>
-                  <SelectItem value="Return">Customer Return</SelectItem>
-                  <SelectItem value="Adjustment">Stock Adjustment/Correction</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="restock-receipt">Receipt/Invoice URL (optional)</Label>
-              <Input
-                id="restock-receipt"
-                placeholder="https://example.com/receipt.pdf"
-                value={restockData.receiptUrl}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  receiptUrl: e.target.value 
-                }))}
-                data-testid="input-restock-receipt-url"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="unit-cost">Unit Cost for This Restock ({currencyInfo?.symbol || "₦"})</Label>
-              <Input
-                id="unit-cost"
-                type="number"
-                step="0.01"
-                min="0"
-                value={restockData.unitCost}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  unitCost: parseFloat(e.target.value) || 0 
-                }))}
-                data-testid="input-unit-cost"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>How to Update Item Cost Price</Label>
-              <RadioGroup
-                value={restockData.costStrategy}
-                onValueChange={(value) => setRestockData(prev => ({ 
-                  ...prev, 
-                  costStrategy: value as "keep" | "last" | "weighted" | "override" 
-                }))}
-                className="space-y-2"
+                {archiveMutation.isPending ? "Archiving…" : "Archive Item"}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => { setIsDeleteOpen(false); setDeleteBlockedBySales(false); }}
               >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="keep" id="keep" />
-                  <Label htmlFor="keep" className="font-normal">
-                    Keep existing cost ({formatCurrency(selectedItem?.costPrice ?? 0)})
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="last" id="last" />
-                  <Label htmlFor="last" className="font-normal">
-                    Use this restock's unit cost ({formatCurrency(restockData.unitCost)})
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="weighted" id="weighted" />
-                  <Label htmlFor="weighted" className="font-normal">
-                    Weighted average
-                  </Label>
-                </div>
-              </RadioGroup>
-              {restockData.costStrategy === "weighted" && selectedItem && restockData.unitCost > 0 && (
-                <p className="text-xs text-muted-foreground ml-6">
-                  New cost: {formatCurrency(
-                    ((selectedItem.quantity * selectedItem.costPrice) + (restockData.quantity * restockData.unitCost)) / 
-                    (selectedItem.quantity + restockData.quantity)
-                  )}
-                </p>
-              )}
+                Cancel
+              </Button>
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="update-selling-price"
-                  checked={restockData.updateSellingPrice}
-                  onChange={(e) => setRestockData(prev => ({ 
-                    ...prev, 
-                    updateSellingPrice: e.target.checked 
-                  }))}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <Label htmlFor="update-selling-price" className="font-normal">
-                  Update selling price
-                </Label>
-              </div>
-              {restockData.updateSellingPrice && (
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder={`Current: ${formatCurrency(selectedItem?.sellingPrice ?? 0)}`}
-                  value={restockData.newSellingPrice ?? ""}
-                  onChange={(e) => setRestockData(prev => ({ 
-                    ...prev, 
-                    newSellingPrice: parseFloat(e.target.value) || undefined 
-                  }))}
-                  data-testid="input-new-selling-price"
-                />
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="restock-notes">Notes (optional)</Label>
-              <Input
-                id="restock-notes"
-                placeholder="e.g., Supplier batch #123"
-                value={restockData.notes}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  notes: e.target.value 
-                }))}
-                data-testid="input-restock-notes"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsRestockOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={() => restockMutation.mutate()}
-              disabled={restockMutation.isPending || restockData.quantity < 1}
-              data-testid="button-confirm-restock"
-            >
-              {restockMutation.isPending ? "Updating..." : "Add Stock"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <ConfirmDialog
-        open={isDeleteOpen}
-        onOpenChange={setIsDeleteOpen}
-        title="Delete Item"
-        description={`Are you sure you want to delete "${selectedItem?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={() => deleteMutation.mutate()}
-        isDestructive
-        isLoading={deleteMutation.isPending}
-      />
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <ConfirmDialog
+          open={isDeleteOpen}
+          onOpenChange={setIsDeleteOpen}
+          title="Delete Item"
+          description={`Are you sure you want to delete "${selectedItem?.name}"? This action cannot be undone.`}
+          confirmText="Delete"
+          onConfirm={() => deleteMutation.mutate()}
+          isDestructive
+          isLoading={deleteMutation.isPending}
+        />
+      )}
 
       <Dialog open={isDuplicateOpen} onOpenChange={setIsDuplicateOpen}>
         <DialogContent className="max-w-md">
@@ -1440,17 +1249,7 @@ export default function InventoryPage() {
                   setIsDuplicateOpen(false);
                   setIsFormOpen(false); // Close the Add Item dialog
                   setSelectedItem(duplicateItem);
-                  setRestockData({
-                    quantity: duplicatePayload?.quantity || 1,
-                    unitCost: duplicateItem.costPrice,
-                    costStrategy: "keep",
-                    newSellingPrice: duplicateItem.sellingPrice,
-                    updateSellingPrice: false,
-                    reason: "Restock",
-                    receiptUrl: "",
-                    notes: `Autoredirected restock from duplicate add`,
-                  });
-                  setIsRestockOpen(true);
+                  setLocation(`/inventory/${buildSlug(duplicateItem.name, duplicateItem.id)}/restock`);
                 }}
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -1472,209 +1271,6 @@ export default function InventoryPage() {
         </DialogContent>
       </Dialog>
 
-      {/* New Stock Audit Dialog */}
-      <Dialog open={isAuditFormOpen} onOpenChange={setIsAuditFormOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 glassmorphic-dark border-muted/30">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-              <ClipboardList className="h-5 w-5 text-indigo-400" />
-              New Physical Stock Audit
-            </DialogTitle>
-            <DialogDescription>
-              Record a physical count of products in stock to reconcile with system-tracked stock.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="conductedBy">Conducted By</Label>
-                <Select value={conductedByStaffId} onValueChange={setConductedByStaffId}>
-                  <SelectTrigger id="conductedBy">
-                    <SelectValue placeholder="Select staff..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffList.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name} ({s.role})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="auditNotes">General Notes</Label>
-                <Input
-                  id="auditNotes"
-                  placeholder="e.g. Monthly stock take"
-                  value={auditNotes}
-                  onChange={(e) => setAuditNotes(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-muted/30 pt-4 space-y-3">
-              <Label>Select Products to Audit</Label>
-              <Select
-                value=""
-                onValueChange={(val) => {
-                  const item = inventoryList.find((i) => i.id === val);
-                  if (item && !auditItems.some((ai) => ai.inventoryId === item.id)) {
-                    setAuditItems((prev) => [
-                      ...prev,
-                      {
-                        inventoryId: item.id,
-                        name: item.name,
-                        systemQuantity: item.quantity,
-                        physicalQuantity: item.quantity,
-                        reason: "Miscount",
-                      },
-                    ]);
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Add product to audit..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {inventoryList
-                    .filter((i) => i.type === "product" && !auditItems.some((ai) => ai.inventoryId === i.id))
-                    .map((i) => (
-                      <SelectItem key={i.id} value={i.id}>
-                        {i.name} (Current Stock: {i.quantity})
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-3">
-              {auditItems.length > 0 ? (
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {auditItems.map((ai, index) => {
-                    const variance = ai.physicalQuantity - ai.systemQuantity;
-                    return (
-                      <div
-                        key={ai.inventoryId}
-                        className="flex flex-col gap-2 p-3 rounded-lg border bg-muted/10 border-muted/30 animate-in fade-in slide-in-from-top-2 duration-200"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-sm">{ai.name}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              setAuditItems((prev) => prev.filter((item) => item.inventoryId !== ai.inventoryId));
-                            }}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <span className="text-[10px] text-muted-foreground block mb-1">System Qty</span>
-                            <Input
-                              type="number"
-                              readOnly
-                              value={ai.systemQuantity}
-                              className="h-8 font-mono text-xs bg-muted/30 border-muted/30"
-                            />
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-muted-foreground block mb-1">Physical Qty</span>
-                            <Input
-                              type="number"
-                              value={ai.physicalQuantity}
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value) || 0;
-                                setAuditItems((prev) =>
-                                  prev.map((item, idx) =>
-                                    idx === index ? { ...item, physicalQuantity: val } : item
-                                  )
-                                );
-                              }}
-                              className="h-8 font-mono text-xs"
-                              min="0"
-                            />
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-muted-foreground block mb-1">Variance</span>
-                            <div
-                              className={`h-8 flex items-center justify-center rounded-md border text-xs font-mono font-bold ${
-                                variance > 0
-                                  ? "bg-green-500/10 border-green-500/30 text-green-500"
-                                  : variance < 0
-                                  ? "bg-red-500/10 border-red-500/30 text-red-500"
-                                  : "bg-muted border-border text-muted-foreground"
-                              }`}
-                            >
-                              {variance > 0 ? `+${variance}` : variance}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-1">
-                          <span className="text-[10px] text-muted-foreground block mb-1">Reason for Drift</span>
-                          <Select
-                            value={ai.reason}
-                            onValueChange={(val) => {
-                              setAuditItems((prev) =>
-                                prev.map((item, idx) => (idx === index ? { ...item, reason: val } : item))
-                              );
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Reason" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Theft">Theft/Pilferage</SelectItem>
-                              <SelectItem value="Damage">Damage/Spillage</SelectItem>
-                              <SelectItem value="Miscount">Regular Miscount</SelectItem>
-                              <SelectItem value="DataEntry">Data Entry Error</SelectItem>
-                              <SelectItem value="Other">Other Reason</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-6 text-sm text-muted-foreground border border-dashed rounded-lg border-muted/30">
-                  No products added to audit yet. Add one above.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-muted/30 pt-4">
-            <Button variant="outline" onClick={() => setIsAuditFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (!conductedByStaffId) {
-                  toast({ title: "Validation Error", description: "Please select who conducted the audit.", variant: "destructive" });
-                  return;
-                }
-                if (auditItems.length === 0) {
-                  toast({ title: "Validation Error", description: "Please add at least one product to audit.", variant: "destructive" });
-                  return;
-                }
-                createAuditMutation.mutate({
-                  storeId: currentStore.id,
-                  conductedByStaffId,
-                  notes: auditNotes,
-                  items: auditItems,
-                });
-              }}
-              disabled={createAuditMutation.isPending || auditItems.length === 0}
-            >
-              {createAuditMutation.isPending ? "Submitting..." : "Submit Audit Draft"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Audit Details Dialog */}
       <Dialog open={isAuditDetailOpen} onOpenChange={setIsAuditDetailOpen}>
@@ -1808,6 +1404,34 @@ export default function InventoryPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <SpeedDialFAB
+        actions={
+          filterType === "audits"
+            ? [
+                {
+                  label: "New Audit",
+                  icon: <ClipboardList className="h-5 w-5" />,
+                  onClick: () => setLocation("/inventory/audits/new"),
+                  testId: "fab-new-audit",
+                },
+              ]
+            : [
+                {
+                  label: "Add Item",
+                  icon: <Package className="h-5 w-5" />,
+                  onClick: openCreateForm,
+                  testId: "fab-add-item",
+                },
+                {
+                  label: "New Audit",
+                  icon: <ClipboardList className="h-5 w-5" />,
+                  onClick: () => setLocation("/inventory/audits/new"),
+                  testId: "fab-new-audit",
+                },
+              ]
+        }
+      />
     </div>
   );
 }

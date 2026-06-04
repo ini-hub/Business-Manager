@@ -1,40 +1,8 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { isAuthenticated } from "../auth";
-import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
-} from "@shared/schema";
 import { z } from "zod";
-import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { auditLogger } from "../audit";
-import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, checkBusinessAccess, getUserStores, verifyStoreAccess } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -67,21 +35,33 @@ function groupTransactions(txs: any[]): any[] {
       totalSubtotal += Number(item.checkout?.subtotal) || 0;
       totalDiscountAmount += Number(item.checkout?.discountAmount) || 0;
     }
-    const uniqueNames = Array.from(new Set(group.map((t: any) => t.inventory?.name).filter(Boolean)));
-    const joinedNames = uniqueNames.join(", ");
     const hasService = group.some((t: any) => t.inventory?.type === "service");
+    const hasProduct = group.some((t: any) => t.inventory?.type === "product");
+    const basketType = hasService && hasProduct ? "mixed" : hasService ? "service" : "product";
     result.push({
-      ...firstTx, amount: totalAmount,
-      inventory: { ...firstTx.inventory, name: joinedNames, type: hasService ? "service" : "product" },
-      checkout: { ...firstTx.checkout, totalPrice: totalTotalPrice, subtotal: totalSubtotal, discountAmount: totalDiscountAmount, quantity: totalQuantity, returnedQuantity: totalReturnedQuantity, refundedAmount: totalRefundedAmount, totalCharged: totalTotalCharged },
+      ...firstTx,
+      amount: totalAmount,
+      inventory: { ...firstTx.inventory, type: basketType },
+      checkout: {
+        ...firstTx.checkout,
+        totalPrice: totalTotalPrice,
+        subtotal: totalSubtotal,
+        discountAmount: totalDiscountAmount,
+        quantity: totalQuantity,
+        returnedQuantity: totalReturnedQuantity,
+        refundedAmount: totalRefundedAmount,
+        totalCharged: totalTotalCharged,
+        basketItemCount: group.length,
+      },
     });
   }
   return result;
 }
 
-export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerTransactionRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== TRANSACTIONS ==========
-  app.get("/api/transactions", async (req, res) => {
+
+  app.get("/api/transactions", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) {
@@ -91,12 +71,19 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
 
+      // Parse optional server-side date filters
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const filters = { startDate, endDate };
+
       if (storeId === "all") {
         const stores = await getUserStores(req);
-        if (stores.length === 0) return res.json(page > 0 && limit > 0 ? { transactions: [], total: 0, pages: 0 } : []);
+        if (stores.length === 0) {
+          return res.json(page > 0 && limit > 0 ? { transactions: [], total: 0, pages: 0 } : []);
+        }
 
         const allTxs = await Promise.all(
-          stores.map(s => storage.getTransactions(s.id))
+          stores.map(s => storage.getTransactions(s.id, filters))
         );
         let merged = allTxs.flat();
         let grouped = groupTransactions(merged);
@@ -105,8 +92,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
           const search = req.query.search as string;
           if (search) {
             const sLower = search.toLowerCase();
-            grouped = grouped.filter(tx => 
-              String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) || 
+            grouped = grouped.filter(tx =>
+              String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) ||
               String(tx.id || "").toLowerCase().includes(sLower) ||
               String(tx.inventory?.name || "").toLowerCase().includes(sLower) ||
               String(tx.customer?.name || "").toLowerCase().includes(sLower)
@@ -116,9 +103,14 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
           const start = (page - 1) * limit;
           const paginated = grouped.slice(start, start + limit);
           return res.json({
-            transactions: paginated,
-            total: grouped.length,
-            pages: Math.ceil(grouped.length / limit),
+            data: paginated,
+            pagination: {
+              total: grouped.length,
+              page,
+              limit,
+              totalPages: Math.ceil(grouped.length / limit),
+              hasMore: page < Math.ceil(grouped.length / limit),
+            },
           });
         }
 
@@ -128,15 +120,15 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const txs = await storage.getTransactions(storeId, filters);
+      let grouped = groupTransactions(txs);
+
       if (page > 0 && limit > 0) {
         const search = req.query.search as string;
-        const txs = await storage.getTransactions(storeId);
-        let grouped = groupTransactions(txs);
-
         if (search) {
           const sLower = search.toLowerCase();
-          grouped = grouped.filter(tx => 
-            String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) || 
+          grouped = grouped.filter(tx =>
+            String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) ||
             String(tx.id || "").toLowerCase().includes(sLower) ||
             String(tx.inventory?.name || "").toLowerCase().includes(sLower) ||
             String(tx.customer?.name || "").toLowerCase().includes(sLower)
@@ -159,16 +151,38 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
         });
       }
 
-      const txs = await storage.getTransactions(storeId);
-      res.json(groupTransactions(txs));
+      res.json(grouped);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your transactions. Please try again." });
     }
   });
 
-  app.get("/api/customers/:id/transactions", async (req, res) => {
+  // ─── GET single transaction by ID ─────────────────────────────────────────
+  app.get("/api/transactions/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const tx = await storage.getTransactionById(id);
+      if (!tx) return res.status(404).json({ error: "Transaction not found." });
+
+      // Verify the requesting user has access to the transaction's store
+      if (!(await checkStoreAccess(tx.storeId, req, res))) return;
+
+      res.json(tx);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load transaction." });
+    }
+  });
+
+  app.get("/api/customers/:id/transactions", isAuthenticated, async (req: any, res) => {
     try {
       const txs = await storage.getTransactionsByCustomer(req.params.id);
+
+      // Verify the user has access to at least one store for this customer's transactions
+      if (txs.length > 0) {
+        const storeId = txs[0].storeId;
+        if (!(await checkStoreAccess(storeId, req, res))) return;
+      }
+
       res.json(groupTransactions(txs));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load customer transactions. Please try again." });
@@ -176,11 +190,12 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
   });
 
   // ─── GET receipt payload ─────────────────────────────────────────────────
-  app.get("/api/transactions/:checkoutId/receipt", async (req: any, res) => {
+  app.get("/api/transactions/:checkoutId/receipt", isAuthenticated, async (req: any, res) => {
     try {
       const { checkoutId } = req.params;
       const payload = await storage.getReceiptPayload(checkoutId);
       if (!payload) return res.status(404).json({ error: "Transaction not found." });
+      if (!(await checkStoreAccess(payload.checkout.storeId, req, res))) return;
       res.json(payload);
     } catch (error) {
       console.error("Receipt API Error:", error);
@@ -200,7 +215,30 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
       if (!userId) return res.status(401).json({ error: "Unauthorized." });
 
       const result = await storage.voidCheckout(checkoutId, reason.trim(), userId);
-      if (!result.success) return res.status(400).json({ error: result.message });
+      if (!result.success) {
+        auditLogger.log({
+          action: "TRANSACTION_VOID",
+          resource: "checkout",
+          resourceId: checkoutId,
+          userId,
+          ip: getClientIp(req),
+          status: "failure",
+          errorMessage: result.message,
+          details: { reason: reason.trim() },
+        });
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({
+        action: "TRANSACTION_VOID",
+        resource: "checkout",
+        resourceId: checkoutId,
+        userId,
+        ip: getClientIp(req),
+        status: "success",
+        details: { reason: reason.trim() },
+      });
+
       res.json({ success: true, message: result.message, payrollWarning: result.payrollWarning });
     } catch (error) {
       res.status(500).json({ error: "Could not void transaction." });
@@ -216,13 +254,26 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
       const validStatuses = ["completed", "pending"];
       if (!validMethods.includes(paymentMethod)) return res.status(400).json({ error: "Invalid payment method." });
       if (!validStatuses.includes(paymentStatus)) return res.status(400).json({ error: "Invalid payment status." });
+
       const ok = await storage.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus);
       if (!ok) return res.status(404).json({ error: "Transaction not found." });
+
+      auditLogger.log({
+        action: "PAYMENT_UPDATE",
+        resource: "checkout",
+        resourceId: checkoutId,
+        userId: req.user?.id,
+        ip: getClientIp(req),
+        status: "success",
+        details: { paymentMethod, paymentStatus },
+      });
+
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not update payment status." });
     }
   });
+
   // ========== POS RETURNS & STORE CREDITS ==========
 
   app.post("/api/sales/returns", requireRole("owner", "manager"), async (req: any, res) => {
@@ -249,10 +300,30 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
       });
 
       if (!result.success) {
+        auditLogger.log({
+          action: "TRANSACTION_RETURN",
+          resource: "checkout",
+          resourceId: checkoutId,
+          userId,
+          ip: getClientIp(req),
+          status: "failure",
+          errorMessage: result.message,
+          details: { refundMethod, refundAmount: Number(refundAmount), reason: reason.trim() },
+        });
         return res.status(400).json({ error: result.message });
       }
 
-      // If refund method is cash, integrate with active cash register session
+      auditLogger.log({
+        action: "TRANSACTION_RETURN",
+        resource: "checkout",
+        resourceId: checkoutId,
+        userId,
+        ip: getClientIp(req),
+        status: "success",
+        details: { refundMethod, refundAmount: Number(refundAmount), reason: reason.trim(), returnLogIds: result.returnLogIds },
+      });
+
+      // Integrate cash refund with the active register session
       if (refundMethod === "cash") {
         try {
           const activeSession = await storage.cashRegisterRepo.getActiveSession(storeId);
@@ -276,7 +347,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
     }
   });
 
-  app.get("/api/customers/:id/store-credit", async (req: any, res) => {
+  app.get("/api/customers/:id/store-credit", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
       const transactionsList = await storage.getStoreCreditTransactions(id);
@@ -286,28 +357,28 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
       res.status(500).json({ error: "Could not load store credit balance history." });
     }
   });
-  // ---------- 1. PARTIAL RETURNS ----------
+
+  // ---------- PARTIAL RETURNS ----------
   app.post("/api/transactions/:checkoutId/return", requireRole("owner", "manager"), async (req: any, res) => {
     try {
       const { checkoutId } = req.params;
       const { orderId, quantity, refundAmount, refundMethod, reason, staffId } = req.body;
-      
+
       if (!orderId || quantity === undefined || refundAmount === undefined || !refundMethod) {
         return res.status(400).json({ error: "Missing required fields for processing return." });
       }
+      if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
+        return res.status(400).json({ error: "A return reason is required." });
+      }
 
-      // Retrieve receipt payload first to verify store access
       const payload = await storage.getReceiptPayload(checkoutId);
-      if (!payload) {
-        return res.status(404).json({ error: "Transaction not found." });
-      }
+      if (!payload) return res.status(404).json({ error: "Transaction not found." });
       const checkout = payload.items[0]?.checkout;
-      if (!checkout) {
-        return res.status(404).json({ error: "Checkout not found." });
-      }
+      if (!checkout) return res.status(404).json({ error: "Checkout not found." });
 
       if (!(await checkStoreAccess(checkout.storeId, req, res))) return;
 
+      const userId = req.user?.id || "";
       const result = await storage.processReturn({
         storeId: checkout.storeId,
         checkoutId,
@@ -318,8 +389,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
         }],
         refundMethod,
         refundAmount: Number(refundAmount),
-        reason: reason || "Legacy return",
-        userId: req.user?.id || "",
+        reason: reason.trim(),
+        userId,
         staffId: staffId || "",
       });
 
@@ -327,11 +398,20 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated: _isAu
         return res.status(400).json({ error: result.message });
       }
 
+      auditLogger.log({
+        action: "TRANSACTION_RETURN",
+        resource: "checkout",
+        resourceId: checkoutId,
+        userId,
+        ip: getClientIp(req),
+        status: "success",
+        details: { refundMethod, refundAmount: Number(refundAmount), reason: reason.trim() },
+      });
+
       res.json(result);
     } catch (error) {
       console.error("Return error:", error);
       res.status(500).json({ error: (error as Error).message || "Could not process return." });
     }
   });
-
 }

@@ -204,7 +204,10 @@ export default function ProfitLossPage() {
             <p className="font-medium">
               {pl.inventory?.name ?? "Unknown"}
             </p>
-            <Badge variant="outline" className="text-xs capitalize mt-1">
+            <Badge variant="outline" className={`text-xs capitalize mt-1 ${
+              pl.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+              : pl.inventory?.type === "product" ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
+              : ""}`}>
               {pl.inventory?.type ?? "unknown"}
             </Badge>
           </div>
@@ -214,21 +217,26 @@ export default function ProfitLossPage() {
     {
       key: "totalQuantitySold",
       header: "Qty Sold",
-      render: (pl: ProfitLossWithInventory) => (
-        <div className="flex items-center gap-2">
-          <ShoppingBag className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono">{pl.totalQuantitySold}</span>
-        </div>
-      ),
+      render: (pl: ProfitLossWithInventory) => {
+        const unit = pl.inventory?.unit;
+        const qty = parseFloat(Number(pl.totalQuantitySold).toFixed(2));
+        return (
+          <div className="flex items-center gap-1.5">
+            <ShoppingBag className="h-3 w-3 text-muted-foreground" />
+            <span className="font-mono">{qty}{unit ? ` ${unit}` : ""}</span>
+          </div>
+        );
+      },
     },
     {
       key: "quantityRemaining",
       header: "Remaining",
-      render: (pl: ProfitLossWithInventory) => (
-        <span className="font-mono">
-          {pl.inventory?.type === "service" ? "N/A" : pl.quantityRemaining}
-        </span>
-      ),
+      render: (pl: ProfitLossWithInventory) => {
+        if (pl.inventory?.type === "service") return <span className="font-mono text-muted-foreground">N/A</span>;
+        const unit = pl.inventory?.unit;
+        const qty = parseFloat(Number(pl.quantityRemaining).toFixed(2));
+        return <span className="font-mono">{qty}{unit ? ` ${unit}` : ""}</span>;
+      },
     },
     {
       key: "totalRevenue",

@@ -43,7 +43,7 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerPaymentRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== DYNAMIC MULTI-TENANT PAYMENT STRATEGY ROUTER ==========
   const paymentLinkSchema = z.object({
     storeId: z.string(),

@@ -58,8 +58,15 @@ const ENTITY_CONFIG = {
     label: "Inventory",
     endpoint: "/api/inventory/bulk",
     exportFilename: "inventory",
-    sampleHeaders: ["name", "type", "costPrice", "sellingPrice", "quantity"],
-    sampleRow: ["Widget Pro", "product", "10.00", "25.00", "100"],
+    sampleHeaders: ["name", "type", "costPrice", "sellingPrice", "quantity", "variantOf", "variant_Size", "variant_Color"],
+    sampleRows: [
+      ["T-Shirt", "product", "5.00", "20.00", "0", "", "", ""],
+      ["Small / Red", "product", "5.00", "20.00", "50", "T-Shirt", "S", "Red"],
+      ["Large / Blue", "product", "5.00", "20.00", "30", "T-Shirt", "L", "Blue"],
+      ["Relaxer", "product", "3000", "12000", "84", "", "", ""],
+      ["Basic Wash + Blow Drying", "service", "0", "1000", "0", "", "", ""],
+    ],
+    sampleRow: ["T-Shirt", "product", "5.00", "20.00", "0", "", "", ""],
   },
 };
 
@@ -88,7 +95,13 @@ export function BulkOperations({
     onSuccess: (result: ImportResult) => {
       setImportResult(result);
       setImportProgress(100);
-      queryClient.invalidateQueries({ queryKey: [`/api/${entityType === "inventory" ? "inventory" : entityType}`, storeId] });
+      if (entityType === "inventory") {
+        // Inventory page fetches from /api/products; invalidate both keys to cover all consumers
+        queryClient.invalidateQueries({ queryKey: ["/api/products", storeId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/inventory", storeId] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: [`/api/${entityType}`, storeId] });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", storeId] });
 
       if (result.failed === 0) {
@@ -149,9 +162,10 @@ export function BulkOperations({
   };
 
   const handleDownloadTemplate = () => {
+    const rows = (config as any).sampleRows ?? [config.sampleRow];
     const csvContent = [
       config.sampleHeaders.join(","),
-      config.sampleRow.join(","),
+      ...rows.map((r: string[]) => r.join(",")),
     ].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });

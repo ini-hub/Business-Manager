@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import type { Staff } from "@shared/schema";
 import type { CartItem } from "./types";
+import { quantityStep, parseQuantityInput, formatQuantity } from "@/lib/quantity-utils";
 
 interface CartItemRowProps {
   item: CartItem;
@@ -113,31 +114,34 @@ export function CartItemRow({
             variant="outline"
             size="icon"
             className="h-7 w-7"
-            onClick={() => onUpdateQuantity(item.inventory.id, -1)}
+            onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : -1)}
             data-testid={`button-decrease-${item.inventory.id}`}
           >
             <Minus className="h-3 w-3" />
           </Button>
           <Input
             type="number"
-            step="1"
-            min="1"
-            max={item.inventory.type === "service" ? 999 : item.inventory.quantity}
+            step={quantityStep(item.inventory.allowFractional ?? false)}
+            min={item.inventory.allowFractional ? "0.01" : "1"}
+            max={item.inventory.type === "service" ? 999 : item.inventory.quantity || undefined}
             value={item.quantity || ""}
             onChange={(e) => {
-              const val = e.target.value;
-              onSetExactQuantity(item.inventory.id, val === "" ? 1 : parseInt(val) || 1);
+              const parsed = parseQuantityInput(e.target.value, item.inventory.allowFractional ?? false);
+              onSetExactQuantity(item.inventory.id, parsed);
             }}
-            className="h-7 w-14 text-center font-mono text-sm px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="h-7 w-16 text-center font-mono text-sm px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             data-testid={`input-quantity-${item.inventory.id}`}
             onKeyDown={advanceFocus}
           />
+          {item.inventory.unit && (
+            <span className="text-xs text-muted-foreground font-medium">{item.inventory.unit}</span>
+          )}
           <Button
             variant="outline"
             size="icon"
             className="h-7 w-7"
-            onClick={() => onUpdateQuantity(item.inventory.id, 1)}
-            disabled={item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
+            onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : 1)}
+            disabled={!item.inventory.allowFractional && item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
             data-testid={`button-increase-${item.inventory.id}`}
           >
             <Plus className="h-3 w-3" />
@@ -147,6 +151,29 @@ export function CartItemRow({
           {formatCurrency(item.totalPrice)}
         </span>
       </div>
+      {item.inventory.allowFractional && (
+        <div className="flex items-center gap-1 flex-wrap -mt-1">
+          {item.inventory.unit && (
+            <span className="text-[10px] text-muted-foreground">
+              {formatQuantity(item.quantity, item.inventory.unit)} selected ·
+            </span>
+          )}
+          {[0.25, 0.5, 0.75, 1, 1.5, 2].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onSetExactQuantity(item.inventory.id, preset)}
+              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                item.quantity === preset
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted/50 text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+              }`}
+            >
+              {preset}{item.inventory.unit ? ` ${item.inventory.unit}` : ""}
+            </button>
+          ))}
+        </div>
+      )}
 
       {item.inventory.type === "service" && (
         <div className="mt-2 pt-2 border-t border-muted space-y-2">

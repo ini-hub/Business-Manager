@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Calendar,
   User,
-  Package,
   CreditCard,
   Hash,
   AlertCircle,
@@ -53,6 +52,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ReceiptModal } from "@/components/receipt-modal";
+import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
@@ -82,6 +82,9 @@ export default function TransactionDetailsPage() {
   const [editPaymentMethod, setEditPaymentMethod] = useState("");
   const [editPaymentStatus, setEditPaymentStatus] = useState("");
 
+  // Resolve Pending Dialog
+  const [isResolvePendingOpen, setIsResolvePendingOpen] = useState(false);
+
   // Return Dialog State
   const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
   // Track return success to block re-opening until data is fresh
@@ -106,12 +109,16 @@ export default function TransactionDetailsPage() {
     }).format(new Date(date));
   };
 
-  const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
-    queryKey: ["/api/transactions", currentStore?.id],
-    enabled: !!currentStore?.id,
+  const { data: transaction, isLoading } = useQuery<TransactionWithRelations | null>({
+    queryKey: ["/api/transactions", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/transactions/${id}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Failed to fetch transaction");
+      return res.json();
+    },
+    enabled: !!id,
   });
-
-  const transaction = transactions.find((tx) => String(tx.id) === id);
 
   const isVoided = transaction?.checkout?.isVoided ?? false;
   const checkoutId = transaction?.checkout?.id;
@@ -122,11 +129,23 @@ export default function TransactionDetailsPage() {
     enabled: !!checkoutId,
   });
 
-  // Use receipt-level totals from receiptDetails when available.
-  // The storage layer overrides checkout.totalPrice to the per-line amount on the list endpoint,
-  // but the /receipt endpoint returns the true basket-level totals.
-  const receiptTotal = receiptDetails?.checkout?.totalCharged ?? receiptDetails?.checkout?.totalPrice ?? (transaction?.checkout?.totalPrice ?? 0);
-  const receiptSubtotal = receiptDetails?.checkout?.subtotal ?? receiptTotal;
+  // Basket total = sum of each line's totalCharged (the per-line post-discount amount).
+  // DO NOT use primaryCheckout.totalCharged — it is only this one checkout's line amount.
+  // primaryCheckout.subtotal IS the basket pre-discount total (stored on every checkout row).
+  const receiptTotal =
+    receiptDetails?.items?.length > 0
+      ? receiptDetails.items.reduce(
+          (sum: number, item: any) =>
+            sum + Number(item.checkout?.totalCharged || item.checkout?.totalPrice || 0),
+          0
+        )
+      : Number(transaction?.amount || 0);
+
+  // Pre-discount basket total is stored directly on the primary checkout row
+  const receiptSubtotal =
+    Number(receiptDetails?.checkout?.subtotal) > 0
+      ? Number(receiptDetails.checkout.subtotal)
+      : receiptTotal;
   const receiptDiscount = receiptDetails?.checkout?.discountAmount ?? 0;
   const receiptDiscountPct = receiptDetails?.checkout?.discountPercent ?? 0;
   const receiptDiscountReason = receiptDetails?.checkout?.discountReason ?? "";
@@ -145,11 +164,9 @@ export default function TransactionDetailsPage() {
     // 2. Lock the return button while data refreshes
     setIsRefreshingAfterReturn(true);
     try {
-      // 3. Invalidate the receipt endpoint (drives returnedQuantity / items list)
       await queryClient.invalidateQueries({ queryKey: [`/api/transactions/${checkoutId}/receipt`] });
-      // 4. Invalidate the transactions list (drives returnCheckoutObj rebuild)
+      await queryClient.invalidateQueries({ queryKey: ["/api/transactions", id] });
       await queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
-      // 5. Invalidate downstream caches
       await queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/profit-loss"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
@@ -182,6 +199,7 @@ export default function TransactionDetailsPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/profit-loss"] });
@@ -218,6 +236,7 @@ export default function TransactionDetailsPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
       toast({ title: "Payment status updated" });
       setIsPaymentDialogOpen(false);
@@ -414,23 +433,8 @@ export default function TransactionDetailsPage() {
 
               <Separator />
 
-              {/* Item & Payment Method */}
+              {/* Payment Method & Receipt Total */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-600 shrink-0">
-                    <Package className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Item</p>
-                    <p className="font-semibold">
-                      {tx.inventory?.name ?? "Unknown"}
-                    </p>
-                    <Badge variant="outline" className="capitalize mt-1">
-                      {tx.inventory?.type ?? "unknown"}
-                    </Badge>
-                  </div>
-                </div>
-
                 <div className="flex items-center gap-4">
                   <div className="h-12 w-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-600 shrink-0">
                     <CreditCard className="h-6 w-6" />
@@ -452,41 +456,21 @@ export default function TransactionDetailsPage() {
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <Separator />
-
-              {/* Quantity & Total Amount */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-600 shrink-0">
-                    <Coins className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Qty / Units (this item)</p>
-                    <p className="font-semibold text-lg">{tx.checkout?.quantity ?? 1}</p>
-                  </div>
-                </div>
 
                 <div className="flex items-center gap-4">
                   <div className="h-12 w-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0">
                     <Coins className="h-6 w-6" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm text-muted-foreground">Receipt Total (full basket)</p>
+                    <p className="text-sm text-muted-foreground">Receipt Total</p>
                     <p
                       className={`font-bold text-2xl ${isVoided ? "line-through text-muted-foreground" : ""}`}
                     >
-                      {formatCurrency(receiptTotal)}
-                    </p>
-                    {storeCurrency !== "USD" && (
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {formatCurrency(receiptTotal / 1500, "USD")}
-                      </p>
-                    )}
-                    {/* Line-item amount breakdown */}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      This line: <span className="font-mono font-semibold">{formatCurrency(tx.amount ?? 0)}</span>
+                      {isReceiptLoading ? (
+                        <span className="text-muted-foreground text-base">Loading…</span>
+                      ) : (
+                        formatCurrency(receiptTotal)
+                      )}
                     </p>
                   </div>
                 </div>
@@ -545,7 +529,10 @@ export default function TransactionDetailsPage() {
                               <tr key={item.order.id} className="hover:bg-muted/10 transition-colors">
                                 <td className="p-3">
                                   <p className="font-medium text-foreground">{item.inventory?.name || "Unknown Item"}</p>
-                                  <Badge variant="outline" className="text-[10px] py-0 px-1 capitalize mt-0.5">
+                                  <Badge variant="outline" className={`text-[10px] py-0 px-1 capitalize mt-0.5 ${
+                                    item.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+                                    : item.inventory?.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
+                                    : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
                                     {item.inventory?.type || "product"}
                                   </Badge>
                                 </td>
@@ -637,8 +624,8 @@ export default function TransactionDetailsPage() {
                 Print / View Receipt
               </Button>
 
-              {/* Process Return — only if receipt data has loaded and not refreshing after a return */}
-              {canManage && !isVoided && (
+              {/* Process Return — hidden when all items already returned */}
+              {canManage && !isVoided && !isFullyReturned && (
                 <Button
                   variant="outline"
                   className="w-full justify-start border-orange-200 hover:bg-orange-50 hover:text-orange-600 text-orange-600 dark:border-orange-900/30 dark:hover:bg-orange-950/20"
@@ -661,20 +648,33 @@ export default function TransactionDetailsPage() {
                 </Button>
               )}
 
-              {/* Update Payment */}
-              {canManage && !isVoided && (
+              {/* Resolve Pending — shown only while payment is pending and transaction is active */}
+              {canManage && !isVoided && !isFullyReturned && tx.checkout?.paymentStatus === "pending" && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                  onClick={() => setIsResolvePendingOpen(true)}
+                >
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Resolve Pending Payment
+                </Button>
+              )}
+
+              {/* Update Payment — for completed transactions (method correction) and fully-returned record correction */}
+              {canManage && !isVoided && tx.checkout?.paymentStatus !== "pending" && (
                 <Button
                   variant="outline"
                   className="w-full justify-start"
                   onClick={openPaymentDialog}
                 >
                   <CreditCard className="mr-2 h-4 w-4" />
-                  Update Payment
+                  {isFullyReturned ? "Correct Payment Record" : "Update Payment"}
                 </Button>
               )}
 
-              {/* Void Transaction */}
-              {canManage && !isVoided && (
+              {/* Void Transaction — blocked when fully returned: stock & refunds already reversed
+                  by the return process; voiding on top would cause double-inventory entries */}
+              {canManage && !isVoided && !isFullyReturned && (
                 <Button
                   variant="destructive"
                   className="w-full justify-start"
@@ -705,6 +705,12 @@ export default function TransactionDetailsPage() {
                         <span className="font-medium">Reason:</span>{" "}
                         {tx.checkout?.voidReason || "None provided"}
                       </p>
+                      {tx.checkout?.voidedByUser && (
+                        <p>
+                          <span className="font-medium">Voided By:</span>{" "}
+                          {(tx.checkout.voidedByUser as any).name || (tx.checkout.voidedByUser as any).email || "Unknown"}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </>
@@ -783,9 +789,11 @@ export default function TransactionDetailsPage() {
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Update Payment Details</DialogTitle>
+            <DialogTitle>{isFullyReturned ? "Correct Payment Record" : "Update Payment Details"}</DialogTitle>
             <DialogDescription>
-              Change how or if this transaction was paid.
+              {isFullyReturned
+                ? "This transaction is fully returned. You can correct the original payment method for audit accuracy."
+                : "Change how or if this transaction was paid."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -803,18 +811,21 @@ export default function TransactionDetailsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Payment Status</Label>
-              <Select value={editPaymentStatus} onValueChange={setEditPaymentStatus}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Status selector hidden for fully-returned transactions — status is implicitly settled */}
+            {!isFullyReturned && (
+              <div className="space-y-2">
+                <Label>Payment Status</Label>
+                <Select value={editPaymentStatus} onValueChange={setEditPaymentStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2">
             <Button
@@ -841,6 +852,26 @@ export default function TransactionDetailsPage() {
           onOpenChange={setIsReturnDialogOpen}
           checkout={returnCheckoutObj}
           onSuccess={handleReturnSuccess}
+        />
+      )}
+
+      {/* Resolve Pending Payment Dialog */}
+      {checkoutId && tx.customer?.id && (
+        <ResolvePendingDialog
+          open={isResolvePendingOpen}
+          onOpenChange={setIsResolvePendingOpen}
+          checkoutId={checkoutId}
+          receiptNumber={tx.checkout?.receiptNumber ?? ""}
+          amountOwed={receiptTotal}
+          customerId={tx.customer.id}
+          customerName={tx.customer.name ?? "Customer"}
+          storeId={tx.checkout?.storeId ?? currentStore?.id ?? ""}
+          storeCurrency={storeCurrency}
+          onResolved={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/transactions", id] });
+            queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+            queryClient.invalidateQueries({ queryKey: [`/api/transactions/${checkoutId}/receipt`] });
+          }}
         />
       )}
     </div>

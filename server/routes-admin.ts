@@ -23,7 +23,9 @@ import {
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
 import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./auth-admin";
 
-const JWT_TEMP_SECRET = process.env.JWT_ADMIN_SECRET || "temp_secret_mfa_token";
+const _JWT_TEMP_SECRET = process.env.JWT_ADMIN_SECRET;
+if (!_JWT_TEMP_SECRET) throw new Error("FATAL: JWT_ADMIN_SECRET must be set.");
+const JWT_TEMP_SECRET: string = _JWT_TEMP_SECRET;
 
 // Safe user field projection — never returns credentials or OTP secrets
 const safeUserFields = {

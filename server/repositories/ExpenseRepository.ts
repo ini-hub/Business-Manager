@@ -95,6 +95,22 @@ export class ExpenseRepository extends BaseRepository<typeof expenses> {
     return mapped;
   }
 
+  async getExpenseById(id: string): Promise<ExpenseWithCategory | null> {
+    const rows = await db.select({
+      expense: expenses,
+      category: expenseCategories,
+      inventory: inventory,
+    })
+      .from(expenses)
+      .leftJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+      .leftJoin(inventory, eq(expenses.inventoryId, inventory.id))
+      .where(eq(expenses.id, id))
+      .limit(1);
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return { ...r.expense, category: r.category!, inventory: r.inventory || undefined } as ExpenseWithCategory;
+  }
+
   async updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense> {
     const [updated] = await db.update(expenses)
       .set(data)

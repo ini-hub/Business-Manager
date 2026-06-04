@@ -24,14 +24,28 @@ import StaffFormPage from "@/pages/staff-form";
 import AttendancePage from "@/pages/attendance";
 import InventoryPage from "@/pages/inventory";
 import InventoryDetails from "@/pages/inventory-details";
+import InventoryNewPage from "@/pages/inventory-new";
+import InventoryEditPage from "@/pages/inventory-edit";
+import InventoryRestockPage from "@/pages/inventory-restock";
+import InventoryVariantNewPage from "@/pages/inventory-variant-new";
+import InventoryAuditNewPage from "@/pages/inventory-audit-new";
 import NewSale from "@/pages/new-sale";
 import Transactions from "@/pages/transactions";
 import TransactionDetailsPage from "@/pages/transaction-details";
 import ProfitLossPage from "@/pages/profit-loss";
 import ExpensesPage from "@/pages/expenses";
 import AddExpensePage from "@/pages/add-expense";
+import ExpenseEditPage from "@/pages/expense-edit";
+import ExpenseCategoriesPage from "@/pages/expense-categories";
+import CustomerFormPage from "@/pages/customer-form";
+import VendorFormPage from "@/pages/vendor-form";
+import VendorBillNewPage from "@/pages/vendor-bill-new";
+import VendorBillPayPage from "@/pages/vendor-bill-pay";
+import PayrollNewPage from "@/pages/payroll-new";
 import PayrollPage from "@/pages/payroll";
 import PayrollDetailPage from "@/pages/payroll-detail";
+import PayrollAdvancesPage from "@/pages/payroll-advances";
+import PayrollReportPage from "@/pages/payroll-report";
 import CreditSalesPage from "@/pages/credit-sales";
 import SettingsStoresPage from "@/pages/settings-stores";
 import SettingsIndexPage from "@/pages/settings/index";
@@ -291,12 +305,19 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <StaffDashboard /> : <Dashboard />}
                   </Route>
                   <Route path="/customers" component={Customers} />
+                  <Route path="/customers/new" component={CustomerFormPage} />
+                  <Route path="/customers/:id/edit" component={CustomerFormPage} />
                   <Route path="/customers/:id" component={CustomerDetails} />
                   <Route path="/staff" component={StaffPage} />
                   <Route path="/staff/new" component={StaffFormPage} />
                   <Route path="/staff/:id/edit" component={StaffFormPage} />
                   <Route path="/staff/attendance" component={AttendancePage} />
                   <Route path="/inventory" component={InventoryPage} />
+                  <Route path="/inventory/new" component={InventoryNewPage} />
+                  <Route path="/inventory/audits/new" component={InventoryAuditNewPage} />
+                  <Route path="/inventory/:id/edit" component={InventoryEditPage} />
+                  <Route path="/inventory/:id/restock" component={InventoryRestockPage} />
+                  <Route path="/inventory/:parentId/variants/new" component={InventoryVariantNewPage} />
                   <Route path="/inventory/:id" component={InventoryDetails} />
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
@@ -304,6 +325,8 @@ function AuthenticatedLayout() {
                   <Route path="/profit-loss" component={ProfitLossPage} />
                   <Route path="/expenses" component={ExpensesPage} />
                   <Route path="/expenses/new" component={AddExpensePage} />
+                  <Route path="/expenses/categories" component={ExpenseCategoriesPage} />
+                  <Route path="/expenses/:id/edit" component={ExpenseEditPage} />
                   <Route path="/credit-sales" component={CreditSalesPage} />
                   <Route path="/bookings/new" component={BookingFormPage} />
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
@@ -312,6 +335,9 @@ function AuthenticatedLayout() {
                   <Route path="/reports/staff-performance" component={StaffPerformancePage} />
                   <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
                   <Route path="/payroll" component={PayrollPage} />
+                  <Route path="/payroll/new" component={PayrollNewPage} />
+                  <Route path="/payroll/advances" component={PayrollAdvancesPage} />
+                  <Route path="/payroll/report" component={PayrollReportPage} />
                   <Route path="/profile" component={ProfilePage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
                   <Route path="/settings">
@@ -339,6 +365,10 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
                   </Route>
                   <Route path="/vendors" component={VendorsPage} />
+                  <Route path="/vendors/new" component={VendorFormPage} />
+                  <Route path="/vendors/:id/edit" component={VendorFormPage} />
+                  <Route path="/vendors/:vendorId/bills/new" component={VendorBillNewPage} />
+                  <Route path="/vendors/bills/:billId/pay" component={VendorBillPayPage} />
                   <Route path="/quotes" component={QuotesPage} />
                   <Route path="/purchase-orders" component={PurchaseOrdersPage} />
                   <Route path="/stock-transfers" component={StockTransfersPage} />

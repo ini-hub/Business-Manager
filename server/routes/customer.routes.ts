@@ -35,6 +35,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { withCustomerId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -43,9 +44,9 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerCustomerRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== CUSTOMERS ==========
-  app.get("/api/customers/check-duplicate", async (req, res) => {
+  app.get("/api/customers/check-duplicate", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const phone = req.query.phone as string;
@@ -86,7 +87,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.get("/api/customers/search-global", async (req, res) => {
+  app.get("/api/customers/search-global", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const query = req.query.query as string;
@@ -111,7 +112,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.post("/api/customers/profile-global", async (req, res) => {
+  app.post("/api/customers/profile-global", isAuthenticated, async (req, res) => {
     try {
       const { customerId, storeId } = req.body;
       if (!customerId || !storeId) {
@@ -128,7 +129,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.get("/api/customers", async (req, res) => {
+  app.get("/api/customers", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) {
@@ -201,7 +202,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.get("/api/customers/:id", async (req, res) => {
+  app.get("/api/customers/:id", isAuthenticated, withCustomerId, async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -219,7 +220,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.post("/api/customers", async (req, res) => {
+  app.post("/api/customers", isAuthenticated, async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -342,7 +343,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.patch("/api/customers/:id", requireRole("owner", "manager"), async (req, res) => {
+  app.patch("/api/customers/:id", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -378,7 +379,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.delete("/api/customers/:id", requireRole("owner", "manager"), async (req, res) => {
+  app.delete("/api/customers/:id", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -402,7 +403,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
   });
 
   // Restore archived customer
-  app.post("/api/customers/:id/restore", requireRole("owner", "manager"), async (req, res) => {
+  app.post("/api/customers/:id/restore", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -425,7 +426,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated: _isAuth,
   });
 
   // Permanently delete archived customer
-  app.delete("/api/customers/:id/permanent", requireRole("owner", "manager"), async (req, res) => {
+  app.delete("/api/customers/:id/permanent", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {

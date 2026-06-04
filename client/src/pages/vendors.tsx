@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
+import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Mail, MapPin, FileText, Building2 } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Mail, MapPin, FileText, Building2, Archive, RotateCcw } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -57,16 +61,21 @@ export default function VendorsPage() {
   const [form, setForm] = useState(emptyForm);
   const [billForm, setBillForm] = useState({ amount: "", dueDate: "", notes: "" });
   const [payAmount, setPayAmount] = useState("");
+  const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
+  const [, setLocation] = useLocation();
 
-  // Queries
-  const { data: vendors = [], isLoading } = useQuery<Vendor[]>({
+  // Fetch all vendors (active + archived) — client splits them
+  const { data: allVendors = [], isLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/vendors?storeId=${currentStore!.id}`);
+      const res = await apiRequest("GET", `/api/vendors?storeId=${currentStore!.id}&includeArchived=true`);
       return res.json();
     },
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
+
+  const vendors = allVendors.filter(v => !v.isArchived);
+  const archivedVendors = allVendors.filter(v => v.isArchived);
 
   const { data: bills = [] } = useQuery<(VendorBill & { vendorName?: string })[]>({
     queryKey: ["/api/vendors/bills", currentStore?.id],
@@ -108,6 +117,24 @@ export default function VendorsPage() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: (vendorId: string) => apiRequest("PATCH", `/api/vendors/${vendorId}/archive`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
+      toast({ title: "Vendor archived" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (vendorId: string) => apiRequest("PATCH", `/api/vendors/${vendorId}/restore`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
+      toast({ title: "Vendor restored" });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (vendorId: string) => {
       const res = await apiRequest("DELETE", `/api/vendors/${vendorId}`);
@@ -115,7 +142,7 @@ export default function VendorsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
-      toast({ title: "Vendor deleted" });
+      toast({ title: "Vendor permanently deleted" });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -163,12 +190,8 @@ export default function VendorsPage() {
 
   if (!currentStore) return <div className="space-y-6"><PageHeader title="Vendors" description="Manage suppliers and outstanding bills" /><StoreRequiredAlert title="Store Required" /></div>;
 
-  const openCreate = () => { setEditingVendor(null); setForm(emptyForm); setVendorDialogOpen(true); };
-  const openEdit = (v: Vendor) => {
-    setEditingVendor(v);
-    setForm({ name: v.name, contactName: v.contactName ?? "", email: v.email ?? "", phone: v.phone ?? "", address: v.address ?? "", notes: v.notes ?? "" });
-    setVendorDialogOpen(true);
-  };
+  const openCreate = () => setLocation("/vendors/new");
+  const openEdit = (v: Vendor) => setLocation(`/vendors/${buildSlug(v.name, v.id)}/edit`);
 
   const totalOutstanding = vendorsWithStats.reduce((s, v) => s + (v.outstandingBalance ?? 0), 0);
   const unpaidBills = bills.filter((b) => b.status !== "paid").length;
@@ -194,8 +217,35 @@ export default function VendorsPage() {
     )},
     { key: "actions", header: "", render: (v: VendorWithStats) => isManagerOrOwner && (
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(v)}><Edit className="h-3.5 w-3.5" /></Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(v)} title="Edit vendor"><Edit className="h-3.5 w-3.5" /></Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => archiveMutation.mutate(v.id)} title="Archive vendor" disabled={archiveMutation.isPending}>
+          <Archive className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    )},
+  ];
+
+  const archivedVendorColumns = [
+    { key: "name", header: "Vendor", render: (v: VendorWithStats) => (
+      <div>
+        <p className="font-medium text-sm text-muted-foreground">{v.name}</p>
+        {v.contactName && <p className="text-xs text-muted-foreground">{v.contactName}</p>}
+      </div>
+    )},
+    { key: "phone", header: "Contact", render: (v: VendorWithStats) => (
+      <div className="space-y-0.5">
+        {v.phone && <p className="text-xs flex items-center gap-1 text-muted-foreground"><Phone className="h-3 w-3" />{v.phone}</p>}
+        {v.email && <p className="text-xs flex items-center gap-1 text-muted-foreground"><Mail className="h-3 w-3" />{v.email}</p>}
+      </div>
+    )},
+    { key: "actions", header: "", render: (v: VendorWithStats) => isManagerOrOwner && (
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => restoreMutation.mutate(v.id)} title="Restore vendor" disabled={restoreMutation.isPending}>
+          <RotateCcw className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)} title="Permanently delete" disabled={deleteMutation.isPending}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
     )},
   ];
@@ -208,7 +258,7 @@ export default function VendorsPage() {
     )},
     { key: "dueDate", header: "Due", render: (b: any) => b.dueDate ? new Date(b.dueDate).toLocaleDateString() : "—" },
     { key: "actions", header: "", render: (b: any) => b.status !== "paid" && isManagerOrOwner && (
-      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setSelectedBill(b); setPayDialogOpen(true); }}>Pay</Button>
+      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setLocation(`/vendors/bills/${b.id}/pay`)}>Pay</Button>
     )},
   ];
 
@@ -230,19 +280,42 @@ export default function VendorsPage() {
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total Bills</p><p className="text-2xl font-bold">{bills.length}</p></CardContent></Card>
       </div>
 
-      {/* Vendor list */}
-      <DataTable
-        data={vendorsWithStats}
-        columns={vendorColumns}
-        searchable
-        searchPlaceholder="Search vendors..."
-        searchKeys={["name", "contactName", "email", "phone"]}
-        isLoading={isLoading}
-        emptyTitle="No Vendors Yet"
-        emptyMessage="Add your suppliers to start tracking bills and payments."
-        emptyIcon={<Building2 className="h-6 w-6" />}
-        emptyAction={isManagerOrOwner && <Button size="sm" className="gap-2" onClick={openCreate}><Plus className="h-4 w-4" />Add First Vendor</Button>}
-      />
+      {/* Vendor list with tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "active" | "archived")}>
+        <TabsList>
+          <TabsTrigger value="active">Active ({vendors.length})</TabsTrigger>
+          <TabsTrigger value="archived">Archived ({archivedVendors.length})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="active" className="mt-4">
+          <DataTable
+            data={vendorsWithStats}
+            columns={vendorColumns}
+            searchable
+            searchPlaceholder="Search vendors..."
+            searchKeys={["name", "contactName", "email", "phone"]}
+            isLoading={isLoading}
+            emptyTitle="No Vendors Yet"
+            emptyMessage="Add your suppliers to start tracking bills and payments."
+            emptyIcon={<Building2 className="h-6 w-6" />}
+            emptyAction={isManagerOrOwner && <Button size="sm" className="gap-2" onClick={openCreate}><Plus className="h-4 w-4" />Add First Vendor</Button>}
+          />
+        </TabsContent>
+
+        <TabsContent value="archived" className="mt-4">
+          <DataTable
+            data={archivedVendors as VendorWithStats[]}
+            columns={archivedVendorColumns}
+            searchable
+            searchPlaceholder="Search archived vendors..."
+            searchKeys={["name", "contactName", "email", "phone"]}
+            isLoading={isLoading}
+            emptyTitle="No Archived Vendors"
+            emptyMessage="Archived vendors appear here. Their bill history is preserved."
+            emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Bills panel for selected vendor */}
       {selectedVendorId && (
@@ -253,7 +326,7 @@ export default function VendorsPage() {
               Bills — {vendors.find(v => v.id === selectedVendorId)?.name}
             </CardTitle>
             {isManagerOrOwner && (
-              <Button size="sm" variant="outline" className="gap-2" onClick={() => setBillDialogOpen(true)}>
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => setLocation(`/vendors/${selectedVendorId}/bills/new`)}>
                 <Plus className="h-3.5 w-3.5" />Add Bill
               </Button>
             )}
@@ -270,63 +343,18 @@ export default function VendorsPage() {
         </Card>
       )}
 
-      {/* Add/Edit Vendor Dialog */}
-      <Dialog open={vendorDialogOpen} onOpenChange={(open) => { if (!open) { setVendorDialogOpen(false); setEditingVendor(null); setForm(emptyForm); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingVendor ? "Edit Vendor" : "Add Vendor"}</DialogTitle>
-            <DialogDescription>Enter the supplier's contact details.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div><Label className="text-xs">Name <span className="text-destructive">*</span></Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Supplier Co." /></div>
-            <div><Label className="text-xs">Contact Person</Label><Input value={form.contactName} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} placeholder="Jane Doe" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label className="text-xs">Phone</Label><Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="08012345678" /></div>
-              <div><Label className="text-xs">Email</Label><Input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="vendor@co.com" /></div>
-            </div>
-            <div><Label className="text-xs">Address</Label><Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="123 Market St" /></div>
-            <div><Label className="text-xs">Notes</Label><Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="h-20 resize-none" /></div>
-          </div>
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button variant="outline" onClick={() => setVendorDialogOpen(false)}>Cancel</Button>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>{saveMutation.isPending ? "Saving…" : editingVendor ? "Save Changes" : "Add Vendor"}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Bill Dialog */}
-      <Dialog open={billDialogOpen} onOpenChange={(open) => { if (!open) { setBillDialogOpen(false); setBillForm({ amount: "", dueDate: "", notes: "" }); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Record Bill</DialogTitle>
-            <DialogDescription>Log an outstanding bill for {vendors.find(v => v.id === selectedVendorId)?.name}.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div><Label className="text-xs">Amount (₦) <span className="text-destructive">*</span></Label><Input type="number" min="1" value={billForm.amount} onChange={e => setBillForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" className="font-mono" /></div>
-            <div><Label className="text-xs">Due Date</Label><Input type="date" value={billForm.dueDate} onChange={e => setBillForm(f => ({ ...f, dueDate: e.target.value }))} /></div>
-            <div><Label className="text-xs">Notes</Label><Textarea value={billForm.notes} onChange={e => setBillForm(f => ({ ...f, notes: e.target.value }))} className="h-16 resize-none" /></div>
-          </div>
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button variant="outline" onClick={() => setBillDialogOpen(false)}>Cancel</Button>
-            <Button onClick={() => addBillMutation.mutate()} disabled={addBillMutation.isPending}>{addBillMutation.isPending ? "Recording…" : "Record Bill"}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Pay Bill Dialog */}
-      <Dialog open={payDialogOpen} onOpenChange={(open) => { if (!open) { setPayDialogOpen(false); setPayAmount(""); setSelectedBill(null); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
-            <DialogDescription>Outstanding: {selectedBill ? formatCurrency(Number(selectedBill.amount) - Number(selectedBill.amountPaid ?? 0)) : "—"}</DialogDescription>
-          </DialogHeader>
-          <div><Label className="text-xs">Amount Paid (₦)</Label><Input type="number" min="1" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" className="font-mono" /></div>
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button variant="outline" onClick={() => setPayDialogOpen(false)}>Cancel</Button>
-            <Button onClick={() => payBillMutation.mutate()} disabled={payBillMutation.isPending}>{payBillMutation.isPending ? "Saving…" : "Confirm Payment"}</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {isManagerOrOwner && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "Add Vendor",
+              icon: <Building2 className="h-5 w-5" />,
+              onClick: openCreate,
+              testId: "fab-add-vendor",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

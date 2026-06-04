@@ -43,7 +43,7 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerReportsRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerReportsRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== SEARCH ==========
   app.get("/api/search", isAuthenticated, async (req, res) => {
     try {
@@ -51,6 +51,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated: _isAuth, 
       const storeId = req.query.storeId as string;
       if (!q || q.length < 2) return res.json({ results: [] });
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const [customersRes, inventoryRes, transactionsRes] = await Promise.all([
         storage.searchCustomers(storeId, q),
@@ -147,7 +148,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated: _isAuth, 
   });
 
   // Get attendance records
-  app.get("/api/attendance", async (req, res) => {
+  app.get("/api/attendance", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -200,12 +201,13 @@ export function registerReportsRoutes(app: Express, { isAuthenticated: _isAuth, 
 
       res.json(records);
     } catch (error) {
-      res.status(500).json({ error: "Could not bulk mark attendance." });
+      console.error("Bulk attendance error:", error);
+      res.status(500).json({ error: "Could not bulk mark attendance.", detail: (error as Error).message });
     }
   });
 
   // Attendance summary for a staff member in a date range
-  app.get("/api/attendance/summary", async (req, res) => {
+  app.get("/api/attendance/summary", isAuthenticated, async (req, res) => {
     try {
       const { storeId, staffId, startDate, endDate } = req.query as Record<string, string>;
       if (!storeId || !staffId || !startDate || !endDate) {
@@ -238,7 +240,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated: _isAuth, 
     }
   });
   // ---------- 11. CASH FLOW STATEMENT ----------
-  app.get("/api/reports/cash-flow", async (req, res) => {
+  app.get("/api/reports/cash-flow", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });

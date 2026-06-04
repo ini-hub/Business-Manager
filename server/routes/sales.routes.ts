@@ -43,7 +43,7 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerSalesRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== PROFIT & LOSS ==========
 
   app.get("/api/profit-loss", requireManagerOrOwner, async (req, res) => {
@@ -176,7 +176,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated: _isAuth, re
   });
 
   // ========== STAFF SELF-SERVICE ==========  // ========== DASHBOARD STATS ==========
-  app.get("/api/dashboard/stats", async (req, res) => {
+  app.get("/api/dashboard/stats", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const businessId = req.query.businessId as string;
@@ -270,7 +270,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated: _isAuth, re
     }
   });
   // ========== CHART DATA ==========
-  app.get("/api/charts/sales-trends", async (req, res) => {
+  app.get("/api/charts/sales-trends", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const businessId = req.query.businessId as string;
@@ -320,7 +320,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated: _isAuth, re
     }
   });
 
-  app.get("/api/charts/revenue-by-type", async (req, res) => {
+  app.get("/api/charts/revenue-by-type", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const businessId = req.query.businessId as string;
@@ -378,7 +378,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated: _isAuth, re
     items: z.array(
       z.object({
         inventoryId: z.string(),
-        quantity: z.number().min(1),
+        quantity: z.number().min(0.01, "Quantity must be greater than zero"),
         customPrice: z.number().min(0).optional(),
         leadStaffId: z.string().optional().nullable(),
         assistingStaff1Id: z.string().optional().nullable(),
@@ -405,12 +405,27 @@ export function registerSalesRoutes(app: Express, { isAuthenticated: _isAuth, re
     pointsRedeemed: z.number().min(0).optional(),
   });
 
-  app.post("/api/sales/checkout", async (req, res) => {
+  app.post("/api/sales/checkout", isAuthenticated, async (req, res) => {
     try {
       const data = checkoutSchema.parse(req.body);
 
+      if (!(await checkStoreAccess(data.storeId, req, res))) return;
+
       if (data.paymentMethod === "flutterwave" && data.splitPayments && data.splitPayments.length > 0) {
         return res.status(400).json({ error: "Flutterwave cannot be combined with split payments. Choose either Flutterwave OR split payment." });
+      }
+
+      // Validate each item's quantity against its allowFractional flag
+      for (const item of data.items) {
+        const invItem = await storage.getInventoryItem(item.inventoryId);
+        if (!invItem) {
+          return res.status(400).json({ error: `Item not found: ${item.inventoryId}` });
+        }
+        if (!invItem.allowFractional && !Number.isInteger(item.quantity)) {
+          return res.status(400).json({
+            error: `"${invItem.name}" cannot be sold in fractional quantities. Please enter a whole number.`,
+          });
+        }
       }
 
       // Use transactional checkout for atomicity (all-or-nothing)

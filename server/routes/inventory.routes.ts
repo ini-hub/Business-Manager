@@ -30,11 +30,12 @@ import {
 import { z } from "zod";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode, toTitleCase } from "../sanitize";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { withInventoryId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -43,17 +44,19 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerInventoryRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== INVENTORY ==========
   app.post("/api/inventory", requireManagerOrOwner, async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
-        name: sanitizeString(req.body.name),
+        name: toTitleCase(sanitizeString(req.body.name)),
         type: sanitizeString(req.body.type),
         costPrice: sanitizeNumber(req.body.costPrice),
         sellingPrice: sanitizeNumber(req.body.sellingPrice),
         quantity: sanitizeNumber(req.body.quantity),
+        allowFractional: sanitizeBoolean(req.body.allowFractional),
+        unit: req.body.unit ? sanitizeString(req.body.unit) : null,
       };
 
       const type = sanitizedBody.type;
@@ -61,8 +64,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
       const costPrice = sanitizedBody.costPrice;
       const sellingPrice = sanitizedBody.sellingPrice;
       if (type === "product") {
-        if (quantity === undefined || quantity === null || isNaN(quantity) || quantity < 1) {
-          return res.status(400).json({ error: "Stock quantity must be at least 1. If this item is out of stock, do not add it until stock is available." });
+        if (quantity === undefined || quantity === null || isNaN(quantity) || quantity < 0) {
+          return res.status(400).json({ error: "Stock quantity must be 0 or greater." });
         }
       } else if (type === "service") {
         sanitizedBody.quantity = 0; // Services do not have stock
@@ -132,6 +135,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
             quantity: data.quantity,
             costPrice: data.costPrice,
             sellingPrice: data.sellingPrice,
+            allowFractional: false,
           });
           results.success++;
         } catch (err: any) {
@@ -148,11 +152,33 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
     }
   });
 
-  app.patch("/api/inventory/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/inventory/:id", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
-      const item = await storage.getInventoryItem(req.params.id);
+      const id = req.params.id;
+      let item = await storage.getInventoryItem(id);
+
+      // If not in inventory table, look up the linked inventory record via products table
       if (!item) {
-        return res.status(404).json({ error: "Inventory item not found." });
+        const product = await storage.getProduct(id);
+        if (!product) return res.status(404).json({ error: "Item not found." });
+        if (!await verifyRecordStoreAccess(req, product.storeId)) {
+          return res.status(403).json({ error: "You don't have access to this item." });
+        }
+        // Update the products catalog name/type if provided
+        const { name, type } = req.body;
+        if (name || type) {
+          await storage.updateProduct(id, {
+            ...(name ? { name: toTitleCase(sanitizeString(name)) } : {}),
+            ...(type ? { type } : {}),
+          });
+        }
+        // Also update the linked inventory variant if it exists
+        const linkedVariant = (product.variants ?? [])[0];
+        if (linkedVariant) {
+          req.params.id = linkedVariant.id;
+          item = await storage.getInventoryItem(linkedVariant.id);
+        }
+        if (!item) return res.json({ ...product, message: "Updated." });
       }
 
       // Verify user has access to this item's store
@@ -164,6 +190,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
       const updateBody = { ...req.body };
       delete updateBody.storeId;
       const data = insertInventorySchema.partial().parse(updateBody);
+      if (data.name) data.name = toTitleCase(data.name);
 
       const finalType = data.type || item.type;
       const finalQuantity = data.quantity !== undefined ? data.quantity : item.quantity;
@@ -171,8 +198,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
       const finalSellingPrice = data.sellingPrice !== undefined ? data.sellingPrice : item.sellingPrice;
 
       if (finalType === "product") {
-        if (finalQuantity === undefined || finalQuantity === null || isNaN(finalQuantity) || finalQuantity < 1) {
-          return res.status(400).json({ error: "Stock quantity must be at least 1. If this item is out of stock, do not add it until stock is available." });
+        if (finalQuantity === undefined || finalQuantity === null || isNaN(finalQuantity) || finalQuantity < 0) {
+          return res.status(400).json({ error: "Stock quantity must be 0 or greater." });
         }
       }
 
@@ -201,30 +228,70 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
     }
   });
 
-  app.delete("/api/inventory/:id", requireManagerOrOwner, async (req, res) => {
+  // Archive: soft-delete without checking sales history
+  app.post("/api/inventory/:id/archive", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
-      const item = await storage.getInventoryItem(req.params.id);
-      if (!item) {
-        return res.status(404).json({ error: "Inventory item not found." });
+      const id = req.params.id;
+      const item = await storage.getInventoryItem(id);
+      if (item) {
+        if (!await verifyRecordStoreAccess(req, item.storeId)) {
+          return res.status(403).json({ error: "You don't have access to this item." });
+        }
+        await storage.deleteInventoryItem(id);
+        return res.status(204).send();
+      }
+      const product = await storage.getProduct(id);
+      if (!product) return res.status(404).json({ error: "Item not found." });
+      if (!await verifyRecordStoreAccess(req, product.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this item." });
+      }
+      await storage.deleteProduct(id);
+      return res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't archive this item. Please try again." });
+    }
+  });
+
+  app.delete("/api/inventory/:id", withInventoryId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      // Try inventory table first (standalone items and variants)
+      const item = await storage.getInventoryItem(id);
+      if (item) {
+        if (!await verifyRecordStoreAccess(req, item.storeId)) {
+          return res.status(403).json({ error: "You don't have access to this inventory item." });
+        }
+        const hasTransactions = await storage.hasInventoryTransactions(id);
+        if (hasTransactions) {
+          return res.status(400).json({
+            error: "Cannot delete this item — it has existing sales records that must be preserved."
+          });
+        }
+        const deleted = await storage.deleteInventoryItem(id);
+        if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
+        return res.status(204).send();
       }
 
-      // Verify user has access to this item's store
-      if (!await verifyRecordStoreAccess(req, item.storeId)) {
-        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      // Fall back to products table (items created via the product catalog)
+      const product = await storage.getProduct(id);
+      if (!product) {
+        return res.status(404).json({ error: "Item not found." });
       }
-
-      const hasTransactions = await storage.hasInventoryTransactions(req.params.id);
-      if (hasTransactions) {
-        return res.status(400).json({
-          error: "Cannot delete inventory item with existing sales records. This item has sales history that must be preserved for your records."
-        });
+      if (!await verifyRecordStoreAccess(req, product.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this item." });
       }
-
-      const deleted = await storage.deleteInventoryItem(req.params.id);
-      if (!deleted) {
-        return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
+      // Check all variants for sales history
+      for (const variant of product.variants ?? []) {
+        if (await storage.hasInventoryTransactions(variant.id)) {
+          return res.status(400).json({
+            error: "Cannot delete this item — one or more variants have existing sales records that must be preserved."
+          });
+        }
       }
-      res.status(204).send();
+      const deleted = await storage.deleteProduct(id);
+      if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
+      return res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't delete this item. Please try again." });
     }
@@ -238,36 +305,99 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
         return res.status(400).json({ error: "Invalid data format or missing store." });
       }
 
-      // Verify user has access to this store
       if (!await verifyStoreAccess(req, storeId)) {
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
 
-      for (let i = 0; i < data.length; i++) {
-        try {
-          const row = data[i];
-          const itemType = row.type?.toLowerCase();
-          if (itemType !== "product" && itemType !== "service") {
-            throw new Error("Type must be 'product' or 'service'");
+      const friendlyError = (error: unknown, rowName: string): string => {
+        if (error instanceof z.ZodError) return error.errors.map(e => e.message).join(", ");
+        if (error instanceof Error) {
+          const msg = error.message;
+          if (msg.includes("23505") || msg.includes("unique constraint") || msg.includes("duplicate key")) {
+            return `An item named "${rowName}" already exists in this store. Use a different name or update the existing item.`;
           }
-          const parsed = insertInventorySchema.parse({
+          return msg;
+        }
+        return "Invalid data";
+      };
+
+      // Map of normalised parent name → products.id for variant linking
+      const parentProductIdMap = new Map<string, string>();
+
+      // Pass 1: standalone and parent items (no variantOf)
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        if (row.variantOf) continue;
+        try {
+          const itemType = row.type?.toLowerCase();
+          if (itemType !== "product" && itemType !== "service") throw new Error("Type must be 'product' or 'service'");
+          const itemName = toTitleCase(sanitizeString(row.name));
+
+          // 1a. Create (or reuse) the products catalog record
+          let product = await storage.getProductByName(storeId, itemName);
+          if (!product) {
+            product = await storage.createProduct({ storeId, name: itemName, type: itemType });
+          }
+          parentProductIdMap.set(row.name.trim().toLowerCase(), product.id);
+
+          // 1b. Create the inventory (stock) record linked to the product
+          await storage.createInventoryItem(insertInventorySchema.parse({
             storeId,
-            name: row.name,
+            name: itemName,
             type: itemType,
             costPrice: parseFloat(row.costPrice) || 0,
             sellingPrice: parseFloat(row.sellingPrice) || 0,
             quantity: itemType === "product" ? (parseInt(row.quantity) || 0) : 0,
-          });
-          await storage.createInventoryItem(parsed);
+            productId: product.id,
+          }));
           result.success++;
         } catch (error) {
           result.failed++;
-          const message = error instanceof z.ZodError
-            ? error.errors.map(e => e.message).join(", ")
-            : error instanceof Error ? error.message : "Invalid data";
-          result.errors.push({ row: i + 2, message });
+          result.errors.push({ row: i + 2, message: friendlyError(error, row.name) });
+        }
+      }
+
+      // Pass 2: variant items (variantOf is set)
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        if (!row.variantOf) continue;
+        try {
+          const parentName = row.variantOf.trim().toLowerCase();
+          // Resolve parent product — from this import first, then existing DB
+          let parentProductId = parentProductIdMap.get(parentName);
+          if (!parentProductId) {
+            const existing = await storage.getProductByName(storeId, row.variantOf.trim());
+            if (!existing) throw new Error(`Parent item "${row.variantOf}" not found. Make sure it appears above its variants in the file, or already exists in your inventory.`);
+            parentProductId = existing.id;
+          }
+
+          if (row.type?.toLowerCase() === "service") throw new Error("Services cannot have variants.");
+
+          // Collect variant_* columns → variantDimensions object
+          const variantDimensions: Record<string, string> = {};
+          for (const [key, value] of Object.entries(row)) {
+            if (key.startsWith("variant_") && value) {
+              variantDimensions[key.replace("variant_", "")] = String(value);
+            }
+          }
+
+          const variantName = toTitleCase(sanitizeString(row.name));
+          await storage.createInventoryItem(insertInventorySchema.parse({
+            storeId,
+            name: variantName,
+            type: "product",
+            costPrice: parseFloat(row.costPrice) || 0,
+            sellingPrice: parseFloat(row.sellingPrice) || 0,
+            quantity: parseInt(row.quantity) || 0,
+            productId: parentProductId,
+            variantDimensions: Object.keys(variantDimensions).length ? variantDimensions : undefined,
+          }));
+          result.success++;
+        } catch (error) {
+          result.failed++;
+          result.errors.push({ row: i + 2, message: friendlyError(error, row.name) });
         }
       }
 
@@ -277,8 +407,14 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
     }
   });
   // ========== INVENTORY RESTOCK ==========
-  app.get("/api/inventory/:id/restock-history", async (req, res) => {
+  app.get("/api/inventory/:id/restock-history", isAuthenticated, withInventoryId, async (req, res) => {
     try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "Access denied." });
+      }
+
       const page = parseInt(req.query.page as string) || 0;
       const limit = parseInt(req.query.limit as string) || 0;
 
@@ -294,7 +430,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
     }
   });
 
-  app.get("/api/inventory/:id/sustaining-costs", async (req, res) => {
+  app.get("/api/inventory/:id/sustaining-costs", isAuthenticated, withInventoryId, async (req, res) => {
     try {
       const inventoryId = req.params.id;
       const item = await storage.getInventoryItem(inventoryId);
@@ -488,7 +624,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
     }
   });
 
-  app.post("/api/inventory/:id/restock", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/restock", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
       const inventoryId = req.params.id;
       const item = await storage.getInventoryItem(inventoryId);
@@ -507,8 +643,12 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
 
       const { quantityAdded, unitCost, costStrategy, newSellingPrice, notes, staffId } = req.body;
 
-      if (!quantityAdded || quantityAdded < 1) {
-        return res.status(400).json({ error: "Please enter a valid quantity (at least 1)." });
+      const minQty = item.allowFractional ? 0.01 : 1;
+      if (!quantityAdded || Number(quantityAdded) < minQty) {
+        const msg = item.allowFractional
+          ? "Please enter a valid quantity (must be greater than 0)."
+          : "Please enter a valid quantity (at least 1).";
+        return res.status(400).json({ error: msg });
       }
       if (unitCost === undefined || unitCost < 0) {
         return res.status(400).json({ error: "Please enter a valid unit cost." });
@@ -620,7 +760,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
   }
   // ---------- 5. COMPOSITE / BUNDLED ITEMS ----------
   // Get Bundle Components
-  app.get("/api/inventory/:id/bundle-components", async (req, res) => {
+  app.get("/api/inventory/:id/bundle-components", isAuthenticated, withInventoryId, async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });
@@ -634,7 +774,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
   });
 
   // Set Bundle Components
-  app.post("/api/inventory/:id/bundle-components", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/bundle-components", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });
@@ -660,7 +800,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
 
   // ---------- 10. EXPIRY BATCHES ----------
   // Get batches for an inventory item
-  app.get("/api/inventory/:id/batches", async (req, res) => {
+  app.get("/api/inventory/:id/batches", isAuthenticated, withInventoryId, async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });
@@ -674,7 +814,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
   });
 
   // Add batch to inventory item
-  app.post("/api/inventory/:id/batches", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/batches", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });
@@ -701,7 +841,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
 
   // ---------- 10b. VARIANTS ----------
   // Get variants for an inventory item
-  app.get("/api/inventory/:id/variants", async (req, res) => {
+  app.get("/api/inventory/:id/variants", isAuthenticated, withInventoryId, async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });
@@ -715,23 +855,28 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated: _isAuth
   });
 
   // Create a variant for an inventory item
-  app.post("/api/inventory/:id/variants", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/variants", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
       const parentItem = await storage.inventoryRepo.findById(req.params.id);
       if (!parentItem) return res.status(404).json({ error: "Parent inventory item not found." });
       if (!(await checkStoreAccess(parentItem.storeId, req, res))) return;
 
-      const { name, costPrice, sellingPrice, quantity, variantDimensions } = req.body;
-      
+      const { name, costPrice, sellingPrice, quantity, variantDimensions, commissionSplitOverride, commissionSplitBusinessShare, commissionSplitStaffShare } = req.body;
+
       const sanitizedBody = {
         storeId: parentItem.storeId,
-        name: sanitizeString(name),
+        name: toTitleCase(sanitizeString(name)),
         type: parentItem.type,
         costPrice: sanitizeNumber(costPrice),
         sellingPrice: sanitizeNumber(sellingPrice),
         quantity: parentItem.type === "product" ? sanitizeNumber(quantity) : 0,
         parentInventoryId: parentItem.id,
         variantDimensions: variantDimensions || {},
+        allowFractional: parentItem.allowFractional,
+        unit: parentItem.unit,
+        commissionSplitOverride: sanitizeBoolean(commissionSplitOverride),
+        commissionSplitBusinessShare: commissionSplitBusinessShare !== undefined ? sanitizeNumber(commissionSplitBusinessShare) : 80,
+        commissionSplitStaffShare: commissionSplitStaffShare !== undefined ? sanitizeNumber(commissionSplitStaffShare) : 20,
       };
 
       if (sanitizedBody.type === "product") {

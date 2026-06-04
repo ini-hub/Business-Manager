@@ -2,8 +2,27 @@ export function sanitizeString(input: string | undefined | null): string {
   if (!input) return "";
   return input
     .trim()
-    .replace(/[<>]/g, "")
+    .replace(/[<>"'`&]/g, "")
     .replace(/\s+/g, " ");
+}
+
+export function toTitleCase(input: string | undefined | null): string {
+  if (!input) return "";
+  return input
+    .trim()
+    .split(" ")
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function escapeHtml(input: string | undefined | null): string {
+  if (!input) return "";
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
 }
 
 export function sanitizeHtml(input: string | undefined | null): string {
@@ -64,12 +83,24 @@ export function normalizePhoneNumber(input: string | undefined | null): string {
 
 export function sanitizePhoneNumber(input: string | undefined | null): string {
   if (!input) return "";
-  return normalizePhoneNumber(input);
+  const normalised = normalizePhoneNumber(input);
+  // Reject strings that are too short (< 7) or too long (> 15) after normalisation
+  if (normalised.length > 0 && (normalised.length < 7 || normalised.length > 15)) return "";
+  return normalised;
 }
+
+const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function sanitizeEmail(input: string | undefined | null): string {
   if (!input) return "";
   return input.trim().toLowerCase();
+}
+
+/** Returns true if the email string passes basic format validation. */
+export function validateEmailFormat(email: string | undefined | null): boolean {
+  if (!email) return false;
+  const trimmed = email.trim().toLowerCase();
+  return trimmed.length > 0 && trimmed.length <= 254 && EMAIL_FORMAT_REGEX.test(trimmed);
 }
 
 export function sanitizeStoreCode(input: string | undefined | null): string {

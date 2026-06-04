@@ -43,9 +43,9 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerSettingsRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== SETTINGS ==========
-  app.get("/api/settings", async (req, res) => {
+  app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -79,7 +79,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.put("/api/settings", async (req, res) => {
+  app.put("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const { storeId, ...data } = req.body;
       if (!storeId) return res.status(400).json({ error: "storeId is required." });
@@ -180,7 +180,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
   // ========== PROMOTIONS ==========
-  app.get("/api/promotions", async (req, res) => {
+  app.get("/api/promotions", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -205,7 +205,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.post("/api/promotions", async (req, res) => {
+  app.post("/api/promotions", isAuthenticated, async (req, res) => {
     try {
       const data = insertPromotionSchema.parse(req.body);
       if (!(await checkStoreAccess(data.storeId, req, res))) return;
@@ -227,7 +227,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.patch("/api/promotions/:id", async (req, res) => {
+  app.patch("/api/promotions/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
       const data = insertPromotionSchema.partial().parse(req.body);
@@ -253,7 +253,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.delete("/api/promotions/:id", async (req, res) => {
+  app.delete("/api/promotions/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
       const promotion = await db.select().from(promotions).where(eq(promotions.id, id)).then(r => r[0]);
@@ -274,7 +274,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
   // ========== CUSTOM ROLES ==========
-  app.get("/api/custom-roles", async (req, res) => {
+  app.get("/api/custom-roles", isAuthenticated, async (req, res) => {
     try {
       const businessId = (req as any).user?.businessId;
       if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
@@ -286,7 +286,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.post("/api/custom-roles", async (req, res) => {
+  app.post("/api/custom-roles", isAuthenticated, async (req, res) => {
     try {
       const businessId = (req as any).user?.businessId;
       if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
@@ -312,7 +312,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.patch("/api/custom-roles/:id", async (req, res) => {
+  app.patch("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
       const businessId = (req as any).user?.businessId;
@@ -341,7 +341,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.delete("/api/custom-roles/:id", async (req, res) => {
+  app.delete("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
       const businessId = (req as any).user?.businessId;

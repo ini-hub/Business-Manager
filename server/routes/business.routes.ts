@@ -43,9 +43,9 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerBusinessRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerBusinessRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== BUSINESS ==========
-  app.get("/api/business", async (req, res) => {
+  app.get("/api/business", isAuthenticated, async (req, res) => {
     try {
       const user = (req as any).user;
       if (!user?.id) {
@@ -116,7 +116,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated: _isAuth,
   });
 
   // ========== STORES ==========
-  app.get("/api/stores", async (req, res) => {
+  app.get("/api/stores", isAuthenticated, async (req, res) => {
     try {
       const userId = (req as any).user?.userId || (req as any).user?.id;
       if (!userId) {
@@ -147,7 +147,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated: _isAuth,
     }
   });
 
-  app.get("/api/stores/:id", async (req, res) => {
+  app.get("/api/stores/:id", isAuthenticated, async (req, res) => {
     try {
       const store = await storage.getStore(req.params.id);
       if (!store) {
@@ -304,7 +304,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated: _isAuth,
   });
 
   // ========== STORE INTEGRATIONS ==========
-  app.get("/api/stores/:storeId/integrations", async (req, res) => {
+  app.get("/api/stores/:storeId/integrations", isAuthenticated, async (req, res) => {
     try {
       const store = await storage.getStore(req.params.storeId);
       if (!store) {

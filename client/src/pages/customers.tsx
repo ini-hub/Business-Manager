@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Plus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, TrendingUp, TrendingDown, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, TrendingUp, TrendingDown, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +45,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { buildSlug } from "@/lib/slug";
 import { Link } from "wouter";
 import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
 import { z } from "zod";
@@ -282,7 +284,7 @@ export default function Customers() {
   const archivedCustomers = customers.filter(c => c.isArchived);
 
   const navigateToCustomerDetails = (customer: Customer) => {
-    setLocation(`/customers/${customer.id}`);
+    setLocation(`/customers/${buildSlug(customer.name, customer.id)}`);
   };
 
   const form = useForm<InsertCustomer>({
@@ -305,7 +307,7 @@ export default function Customers() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Customer created successfully" });
-      closeForm();
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
     },
     onError: (error: Error) => {
       toast({ 
@@ -322,7 +324,7 @@ export default function Customers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       toast({ title: "Customer updated successfully" });
-      closeForm();
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
     },
     onError: (error: Error) => {
       toast({ 
@@ -383,42 +385,8 @@ export default function Customers() {
     },
   });
 
-  const openCreateForm = () => {
-    form.reset({
-      storeId: currentStore?.id === "all" ? "" : (currentStore?.id || ""),
-      name: "",
-      customerNumber: "",
-      countryCode: "NG",
-      mobileNumber: "",
-      address: "",
-    });
-    setSelectedCustomer(null);
-    setIsFormOpen(true);
-  };
-
-  const openEditForm = (customer: Customer) => {
-    let countryCode = customer.countryCode || "NG";
-    if (countryCode.startsWith("+")) {
-      const country = countryCodes.find(c => c.dialCode === countryCode);
-      countryCode = country?.code || "NG";
-    }
-    form.reset({
-      storeId: customer.storeId,
-      name: customer.name,
-      customerNumber: customer.customerNumber,
-      countryCode,
-      mobileNumber: customer.mobileNumber || "",
-      address: customer.address || "",
-    });
-    setSelectedCustomer(customer);
-    setIsFormOpen(true);
-  };
-
-  const closeForm = () => {
-    setIsFormOpen(false);
-    setSelectedCustomer(null);
-    form.reset();
-  };
+  const openCreateForm = () => setLocation("/customers/new");
+  const openEditForm = (customer: Customer) => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`);
 
   const handleForceCreate = () => {
     if (pendingSubmitValues) {
@@ -964,219 +932,6 @@ export default function Customers() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedCustomer ? "Edit Customer" : "Add New Customer"}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedCustomer
-                ? "Update the customer information below."
-                : "Fill in the details to create a new customer record."}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {currentStore?.id === "all" && !selectedCustomer && (
-                <FormField
-                  control={form.control}
-                  name="storeId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Target Store Location</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-store">
-                            <SelectValue placeholder="Select a branch..." />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {stores.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="John Doe" {...field} data-testid="input-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid gap-4 sm:grid-cols-3">
-                <FormField
-                  control={form.control}
-                  name="countryCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Country</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "NG"}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-country-code">
-                            <SelectValue placeholder="Select country" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className="max-h-[300px]">
-                          {countryCodes.map((country) => (
-                            <SelectItem key={country.code} value={country.code}>
-                              {country.name} ({country.dialCode})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="mobileNumber"
-                  render={({ field }) => (
-                    <FormItem className="sm:col-span-2">
-                      <FormLabel>Mobile Number (Optional)</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="8012345678" 
-                          {...field} 
-                          data-testid="input-mobile" 
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Enter number without country code (e.g., 8012345678)
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="123 Main St, City, State, ZIP"
-                        {...field}
-                        data-testid="input-address"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={closeForm}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending || updateMutation.isPending
-                    ? "Saving..."
-                    : selectedCustomer
-                    ? "Update Customer"
-                    : "Create Customer"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDuplicateOpen} onOpenChange={setIsDuplicateOpen}>
-        <DialogContent className="max-w-md bg-slate-900 border border-slate-800 text-white rounded-3xl p-6">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-white">
-              ⚠️ Possible Duplicate Detected
-            </DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs mt-1">
-              A customer with this phone number already exists in this store branch.
-            </DialogDescription>
-          </DialogHeader>
-
-          {duplicateCustomer && (
-            <div className="space-y-6 pt-4">
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs text-slate-300 font-medium">
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">Customer Number:</span>
-                  <span className="font-mono text-primary font-bold">{duplicateCustomer.customerNumber}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">Customer Name:</span>
-                  <span className="font-bold text-white">{duplicateCustomer.name}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">Phone Number:</span>
-                  <span className="font-mono">{duplicateCustomer.mobileNumber}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-900 pb-2">
-                  <span className="text-slate-400">Profile Created:</span>
-                  <span>{new Date(duplicateCustomer.createdAt).toLocaleDateString()}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Last Transaction:</span>
-                  <span className="text-amber-500 font-bold">
-                    {duplicateCustomer.lastTransactionDate 
-                      ? new Date(duplicateCustomer.lastTransactionDate).toLocaleDateString()
-                      : "No past transactions"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 pt-2">
-                <Button
-                  className="w-full rounded-full font-bold shadow-md h-10 text-xs"
-                  onClick={() => {
-                    setIsDuplicateOpen(false);
-                    setPendingSubmitValues(null);
-                    setDuplicateCustomer(null);
-                    closeForm();
-                    setLocation(`/customers/${duplicateCustomer.id}`);
-                  }}
-                >
-                  Use Existing Customer
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full rounded-full border-slate-700 hover:bg-slate-800 text-slate-300 font-bold h-10 text-xs"
-                  onClick={handleForceCreate}
-                  disabled={createMutation.isPending}
-                >
-                  No, Create as New Customer
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full rounded-full text-slate-500 hover:text-white h-10 text-xs"
-                  onClick={() => {
-                    setIsDuplicateOpen(false);
-                    setPendingSubmitValues(null);
-                    setDuplicateCustomer(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
       <ConfirmDialog
         open={isDeleteOpen}
         onOpenChange={setIsDeleteOpen}
@@ -1188,6 +943,18 @@ export default function Customers() {
         isLoading={archiveMutation.isPending}
       />
 
+      {user?.role !== "staff" && activeTab !== "analytics" && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "Add Customer",
+              icon: <UserPlus className="h-5 w-5" />,
+              onClick: openCreateForm,
+              testId: "fab-add-customer",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -238,9 +239,14 @@ export default function StaffPage() {
           key: "paymentMethod",
           header: "Model",
           render: (staff: Staff) => (
-            <Badge variant="outline" className="capitalize">
-              {staff.paymentMethod}
-            </Badge>
+            <div className="flex flex-col gap-0.5">
+              <Badge variant="outline" className="capitalize w-fit">
+                {staff.overridePaymentMethod ? staff.paymentMethod : "Store Default"}
+              </Badge>
+              {!staff.overridePaymentMethod && (
+                <span className="text-[10px] text-muted-foreground">inherits store model</span>
+              )}
+            </div>
           ),
         },
         mobileCol,
@@ -248,7 +254,9 @@ export default function StaffPage() {
           key: "payPerMonth",
           header: "Monthly Pay",
           render: (staff: Staff) => (
-            <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
+            staff.overridePaymentMethod
+              ? <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
+              : <span className="text-xs text-muted-foreground italic">Store default</span>
           ),
         },
         {
@@ -381,7 +389,9 @@ export default function StaffPage() {
       key: "payPerMonth",
       header: "Monthly Pay",
       render: (staff: Staff) => (
-        <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
+        staff.overridePaymentMethod
+          ? <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
+          : <span className="text-xs text-muted-foreground italic">Store default</span>
       ),
     },
     {
@@ -595,6 +605,19 @@ export default function StaffPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {userRole !== "staff" && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "Add Staff",
+              icon: <UserPlus className="h-5 w-5" />,
+              onClick: () => setLocation("/staff/new"),
+              testId: "fab-add-staff",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

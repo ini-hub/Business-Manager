@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock, Edit, Infinity, Info, AlertCircle, AlertTriangle, Plus, Trash2, Layers } from "lucide-react";
+import {
+  ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock,
+  Edit, Infinity, Info, AlertTriangle, Plus, Trash2, Layers, Wrench, BarChart2,
+  ShoppingBag, Tag, DollarSign
+} from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -12,23 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -36,6 +25,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStore } from "@/lib/store-context";
@@ -45,15 +42,11 @@ import { inventoryApi } from "@/services/InventoryApiService";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
-
-
+import { cn } from "@/lib/utils";
 
 const inventoryEditFormSchema = insertInventorySchema.refine(
   (data) => data.costPrice > 0,
-  {
-    message: "Cost price must be greater than zero.",
-    path: ["costPrice"],
-  }
+  { message: "Cost price must be greater than zero.", path: ["costPrice"] }
 ).refine(data => {
   if (data.commissionSplitOverride) {
     const businessShare = data.commissionSplitBusinessShare ?? 0;
@@ -78,11 +71,27 @@ export default function InventoryDetails() {
   const { toast } = useToast();
   const inventoryId = params?.id;
 
-  const { data: inventory, isLoading: itemLoading } = useQuery<Inventory>({
+  const { data: inventory, isLoading: itemLoading } = useQuery<any>({
     queryKey: ["inventory-detail", inventoryId],
-    queryFn: () => inventoryApi.getInventoryItem(inventoryId!),
+    queryFn: async () => {
+      const prodRes = await fetch(`/api/products/${inventoryId}`);
+      if (prodRes.ok) {
+        const prod = await prodRes.json();
+        return { isProductGroup: true, ...prod };
+      }
+      const invRes = await fetch(`/api/inventory/${inventoryId}`);
+      if (invRes.ok) {
+        const inv = await invRes.json();
+        return { isProductGroup: false, ...inv };
+      }
+      throw new Error("Item not found");
+    },
     enabled: !!inventoryId,
   });
+
+  const isSimpleProduct = inventory?.isProductGroup && inventory?.variants && inventory?.variants.length === 1;
+  const primaryVariant = isSimpleProduct ? inventory.variants[0] : (!inventory?.isProductGroup ? inventory : null);
+  const activeVariantId = primaryVariant?.id;
 
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [restockData, setRestockData] = useState({
@@ -95,17 +104,16 @@ export default function InventoryDetails() {
     reason: "Restock" as "Restock" | "Return" | "Adjustment",
     receiptUrl: "",
   });
-  const [isEditOpen, setIsEditOpen] = useState(false);
 
   // --- COMPOSITE / BUNDLES ---
   const { data: bundleComponents = [], isLoading: bundleLoading } = useQuery<any[]>({
-    queryKey: ["bundle-components", inventoryId],
+    queryKey: ["bundle-components", activeVariantId],
     queryFn: async () => {
-      const res = await fetch(`/api/inventory/${inventoryId}/bundle-components`);
+      const res = await fetch(`/api/inventory/${activeVariantId}/bundle-components`);
       if (!res.ok) throw new Error("Failed to fetch bundle components");
       return res.json();
     },
-    enabled: !!inventoryId && !!inventory?.isBundle,
+    enabled: !!activeVariantId && !!primaryVariant?.isBundle,
   });
 
   const { data: storeInventory = [] } = useQuery<Inventory[]>({
@@ -115,93 +123,81 @@ export default function InventoryDetails() {
 
   const updateBundleMutation = useMutation({
     mutationFn: async (components: { componentInventoryId: string; quantity: number }[]) => {
-      return apiRequest("POST", `/api/inventory/${inventoryId}/bundle-components`, { components });
+      return apiRequest("POST", `/api/inventory/${activeVariantId}/bundle-components`, { components });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bundle-components", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["bundle-components", activeVariantId] });
       toast({ title: "Bundle components updated successfully" });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to update bundle components",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to update bundle components", description: error.message, variant: "destructive" });
     },
   });
 
-  // --- VARIANTS / MATRIX ---
+  // --- VARIANTS ---
   const [isVariantDialogOpen, setIsVariantDialogOpen] = useState(false);
   const [newVariantData, setNewVariantData] = useState({
-    name: "",
-    costPrice: 0,
-    sellingPrice: 0,
-    quantity: 0,
-    size: "",
-    color: "",
+    name: "", costPrice: 0, sellingPrice: 0, quantity: 0, size: "", color: "",
   });
+  const [customAttrs, setCustomAttrs] = useState<{ key: string; value: string }[]>([]);
+  const [attrKey, setAttrKey] = useState("");
+  const [attrValue, setAttrValue] = useState("");
 
-  const { data: variants = [], isLoading: variantsLoading } = useQuery<Inventory[]>({
-    queryKey: ["inventory-variants", inventoryId],
-    queryFn: async () => {
-      const res = await fetch(`/api/inventory/${inventoryId}/variants`);
-      if (!res.ok) throw new Error("Failed to fetch variants");
-      return res.json();
-    },
-    enabled: !!inventoryId && inventory?.type === "product" && !inventory?.parentInventoryId,
-  });
+  useEffect(() => {
+    if (!isVariantDialogOpen || !inventory) return;
+    const parts = [];
+    if (newVariantData.size) parts.push(newVariantData.size);
+    if (newVariantData.color) parts.push(newVariantData.color);
+    customAttrs.forEach(attr => { if (attr.value) parts.push(attr.value); });
+    const attrsStr = parts.join(" / ");
+    const generatedName = attrsStr ? `${inventory.name} - ${attrsStr}` : inventory.name;
+    setNewVariantData(prev => ({ ...prev, name: generatedName }));
+  }, [newVariantData.size, newVariantData.color, customAttrs, isVariantDialogOpen, inventory?.name]);
+
+  const variants = inventory?.variants || [];
 
   const createVariantMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest("POST", `/api/inventory/${inventoryId}/variants`, data);
+      return apiRequest("POST", `/api/products/${inventoryId}/variants`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory-variants", inventoryId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products", currentStore?.id] });
       toast({ title: "Variant created successfully" });
       setIsVariantDialogOpen(false);
+      setNewVariantData({ name: "", costPrice: 0, sellingPrice: 0, quantity: 0, size: "", color: "" });
+      setCustomAttrs([]);
+      setAttrKey(""); setAttrValue("");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to create variant",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to create variant", description: error.message, variant: "destructive" });
     },
   });
 
   // --- FIFO EXPIRY BATCHES ---
-  const [newBatchData, setNewBatchData] = useState({
-    batchNumber: "",
-    expiryDate: "",
-    quantity: 1,
-  });
+  const [newBatchData, setNewBatchData] = useState({ batchNumber: "", expiryDate: "", quantity: 1 });
 
   const { data: batches = [], isLoading: batchesLoading } = useQuery<any[]>({
-    queryKey: ["inventory-batches", inventoryId],
+    queryKey: ["inventory-batches", activeVariantId],
     queryFn: async () => {
-      const res = await fetch(`/api/inventory/${inventoryId}/batches`);
+      const res = await fetch(`/api/inventory/${activeVariantId}/batches`);
       if (!res.ok) throw new Error("Failed to fetch batches");
       return res.json();
     },
-    enabled: !!inventoryId && inventory?.type === "product" && !inventory?.isBundle,
+    enabled: !!activeVariantId && primaryVariant?.type === "product" && !primaryVariant?.isBundle,
   });
 
   const createBatchMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest("POST", `/api/inventory/${inventoryId}/batches`, data);
+      return apiRequest("POST", `/api/inventory/${activeVariantId}/batches`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory-batches", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-batches", activeVariantId] });
       toast({ title: "Batch cohort added successfully" });
       setNewBatchData({ batchNumber: "", expiryDate: "", quantity: 1 });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to create batch",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to create batch", description: error.message, variant: "destructive" });
     },
   });
 
@@ -220,11 +216,6 @@ export default function InventoryDetails() {
     },
   });
 
-  const watchType = form.watch("type");
-  const watchCostPrice = form.watch("costPrice");
-  const watchSellingPrice = form.watch("sellingPrice");
-  const hasZeroMargin = watchCostPrice > 0 && watchCostPrice === watchSellingPrice;
-
   const updateMutation = useMutation({
     mutationFn: (data: InsertInventory) =>
       apiRequest("PATCH", `/api/inventory/${inventoryId}`, data),
@@ -232,51 +223,23 @@ export default function InventoryDetails() {
       queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
       toast({ title: "Item updated successfully" });
-      setIsEditOpen(false);
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Update Item", 
-        description: getUserFriendlyError(error, "updating this item"), 
-        variant: "destructive" 
-      });
+      toast({ title: "Couldn't Update Item", description: getUserFriendlyError(error, "updating this item"), variant: "destructive" });
     },
   });
 
-  const openEditDialog = () => {
-    if (inventory) {
-      form.reset({
-        storeId: inventory.storeId,
-        name: inventory.name,
-        type: inventory.type as "product" | "service",
-        costPrice: inventory.costPrice,
-        sellingPrice: inventory.sellingPrice,
-        quantity: inventory.quantity,
-        commissionSplitOverride: (inventory as any).commissionSplitOverride ?? false,
-        commissionSplitBusinessShare: (inventory as any).commissionSplitBusinessShare ?? 80,
-        commissionSplitStaffShare: (inventory as any).commissionSplitStaffShare ?? 20,
-      });
-      setIsEditOpen(true);
-    }
-  };
-
-  const onSubmit = (data: InsertInventory) => {
-    if (data.sellingPrice < data.costPrice) {
-      form.setError("sellingPrice", { type: "manual", message: "Selling price cannot be less than cost price." });
-      return;
-    }
-    updateMutation.mutate(data);
-  };
-
-
+  const openEditDialog = () => setLocation(`/inventory/${inventoryId}/edit`);
 
   const { data: settingsData } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
-  const lowStockThreshold = settingsData?.lowStockThreshold ?? 5;
-
+  const globalLowStockThreshold = settingsData?.lowStockThreshold ?? 5;
+  // Use per-item reorderPoint when set, otherwise fall back to store global threshold
+  const itemReorderPoint = primaryVariant?.reorderPoint ?? inventory?.reorderPoint;
+  const lowStockThreshold = itemReorderPoint != null ? itemReorderPoint : globalLowStockThreshold;
   const [period, setPeriod] = useState<"30" | "90" | "365" | "all">("all");
 
   let startDate: string | undefined = undefined;
@@ -288,23 +251,22 @@ export default function InventoryDetails() {
   const endDate = new Date().toISOString().split("T")[0];
 
   const { data: sustainingCostsData, isLoading: sustainingCostsLoading } = useQuery({
-    queryKey: ["sustaining-costs", inventoryId, period],
+    queryKey: ["sustaining-costs", activeVariantId, period],
     queryFn: async () => {
-      const url = `/api/inventory/${inventoryId}/sustaining-costs?` + new URLSearchParams({
-        ...(startDate ? { startDate } : {}),
-        endDate,
+      const url = `/api/inventory/${activeVariantId}/sustaining-costs?` + new URLSearchParams({
+        ...(startDate ? { startDate } : {}), endDate,
       });
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch sustaining costs");
       return res.json();
     },
-    enabled: !!inventoryId,
+    enabled: !!activeVariantId,
   });
 
   const { data: restockHistory = [], isLoading: historyLoading } = useQuery<RestockEventWithStaff[]>({
-    queryKey: ["inventory-restock-history", inventoryId],
-    queryFn: () => inventoryApi.getRestockHistory(inventoryId!),
-    enabled: !!inventoryId,
+    queryKey: ["inventory-restock-history", activeVariantId],
+    queryFn: () => inventoryApi.getRestockHistory(activeVariantId!),
+    enabled: !!activeVariantId,
   });
 
   const restockMutation = useMutation({
@@ -327,58 +289,28 @@ export default function InventoryDetails() {
       setIsRestockOpen(false);
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Update Stock", 
-        description: getUserFriendlyError(error), 
-        variant: "destructive" 
-      });
+      toast({ title: "Couldn't Update Stock", description: getUserFriendlyError(error), variant: "destructive" });
     },
   });
 
   const storeCurrency = currentStore?.currency || "NGN";
-  const currencyInfo = getCurrencyByCode(storeCurrency);
-
-  const formatCurrency = (value: number) => {
-    return formatCurrencyUtil(value, storeCurrency);
-  };
+  const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
 
   const formatDate = (date: string | Date) => {
     return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
     }).format(new Date(date));
   };
 
-  const openRestockDialog = () => {
-    if (inventory) {
-      setRestockData({
-        quantity: 1,
-        unitCost: inventory.costPrice,
-        costStrategy: "keep",
-        newSellingPrice: inventory.sellingPrice,
-        updateSellingPrice: false,
-        notes: "",
-        reason: "Restock",
-        receiptUrl: "",
-      });
-      setIsRestockOpen(true);
-    }
-  };
+  const openRestockDialog = () => setLocation(`/inventory/${activeVariantId}/restock`);
 
-  const getStockBadge = (item: Inventory) => {
-    if (item.type === "service") {
-      return <Badge variant="secondary">Service</Badge>;
-    }
-    if (item.quantity === 0) {
-      return <Badge variant="destructive">Out of Stock</Badge>;
-    }
-    if (item.quantity <= lowStockThreshold) {
-      return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100">Low Stock</Badge>;
-    }
-    return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">In Stock</Badge>;
+  const getStockStatus = (item: any) => {
+    if (item.type === "service") return { label: "Service", variant: "secondary" as const, color: "" };
+    const qty = item.isProductGroup ? totalQuantity : (item.quantity || 0);
+    if (qty === 0) return { label: "Out of Stock", variant: "destructive" as const, color: "" };
+    if (qty <= lowStockThreshold) return { label: "Low Stock", variant: "secondary" as const, color: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100" };
+    return { label: "In Stock", variant: "secondary" as const, color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" };
   };
 
   const getCostStrategyLabel = (strategy: string) => {
@@ -391,7 +323,7 @@ export default function InventoryDetails() {
     }
   };
 
-  const columns = [
+  const restockColumns = [
     {
       key: "restockedAt",
       header: "Date",
@@ -405,12 +337,18 @@ export default function InventoryDetails() {
     {
       key: "quantityAdded",
       header: "Qty Added",
-      render: (event: RestockEventWithStaff) => (
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-3 w-3 text-green-500" />
-          <span className="font-medium text-green-600 dark:text-green-400">+{event.quantityAdded}</span>
-        </div>
-      ),
+      render: (event: RestockEventWithStaff) => {
+        const unit = primaryVariant?.unit || inventory?.unit;
+        const qty = parseFloat(Number(event.quantityAdded).toFixed(2));
+        return (
+          <div className="flex items-center gap-1.5">
+            <TrendingUp className="h-3 w-3 text-green-500" />
+            <span className="font-medium text-green-600 dark:text-green-400">
+              +{qty}{unit ? ` ${unit}` : ""}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: "unitCost",
@@ -423,13 +361,12 @@ export default function InventoryDetails() {
         const percentChange = prevEvent && prevEvent.unitCost > 0
           ? ((event.unitCost - prevEvent.unitCost) / prevEvent.unitCost) * 100
           : 0;
-
         return (
           <div className="flex flex-col gap-0.5">
             <span className="font-mono text-sm">{formatCurrency(event.unitCost)}</span>
             {costChanged && (
               <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5 font-medium whitespace-nowrap">
-                ⚠️ Unit cost changed from {formatCurrency(prevEvent.unitCost)} to {formatCurrency(event.unitCost)} ({percentChange > 0 ? "+" : ""}{percentChange.toFixed(0)}%)
+                ⚠️ {formatCurrency(prevEvent.unitCost)} → {formatCurrency(event.unitCost)} ({percentChange > 0 ? "+" : ""}{percentChange.toFixed(0)}%)
               </span>
             )}
           </div>
@@ -440,20 +377,16 @@ export default function InventoryDetails() {
       key: "costStrategy",
       header: "Cost Strategy",
       render: (event: RestockEventWithStaff) => (
-        <Badge variant="outline" className="capitalize">
-          {getCostStrategyLabel(event.costStrategy)}
-        </Badge>
+        <Badge variant="outline" className="capitalize">{getCostStrategyLabel(event.costStrategy)}</Badge>
       ),
     },
     {
       key: "newSellingPrice",
       header: "Price Update",
       render: (event: RestockEventWithStaff) => (
-        event.newSellingPrice ? (
-          <span className="font-mono text-sm">{formatCurrency(event.newSellingPrice)}</span>
-        ) : (
-          <span className="text-muted-foreground text-sm">No change</span>
-        )
+        event.newSellingPrice
+          ? <span className="font-mono text-sm">{formatCurrency(event.newSellingPrice)}</span>
+          : <span className="text-muted-foreground text-sm">No change</span>
       ),
     },
     {
@@ -473,32 +406,43 @@ export default function InventoryDetails() {
       key: "notes",
       header: "Notes",
       render: (event: RestockEventWithStaff) => (
-        event.notes ? (
-          <div className="flex items-center gap-1 max-w-[200px]">
-            <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="text-sm truncate" title={event.notes}>{event.notes}</span>
-          </div>
-        ) : (
-          <span className="text-muted-foreground text-sm">-</span>
-        )
+        event.notes
+          ? <div className="flex items-center gap-1 max-w-[200px]">
+              <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="text-sm truncate" title={event.notes}>{event.notes}</span>
+            </div>
+          : <span className="text-muted-foreground text-sm">—</span>
       ),
     },
   ];
 
-  if (!match) {
-    return null;
-  }
+  if (!match) return null;
 
   if (itemLoading) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setLocation("/inventory")} data-testid="button-back">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Inventory
+        <Button variant="ghost" onClick={() => setLocation("/inventory")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Inventory
         </Button>
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Loading item details...
+        <Card className="overflow-hidden">
+          <div className="bg-muted/30 border-b px-6 py-5">
+            <div className="flex items-start gap-4">
+              <Skeleton className="h-14 w-14 rounded-xl" />
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-7 w-56" />
+                <Skeleton className="h-5 w-36" />
+              </div>
+            </div>
+          </div>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="p-3 rounded-lg border bg-muted/20 space-y-2">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-6 w-28" />
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -508,33 +452,61 @@ export default function InventoryDetails() {
   if (!inventory) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setLocation("/inventory")} data-testid="button-back">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Inventory
+        <Button variant="ghost" onClick={() => setLocation("/inventory")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Inventory
         </Button>
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Item not found
+          <CardContent className="py-16 text-center">
+            <Package className="h-12 w-12 mx-auto mb-3 text-muted-foreground/40" />
+            <p className="font-semibold text-muted-foreground">Item not found</p>
+            <p className="text-sm text-muted-foreground mt-1">This inventory item may have been removed.</p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  const costPrice = inventory.costPrice ?? 0;
-  const sellingPrice = inventory.sellingPrice ?? 0;
+  const variantsList = inventory?.variants || [];
+  const minCost = variantsList.length > 0 ? Math.min(...variantsList.map((v: any) => v.costPrice)) : 0;
+  const maxCost = variantsList.length > 0 ? Math.max(...variantsList.map((v: any) => v.costPrice)) : 0;
+  const minSelling = variantsList.length > 0 ? Math.min(...variantsList.map((v: any) => v.sellingPrice)) : 0;
+  const maxSelling = variantsList.length > 0 ? Math.max(...variantsList.map((v: any) => v.sellingPrice)) : 0;
+
+  const costPrice = inventory.isProductGroup
+    ? (isSimpleProduct ? (primaryVariant?.costPrice ?? 0) : 0)
+    : (inventory.costPrice ?? 0);
+  const sellingPrice = inventory.isProductGroup
+    ? (isSimpleProduct ? (primaryVariant?.sellingPrice ?? 0) : 0)
+    : (inventory.sellingPrice ?? 0);
   const profit = sellingPrice - costPrice;
-  const profitMargin = costPrice > 0 ? (profit / costPrice) * 100 : 0;
+  const profitMargin = costPrice > 0 ? (profit / sellingPrice) * 100 : 0;
+
+  const totalQuantity = inventory.isProductGroup
+    ? variantsList.reduce((sum: number, v: any) => sum + (v.quantity || 0), 0)
+    : (inventory.quantity || 0);
+
+  const totalCostValue = inventory.isProductGroup
+    ? variantsList.reduce((sum: number, v: any) => sum + ((v.costPrice || 0) * (v.quantity || 0)), 0)
+    : (costPrice * totalQuantity);
+  const totalSellingValue = inventory.isProductGroup
+    ? variantsList.reduce((sum: number, v: any) => sum + ((v.sellingPrice || 0) * (v.quantity || 0)), 0)
+    : (sellingPrice * totalQuantity);
+  const totalPotentialProfit = totalSellingValue - totalCostValue;
+
+  const stockStatus = getStockStatus(inventory);
+  const isService = inventory.type === "service";
+  const isBundle = primaryVariant?.isBundle;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      {/* Top navigation row */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <Button variant="ghost" onClick={() => setLocation("/inventory")} data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Inventory
         </Button>
-        <div className="flex gap-2">
-          {inventory.type === "product" && (
+        <div className="flex items-center gap-2">
+          {inventory.type === "product" && !!activeVariantId && (
             <Button onClick={openRestockDialog} data-testid="button-restock">
               <RefreshCw className="h-4 w-4 mr-2" />
               Restock
@@ -547,172 +519,283 @@ export default function InventoryDetails() {
         </div>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full space-y-6">
+      {/* Product Hero Card */}
+      <Card className="overflow-hidden border-0 shadow-sm ring-1 ring-border/60">
+        <div className="bg-gradient-to-br from-muted/40 via-background to-primary/5 border-b px-6 py-5">
+          <div className="flex items-start gap-4">
+            <div className={cn(
+              "p-3 rounded-xl border shadow-sm shrink-0",
+              isService
+                ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+                : isBundle
+                  ? "bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800"
+                  : "bg-primary/5 border-primary/20"
+            )}>
+              {isService
+                ? <Wrench className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+                : isBundle
+                  ? <Layers className="h-7 w-7 text-purple-600 dark:text-purple-400" />
+                  : <Package className="h-7 w-7 text-primary" />
+              }
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-bold leading-tight" data-testid="text-item-name">
+                  {inventory.name}
+                </h1>
+                {inventory.productId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-primary hover:underline h-auto py-0.5 px-1.5"
+                    onClick={() => setLocation(`/inventory/${inventory.productId}`)}
+                  >
+                    View Group
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <Badge variant="outline" className={`capitalize font-medium ${
+                  isService ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+                  : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
+                  {isService ? "Service" : isBundle ? "Bundle" : "Product"}
+                </Badge>
+                <Badge
+                  variant={stockStatus.variant}
+                  className={cn("font-medium", stockStatus.color)}
+                >
+                  {stockStatus.label}
+                </Badge>
+                {inventory.isProductGroup && !isSimpleProduct && (
+                  <Badge variant="secondary" className="text-xs">
+                    {variantsList.length} variants
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Key Metrics Strip */}
+        <CardContent className="p-0">
+          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 border-b-0">
+            {/* Cost Price */}
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                <Tag className="h-3 w-3" />
+                Cost Price
+              </p>
+              <p className="font-mono font-semibold text-base" data-testid="text-cost-price">
+                {inventory.isProductGroup && !isSimpleProduct
+                  ? (minCost === maxCost ? formatCurrency(minCost) : `${formatCurrency(minCost)} – ${formatCurrency(maxCost)}`)
+                  : formatCurrency(costPrice)
+                }
+              </p>
+            </div>
+
+            {/* Selling Price */}
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                <ShoppingBag className="h-3 w-3" />
+                Selling Price
+              </p>
+              <p className="font-mono font-semibold text-base" data-testid="text-selling-price">
+                {inventory.isProductGroup && !isSimpleProduct
+                  ? (minSelling === maxSelling ? formatCurrency(minSelling) : `${formatCurrency(minSelling)} – ${formatCurrency(maxSelling)}`)
+                  : formatCurrency(sellingPrice)
+                }
+              </p>
+            </div>
+
+            {/* Profit */}
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                <TrendingUp className="h-3 w-3" />
+                Profit / Unit
+              </p>
+              {inventory.isProductGroup && !isSimpleProduct
+                ? <p className="text-sm text-muted-foreground">See variants matrix</p>
+                : (
+                  <div>
+                    <p
+                      className={cn("font-mono font-semibold text-base", profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}
+                      data-testid="text-profit"
+                    >
+                      {formatCurrency(profit)}
+                    </p>
+                    {costPrice > 0 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{profitMargin.toFixed(1)}% margin</p>
+                    )}
+                  </div>
+                )
+              }
+            </div>
+
+            {/* Stock */}
+            <div className="px-5 py-4">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                <Package className="h-3 w-3" />
+                Stock
+              </p>
+              {isService
+                ? (
+                  <p className="font-semibold text-base flex items-center gap-1" data-testid="text-quantity">
+                    <Infinity className="h-4 w-4 text-blue-500" />
+                    <span className="text-blue-600 dark:text-blue-400">Unlimited</span>
+                  </p>
+                )
+                : (
+                  <div>
+                    <p
+                      className={cn(
+                        "font-mono font-semibold text-base",
+                        totalQuantity === 0 ? "text-red-600 dark:text-red-400"
+                          : totalQuantity <= lowStockThreshold ? "text-amber-600 dark:text-amber-400"
+                          : ""
+                      )}
+                      data-testid="text-quantity"
+                    >
+                      {parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : ""}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{inventory.unit ? `${inventory.unit} in stock` : "units in stock"}</p>
+                  </div>
+                )
+              }
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs */}
+      <Tabs defaultValue="overview" className="w-full space-y-5">
         <PolymorphicTabsList
           tabs={[
             { value: "overview", label: "Overview" },
-            ...(inventory.type === "product" ? [{ value: "restock-history", label: "Restock History" }] : []),
-            { value: "sustaining-costs", label: "Sustaining Costs" },
-            ...(inventory.isBundle ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
-            ...(inventory.type === "product" && !inventory.parentInventoryId ? [{ value: "variants", label: "Variants / Matrix" }] : []),
-            ...(inventory.type === "product" && !inventory.isBundle ? [{ value: "expiry-batches", label: "FIFO Expiry Batches" }] : []),
+            ...(inventory.type === "product" && !!activeVariantId ? [{ value: "restock-history", label: "Restock History" }] : []),
+            ...(!!activeVariantId ? [{ value: "sustaining-costs", label: "Profitability" }] : []),
+            ...(isBundle && !!activeVariantId ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
+            ...(inventory.isProductGroup ? [{ value: "variants", label: "Variants" }] : []),
+            ...(inventory.type === "product" && !isBundle && !!activeVariantId ? [{ value: "expiry-batches", label: "Expiry Batches" }] : []),
           ]}
           variant="default"
         />
 
-        <TabsContent value="overview" className="space-y-6 mt-0">
-          <div className="grid gap-6 md:grid-cols-3">
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <Package className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl" data-testid="text-item-name">{inventory.name}</CardTitle>
-                      <CardDescription className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline" className="capitalize">{inventory.type}</Badge>
-                        {getStockBadge(inventory)}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Coins className="h-3 w-3" />
-                      Cost Price
-                    </p>
-                    <p className="font-mono font-medium text-lg" data-testid="text-cost-price">
-                      {formatCurrency(inventory.costPrice ?? 0)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Coins className="h-3 w-3" />
-                      Selling Price
-                    </p>
-                    <p className="font-mono font-medium text-lg" data-testid="text-selling-price">
-                      {formatCurrency(inventory.sellingPrice ?? 0)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <TrendingUp className="h-3 w-3" />
-                      Profit/Unit
-                    </p>
-                    <p className={`font-mono font-medium text-lg ${profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} data-testid="text-profit">
-                      {formatCurrency(profit)} ({profitMargin.toFixed(1)}%)
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Package className="h-3 w-3" />
-                      Stock
-                    </p>
-                    {inventory.type === "product" ? (
-                      <p className="font-mono font-medium text-lg" data-testid="text-quantity">
-                        {inventory.quantity}
-                      </p>
-                    ) : (
-                      <p className="font-medium text-lg flex items-center gap-1" data-testid="text-quantity">
-                        <Infinity className="h-4 w-4" /> Unlimited
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
+        {/* OVERVIEW TAB */}
+        <TabsContent value="overview" className="space-y-4 mt-0">
+          {isService ? (
             <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Stock Value</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {inventory.type === "product" ? (
-                  <>
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">At Cost</p>
-                      <p className="font-mono font-medium text-lg">
-                        {formatCurrency(costPrice * inventory.quantity)}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">At Selling Price</p>
-                      <p className="font-mono font-medium text-lg">
-                        {formatCurrency(sellingPrice * inventory.quantity)}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Potential Profit</p>
-                      <p className="font-mono font-medium text-lg text-green-600 dark:text-green-400">
-                        {formatCurrency(profit * inventory.quantity)}
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Per Service</p>
-                    <p className="font-mono font-medium text-lg text-green-600 dark:text-green-400">
-                      {formatCurrency(profit)} profit
+              <CardContent className="pt-5">
+                <div className="flex items-start gap-3 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Service Item</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+                      Services have unlimited availability and don't require stock tracking. Every sale of this service earns {formatCurrency(profit)} in profit.
                     </p>
                   </div>
-                )}
+                </div>
               </CardContent>
             </Card>
-          </div>
+          ) : (
+            <>
+              {/* Stock Value Summary */}
+              <div>
+                <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-0.5">Stock Value</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Tag className="h-3 w-3" /> At Cost
+                    </p>
+                    <p className="font-mono font-semibold text-lg">{formatCurrency(totalCostValue)}</p>
+                    <p className="text-xs text-muted-foreground">{parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : " units"} × cost</p>
+                  </div>
+                  <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <ShoppingBag className="h-3 w-3" /> At Selling Price
+                    </p>
+                    <p className="font-mono font-semibold text-lg">{formatCurrency(totalSellingValue)}</p>
+                    <p className="text-xs text-muted-foreground">{parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : " units"} × price</p>
+                  </div>
+                  <div className="p-4 rounded-xl border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800 space-y-1">
+                    <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                      <TrendingUp className="h-3 w-3" /> Potential Profit
+                    </p>
+                    <p className={cn("font-mono font-semibold text-lg", totalPotentialProfit >= 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
+                      {formatCurrency(totalPotentialProfit)}
+                    </p>
+                    <p className="text-xs text-green-600 dark:text-green-500">if all stock is sold</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Low stock warning */}
+              {totalQuantity > 0 && totalQuantity <= lowStockThreshold && (
+                <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertDescription className="text-amber-800 dark:text-amber-300">
+                    <strong>Low stock:</strong> Only {parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : ` unit${totalQuantity !== 1 ? "s" : ""}`} remaining. Consider restocking soon.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {totalQuantity === 0 && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Out of stock.</strong> This item is currently unavailable for sale. Restock to continue selling.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </>
+          )}
         </TabsContent>
 
+        {/* RESTOCK HISTORY TAB */}
         <TabsContent value="restock-history" className="mt-0">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Clock className="h-4 w-4 text-muted-foreground" />
                 Restock History
               </CardTitle>
-              <CardDescription>
-                Timeline of stock additions for this item
-              </CardDescription>
+              <CardDescription>Timeline of all stock additions and adjustments</CardDescription>
             </CardHeader>
             <CardContent>
-              {inventory.type !== "product" ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  <Info className="h-8 w-8 mx-auto mb-2 opacity-50 text-blue-500" />
-                  <p className="font-medium">Stock tracking does not apply to services.</p>
-                  <p className="text-xs mt-1">Services have unlimited availability by default.</p>
+              {historyLoading ? (
+                <div className="space-y-3 py-4">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                 </div>
-              ) : historyLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading history...</div>
               ) : restockHistory.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  <RefreshCw className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No restock events recorded yet</p>
-                  <p className="text-xs mt-1">Add stock to see the history here</p>
+                <div className="py-12 text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted/40 mb-3">
+                    <RefreshCw className="h-5 w-5 text-muted-foreground/60" />
+                  </div>
+                  <p className="font-medium text-muted-foreground">No restock events yet</p>
+                  <p className="text-sm text-muted-foreground mt-1">Add stock to start building your restock history.</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={openRestockDialog}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Add Stock
+                  </Button>
                 </div>
               ) : (
-                <DataTable columns={columns} data={restockHistory} />
+                <DataTable columns={restockColumns} data={restockHistory} />
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="sustaining-costs" className="space-y-6 mt-0">
+        {/* SUSTAINING COSTS TAB */}
+        <TabsContent value="sustaining-costs" className="space-y-4 mt-0">
           <Card>
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  Sustaining Costs & Margin Analysis
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <BarChart2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  Profitability & Sustaining Costs
                 </CardTitle>
-                <CardDescription>
-                  Track true profit after linked sustaining costs and COGS
-                </CardDescription>
+                <CardDescription>True profit after linked sustaining costs and COGS</CardDescription>
               </div>
               <Select value={period} onValueChange={(val: any) => setPeriod(val)}>
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Filter period" />
                 </SelectTrigger>
                 <SelectContent>
@@ -725,101 +808,86 @@ export default function InventoryDetails() {
             </CardHeader>
             <CardContent>
               {sustainingCostsLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading profitability data...</div>
+                <div className="space-y-3">
+                  <div className="grid sm:grid-cols-5 gap-3">
+                    {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+                  </div>
+                </div>
               ) : (
                 <div className="space-y-6">
-                  {/* Aggregated profit block */}
-                  <div className="grid gap-4 sm:grid-cols-5">
-                    <div className="p-4 bg-muted/40 rounded-lg border">
-                      <p className="text-xs font-medium text-muted-foreground">Revenue</p>
-                      <p className="text-lg font-bold font-mono mt-1 text-green-700 dark:text-green-400">
-                        {formatCurrency(sustainingCostsData?.totalRevenue ?? 0)}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-muted/40 rounded-lg border">
-                      <p className="text-xs font-medium text-muted-foreground">COGS</p>
-                      <p className="text-lg font-bold font-mono mt-1 text-muted-foreground">
-                        {formatCurrency(sustainingCostsData?.totalCogs ?? 0)}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-muted/40 rounded-lg border">
-                      <p className="text-xs font-medium text-muted-foreground">Gross Profit</p>
-                      <p className="text-lg font-bold font-mono mt-1">
-                        {formatCurrency(sustainingCostsData?.grossProfit ?? 0)}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Margin: {(sustainingCostsData?.grossProfitMargin ?? 0).toFixed(1)}%
-                      </p>
-                    </div>
-                    <div className="p-4 bg-muted/40 rounded-lg border">
-                      <p className="text-xs font-medium text-muted-foreground">Sustaining Costs</p>
-                      <p className="text-lg font-bold font-mono mt-1 text-red-600 dark:text-red-400">
-                        − {formatCurrency(sustainingCostsData?.totalSustainingCosts ?? 0)}
-                      </p>
-                    </div>
-                    <div className="p-4 bg-primary/5 rounded-lg border border-primary/25 flex flex-col justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-primary">Net Profit</p>
-                        <p className={`text-lg font-bold font-mono mt-1 ${
-                          (sustainingCostsData?.netProfit ?? 0) > 0 ? "text-green-600 animate-pulse" :
-                          (sustainingCostsData?.netProfit ?? 0) < 0 ? "text-red-600" : "text-muted-foreground"
-                        }`}>
-                          {formatCurrency(sustainingCostsData?.netProfit ?? 0)}
+                  {/* Profit breakdown */}
+                  <div className="grid gap-3 sm:grid-cols-5">
+                    {[
+                      { label: "Revenue", value: sustainingCostsData?.totalRevenue ?? 0, color: "text-green-700 dark:text-green-400" },
+                      { label: "COGS", value: sustainingCostsData?.totalCogs ?? 0, color: "text-muted-foreground" },
+                      { label: "Gross Profit", value: sustainingCostsData?.grossProfit ?? 0, sub: `${(sustainingCostsData?.grossProfitMargin ?? 0).toFixed(1)}% margin`, color: "" },
+                      { label: "Sustaining Costs", value: sustainingCostsData?.totalSustainingCosts ?? 0, prefix: "−", color: "text-red-600 dark:text-red-400" },
+                    ].map((item) => (
+                      <div key={item.label} className="p-4 bg-muted/30 rounded-lg border space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+                        <p className={cn("text-base font-bold font-mono", item.color)}>
+                          {item.prefix ?? ""}{formatCurrency(item.value)}
                         </p>
+                        {item.sub && <p className="text-[10px] text-muted-foreground">{item.sub}</p>}
                       </div>
-                      <div className="mt-2 flex items-center justify-between gap-1 flex-wrap">
+                    ))}
+
+                    {/* Net Profit highlighted */}
+                    <div className="p-4 bg-primary/5 rounded-lg border border-primary/20 space-y-1.5">
+                      <p className="text-xs font-medium text-primary">Net Profit</p>
+                      <p className={cn(
+                        "text-base font-bold font-mono",
+                        (sustainingCostsData?.netProfit ?? 0) > 0 ? "text-green-600" :
+                          (sustainingCostsData?.netProfit ?? 0) < 0 ? "text-red-600" : "text-muted-foreground"
+                      )}>
+                        {formatCurrency(sustainingCostsData?.netProfit ?? 0)}
+                      </p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[10px] text-muted-foreground">
-                          Margin: {(sustainingCostsData?.netProfitMargin ?? 0).toFixed(1)}%
+                          {(sustainingCostsData?.netProfitMargin ?? 0).toFixed(1)}% margin
                         </span>
                         {sustainingCostsData?.status === "profit" && (
-                          <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] font-bold px-1.5 py-0 whitespace-nowrap">
-                            ✅ IN PROFIT
+                          <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] px-1.5 py-0">
+                            In Profit
                           </Badge>
                         )}
                         {sustainingCostsData?.status === "breakeven" && (
-                          <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px] font-bold px-1.5 py-0 whitespace-nowrap">
-                            ⚠️ BREAK EVEN
+                          <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px] px-1.5 py-0">
+                            Break Even
                           </Badge>
                         )}
                         {sustainingCostsData?.status === "loss" && (
-                          <Badge className="bg-red-100 hover:bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[10px] font-bold px-1.5 py-0 whitespace-nowrap">
-                            ❌ IN LOSS
+                          <Badge className="bg-red-100 hover:bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[10px] px-1.5 py-0">
+                            In Loss
                           </Badge>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Sustaining expenses list */}
+                  {/* Expenses list */}
                   <div className="space-y-3">
                     <h3 className="text-sm font-semibold">Linked Sustaining Expenses</h3>
                     {(!sustainingCostsData?.expenses || sustainingCostsData.expenses.length === 0) ? (
-                      <div className="py-8 text-center text-muted-foreground border rounded-lg bg-muted/10">
-                        <Clock className="h-8 w-8 mx-auto mb-2 opacity-45" />
-                        <p>No sustaining costs linked to this item in this period.</p>
+                      <div className="py-10 text-center border rounded-lg bg-muted/10">
+                        <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-muted/40 mb-2">
+                          <FileText className="h-4 w-4 text-muted-foreground/60" />
+                        </div>
+                        <p className="text-sm text-muted-foreground">No sustaining costs linked in this period</p>
                       </div>
                     ) : (
                       <DataTable
                         columns={[
+                          { key: "date", header: "Date", render: (e: any) => formatDate(e.date) },
+                          { key: "title", header: "Description" },
                           {
-                            key: "date",
-                            header: "Date",
-                            render: (e: any) => formatDate(e.date),
-                          },
-                          {
-                            key: "title",
-                            header: "Description",
-                          },
-                          {
-                            key: "category",
-                            header: "Category",
+                            key: "category", header: "Category",
                             render: (e: any) => <Badge variant="outline">{e.category?.name || "Uncategorized"}</Badge>,
                           },
                           {
-                            key: "amount",
-                            header: "Amount",
+                            key: "amount", header: "Amount",
                             render: (e: any) => <span className="font-mono font-medium">{formatCurrency(e.amount)}</span>,
-                          }
+                          },
                         ]}
                         data={sustainingCostsData.expenses}
                       />
@@ -831,68 +899,54 @@ export default function InventoryDetails() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="bundle-components" className="space-y-6 mt-0">
+        {/* BUNDLE COMPONENTS TAB */}
+        <TabsContent value="bundle-components" className="space-y-4 mt-0">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Layers className="h-5 w-5 text-primary" />
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Layers className="h-4 w-4 text-primary" />
                 Bundle Components
               </CardTitle>
               <CardDescription>
-                Manage the child inventory items that make up this composite bundle. Selling the bundle automatically deducts stock of its component items.
+                Selling this bundle auto-deducts stock from each component item.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {bundleLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading components...</div>
+                <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
               ) : (
-                <div className="grid gap-6 lg:grid-cols-3">
-                  <div className="lg:col-span-2 space-y-4">
+                <div className="grid gap-5 lg:grid-cols-3">
+                  <div className="lg:col-span-2 space-y-3">
                     <h3 className="text-sm font-semibold">Active Components</h3>
                     {bundleComponents.length === 0 ? (
-                      <div className="py-8 text-center text-muted-foreground border rounded-lg bg-muted/10">
-                        <Package className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                        <p>No components added to this bundle yet.</p>
-                        <p className="text-xs mt-1">Use the panel on the right to add products.</p>
+                      <div className="py-10 text-center border border-dashed rounded-lg bg-muted/10">
+                        <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
+                        <p className="text-sm text-muted-foreground">No components yet. Add products using the panel.</p>
                       </div>
                     ) : (
                       <DataTable
                         columns={[
                           {
-                            key: "componentName",
-                            header: "Component Name",
-                            render: (row: any) => (
-                              <span className="font-medium">{row.component?.name || "Unknown Item"}</span>
-                            )
+                            key: "componentName", header: "Component",
+                            render: (row: any) => <span className="font-medium">{row.component?.name || "Unknown"}</span>
                           },
                           {
-                            key: "type",
-                            header: "Type",
-                            render: (row: any) => (
-                              <Badge variant="outline" className="capitalize">{row.component?.type}</Badge>
-                            )
+                            key: "type", header: "Type",
+                            render: (row: any) => <Badge variant="outline" className="capitalize">{row.component?.type}</Badge>
                           },
                           {
-                            key: "quantity",
-                            header: "Qty per Bundle",
-                            render: (row: any) => (
-                              <span className="font-mono">{row.quantity}</span>
-                            )
+                            key: "quantity", header: "Qty / Bundle",
+                            render: (row: any) => <span className="font-mono">{row.quantity}</span>
                           },
                           {
-                            key: "stock",
-                            header: "Available Stock",
-                            render: (row: any) => (
-                              <span className="font-mono text-muted-foreground">{row.component?.quantity ?? 0}</span>
-                            )
+                            key: "stock", header: "Available",
+                            render: (row: any) => <span className="font-mono text-muted-foreground">{row.component?.quantity ?? 0}</span>
                           },
                           {
-                            key: "actions",
-                            header: "",
+                            key: "actions", header: "",
                             render: (row: any) => (
                               <Button
-                                variant="ghost"
-                                size="icon"
+                                variant="ghost" size="icon"
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
                                 onClick={() => {
                                   const updated = bundleComponents
@@ -904,7 +958,7 @@ export default function InventoryDetails() {
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             )
-                          }
+                          },
                         ]}
                         data={bundleComponents}
                       />
@@ -912,20 +966,14 @@ export default function InventoryDetails() {
                   </div>
 
                   <Card className="bg-muted/10 border-dashed">
-                    <CardHeader>
+                    <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-semibold">Add Component</CardTitle>
-                      <CardDescription className="text-xs">
-                        Include a product from stock into this bundle
-                      </CardDescription>
+                      <CardDescription className="text-xs">Link a product from stock</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Select Product</Label>
-                        <Select
-                          onValueChange={(val) => {
-                            (window as any).selectedBundleComponentId = val;
-                          }}
-                        >
+                    <CardContent className="space-y-3">
+                      <div className="space-y-1.5">
+                        <Label>Product</Label>
+                        <Select onValueChange={(val) => { (window as any).selectedBundleComponentId = val; }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Choose product..." />
                           </SelectTrigger>
@@ -940,39 +988,28 @@ export default function InventoryDetails() {
                           </SelectContent>
                         </Select>
                       </div>
-
-                      <div className="space-y-2">
-                        <Label>Quantity per Bundle</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          defaultValue="1"
-                          id="bundle-qty-input"
-                        />
+                      <div className="space-y-1.5">
+                        <Label>Qty per Bundle</Label>
+                        <Input type="number" min="1" defaultValue="1" id="bundle-qty-input" />
                       </div>
-
                       <Button
-                        className="w-full mt-2"
+                        className="w-full"
                         onClick={() => {
                           const componentId = (window as any).selectedBundleComponentId;
                           const qtyInput = document.getElementById("bundle-qty-input") as HTMLInputElement;
                           const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
-
                           if (!componentId) {
                             toast({ title: "Please select a component product", variant: "destructive" });
                             return;
                           }
-
                           if (bundleComponents.some((c: any) => c.componentInventoryId === componentId)) {
-                            toast({ title: "Product is already a component of this bundle", variant: "destructive" });
+                            toast({ title: "Already a component of this bundle", variant: "destructive" });
                             return;
                           }
-
-                          const updated = [
+                          updateBundleMutation.mutate([
                             ...bundleComponents.map(c => ({ componentInventoryId: c.componentInventoryId, quantity: c.quantity })),
-                            { componentInventoryId: componentId, quantity: qty }
-                          ];
-                          updateBundleMutation.mutate(updated);
+                            { componentInventoryId: componentId, quantity: qty },
+                          ]);
                         }}
                       >
                         <Plus className="h-4 w-4 mr-2" />
@@ -986,100 +1023,91 @@ export default function InventoryDetails() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="variants" className="space-y-6 mt-0">
+        {/* VARIANTS TAB */}
+        <TabsContent value="variants" className="space-y-4 mt-0">
           <Card>
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Layers className="h-5 w-5 text-primary" />
-                  Product Variants & Matrix
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Layers className="h-4 w-4 text-primary" />
+                  Product Variants
                 </CardTitle>
                 <CardDescription>
-                  Group product options (like different sizes or colors) under this parent product listing.
+                  Size, color, and other dimensions grouped under this product.
                 </CardDescription>
               </div>
-              <Button onClick={() => {
-                setNewVariantData({
-                  name: `${inventory.name} - `,
-                  costPrice: inventory.costPrice,
-                  sellingPrice: inventory.sellingPrice,
-                  quantity: 0,
-                  size: "",
-                  color: "",
-                });
-                setIsVariantDialogOpen(true);
-              }}>
+              <Button onClick={() => setLocation(`/inventory/${inventoryId}/variants/new`)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Create Variant
+                Add Variant
               </Button>
             </CardHeader>
             <CardContent>
-              {variantsLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading variants...</div>
-              ) : variants.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg bg-muted/10">
-                  <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-semibold text-base">No variants created yet</p>
-                  <p className="text-sm mt-1 max-w-md mx-auto text-muted-foreground">
-                    Create size, color, or other style dimensions to manage stock items separately under this product.
+              {variants.length === 0 ? (
+                <div className="py-14 text-center border border-dashed rounded-lg bg-muted/10">
+                  <Layers className="h-10 w-10 mx-auto mb-3 text-muted-foreground/30" />
+                  <p className="font-semibold text-muted-foreground">No variants yet</p>
+                  <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+                    Create size, color, or other options to track stock separately.
                   </p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setLocation(`/inventory/${inventoryId}/variants/new`)}>
+                    <Plus className="h-3.5 w-3.5 mr-1.5" /> Create First Variant
+                  </Button>
                 </div>
               ) : (
                 <DataTable
                   columns={[
                     {
-                      key: "name",
-                      header: "Variant Name",
-                      render: (row: any) => (
-                        <span className="font-medium">{row.name}</span>
-                      )
+                      key: "name", header: "Variant",
+                      render: (row: any) => <span className="font-medium">{row.name}</span>
                     },
                     {
-                      key: "dimensions",
-                      header: "Attributes",
+                      key: "dimensions", header: "Attributes",
                       render: (row: any) => {
                         const dims = row.variantDimensions || {};
+                        const entries = Object.entries(dims).filter(([_, val]) => !!val);
+                        if (entries.length === 0) return <span className="text-muted-foreground text-xs">—</span>;
                         return (
-                          <div className="flex gap-1.5 flex-wrap">
-                            {dims.size && <Badge variant="secondary">Size: {dims.size}</Badge>}
-                            {dims.color && <Badge variant="outline">Color: {dims.color}</Badge>}
-                            {!dims.size && !dims.color && <span className="text-muted-foreground text-xs">-</span>}
+                          <div className="flex gap-1 flex-wrap">
+                            {entries.map(([key, value]) => (
+                              <Badge key={key} variant="secondary" className="text-[10px] font-semibold px-2 py-0.5 capitalize">
+                                <span className="opacity-60 mr-1">{key}:</span>{String(value)}
+                              </Badge>
+                            ))}
                           </div>
                         );
                       }
                     },
                     {
-                      key: "costPrice",
-                      header: "Cost Price",
+                      key: "costPrice", header: "Cost",
                       render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.costPrice)}</span>
                     },
                     {
-                      key: "sellingPrice",
-                      header: "Selling Price",
+                      key: "sellingPrice", header: "Price",
                       render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.sellingPrice)}</span>
                     },
                     {
-                      key: "quantity",
-                      header: "Stock",
+                      key: "quantity", header: "Stock",
                       render: (row: any) => (
-                        <span className={`font-mono font-medium ${row.quantity === 0 ? 'text-destructive' : ''}`}>
+                        <span className={cn("font-mono font-medium", row.quantity === 0 && "text-destructive")}>
                           {row.quantity}
                         </span>
                       )
                     },
                     {
-                      key: "action",
-                      header: "",
+                      key: "action", header: "",
                       render: (row: any) => (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setLocation(`/inventory/${row.id}`)}
-                        >
-                          View Details
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}`)}>
+                            Details
+                          </Button>
+                          {row.type === "product" && (
+                            <Button variant="outline" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}/restock`)}>
+                              Restock
+                            </Button>
+                          )}
+                        </div>
                       )
-                    }
+                    },
                   ]}
                   data={variants}
                 />
@@ -1088,77 +1116,60 @@ export default function InventoryDetails() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="expiry-batches" className="space-y-6 mt-0">
+        {/* FIFO EXPIRY BATCHES TAB */}
+        <TabsContent value="expiry-batches" className="space-y-4 mt-0">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Calendar className="h-4 w-4 text-primary" />
                 FIFO Expiry Cohorts
               </CardTitle>
               <CardDescription>
-                Track stock batches by expiry dates. Sales will automatically deduct from the oldest stock batch first (First-In, First-Out).
+                Track stock by expiry date. Sales deduct from the oldest batch first.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-5">
               {batchesLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading batches...</div>
+                <div className="space-y-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
               ) : (
-                <div className="grid gap-6 lg:grid-cols-3">
-                  <div className="lg:col-span-2 space-y-4">
+                <div className="grid gap-5 lg:grid-cols-3">
+                  <div className="lg:col-span-2 space-y-3">
                     <h3 className="text-sm font-semibold">Active Batches</h3>
                     {batches.length === 0 ? (
-                      <div className="py-8 text-center text-muted-foreground border rounded-lg bg-muted/10">
-                        <Calendar className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                        <p>No expiry batches recorded.</p>
-                        <p className="text-xs mt-1">Add a new cohort in the right-side form to begin tracking.</p>
+                      <div className="py-10 text-center border rounded-lg bg-muted/10">
+                        <Calendar className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
+                        <p className="text-sm text-muted-foreground">No batches logged yet. Add the first cohort.</p>
                       </div>
                     ) : (
                       <DataTable
                         columns={[
                           {
-                            key: "batchNumber",
-                            header: "Batch #",
+                            key: "batchNumber", header: "Batch #",
                             render: (row: any) => <span className="font-mono font-medium">{row.batchNumber}</span>
                           },
                           {
-                            key: "expiryDate",
-                            header: "Expiry Date",
-                            render: (row: any) => (
-                              <span>{new Date(row.expiryDate).toLocaleDateString()}</span>
-                            )
+                            key: "expiryDate", header: "Expiry Date",
+                            render: (row: any) => <span>{new Date(row.expiryDate).toLocaleDateString()}</span>
                           },
                           {
-                            key: "quantity",
-                            header: "Qty Remaining",
-                            render: (row: any) => (
-                              <span className="font-mono font-bold">{row.quantity}</span>
-                            )
+                            key: "quantity", header: "Qty Remaining",
+                            render: (row: any) => <span className="font-mono font-bold">{row.quantity}</span>
                           },
                           {
-                            key: "status",
-                            header: "Status",
+                            key: "status", header: "Status",
                             render: (row: any) => {
                               const now = new Date();
                               const expiry = new Date(row.expiryDate);
                               const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                              
-                              if (diffDays <= 0) {
-                                return <Badge variant="destructive">Expired</Badge>;
-                              } else if (diffDays <= 30) {
-                                return (
-                                  <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-                                    Expiring in {diffDays} days
-                                  </Badge>
-                                );
-                              } else {
-                                return (
-                                  <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                                    Active
-                                  </Badge>
-                                );
-                              }
+                              if (diffDays <= 0) return <Badge variant="destructive">Expired</Badge>;
+                              if (diffDays <= 30) return (
+                                <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                  {diffDays}d left
+                                </Badge>
+                              );
+                              return <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">Active</Badge>;
                             }
-                          }
+                          },
                         ]}
                         data={batches}
                       />
@@ -1166,14 +1177,12 @@ export default function InventoryDetails() {
                   </div>
 
                   <Card className="bg-muted/10">
-                    <CardHeader>
-                      <CardTitle className="text-sm font-semibold">Add Batch Cohort</CardTitle>
-                      <CardDescription className="text-xs">
-                        Log a new batch with specific expiry information
-                      </CardDescription>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold">Add Batch</CardTitle>
+                      <CardDescription className="text-xs">Log a new expiry cohort</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
+                    <CardContent className="space-y-3">
+                      <div className="space-y-1.5">
                         <Label htmlFor="batch-number">Batch Number</Label>
                         <Input
                           id="batch-number"
@@ -1182,38 +1191,39 @@ export default function InventoryDetails() {
                           onChange={(e) => setNewBatchData(prev => ({ ...prev, batchNumber: e.target.value }))}
                         />
                       </div>
-
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <Label htmlFor="batch-expiry">Expiry Date</Label>
                         <Input
-                          id="batch-expiry"
-                          type="date"
+                          id="batch-expiry" type="date"
                           value={newBatchData.expiryDate}
                           onChange={(e) => setNewBatchData(prev => ({ ...prev, expiryDate: e.target.value }))}
                         />
                       </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="batch-qty">Starting Quantity</Label>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="batch-qty">
+                          Starting Quantity{primaryVariant?.unit ? ` (${primaryVariant.unit})` : ""}
+                        </Label>
                         <Input
-                          id="batch-qty"
-                          type="number"
-                          min="1"
+                          id="batch-qty" type="number"
+                          min={primaryVariant?.allowFractional ? "0.01" : "1"}
+                          step={primaryVariant?.allowFractional ? "0.01" : "1"}
                           value={newBatchData.quantity}
-                          onChange={(e) => setNewBatchData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                          onChange={(e) => setNewBatchData(prev => ({
+                            ...prev,
+                            quantity: primaryVariant?.allowFractional
+                              ? parseFloat(e.target.value) || 0
+                              : parseInt(e.target.value) || 1,
+                          }))}
                         />
                       </div>
-
                       <Button
-                        className="w-full mt-2"
+                        className="w-full"
                         disabled={createBatchMutation.isPending || !newBatchData.batchNumber || !newBatchData.expiryDate}
-                        onClick={() => {
-                          createBatchMutation.mutate({
-                            batchNumber: newBatchData.batchNumber,
-                            expiryDate: newBatchData.expiryDate,
-                            quantity: newBatchData.quantity,
-                          });
-                        }}
+                        onClick={() => createBatchMutation.mutate({
+                          batchNumber: newBatchData.batchNumber,
+                          expiryDate: newBatchData.expiryDate,
+                          quantity: newBatchData.quantity,
+                        })}
                       >
                         <Plus className="h-4 w-4 mr-2" />
                         Log Batch
@@ -1226,488 +1236,6 @@ export default function InventoryDetails() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      <Dialog open={isVariantDialogOpen} onOpenChange={setIsVariantDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Product Variant</DialogTitle>
-            <DialogDescription>
-              Create a distinct item listing linked as a variant of "{inventory.name}".
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="variant-name">Variant Item Name</Label>
-              <Input
-                id="variant-name"
-                placeholder="e.g. T-Shirt - M / Red"
-                value={newVariantData.name}
-                onChange={(e) => setNewVariantData(prev => ({ ...prev, name: e.target.value }))}
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="variant-size">Size (optional)</Label>
-                <Input
-                  id="variant-size"
-                  placeholder="e.g. M, L, XL"
-                  value={newVariantData.size}
-                  onChange={(e) => setNewVariantData(prev => ({ ...prev, size: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="variant-color">Color (optional)</Label>
-                <Input
-                  id="variant-color"
-                  placeholder="e.g. Red, Blue"
-                  value={newVariantData.color}
-                  onChange={(e) => setNewVariantData(prev => ({ ...prev, color: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="variant-cost">Cost Price</Label>
-                <Input
-                  id="variant-cost"
-                  type="number"
-                  step="0.01"
-                  value={newVariantData.costPrice}
-                  onChange={(e) => setNewVariantData(prev => ({ ...prev, costPrice: parseFloat(e.target.value) || 0 }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="variant-selling">Selling Price</Label>
-                <Input
-                  id="variant-selling"
-                  type="number"
-                  step="0.01"
-                  value={newVariantData.sellingPrice}
-                  onChange={(e) => setNewVariantData(prev => ({ ...prev, sellingPrice: parseFloat(e.target.value) || 0 }))}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="variant-qty">Starting Stock Quantity</Label>
-              <Input
-                id="variant-qty"
-                type="number"
-                min="0"
-                value={newVariantData.quantity}
-                onChange={(e) => setNewVariantData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsVariantDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={createVariantMutation.isPending || !newVariantData.name}
-              onClick={() => {
-                const dims: any = {};
-                if (newVariantData.size) dims.size = newVariantData.size;
-                if (newVariantData.color) dims.color = newVariantData.color;
-
-                createVariantMutation.mutate({
-                  name: newVariantData.name,
-                  costPrice: newVariantData.costPrice,
-                  sellingPrice: newVariantData.sellingPrice,
-                  quantity: newVariantData.quantity,
-                  variantDimensions: dims,
-                });
-              }}
-            >
-              {createVariantMutation.isPending ? "Creating..." : "Create Variant"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isRestockOpen} onOpenChange={setIsRestockOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5" />
-              Restock "{inventory.name}"
-            </DialogTitle>
-            <DialogDescription>
-              Add more stock to this item. Current stock: {inventory.quantity}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="restock-quantity">Quantity to Add</Label>
-              <Input
-                id="restock-quantity"
-                type="number"
-                min="1"
-                value={restockData.quantity}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  quantity: parseInt(e.target.value) || 1 
-                }))}
-                data-testid="input-restock-quantity"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="restock-reason">Reason</Label>
-              <Select
-                value={restockData.reason}
-                onValueChange={(value) => setRestockData(prev => ({ ...prev, reason: value as any }))}
-              >
-                <SelectTrigger id="restock-reason">
-                  <SelectValue placeholder="Select a reason" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Restock">Regular Restock</SelectItem>
-                  <SelectItem value="Return">Customer Return</SelectItem>
-                  <SelectItem value="Adjustment">Stock Adjustment/Correction</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="restock-receipt">Receipt/Invoice URL (optional)</Label>
-              <Input
-                id="restock-receipt"
-                placeholder="https://example.com/receipt.pdf"
-                value={restockData.receiptUrl}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  receiptUrl: e.target.value 
-                }))}
-                data-testid="input-restock-receipt-url"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="unit-cost">Unit Cost for This Restock ({currencyInfo?.symbol || "₦"})</Label>
-              <Input
-                id="unit-cost"
-                type="number"
-                step="0.01"
-                min="0"
-                value={restockData.unitCost}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  unitCost: parseFloat(e.target.value) || 0 
-                }))}
-                data-testid="input-unit-cost"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>How to Update Item Cost Price</Label>
-              <RadioGroup
-                value={restockData.costStrategy}
-                onValueChange={(value) => setRestockData(prev => ({ 
-                  ...prev, 
-                  costStrategy: value as "keep" | "last" | "weighted" | "override" 
-                }))}
-                className="space-y-2"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="keep" id="keep" />
-                  <Label htmlFor="keep" className="font-normal">
-                    Keep existing cost ({formatCurrency(inventory.costPrice)})
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="last" id="last" />
-                  <Label htmlFor="last" className="font-normal">
-                    Use this restock's unit cost ({formatCurrency(restockData.unitCost)})
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="weighted" id="weighted" />
-                  <Label htmlFor="weighted" className="font-normal">
-                    Weighted average
-                  </Label>
-                </div>
-              </RadioGroup>
-              {restockData.costStrategy === "weighted" && restockData.unitCost > 0 && (
-                <p className="text-xs text-muted-foreground ml-6">
-                  New cost: {formatCurrency(
-                    ((inventory.quantity * inventory.costPrice) + (restockData.quantity * restockData.unitCost)) / 
-                    (inventory.quantity + restockData.quantity)
-                  )}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="update-selling-price"
-                  checked={restockData.updateSellingPrice}
-                  onChange={(e) => setRestockData(prev => ({ 
-                    ...prev, 
-                    updateSellingPrice: e.target.checked 
-                  }))}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <Label htmlFor="update-selling-price" className="font-normal">
-                  Update selling price
-                </Label>
-              </div>
-              {restockData.updateSellingPrice && (
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder={`Current: ${formatCurrency(inventory.sellingPrice)}`}
-                  value={restockData.newSellingPrice ?? ""}
-                  onChange={(e) => setRestockData(prev => ({ 
-                    ...prev, 
-                    newSellingPrice: parseFloat(e.target.value) || undefined 
-                  }))}
-                  data-testid="input-new-selling-price"
-                />
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="restock-notes">Notes (optional)</Label>
-              <Input
-                id="restock-notes"
-                placeholder="e.g., Supplier batch #123"
-                value={restockData.notes}
-                onChange={(e) => setRestockData(prev => ({ 
-                  ...prev, 
-                  notes: e.target.value 
-                }))}
-                data-testid="input-restock-notes"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsRestockOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={() => restockMutation.mutate()}
-              disabled={restockMutation.isPending || restockData.quantity < 1}
-              data-testid="button-confirm-restock"
-            >
-              {restockMutation.isPending ? "Updating..." : "Add Stock"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              Edit Item
-            </DialogTitle>
-            <DialogDescription>
-              Update the inventory item details below.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Item Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Widget Pro" {...field} data-testid="input-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-type">
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="product">Product</SelectItem>
-                        <SelectItem value="service">Service</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="costPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Cost Price ({currencyInfo?.symbol || "₦"})</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          data-testid="input-cost"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="sellingPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Selling Price ({currencyInfo?.symbol || "₦"})</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          data-testid="input-selling"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              {watchType === "product" && (
-                <FormField
-                  control={form.control}
-                  name="quantity"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Quantity in Stock</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                          data-testid="input-quantity"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              {watchType === "service" && (
-                <div className="border border-muted/80 p-3 rounded-lg bg-muted/10 space-y-3 animate-in fade-in duration-200">
-                  <FormField
-                    control={form.control}
-                    name="commissionSplitOverride"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background shadow-xs">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-xs font-semibold">Override Standard Split</FormLabel>
-                          <FormDescription className="text-[10px]">
-                            Customise business & staff commission split for this service
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="switch-service-split-override"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  {form.watch("commissionSplitOverride") && (
-                    <div className="grid grid-cols-2 gap-4 pt-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitBusinessShare"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-[11px]">Business Share (%)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                {...field}
-                                onChange={(e) => field.onChange(Number(e.target.value))}
-                                placeholder="80"
-                                data-testid="input-service-split-business"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitStaffShare"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-[11px]">Staff Share (%)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                {...field}
-                                onChange={(e) => field.onChange(Number(e.target.value))}
-                                placeholder="20"
-                                data-testid="input-service-split-staff"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-              {watchSellingPrice < watchCostPrice && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Selling price cannot be less than cost price.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {hasZeroMargin && (
-                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-medium">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span>This item has 0% margin. You will break even on every sale.</span>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={() => setIsEditOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={updateMutation.isPending || watchSellingPrice < watchCostPrice}
-                  data-testid="button-submit"
-                >
-                  {updateMutation.isPending ? "Saving..." : "Update Item"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

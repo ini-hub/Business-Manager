@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Shield, KeyRound, ArrowRight, RefreshCw } from "lucide-react";
+import { validateEmail } from "@/lib/validation-utils";
 
 export default function AdminLogin() {
   const [, setLocation] = useLocation();
@@ -25,11 +26,12 @@ export default function AdminLogin() {
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      toast({
-        title: "Missing Fields",
-        description: "Please enter both administrative email and password.",
-        variant: "destructive",
-      });
+      toast({ title: "Missing Fields", description: "Please enter both administrative email and password.", variant: "destructive" });
+      return;
+    }
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) {
+      toast({ title: "Invalid Email", description: emailCheck.error, variant: "destructive" });
       return;
     }
 

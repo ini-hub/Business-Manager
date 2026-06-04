@@ -7,9 +7,11 @@ import type { InsertCustomer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { useStore } from "@/lib/store-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -24,8 +26,9 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from "@/components/ui/form";
+import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
+import { getDefaultCountryCode } from "@/lib/validation-utils";
 
 const newCustomerSchema = insertCustomerSchema.extend({
   mobileNumber: z.string().optional().default(""),
@@ -40,18 +43,33 @@ interface NewCustomerDialogProps {
 
 export function NewCustomerDialog({ open, storeId, onClose, onCreated }: NewCustomerDialogProps) {
   const { toast } = useToast();
+  const { currentStore } = useStore();
+  const defaultCountry = getDefaultCountryCode(currentStore?.currency);
+  const defaultDialCode = deduplicatedCountryCodes.find(c => c.code === defaultCountry)?.dialCode ?? "+234";
 
   const form = useForm<InsertCustomer>({
     resolver: zodResolver(newCustomerSchema),
     defaultValues: {
       storeId,
       name: "",
-      countryCode: "NG",
+      countryCode: defaultCountry,
       mobileNumber: "",
       address: "",
       customerNumber: "",
     },
   });
+
+  const handleSubmit = (data: InsertCustomer) => {
+    if (data.mobileNumber) {
+      const dialCode = deduplicatedCountryCodes.find(c => c.code === (data.countryCode ?? defaultCountry))?.dialCode ?? defaultDialCode;
+      const phoneCheck = validatePhoneNumber(data.mobileNumber, dialCode);
+      if (!phoneCheck.valid) {
+        form.setError("mobileNumber", { message: phoneCheck.error });
+        return;
+      }
+    }
+    mutation.mutate(data);
+  };
 
   const mutation = useMutation({
     mutationFn: async (data: InsertCustomer) => {
@@ -81,7 +99,7 @@ export function NewCustomerDialog({ open, storeId, onClose, onCreated }: NewCust
           <DialogDescription>Create a new customer quickly during checkout.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <FormField
               control={form.control}
               name="name"
@@ -99,8 +117,27 @@ export function NewCustomerDialog({ open, storeId, onClose, onCreated }: NewCust
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Mobile Number (Optional)</FormLabel>
-                  <FormControl><Input placeholder="8012345678" {...field} /></FormControl>
-                  <FormDescription>Enter number without country code</FormDescription>
+                  <div className="flex gap-2">
+                    <FormField control={form.control} name="countryCode" render={({ field: ccField }) => (
+                      <Select
+                        value={deduplicatedCountryCodes.find(c => c.code === ccField.value)?.dialCode ?? defaultDialCode}
+                        onValueChange={(dialCode) => {
+                          const country = deduplicatedCountryCodes.find(c => c.dialCode === dialCode);
+                          ccField.onChange(country?.code ?? defaultCountry);
+                        }}
+                      >
+                        <SelectTrigger className="w-[110px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[280px]">
+                          {deduplicatedCountryCodes.map(c => (
+                            <SelectItem key={c.dialCode} value={c.dialCode}>{c.name} ({c.dialCode})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )} />
+                    <FormControl><Input placeholder="8012345678" {...field} /></FormControl>
+                  </div>
                   <FormMessage />
                 </FormItem>
               )}

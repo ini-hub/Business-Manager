@@ -12,9 +12,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, Mail, CheckCircle2 } from "lucide-react";
+import { validateEmailOrPhone } from "@/lib/validation-utils";
 
 const forgotPasswordSchema = z.object({
-  emailOrPhone: z.string().min(1, "Email or phone number is required"),
+  emailOrPhone: z.string().min(1, "Email or phone number is required").refine(validateEmailOrPhone, "Enter a valid email address or phone number."),
 });
 
 type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;

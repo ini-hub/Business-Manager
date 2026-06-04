@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { startOfDay, endOfDay, subDays } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon } from "lucide-react";
+import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/data-table";
@@ -22,6 +23,9 @@ export default function Transactions() {
   const { currentStore, stores } = useStore();
   const [, setLocation] = useLocation();
 
+  // Resolve Pending inline dialog state
+  const [resolveTx, setResolveTx] = useState<TransactionWithRelations | null>(null);
+
   const [dateRange, setDateRange] = useState<DateRange>(() => {
     const params = new URLSearchParams(window.location.search);
     const startDateParam = params.get("startDate");
@@ -39,14 +43,21 @@ export default function Transactions() {
     };
   });
 
+  const dateParams = useMemo(() => {
+    const p = new URLSearchParams();
+    if (dateRange.from) p.set("startDate", dateRange.from.toISOString());
+    if (dateRange.to) p.set("endDate", dateRange.to.toISOString());
+    return p.toString();
+  }, [dateRange]);
+
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
-    queryKey: ["/api/transactions", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryKey: ["/api/transactions", currentStore?.id, stores.map(s => s.id).join(","), dateParams],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/transactions?storeId=${s.id}`);
+              const res = await fetch(`/api/transactions?storeId=${s.id}&${dateParams}`);
               if (!res.ok) return [];
               const list = await res.json() as TransactionWithRelations[];
               return list.map(item => ({ ...item, storeName: s.name }));
@@ -57,12 +68,12 @@ export default function Transactions() {
         );
         return responses.flat().sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
       }
-      const res = await fetch(`/api/transactions?storeId=${currentStore?.id}`);
+      const res = await fetch(`/api/transactions?storeId=${currentStore?.id}&${dateParams}`);
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-    refetchInterval: 20000, // Refetch transactions list in background every 20 seconds
+    refetchInterval: 60000,
   });
 
   // Query to fetch historical shift drawer sessions
@@ -194,16 +205,9 @@ export default function Transactions() {
     },
   ];
 
-  const filteredTransactions = useMemo(() => {
-    if (!dateRange.from && !dateRange.to) return transactions;
+  // Server already filters by date range via query params; use the result directly.
+  const filteredTransactions = transactions;
 
-    return transactions.filter((tx) => {
-      const txDate = new Date(tx.transactionDate);
-      if (dateRange.from && txDate < dateRange.from) return false;
-      if (dateRange.to && txDate > dateRange.to) return false;
-      return true;
-    });
-  }, [transactions, dateRange]);
 
   const storeCurrency = currentStore?.currency || "NGN";
   
@@ -215,18 +219,9 @@ export default function Transactions() {
   };
 
   const formatDualCurrency = (value: number, isVoided: boolean = false) => {
-    const primaryAmount = formatCurrency(value, storeCurrency);
-    let usdAmount = null;
-    
-    if (storeCurrency !== "USD") {
-      const usdRate = 1500;
-      usdAmount = formatCurrency(value / usdRate, "USD");
-    }
-
     return (
       <div className={`flex flex-col ${isVoided ? "opacity-50 line-through" : ""}`}>
-        <span className="font-mono font-medium">{primaryAmount}</span>
-        {usdAmount && <span className="text-xs text-muted-foreground font-mono">{usdAmount}</span>}
+        <span className="font-mono font-medium">{formatCurrency(value, storeCurrency)}</span>
       </div>
     );
   };
@@ -306,10 +301,16 @@ export default function Transactions() {
         const soldQty = tx.checkout?.quantity ?? 1;
         const isFullyReturned = !isVoided && returnedQty >= soldQty;
         const isPartiallyReturned = !isVoided && !isFullyReturned && returnedQty > 0;
+        const itemCount = (tx.checkout as any).basketItemCount ?? 1;
 
         return (
           <div className="flex flex-col gap-1 items-start">
             <span className="font-mono text-sm">{tx.checkout?.receiptNumber}</span>
+            {itemCount > 1 && (
+              <span className="text-[10px] text-muted-foreground font-medium">
+                {itemCount} items in basket
+              </span>
+            )}
             {isVoided && (
               <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">VOID</Badge>
             )}
@@ -353,17 +354,37 @@ export default function Transactions() {
     {
       key: "inventory",
       header: "Item",
-      render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <Package className="h-3 w-3 text-muted-foreground" />
-          <div>
-            <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
-            <Badge variant="outline" className="text-xs capitalize mt-1">
-              {tx.inventory?.type ?? "unknown"}
-            </Badge>
+      render: (tx: TransactionWithRelations) => {
+        const badgeLabel = tx.inventory?.type ?? "unknown";
+        const badgeClass = badgeLabel === "mixed"
+          ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
+          : badgeLabel === "service"
+          ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+          : badgeLabel === "product"
+          ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
+          : "";
+
+        const extraItems = ((tx.checkout as any).basketItemCount ?? 1) - 1;
+
+        return (
+          <div className="flex items-center gap-2">
+            <Package className="h-3 w-3 text-muted-foreground" />
+            <div>
+              <div className="flex items-baseline gap-1.5">
+                <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
+                {extraItems > 0 && (
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                    +{extraItems} more
+                  </span>
+                )}
+              </div>
+              <Badge variant="outline" className={`text-xs capitalize mt-1 ${badgeClass}`}>
+                {badgeLabel}
+              </Badge>
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: "staffName",
@@ -390,9 +411,13 @@ export default function Transactions() {
             </Badge>
           </div>
           {tx.checkout?.paymentStatus === "pending" && !tx.checkout?.isVoided && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900/30">
-              PENDING
-            </Badge>
+            <button
+              className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors"
+              onClick={(e) => { e.stopPropagation(); setResolveTx(tx); }}
+              title="Resolve pending payment"
+            >
+              PENDING · Resolve
+            </button>
           )}
         </div>
       ),
@@ -616,6 +641,22 @@ export default function Transactions() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Resolve Pending Payment — inline from transactions list */}
+      {resolveTx && resolveTx.checkout?.id && resolveTx.customer?.id && (
+        <ResolvePendingDialog
+          open={!!resolveTx}
+          onOpenChange={(v) => { if (!v) setResolveTx(null); }}
+          checkoutId={resolveTx.checkout.id}
+          receiptNumber={resolveTx.checkout.receiptNumber ?? ""}
+          amountOwed={Number(resolveTx.checkout.totalPrice ?? resolveTx.amount ?? 0)}
+          customerId={resolveTx.customer.id}
+          customerName={resolveTx.customer.name ?? "Customer"}
+          storeId={resolveTx.checkout.storeId ?? currentStore?.id ?? ""}
+          storeCurrency={currentStore?.currency ?? "NGN"}
+          onResolved={() => setResolveTx(null)}
+        />
+      )}
     </div>
   );
 }

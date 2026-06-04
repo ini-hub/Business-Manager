@@ -56,11 +56,11 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "./audit";
 import { bulkUploadService } from "./services/BulkUploadService";
 import { analyticsService } from "./services/AnalyticsService";
-import passport from "passport";
 import { initWebSocketServer } from "./websocket";
 import { RouterRegistry } from "./controllers/RouterRegistry";
 import { AuthController } from "./controllers/AuthController";
 import { InventoryController } from "./controllers/InventoryController";
+import { ProductController } from "./controllers/ProductController";
 import { BookingController } from "./controllers/BookingController";
 import { CreditController } from "./controllers/CreditController";
 import { registerBusinessRoutes } from "./routes/business.routes";
@@ -76,9 +76,6 @@ import { registerVendorRoutes } from "./routes/vendor.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerCashRoutes } from "./routes/cash.routes";
 
-// Default OTP code for development (no email integration)
-const DEFAULT_OTP = "123456";
-const OTP_EXPIRY_MINUTES = 10;
 const SALT_ROUNDS = 12;
 
 function getClientIp(req: Request): string {
@@ -152,6 +149,7 @@ export async function registerRoutes(
   const registry = new RouterRegistry([
     new AuthController(),
     new InventoryController(),
+    new ProductController(),
     new BookingController(),
     new CreditController(),
   ]);
@@ -177,6 +175,17 @@ export async function registerRoutes(
       res.status(403).json({ error: "Unauthorized access to store data." });
       return false;
     }
+
+    // Staff members are restricted to their own assigned store
+    const userRole = (req as any).user?.role;
+    if (userRole === "staff") {
+      const staffRecord = await storage.getStaffByUserId(userId);
+      if (staffRecord && staffRecord.storeId !== storeId) {
+        res.status(403).json({ error: "Staff members can only access their assigned store." });
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -379,7 +388,10 @@ export async function registerRoutes(
       }
 
       const user = await storage.getUserByIdentifier(emailOrPhone);
-      if (!user || !user.otpCode || user.otpCode !== otp) {
+      const otpMatch = user?.otpCode &&
+        otp?.length === user.otpCode.length &&
+        crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(otp));
+      if (!user || !otpMatch) {
         return res.status(400).json({ error: "Invalid or expired OTP code." });
       }
 
@@ -396,7 +408,6 @@ export async function registerRoutes(
 
         const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
         await storage.updateUser(user.id, {
-          password: hashedPassword,
           passwordHash: hashedPassword,
           otpCode: null,
           otpExpiry: null,
@@ -531,7 +542,7 @@ export async function registerRoutes(
       }
 
       // Check if user has password
-      const userPassword = user.password || user.passwordHash;
+      const userPassword = user.passwordHash || user.password;
       if (!userPassword) {
         return res.status(400).json({ error: "Password not set for this account. Please activate." });
       }
@@ -584,18 +595,16 @@ export async function registerRoutes(
 
       // If user belongs to multiple organizations, let them choose
       if (activeMembers.length > 1) {
-        const orgList = [];
-        for (const m of activeMembers) {
-          const org = await storage.getBusinessById(m.organisationId);
-          if (org) {
-            orgList.push({
-              id: org.id,
-              name: org.name,
-              slug: org.slug,
-              role: m.role,
-            });
-          }
-        }
+        const orgIds = activeMembers.map(m => m.organisationId);
+        const orgs = await storage.getBusinessesByIds(orgIds);
+        const orgMap = new Map(orgs.map(o => [o.id, o]));
+        const orgList = activeMembers
+          .map(m => {
+            const org = orgMap.get(m.organisationId);
+            if (!org) return null;
+            return { id: org.id, name: org.name, slug: org.slug, role: m.role };
+          })
+          .filter(Boolean);
         return res.json({
           requiresOrganisationSelection: true,
           organisations: orgList,
@@ -842,9 +851,6 @@ export async function registerRoutes(
 
   // Legacy activation route has been refactored below to activateHandler at lines 813-872 to allow high-fidelity verification checks.
 
-  // Global memory rate limit map for resending activation code
-  const resendLimitMap = new Map<string, number[]>();
-
   // Activation Code Validation Endpoint (supports both /api/auth/activate and /api/auth/verify-activation-code)
   const activateHandler = async (req: Request, res: Response) => {
     try {
@@ -865,7 +871,10 @@ export async function registerRoutes(
       const cleanInput = activationCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
       const cleanStored = user.activationCode ? user.activationCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase() : "";
 
-      if (!cleanStored || cleanInput !== cleanStored) {
+      const codeMatch = cleanStored &&
+        cleanInput.length === cleanStored.length &&
+        crypto.timingSafeEqual(Buffer.from(cleanInput), Buffer.from(cleanStored));
+      if (!codeMatch) {
         return res.status(400).json({ error: "invalid_code", message: "Invalid activation code. Please check the code in your email and try again." });
       }
 
@@ -926,7 +935,7 @@ export async function registerRoutes(
       const members = await storage.getOrganisationsByUserId(user.id);
       const isPending = members.some(m => m.status === "pending");
       const isPartial = members.some(m => m.status === "partial");
-      const hasNoPassword = !user.password && !user.passwordHash;
+      const hasNoPassword = !user.passwordHash && !user.password;
 
       // Self-healing: if code is already verified/activated but password is not set, direct straight to password set
       if (!isPending && !isPartial && hasNoPassword) {
@@ -949,13 +958,13 @@ export async function registerRoutes(
         }
       }
 
-      // Rate limit check: max 3 per hour
-      const now = Date.now();
-      const userKey = user.id;
-      let attempts = resendLimitMap.get(userKey) || [];
-      // Filter out attempts older than 1 hour
-      attempts = attempts.filter(ts => now - ts < 60 * 60 * 1000);
-      if (attempts.length >= 3) {
+      // DB-backed rate limit: max 3 resends per 1-hour window
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const windowStart = user.resendWindowStart ? new Date(user.resendWindowStart) : null;
+      const currentAttempts = (windowStart && windowStart > oneHourAgo) ? (user.resendAttempts || 0) : 0;
+
+      if (currentAttempts >= 3) {
         return res.status(429).json({ error: "too_many_attempts", message: "Too many resend attempts. Contact your manager to reset your activation code." });
       }
 
@@ -974,11 +983,9 @@ export async function registerRoutes(
         activationCode: newCode,
         activationCodeExpiry: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
         activationCodeUsed: false,
+        resendAttempts: currentAttempts + 1,
+        resendWindowStart: windowStart && windowStart > oneHourAgo ? windowStart : now,
       });
-
-      // Save attempts
-      attempts.push(now);
-      resendLimitMap.set(userKey, attempts);
 
       // Fetch business details to send clean activation email
       const businessId = user.businessId || members[0]?.organisationId;
@@ -1028,10 +1035,7 @@ export async function registerRoutes(
 
       const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-      await storage.updateUser(user.id, {
-        password: hashedPassword,
-        passwordHash: hashedPassword,
-      });
+      await storage.updateUser(user.id, { passwordHash: hashedPassword });
 
       // Fetch and activate workspace membership
       const members = await storage.getOrganisationsByUserId(user.id);
@@ -1101,7 +1105,10 @@ export async function registerRoutes(
       }
 
       if (!user.isEmailVerified) {
-        if (user.otpCode !== otp) {
+        const verifyMatch = user.otpCode &&
+          otp?.length === user.otpCode.length &&
+          crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(otp));
+        if (!verifyMatch) {
           return res.status(400).json({ error: "Invalid verification code." });
         }
 
@@ -1219,31 +1226,12 @@ export async function registerRoutes(
 
   // Logout
   app.post("/api/auth/logout", (req: Request, res: Response) => {
-    (req as any).logout((err: any) => {
-      if (err) {
-        console.error("Logout error:", err);
-      }
-      res.clearCookie("jwt_token");
-      res.clearCookie("connect.sid");
-      const session = (req as any).session;
-      if (session) {
-        session.destroy((destroyErr: any) => {
-          if (destroyErr) {
-            console.error("Session destroy error during logout:", destroyErr);
-          }
-          res.json({ message: "Logged out successfully." });
-        });
-      } else {
-        res.json({ message: "Logged out successfully." });
-      }
-    });
+    res.clearCookie("jwt_token");
+    res.json({ message: "Logged out successfully." });
   });
 
-  // Global memory map to track failed supervisor override attempts
-  const supervisorLockoutMap = new Map<string, { attempts: number; lockedUntil?: number }>();
-
-  // Supervisor override credentials authentication
-  app.post("/api/auth/supervisor-override", async (req: Request, res: Response) => {
+  // Supervisor override credentials authentication (DB-backed rate limiting — restart-safe)
+  app.post("/api/auth/supervisor-override", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
@@ -1251,43 +1239,47 @@ export async function registerRoutes(
       }
 
       const normEmail = email.toLowerCase().trim();
-      const lockout = supervisorLockoutMap.get(normEmail);
+      const user = await storage.getUserByEmail(normEmail);
 
-      // Check if locked out
-      if (lockout && lockout.lockedUntil && lockout.lockedUntil > Date.now()) {
-        const remainingMinutes = Math.ceil((lockout.lockedUntil - Date.now()) / (60 * 1000));
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+
+      // Supervisor must belong to the same business as the requester
+      const requesterId = (req as any).user?.userId || (req as any).user?.id;
+      const requester = await storage.getUser(requesterId);
+      if (!requester || user.businessId !== requester.businessId) {
+        return res.status(403).json({ error: "Supervisor must belong to the same business." });
+      }
+
+      // Check DB-persisted supervisor lockout
+      if (user.supervisorLockedUntil && new Date() < new Date(user.supervisorLockedUntil)) {
+        const remainingMinutes = Math.ceil((new Date(user.supervisorLockedUntil).getTime() - Date.now()) / (60 * 1000));
         return res.status(429).json({
           error: "account_locked",
           message: `Too many failed attempts. This supervisor account is temporarily locked. Try again in ${remainingMinutes} minutes.`,
         });
       }
 
-      const user = await storage.getUserByEmail(normEmail);
-      if (!user) {
-        return res.status(401).json({ error: "Invalid email or password." });
-      }
-
-      if (!user.password) {
+      const userPassword = user.passwordHash || user.password;
+      if (!userPassword) {
         return res.status(400).json({ error: "Password not set for this supervisor." });
       }
 
-      const passwordMatch = await bcrypt.compare(password, user.password);
+      const passwordMatch = await bcrypt.compare(password, userPassword);
       if (!passwordMatch) {
-        // Track failed attempt
-        const currentAttempts = (lockout?.attempts || 0) + 1;
+        const currentAttempts = (user.supervisorAttempts || 0) + 1;
         if (currentAttempts >= 5) {
-          supervisorLockoutMap.set(normEmail, {
-            attempts: currentAttempts,
-            lockedUntil: Date.now() + 30 * 60 * 1000, // 30 minutes lockout
+          await storage.updateUser(user.id, {
+            supervisorAttempts: currentAttempts,
+            supervisorLockedUntil: new Date(Date.now() + 30 * 60 * 1000),
           });
           return res.status(429).json({
             error: "account_locked",
             message: "Too many failed attempts. This supervisor account is now locked for 30 minutes.",
           });
         } else {
-          supervisorLockoutMap.set(normEmail, {
-            attempts: currentAttempts,
-          });
+          await storage.updateUser(user.id, { supervisorAttempts: currentAttempts });
           return res.status(401).json({
             error: "invalid_credentials",
             message: `Invalid email or password. ${5 - currentAttempts} attempts remaining before lockout.`,
@@ -1300,9 +1292,8 @@ export async function registerRoutes(
       }
 
       // Success: clear lockout
-      supervisorLockoutMap.delete(normEmail);
+      await storage.updateUser(user.id, { supervisorAttempts: 0, supervisorLockedUntil: null });
 
-      // Log supervisor identity server-side only — do not expose name/email in response
       console.info(`[Supervisor Override] Authorized by user ${user.id} (${user.role}) from IP ${(req as any).ip}`);
 
       res.json({
@@ -1313,91 +1304,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Supervisor override error:", error);
       res.status(500).json({ error: "Could not authenticate supervisor." });
-    }
-  });
-
-  // Forgot Password - Request password reset (also handles staff first-time login)
-  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
-    try {
-      const data = forgotPasswordSchema.parse(req.body);
-      const identifier = data.emailOrPhone.trim().toLowerCase();
-
-      let user = await storage.getUserByIdentifier(identifier);
-
-      // If no user found, check if email belongs to a staff member
-      if (!user && identifier.includes("@")) {
-        const staffMember = await storage.getStaffByEmail(identifier);
-
-        if (staffMember) {
-          // Check if staff already has a linked user account
-          if (staffMember.userId) {
-            // Get the existing user account
-            user = await storage.getUser(staffMember.userId);
-          }
-
-          // If still no user, double-check by email (in case userId link was lost)
-          if (!user) {
-            user = await storage.getUserByEmail(identifier);
-          }
-
-          // If still no user, create one for the staff member
-          if (!user) {
-            const placeholderPassword = await bcrypt.hash(crypto.randomUUID(), SALT_ROUNDS);
-
-            // Get the business ID from the store
-            const store = staffMember.store;
-
-            // Create a new user account for the staff member
-            user = await storage.createUser({
-              email: identifier,
-              password: placeholderPassword,
-              businessId: store.businessId,
-              role: staffMember.role as "manager" | "staff",
-              isVerified: true, // Staff accounts are pre-verified by owner
-            });
-          }
-
-          // Link the staff record to the user account if not already linked
-          if (!staffMember.userId && user) {
-            await storage.updateStaff(staffMember.id, { userId: user.id });
-          }
-        }
-      }
-
-      const isEmail = identifier.includes("@");
-      const maskedEmail = isEmail
-        ? identifier.replace(/(.{2})(.*)(@.*)/, "$1***$3")
-        : identifier.replace(/(.{3})(.*)(.{3})/, "$1***$3");
-
-      if (!user) {
-        // Don't reveal if email exists for security
-        return res.json({
-          message: `If an account exists, an OTP has been sent to ${maskedEmail}`,
-          maskedEmail,
-          emailExists: false,
-        });
-      }
-
-      // Create OTP code for password reset
-      const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
-      await storage.createOtpCode({
-        userId: user.id,
-        code: DEFAULT_OTP,
-        type: "password_reset",
-        expiresAt,
-      });
-
-      res.json({
-        message: `OTP has been sent to ${maskedEmail}`,
-        maskedEmail,
-        emailExists: true,
-      });
-    } catch (error) {
-      console.error("Forgot password error:", error);
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: formatZodErrors(error.errors) });
-      }
-      res.status(500).json({ error: "Failed to process request. Please try again." });
     }
   });
 
@@ -1422,7 +1328,7 @@ export async function registerRoutes(
 
       // Mark OTP as used and update password
       await storage.markOtpCodeAsUsed(otpCode.id);
-      await storage.updateUser(user.id, { password: hashedPassword });
+      await storage.updateUser(user.id, { passwordHash: hashedPassword });
 
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "reset-password");
 

@@ -34,7 +34,22 @@ export class NotificationRepository {
     const [notification] = await db.insert(notifications).values(data).returning();
 
     try {
-      broadcastNotification(notification);
+      // Resolve the businessId so the broadcast is scoped to the correct tenant
+      let businessId: string | null = null;
+
+      if (data.storeId) {
+        const [store] = await db.select({ businessId: stores.businessId }).from(stores).where(eq(stores.id, data.storeId)).limit(1);
+        businessId = store?.businessId ?? null;
+      }
+
+      if (!businessId) {
+        const [user] = await db.select({ businessId: users.businessId }).from(users).where(eq(users.id, data.userId)).limit(1);
+        businessId = user?.businessId ?? null;
+      }
+
+      if (businessId) {
+        broadcastNotification(businessId, notification);
+      }
     } catch (err) {
       console.error("Failed to broadcast notification over WebSocket:", err);
     }

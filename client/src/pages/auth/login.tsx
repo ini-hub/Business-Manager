@@ -12,6 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, AlertCircle } from "lucide-react";
+import { validateEmailOrPhone } from "@/lib/validation-utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 
@@ -59,7 +60,7 @@ export default function Login() {
 
   // Form schemas
   const identifierSchema = z.object({
-    emailOrPhone: z.string().min(1, "Email or phone number is required"),
+    emailOrPhone: z.string().min(1, "Email or phone number is required").refine(validateEmailOrPhone, "Enter a valid email address or phone number."),
   });
 
   const passwordFormSchema = z.object({

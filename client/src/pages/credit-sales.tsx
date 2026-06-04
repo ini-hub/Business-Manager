@@ -671,12 +671,21 @@ export default function CreditSalesPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="writeoff-reason">Reason for Write-Off (Mandatory)</Label>
-              <Input
-                id="writeoff-reason"
-                placeholder="e.g. Customer moved out of town / uncontactable"
-                value={writeOffReason}
-                onChange={(e) => setWriteOffReason(e.target.value)}
-              />
+              <Select value={writeOffReason} onValueChange={setWriteOffReason}>
+                <SelectTrigger id="writeoff-reason">
+                  <SelectValue placeholder="Select a reason…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Bad Debt — Customer Uncontactable">Bad Debt — Customer Uncontactable</SelectItem>
+                  <SelectItem value="Bad Debt — Customer Relocated / Moved Away">Bad Debt — Customer Relocated / Moved Away</SelectItem>
+                  <SelectItem value="Bad Debt — Customer Deceased">Bad Debt — Customer Deceased</SelectItem>
+                  <SelectItem value="Bad Debt — Business Closed">Bad Debt — Business Closed</SelectItem>
+                  <SelectItem value="Dispute Settled — Balance Forgiven">Dispute Settled — Balance Forgiven</SelectItem>
+                  <SelectItem value="Promotional Write-Off / Goodwill Gesture">Promotional Write-Off / Goodwill Gesture</SelectItem>
+                  <SelectItem value="Internal Adjustment / Data Correction">Internal Adjustment / Data Correction</SelectItem>
+                  <SelectItem value="Other — See Notes">Other — See Notes</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

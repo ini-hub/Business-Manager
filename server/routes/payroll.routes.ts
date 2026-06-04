@@ -26,6 +26,8 @@ import {
   cashDrops,
   creditEntries,
   cashRegisterSessions,
+  salaryAdvances,
+  expenseCategories,
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
@@ -35,6 +37,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { withExpenseId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -43,7 +46,7 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== STAFF SELF-SERVICE ==========
   app.get("/api/payroll/my-summary", isAuthenticated, async (req, res) => {
     try {
@@ -68,7 +71,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
         endDate: activePeriod.endDate 
       });
 
-      const present = attendance.filter(r => r.status === "active" || r.status === "passive").length;
+      const present = attendance.filter(r => r.status === "present" || r.status === "leave" || r.status === "holiday").length;
       const absent = attendance.filter(r => r.status === "absent").length;
 
       res.json({
@@ -136,7 +139,22 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
       if (!storeId || !startDate || !endDate) {
         return res.status(400).json({ error: "storeId, startDate, and endDate are required." });
       }
+      if (startDate >= endDate) {
+        return res.status(400).json({ error: "End date must be after start date." });
+      }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      // Block overlapping pending/approved/paid periods (not just paid)
+      const existing = await storage.getPayrollPeriods(storeId);
+      const overlap = existing.find(p =>
+        p.startDate <= endDate && p.endDate >= startDate
+      );
+      if (overlap) {
+        return res.status(409).json({
+          error: `This period overlaps with an existing ${overlap.status} period (${overlap.startDate} – ${overlap.endDate}). Please adjust the dates.`,
+        });
+      }
+
       const period = await storage.createPayrollPeriod({ storeId, periodType: periodType || "monthly", startDate, endDate, status: "pending" });
       res.status(201).json(period);
     } catch (error) {
@@ -234,6 +252,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
   app.delete("/api/payroll/periods/:id", requireRole("owner"), async (req, res) => {
     try {
       const { id } = req.params;
+      const period = await storage.getPayrollPeriod(id);
+      if (!period) return res.status(404).json({ error: "Payroll period not found." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
       const success = await storage.deletePayrollPeriod(id);
       if (!success) return res.status(404).json({ error: "Payroll period not found." });
       res.json({ success: true });
@@ -267,6 +288,166 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
       res.status(500).json({ error: "Could not load commission breakdown." });
     }
   });
+  // ──────────────────────────────────────────────────────────────────────────
+  // PAYROLL DEDUCTIONS
+  // ──────────────────────────────────────────────────────────────────────────
+
+  app.get("/api/payroll/periods/:id/deductions", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      const deductions = await storage.getPayrollDeductions(req.params.id, req.query.staffId as string | undefined);
+      res.json(deductions);
+    } catch (e) { res.status(500).json({ error: "Could not fetch deductions." }); }
+  });
+
+  app.post("/api/payroll/periods/:id/deductions", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (period.status === "paid") return res.status(400).json({ error: "Cannot add deductions to a paid period." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      const { staffId, type, label, amount } = req.body;
+      if (!staffId || !type || !label || !amount) return res.status(400).json({ error: "staffId, type, label, and amount are required." });
+      const userId = (req as any).user?.id;
+      const deduction = await storage.createPayrollDeduction({ periodId: req.params.id, storeId: period.storeId, staffId, type, label, amount: Number(amount), createdByUserId: userId });
+      res.status(201).json(deduction);
+    } catch (e) { res.status(500).json({ error: "Could not create deduction." }); }
+  });
+
+  app.delete("/api/payroll/periods/:id/deductions/:deductionId", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (period.status === "paid") return res.status(400).json({ error: "Cannot delete deductions from a paid period." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      await storage.deletePayrollDeduction(req.params.deductionId);
+      res.status(204).end();
+    } catch (e) { res.status(500).json({ error: "Could not delete deduction." }); }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // PAYROLL DISBURSEMENTS
+  // ──────────────────────────────────────────────────────────────────────────
+
+  app.get("/api/payroll/periods/:id/disbursements", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      const disbursements = await storage.getPayrollDisbursements(req.params.id);
+      res.json(disbursements);
+    } catch (e) { res.status(500).json({ error: "Could not fetch disbursements." }); }
+  });
+
+  app.post("/api/payroll/periods/:id/disbursements", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      const { staffId, amountPaid, method, reference, notes } = req.body;
+      if (!staffId || amountPaid === undefined) return res.status(400).json({ error: "staffId and amountPaid are required." });
+      const userId = (req as any).user?.id;
+      const disbursement = await storage.upsertPayrollDisbursement({
+        periodId: req.params.id, storeId: period.storeId, staffId,
+        amountPaid: Number(amountPaid), method: method || "cash",
+        reference: reference || null, notes: notes || null,
+        paidByUserId: userId, paidAt: new Date(),
+      });
+      res.status(201).json(disbursement);
+    } catch (e) { res.status(500).json({ error: "Could not record disbursement." }); }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // SALARY ADVANCES
+  // ──────────────────────────────────────────────────────────────────────────
+
+  app.get("/api/payroll/advances", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "storeId required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const advances = await storage.getSalaryAdvances(storeId, req.query.staffId as string | undefined);
+      res.json(advances);
+    } catch (e) { res.status(500).json({ error: "Could not fetch advances." }); }
+  });
+
+  app.post("/api/payroll/advances", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { storeId, staffId, amount, date, notes } = req.body;
+      if (!storeId || !staffId || !amount || !date) return res.status(400).json({ error: "storeId, staffId, amount, and date are required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const userId = (req as any).user?.id;
+      const advance = await storage.createSalaryAdvance({ storeId, staffId, amount: Number(amount), date, notes: notes || null, givenByUserId: userId });
+      res.status(201).json(advance);
+    } catch (e) { res.status(500).json({ error: "Could not create salary advance." }); }
+  });
+
+  app.post("/api/payroll/advances/:id/recover", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { periodId } = req.body;
+      if (!periodId) return res.status(400).json({ error: "periodId is required." });
+      const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
+      if (!adv) return res.status(404).json({ error: "Advance not found." });
+      if (!(await checkStoreAccess(adv.storeId, req, res))) return;
+      const advance = await storage.markAdvanceRecovered(req.params.id, periodId);
+      res.json(advance);
+    } catch (e) { res.status(500).json({ error: "Could not mark advance as recovered." }); }
+  });
+
+  app.delete("/api/payroll/advances/:id", requireManagerOrOwner, async (req, res) => {
+    try {
+      const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
+      if (!adv) return res.status(404).json({ error: "Advance not found." });
+      if (!(await checkStoreAccess(adv.storeId, req, res))) return;
+      await storage.deleteSalaryAdvance(req.params.id);
+      res.status(204).end();
+    } catch (e) { res.status(500).json({ error: "Could not delete advance." }); }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // UNRECORDED ATTENDANCE CHECK
+  // ──────────────────────────────────────────────────────────────────────────
+
+  app.get("/api/payroll/periods/:id/unrecorded", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      const unrecorded = await storage.getUnrecordedAttendanceDays(period.storeId, period.startDate, period.endDate);
+      res.json(unrecorded);
+    } catch (e) { res.status(500).json({ error: "Could not check unrecorded days." }); }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // CONSOLIDATED PAYROLL REPORT
+  // ──────────────────────────────────────────────────────────────────────────
+
+  app.get("/api/payroll/report", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "storeId required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const periods = await storage.getPayrollPeriods(storeId);
+      const report = await Promise.all(periods.map(async (p) => {
+        const entries = await storage.getPayrollEntries(p.id);
+        const totalGross = entries.reduce((s, e) => s + (e.grossCommission || 0), 0);
+        const totalTransport = entries.reduce((s, e) => s + (e.totalTransport || 0), 0);
+        const totalNet = entries.reduce((s, e) => s + (e.netPay || 0), 0);
+        const deductions = await storage.getPayrollDeductions(p.id);
+        const totalDeductions = deductions.reduce((s, d) => s + Number(d.amount), 0);
+        return {
+          id: p.id, periodType: p.periodType, startDate: p.startDate, endDate: p.endDate,
+          status: p.status, staffCount: entries.length,
+          totalGrossCommission: totalGross, totalTransport, totalDeductions,
+          totalNetPay: totalNet, paidAt: p.paidAt,
+        };
+      }));
+      res.json(report);
+    } catch (e) { res.status(500).json({ error: "Could not generate report." }); }
+  });
+
   // ==========================================
   // EXPENSES MODULE
   // ==========================================
@@ -301,6 +482,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
     try {
       const { name } = req.body;
       if (!name) return res.status(400).json({ error: "Category name is required." });
+      const [cat] = await db.select().from(expenseCategories).where(eq(expenseCategories.id, req.params.id));
+      if (!cat) return res.status(404).json({ error: "Category not found." });
+      if (!(await checkStoreAccess(cat.storeId, req, res))) return;
       const updated = await storage.updateExpenseCategory(req.params.id, name);
       res.json(updated);
     } catch (error) {
@@ -310,6 +494,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
 
   app.delete("/api/expense-categories/:id", requireRole("owner"), async (req, res) => {
     try {
+      const [cat] = await db.select().from(expenseCategories).where(eq(expenseCategories.id, req.params.id));
+      if (!cat) return res.status(404).json({ error: "Category not found." });
+      if (!(await checkStoreAccess(cat.storeId, req, res))) return;
       await storage.deleteExpenseCategory(req.params.id);
       res.status(204).end();
     } catch (error) {
@@ -336,6 +523,17 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
       res.json(expenses);
     } catch (error) {
       res.status(500).json({ error: "Could not fetch expenses." });
+    }
+  });
+
+  app.get("/api/expenses/:id", withExpenseId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const expense = await storage.getExpenseById(req.params.id);
+      if (!expense) return res.status(404).json({ error: "Expense not found." });
+      if (!(await checkStoreAccess(expense.storeId, req, res))) return;
+      res.json(expense);
+    } catch (error) {
+      res.status(500).json({ error: "Could not fetch expense." });
     }
   });
 
@@ -374,7 +572,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
     }
   });
 
-  app.patch("/api/expenses/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/expenses/:id", withExpenseId, requireManagerOrOwner, async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -422,7 +620,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated: _isAuth, 
     }
   });
 
-  app.delete("/api/expenses/:id", requireRole("owner"), async (req, res) => {
+  app.delete("/api/expenses/:id", withExpenseId, requireRole("owner"), async (req, res) => {
     try {
       await storage.deleteExpense(req.params.id);
       res.status(204).end();

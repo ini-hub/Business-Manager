@@ -51,9 +51,9 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerStaffRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== STAFF ==========
-  app.get("/api/staff", async (req: any, res) => {
+  app.get("/api/staff", isAuthenticated, async (req: any, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) {
@@ -98,7 +98,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated: _isAuth, re
     }
   });
 
-  app.get("/api/staff/:id", async (req, res) => {
+  app.get("/api/staff/:id", isAuthenticated, async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {

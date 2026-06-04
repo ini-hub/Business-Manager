@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar, Banknote } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -89,6 +91,7 @@ export default function ExpensesPage() {
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const storeCurrency = currentStore?.currency || "NGN";
   
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>({
@@ -335,30 +338,7 @@ export default function ExpensesPage() {
     },
   });
 
-  const handleEditClick = (e: ExpenseWithCategory) => {
-    setExpenseToEdit(e);
-    setIsEditNewCategoryMode(false);
-    setEditCustomCategoryName("");
-    
-    const splits = (e as any).splitPayments || [];
-    const splitCash = splits.find((p: any) => p.method === "cash")?.amount || 0;
-    const splitTransfer = splits.find((p: any) => p.method === "transfer")?.amount || 0;
-    const splitPos = splits.find((p: any) => p.method === "pos")?.amount || 0;
-
-    editForm.reset({
-      title: e.title,
-      amount: e.amount,
-      categoryId: e.categoryId,
-      date: e.date,
-      notes: e.notes || "",
-      inventoryId: e.inventoryId || "none",
-      paymentMethod: (e as any).paymentMethod || "cash",
-      splitCash,
-      splitTransfer,
-      splitPos,
-    });
-    setIsEditExpenseOpen(true);
-  };
+  const handleEditClick = (e: ExpenseWithCategory) => setLocation(`/expenses/${buildSlug(e.title, e.id)}/edit`);
 
   const addCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -568,91 +548,9 @@ export default function ExpensesPage() {
             <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} />
             
             {user?.role === "owner" && (
-              <Dialog open={isManageCategoriesOpen} onOpenChange={setIsManageCategoriesOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline"><Settings2 className="mr-2 h-4 w-4" /> Categories</Button>
-                </DialogTrigger>
-                <DialogContent className="max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>Manage Expense Categories</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 pt-4">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="New category name..."
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                      />
-                      <Button
-                        onClick={() => addCategoryMutation.mutate(newCategoryName)}
-                        disabled={!newCategoryName.trim() || addCategoryMutation.isPending}
-                      >
-                        Add
-                      </Button>
-                    </div>
-                    <div className="space-y-2 mt-4 max-h-64 overflow-y-auto pr-2">
-                      {categories.map((c) => (
-                        <div key={c.id} className="flex justify-between items-center p-2 rounded-md border">
-                          {editingCategoryId === c.id ? (
-                            <div className="flex w-full gap-2 items-center">
-                              <Input 
-                                value={editCategoryNameInput} 
-                                onChange={(e) => setEditCategoryNameInput(e.target.value)}
-                                className="h-8 flex-1"
-                                autoFocus
-                              />
-                              <Button 
-                                size="sm" 
-                                onClick={() => updateCategoryMutation.mutate({ id: c.id, name: editCategoryNameInput })}
-                                disabled={!editCategoryNameInput.trim() || updateCategoryMutation.isPending}
-                              >
-                                Save
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                onClick={() => setEditingCategoryId(null)}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          ) : (
-                            <>
-                              <span className="font-medium flex items-center gap-2">
-                                {c.name}
-                                {c.isSystem && <Badge variant="secondary" className="text-[10px]">System</Badge>}
-                              </span>
-                              {!c.isSystem && (
-                                <div className="flex gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => {
-                                      setEditingCategoryId(c.id);
-                                      setEditCategoryNameInput(c.name);
-                                    }}
-                                  >
-                                    <Edit className="h-4 w-4 text-blue-500" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => {
-                                      setCategoryToDelete(c);
-                                    }}
-                                  >
-                                    <Trash2 className="h-4 w-4 text-red-500" />
-                                  </Button>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <Button variant="outline" onClick={() => setLocation("/expenses/categories")}>
+                <Settings2 className="mr-2 h-4 w-4" /> Categories
+              </Button>
             )}
 
             <Link href="/expenses/new">
@@ -711,7 +609,7 @@ export default function ExpensesPage() {
                 emptyMessage="No expenses recorded for this period. Log overheads, salaries, and operational costs to track profitability."
                 emptyIcon={<Banknote className="h-6 w-6" />}
                 emptyAction={
-                  <Button size="sm" className="gap-2" onClick={() => document.getElementById("add-expense-trigger")?.click()}>
+                  <Button size="sm" className="gap-2" onClick={() => setLocation("/expenses/new")}>
                     <Plus className="h-4 w-4" />Log Expense
                   </Button>
                 }
@@ -772,18 +670,9 @@ export default function ExpensesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Edit Expense Dialog */}
-      <Dialog open={isEditExpenseOpen} onOpenChange={setIsEditExpenseOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Expense</DialogTitle>
-          </DialogHeader>
-          <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit((d) => {
-              if (expenseToEdit) {
-                updateExpenseMutation.mutate({ ...d, id: expenseToEdit.id });
-              }
-            })} className="space-y-4 pt-4">
+      {/* Edit Expense Dialog - REMOVED: now at /expenses/:id/edit */}
+      {false && <Form {...editForm}>
+            <form className="space-y-4 pt-4">
               <FormField
                 control={editForm.control}
                 name="title"
@@ -1031,9 +920,26 @@ export default function ExpensesPage() {
                 {updateExpenseMutation.isPending ? "Updating..." : "Update Expense"}
               </Button>
             </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
+          </Form>}
+
+      {user?.role !== "staff" && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "Add Expense",
+              icon: <Receipt className="h-5 w-5" />,
+              onClick: () => setLocation("/expenses/new"),
+              testId: "fab-add-expense",
+            },
+            {
+              label: "Categories",
+              icon: <Settings2 className="h-5 w-5" />,
+              onClick: () => setLocation("/expenses/categories"),
+              testId: "fab-expense-categories",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

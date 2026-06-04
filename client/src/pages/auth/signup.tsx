@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, ArrowLeft } from "lucide-react";
-import { deduplicatedCountryCodes } from "@/lib/phone-utils";
+import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 
 const passwordSchema = z
   .string()
@@ -157,6 +157,13 @@ export default function Signup() {
   });
 
   const onSubmit = (data: SignupFormData) => {
+    if (data.phone) {
+      const phoneCheck = validatePhoneNumber(data.phone, data.phoneCountryCode);
+      if (!phoneCheck.valid) {
+        form.setError("phone", { message: phoneCheck.error });
+        return;
+      }
+    }
     signupMutation.mutate(data);
   };
 

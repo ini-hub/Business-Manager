@@ -1,3 +1,6 @@
+import { db } from "./db";
+import { auditLogs } from "@shared/schema";
+
 interface AuditLogEntry {
   timestamp: string;
   action: string;
@@ -18,12 +21,10 @@ class AuditLogger {
       `[${entry.action}]`,
       `[${entry.resource}]`,
     ];
-    
     if (entry.resourceId) parts.push(`[id:${entry.resourceId}]`);
     if (entry.userId) parts.push(`[user:${entry.userId}]`);
     if (entry.ip) parts.push(`[ip:${entry.ip}]`);
     if (entry.errorMessage) parts.push(`[error:${entry.errorMessage}]`);
-    
     return parts.join(" ");
   }
 
@@ -32,12 +33,26 @@ class AuditLogger {
       ...entry,
       timestamp: new Date().toISOString(),
     };
-    
+
     if (entry.status === "failure") {
       console.error("AUDIT:", this.formatEntry(fullEntry));
     } else {
       console.log("AUDIT:", this.formatEntry(fullEntry));
     }
+
+    // Persist to DB — fire-and-forget; never block the request
+    db.insert(auditLogs).values({
+      action: entry.action,
+      resource: entry.resource,
+      resourceId: entry.resourceId,
+      userId: entry.userId,
+      ip: entry.ip,
+      status: entry.status,
+      errorMessage: entry.errorMessage,
+      details: entry.details as any,
+    }).catch((err) => {
+      console.error("[AuditLogger] DB write failed:", err);
+    });
   }
 
   logAuthAttempt(userId: string | undefined, ip: string | undefined, success: boolean, authType?: string): void {

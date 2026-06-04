@@ -13,9 +13,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, KeyRound, CheckCircle2 } from "lucide-react";
+import { validateEmailOrPhone } from "@/lib/validation-utils";
 
 const resetPasswordSchema = z.object({
-  emailOrPhone: z.string().min(1, "Identifier is required"),
+  emailOrPhone: z.string().min(1, "Enter your email or phone number.").refine(validateEmailOrPhone, "Enter a valid email address or phone number."),
   otp: z.string().length(6, "OTP must be exactly 6 digits").regex(/^\d+$/, "OTP must only contain numbers"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),

@@ -1,82 +1,85 @@
 import nodemailer from "nodemailer";
+import { db } from "../db";
+import { pendingEmails } from "@shared/schema";
+import { eq, and, lte } from "drizzle-orm";
 
-const GMAIL_USER = (process.env.GMAIL_USER || "ebolujo101@gmail.com").trim();
-const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || "yfbr epll pzch cjcp").replace(/\s/g, "");
-const BUSINESS_NAME = process.env.BUSINESS_NAME || "Excellent Bolujo";
+const GMAIL_USER = (process.env.GMAIL_USER || "").trim();
+const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "");
+const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
+
+if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+  console.warn("[EmailQueue] WARNING: GMAIL_USER or GMAIL_APP_PASSWORD is not set. Emails will not be sent.");
+}
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
 });
 
-interface QueueItem {
-  id: string;
-  to: string;
-  subject: string;
-  html: string;
-  attempts: number;
-  nextAttemptAt: number;
-}
-
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
 const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 
-const queue: QueueItem[] = [];
 let flushing = false;
 
-function enqueue(to: string, subject: string, html: string): void {
-  queue.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    to,
-    subject,
-    html,
-    attempts: 0,
-    nextAttemptAt: Date.now(),
-  });
-}
-
 async function flush(): Promise<void> {
-  if (flushing) return;
+  if (flushing || !GMAIL_USER || !GMAIL_APP_PASSWORD) return;
   flushing = true;
-  const now = Date.now();
-  const due = queue.filter(item => item.nextAttemptAt <= now);
 
-  for (const item of due) {
-    try {
-      await transporter.sendMail({
-        from: `"${BUSINESS_NAME}" <${GMAIL_USER}>`,
-        to: item.to,
-        subject: item.subject,
-        html: item.html,
-      });
-      console.log(`[EmailQueue] Sent to ${item.to} (attempt ${item.attempts + 1})`);
-      const idx = queue.indexOf(item);
-      if (idx !== -1) queue.splice(idx, 1);
-    } catch (err) {
-      item.attempts++;
-      if (item.attempts >= MAX_ATTEMPTS) {
-        console.error(`[EmailQueue] Dropped after ${item.attempts} attempts — to: ${item.to}, subject: ${item.subject}`);
-        const idx = queue.indexOf(item);
-        if (idx !== -1) queue.splice(idx, 1);
-      } else {
-        const delay = RETRY_DELAYS_MS[item.attempts - 1] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
-        item.nextAttemptAt = Date.now() + delay;
-        console.warn(`[EmailQueue] Retry ${item.attempts}/${MAX_ATTEMPTS - 1} scheduled in ${delay / 1000}s for ${item.to}`);
+  try {
+    const due = await db
+      .select()
+      .from(pendingEmails)
+      .where(and(eq(pendingEmails.status, "pending"), lte(pendingEmails.nextAttemptAt, new Date())));
+
+    for (const item of due) {
+      try {
+        await transporter.sendMail({
+          from: `"${BUSINESS_NAME}" <${GMAIL_USER}>`,
+          to: item.to,
+          subject: item.subject,
+          html: item.html,
+        });
+        console.log(`[EmailQueue] Sent to ${item.to} (attempt ${item.attempts + 1})`);
+        await db.update(pendingEmails).set({ status: "sent", attempts: item.attempts + 1 }).where(eq(pendingEmails.id, item.id));
+      } catch (err) {
+        const nextAttempts = item.attempts + 1;
+        if (nextAttempts >= MAX_ATTEMPTS) {
+          console.error(`[EmailQueue] Dropped after ${nextAttempts} attempts — to: ${item.to}, subject: ${item.subject}`);
+          await db.update(pendingEmails).set({ status: "failed", attempts: nextAttempts }).where(eq(pendingEmails.id, item.id));
+        } else {
+          const delay = RETRY_DELAYS_MS[nextAttempts - 1] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
+          const nextAttemptAt = new Date(Date.now() + delay);
+          console.warn(`[EmailQueue] Retry ${nextAttempts}/${MAX_ATTEMPTS - 1} in ${delay / 1000}s for ${item.to}`);
+          await db.update(pendingEmails).set({ attempts: nextAttempts, nextAttemptAt }).where(eq(pendingEmails.id, item.id));
+        }
       }
     }
+  } catch (err) {
+    console.error("[EmailQueue] Flush error:", err);
+  } finally {
+    flushing = false;
   }
-  flushing = false;
 }
 
-// Start the flush loop — runs every 30 seconds
+// Flush every 30 seconds
 setInterval(flush, 30_000);
 
 export function sendEmail(payload: { to: string; subject: string; html: string }): void {
-  enqueue(payload.to, payload.subject, payload.html);
-  // Fire immediately without waiting — failures will retry
-  flush().catch(() => undefined);
+  db.insert(pendingEmails).values({
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+  }).then(() => {
+    flush().catch(() => undefined);
+  }).catch((err) => {
+    console.error("[EmailQueue] Failed to persist email to DB:", err);
+  });
 }
 
-export function getQueueLength(): number {
-  return queue.length;
+export async function getQueueStats(): Promise<{ pending: number; failed: number }> {
+  const rows = await db.select({ status: pendingEmails.status }).from(pendingEmails)
+    .where(eq(pendingEmails.status, "pending"));
+  const failedRows = await db.select({ status: pendingEmails.status }).from(pendingEmails)
+    .where(eq(pendingEmails.status, "failed"));
+  return { pending: rows.length, failed: failedRows.length };
 }

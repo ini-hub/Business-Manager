@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { ArrowLeft, Lock, TrendingUp, Calendar, ChevronDown, ChevronUp, Bus, DollarSign } from "lucide-react";
+import { ArrowLeft, Lock, TrendingUp, Calendar, ChevronDown, ChevronUp, DollarSign, Printer, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useStore } from "@/lib/store-context";
-import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
 import type { PayrollPeriod, PayrollEntry, CommissionBreakdown, DailySummaryLine } from "@shared/schema";
 
@@ -24,10 +28,16 @@ export default function PayrollDetailPage() {
   const periodId = params?.periodId ?? "";
   const staffId = params?.staffId ?? "";
   const { currentStore } = useStore();
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const currency = currentStore?.currency || "NGN";
   const fmtCur = (v: number) => fmt(v, currency);
 
   const [showTransactions, setShowTransactions] = useState(false);
+  const [showAddDeduction, setShowAddDeduction] = useState(false);
+  const [dedType, setDedType] = useState("advance_recovery");
+  const [dedLabel, setDedLabel] = useState("");
+  const [dedAmount, setDedAmount] = useState("");
 
   const { data: period, isLoading: periodLoading } = useQuery<PayrollPeriod>({
     queryKey: ["/api/payroll/periods", periodId],
@@ -57,10 +67,95 @@ export default function PayrollDetailPage() {
     enabled: !!periodId && !!staffId,
   });
 
+  const { data: deductions = [], refetch: refetchDeductions } = useQuery<any[]>({
+    queryKey: ["/api/payroll/deductions", periodId, staffId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/payroll/periods/${periodId}/deductions?staffId=${staffId}`);
+      return res.json();
+    },
+    enabled: !!periodId && !!staffId,
+  });
+
+  const addDeductionMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/payroll/periods/${periodId}/deductions`, {
+        staffId, type: dedType, label: dedLabel, amount: parseFloat(dedAmount),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchDeductions();
+      setShowAddDeduction(false);
+      setDedLabel(""); setDedAmount(""); setDedType("advance_recovery");
+      toast({ title: "Deduction added" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const deleteDeductionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/payroll/periods/${periodId}/deductions/${id}`);
+    },
+    onSuccess: () => { refetchDeductions(); toast({ title: "Deduction removed" }); },
+  });
+
+  const totalDeductions = deductions.reduce((s: number, d: any) => s + Number(d.amount), 0);
+
   const dailySummary = drilldownData?.dailySummary || [];
   const breakdown = drilldownData?.transactions || [];
 
   const totalEarned = breakdown.reduce((sum, b) => sum + b.earned, 0);
+
+  const printPayslip = async () => {
+    if (!entry || !period) return;
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ unit: "mm", format: "a5" });
+    const gross = entry.netPay || 0;
+    const net = gross - totalDeductions;
+    const biz = currentStore?.name || "Business";
+    const per = `${format(parseISO(period.startDate), "MMM d")} – ${format(parseISO(period.endDate), "MMM d, yyyy")}`;
+
+    doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    doc.text("PAYSLIP", 105, 16, { align: "center" });
+    doc.setFontSize(9); doc.setFont("helvetica", "normal");
+    doc.text(biz, 105, 22, { align: "center" });
+    doc.text(`Period: ${per}`, 105, 28, { align: "center" });
+
+    doc.setFontSize(10); doc.setFont("helvetica", "bold");
+    doc.text(entry.staff?.name || "Staff", 14, 38);
+    doc.setFontSize(8); doc.setFont("helvetica", "normal");
+    doc.text(`Staff #: ${entry.staff?.staffNumber || "—"}`, 14, 43);
+
+    let y = 52;
+    const row = (label: string, value: string, bold = false) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.text(label, 14, y);
+      doc.text(value, 148, y, { align: "right" });
+      y += 6;
+    };
+
+    doc.setLineWidth(0.3); doc.line(14, y - 2, 148, y - 2);
+    row("Base Salary", fmtCur(entry.calculationDetails?.baseSalary || 0));
+    row("Transport Allowance", fmtCur(entry.totalTransport || 0));
+    row("Gross Commission", fmtCur(entry.grossCommission || 0));
+    y += 2; doc.line(14, y - 2, 148, y - 2);
+    row("GROSS PAY", fmtCur(gross), true);
+
+    if (deductions.length > 0) {
+      y += 3;
+      doc.setFont("helvetica", "bold"); doc.text("Deductions:", 14, y); y += 5;
+      for (const d of deductions) {
+        row(`  ${d.label}`, `- ${fmtCur(Number(d.amount))}`);
+      }
+      y += 2; doc.line(14, y - 2, 148, y - 2);
+    }
+
+    row("NET PAY", fmtCur(net), true);
+    doc.setFontSize(7); doc.setTextColor(150);
+    doc.text(`Generated on ${format(new Date(), "MMM d, yyyy")}`, 105, y + 8, { align: "center" });
+
+    doc.save(`payslip-${entry.staff?.name || staffId}-${period.startDate}.pdf`);
+  };
 
   if (periodLoading) {
     return (
@@ -105,12 +200,19 @@ export default function PayrollDetailPage() {
 
       {/* Summary cards */}
       {entry && (
-        <div className="grid gap-4 sm:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {[
-            { label: "Active Days", value: `${entry.activeDays || 0} days`, sub: "Assigned to services" },
-            { label: "Passive Days", value: `${entry.passiveDays || 0} days`, sub: "Present, no service" },
-            { label: "Total Transport", value: fmtCur(entry.totalTransport || 0), sub: "Daily transport allowances" },
-            { label: "Gross Commission", value: fmtCur(entry.grossCommission || 0), sub: "Proportional split pools" },
+            {
+              label: "Base Salary",
+              value: fmtCur(entry.calculationDetails?.baseSalary || 0),
+              sub: entry.calculationDetails?.paymentMethod === "fixed"
+                ? "Fixed salary (flat)"
+                : "Prorated monthly base",
+            },
+            { label: "Active Days",      value: `${entry.activeDays || 0} days`,    sub: "Assigned to services" },
+            { label: "Passive Days",     value: `${entry.passiveDays || 0} days`,   sub: "Present, no service" },
+            { label: "Total Transport",  value: fmtCur(entry.totalTransport || 0),  sub: entry.calculationDetails?.paymentMethod === "fixed" ? "N/A — fixed salary" : "Daily transport allowances" },
+            { label: "Gross Commission", value: fmtCur(entry.grossCommission || 0), sub: entry.calculationDetails?.paymentMethod === "fixed" ? "N/A — fixed salary" : "Proportional split pools" },
           ].map(card => (
             <Card key={card.label}>
               <CardContent className="pt-5">
@@ -132,16 +234,102 @@ export default function PayrollDetailPage() {
                 <DollarSign className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Final Net Pay</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Net Pay (before deductions)</p>
                 <p className="text-2xl font-bold font-mono text-primary">{fmtCur(entry.netPay || 0)}</p>
+                {totalDeductions > 0 && (
+                  <p className="text-xs text-destructive mt-0.5">Final take-home after deductions: {fmtCur((entry.netPay || 0) - totalDeductions)}</p>
+                )}
               </div>
             </div>
-            <div className="text-xs text-muted-foreground text-right sm:text-left">
-              Sum of Base Salary + Attendance Pay + Gross Commission earned for this period.
-            </div>
+            <Button variant="outline" size="sm" onClick={printPayslip}>
+              <Printer className="mr-2 h-4 w-4" />
+              Download Payslip PDF
+            </Button>
           </CardContent>
         </Card>
       )}
+
+      {/* Deductions Panel */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Minus className="h-4 w-4 text-destructive" />
+              Deductions{deductions.length > 0 ? ` (${deductions.length})` : ""}
+            </CardTitle>
+            {period?.status !== "paid" && (
+              <Button variant="outline" size="sm" onClick={() => setShowAddDeduction(v => !v)}>
+                <Plus className="h-3 w-3 mr-1" />
+                Add
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {showAddDeduction && (
+            <div className="rounded-lg border p-4 bg-muted/20 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Type</Label>
+                  <Select value={dedType} onValueChange={setDedType}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="advance_recovery">Advance Recovery</SelectItem>
+                      <SelectItem value="tax">Tax</SelectItem>
+                      <SelectItem value="penalty">Penalty</SelectItem>
+                      <SelectItem value="insurance">Insurance</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Amount</Label>
+                  <Input className="h-8 text-xs" type="number" min="0" step="0.01" value={dedAmount} onChange={e => setDedAmount(e.target.value)} placeholder="0.00" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Label (shown on payslip)</Label>
+                <Input className="h-8 text-xs" value={dedLabel} onChange={e => setDedLabel(e.target.value)} placeholder="e.g. March advance recovery" />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setShowAddDeduction(false)}>Cancel</Button>
+                <Button size="sm" disabled={!dedLabel || !dedAmount || addDeductionMutation.isPending}
+                  onClick={() => addDeductionMutation.mutate()}>
+                  Add Deduction
+                </Button>
+              </div>
+            </div>
+          )}
+          {deductions.length === 0 && !showAddDeduction && (
+            <p className="text-xs text-muted-foreground py-2 text-center">No deductions for this period.</p>
+          )}
+          {deductions.map((d: any) => (
+            <div key={d.id} className="flex items-center justify-between text-sm border rounded-lg px-3 py-2 bg-muted/10">
+              <div>
+                <span className="font-medium">{d.label}</span>
+                <Badge variant="outline" className="ml-2 text-[10px] h-4">{d.type.replace("_", " ")}</Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-destructive text-sm font-semibold">-{fmtCur(Number(d.amount))}</span>
+                {period?.status !== "paid" && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    onClick={() => deleteDeductionMutation.mutate(d.id)}>
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+          {totalDeductions > 0 && (
+            <div className="flex justify-between text-sm font-semibold border-t pt-2">
+              <span>Total Deductions</span>
+              <span className="font-mono text-destructive">-{fmtCur(totalDeductions)}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Formula & Calculation Steps Breakdown */}
       {entry?.calculationDetails && (

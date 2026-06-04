@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format, parseISO } from "date-fns";
 import {
   DollarSign,
@@ -15,7 +15,11 @@ import {
   Download,
   Users,
   Trash2,
+  Banknote,
+  BarChart3,
+  AlertTriangle,
 } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -56,6 +60,7 @@ export default function PayrollPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const userRole = user?.role || "staff";
   const isOwner = userRole === "owner";
 
@@ -89,14 +94,16 @@ export default function PayrollPage() {
   const storeCurrency = currentStore?.currency || "NGN";
   const fmt = (v: number) => formatCurrencyUtil(v, storeCurrency);
 
-  const { data: periods = [], isLoading: periodsLoading } = useQuery<PayrollPeriod[]>({
+  const { data: periodsRaw = [], isLoading: periodsLoading } = useQuery<PayrollPeriod[]>({
     queryKey: ["/api/payroll/periods", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/payroll/periods?storeId=${currentStore?.id}`);
-      return res.json();
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
+  const periods = Array.isArray(periodsRaw) ? periodsRaw : [];
 
   // Reset periods pagination when currentStore or periods change
   useEffect(() => {
@@ -117,16 +124,28 @@ export default function PayrollPage() {
     }
   }, [periods]);
 
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<PayrollEntryWithStaff[]>({
+  const selectedPeriod = periods.find(p => p.id === selectedPeriodId);
+
+  // Unrecorded attendance days for selected period
+  const { data: unrecordedDays = [] } = useQuery<{ staffId: string; staffName: string; unrecordedDates: string[] }[]>({
+    queryKey: ["/api/payroll/periods/unrecorded", selectedPeriodId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/payroll/periods/${selectedPeriodId}/unrecorded`);
+      return res.json();
+    },
+    enabled: !!selectedPeriodId && !!selectedPeriod && selectedPeriod.status !== "paid",
+  });
+
+  const { data: entriesRaw = [], isLoading: entriesLoading } = useQuery<PayrollEntryWithStaff[]>({
     queryKey: ["/api/payroll/periods/entries", selectedPeriodId],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/payroll/periods/${selectedPeriodId}/entries`);
-      return res.json();
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!selectedPeriodId,
   });
-
-  const selectedPeriod = periods.find(p => p.id === selectedPeriodId);
+  const entries = Array.isArray(entriesRaw) ? entriesRaw : [];
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -144,7 +163,7 @@ export default function PayrollPage() {
       setSelectedPeriodId(period.id);
       toast({ title: "Payroll period created" });
     },
-    onError: () => toast({ title: "Could not create payroll period", variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not create payroll period", description: err.message, variant: "destructive" }),
   });
 
   const calculateMutation = useMutation({
@@ -254,10 +273,20 @@ export default function PayrollPage() {
         title="Payroll"
         description={`Hybrid payroll for ${currentStore.name}`}
         actions={
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Period
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/advances")}>
+              <Banknote className="mr-2 h-4 w-4" />
+              Advances
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/report")}>
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Report
+            </Button>
+            <Button onClick={() => setLocation("/payroll/new")}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Period
+            </Button>
+          </div>
         }
       />
 
@@ -274,7 +303,7 @@ export default function PayrollPage() {
               <CardContent className="pt-6 text-center">
                 <Calendar className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
                 <p className="text-sm text-muted-foreground">No payroll periods yet.</p>
-                <Button size="sm" variant="outline" className="mt-3" onClick={() => setShowCreateDialog(true)}>
+                <Button size="sm" variant="outline" className="mt-3" onClick={() => setLocation("/payroll/new")}>
                   Create first period
                 </Button>
               </CardContent>
@@ -459,6 +488,28 @@ export default function PayrollPage() {
                 </Alert>
               )}
 
+              {/* Unrecorded attendance warning */}
+              {unrecordedDays.length > 0 && selectedPeriod.status !== "paid" && (
+                <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertDescription className="text-amber-800 dark:text-amber-300">
+                    <strong>{unrecordedDays.length} staff member{unrecordedDays.length !== 1 ? "s have" : " has"} unrecorded attendance days</strong> in this period.
+                    Unrecorded days default to absent and will reduce pay.{" "}
+                    <Link href="/staff/attendance" className="underline font-medium">Mark attendance →</Link>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Stale calculation warning */}
+              {entries.length > 0 && selectedPeriod.status === "pending" && (
+                <Alert className="border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800">
+                  <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <AlertDescription className="text-blue-800 dark:text-blue-300">
+                    If attendance or staff settings have changed since last calculation, click <strong>Recalculate</strong> to refresh figures before approving.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* Per-staff breakdown */}
               {entriesLoading ? (
                 <div className="space-y-2">
@@ -569,46 +620,18 @@ export default function PayrollPage() {
         </div>
       </div>
 
-      {/* Create period dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>New Payroll Period</DialogTitle>
-            <DialogDescription>Set the period type and date range for this payroll cycle.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label>Period Type</Label>
-              <Select value={periodType} onValueChange={(v) => setPeriodType(v as PayrollPeriodType)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="biweekly">Bi-Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Start Date</Label>
-                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>End Date</Label>
-                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-              </div>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !startDate || !endDate}>
-                {createMutation.isPending ? "Creating…" : "Create Period"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {isOwner && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "New Period",
+              icon: <DollarSign className="h-5 w-5" />,
+              onClick: () => setLocation("/payroll/new"),
+              testId: "fab-new-period",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

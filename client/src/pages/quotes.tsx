@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Edit, Printer, FileDown, PlusCircle, Trash, RefreshCw } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -417,12 +418,18 @@ export default function QuotesPage() {
                         </div>
 
                         <div className="w-24">
-                          <Label className="text-xs text-muted-foreground font-mono">Qty</Label>
+                          <Label className="text-xs text-muted-foreground font-mono">
+                            Qty{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}
+                          </Label>
                           <Input
                             type="number"
-                            min="1"
+                            min={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
+                            step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
                             value={item.quantity}
-                            onChange={(e) => updateItemRow(index, "quantity", Number(e.target.value))}
+                            onChange={(e) => {
+                              const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
+                              updateItemRow(index, "quantity", isFrac ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1);
+                            }}
                           />
                         </div>
 
@@ -603,7 +610,12 @@ export default function QuotesPage() {
                       <tr key={idx} className="border-b text-gray-700">
                         <td className="py-3 px-3">
                           <p className="font-medium text-gray-800">{item.inventory.name}</p>
-                          <p className="text-xs text-gray-400 font-mono">{item.inventory.id.substring(0, 8).toUpperCase()}</p>
+                          <Badge variant="outline" className={`text-[10px] capitalize mt-1 ${
+                            item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
+                            : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-sky-50 text-sky-700 border-sky-200"}`}>
+                            {item.inventory.type}
+                          </Badge>
                         </td>
                         <td className="py-3 px-3 text-right font-mono">{item.quantity}</td>
                         <td className="py-3 px-3 text-right font-mono">{formatCurrency(item.unitPrice)}</td>
@@ -632,6 +644,19 @@ export default function QuotesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {activeTab === "list" && (
+        <SpeedDialFAB
+          actions={[
+            {
+              label: "New Quote",
+              icon: <FileText className="h-5 w-5" />,
+              onClick: () => setActiveTab("create"),
+              testId: "fab-new-quote",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { buildSlug } from "@/lib/slug";
 import { BarChart3, RefreshCw, Layers, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -101,7 +102,9 @@ export default function ServiceProfitabilityPage() {
         <div>
           <span className="font-semibold">{item.name}</span>
           <div className="mt-0.5">
-            <Badge variant="secondary" className="capitalize text-[10px] h-4">
+            <Badge variant="outline" className={`capitalize text-[10px] h-4 ${
+              item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+              : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
               {item.type}
             </Badge>
           </div>
@@ -155,7 +158,7 @@ export default function ServiceProfitabilityPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setLocation(`/inventory/${item.id}`)}
+          onClick={() => setLocation(`/inventory/${buildSlug(item.name, item.id)}`)}
           className="flex items-center gap-1 hover:bg-primary hover:text-primary-foreground transition-all duration-200"
         >
           Details

@@ -431,27 +431,42 @@ export default function NewSale() {
   const addToCart = (item: Inventory) => {
     setCart((prev) => {
       const existing = prev.find((c) => c.inventory.id === item.id);
+      const maxQty = item.type === "service" ? 999 : (item.quantity || 0);
+      const step = item.allowFractional ? 0.5 : 1;
+
       if (existing) {
-        const maxQty = item.type === "service" ? 999 : item.quantity;
         if (existing.quantity >= maxQty) {
           toast({
             title: "Stock Limit Reached",
-            description: `Sorry, only ${maxQty} ${item.name} available right now.`,
+            description: `Only ${maxQty}${item.unit ? " " + item.unit : ""} of "${item.name}" available.`,
             variant: "destructive",
           });
           return prev;
         }
+        const newQty = Math.min(Math.round((existing.quantity + step) * 100) / 100, maxQty);
         return prev.map((c) =>
           c.inventory.id === item.id
-            ? { ...c, quantity: c.quantity + 1, totalPrice: (c.quantity + 1) * c.customPrice }
+            ? { ...c, quantity: newQty, totalPrice: Math.round(newQty * c.customPrice * 100) / 100 }
             : c
         );
       }
-      return [...prev, { 
-        inventory: item, 
-        quantity: 1, 
-        customPrice: item.sellingPrice, 
-        totalPrice: item.sellingPrice,
+
+      // Cap initial quantity to available stock
+      const initialQty = item.type === "service" ? 1 : Math.min(step, maxQty);
+      if (item.type === "product" && maxQty <= 0) {
+        toast({
+          title: "Out of Stock",
+          description: `"${item.name}" has no stock available.`,
+          variant: "destructive",
+        });
+        return prev;
+      }
+
+      return [...prev, {
+        inventory: item,
+        quantity: initialQty,
+        customPrice: item.sellingPrice,
+        totalPrice: Math.round(initialQty * item.sellingPrice * 100) / 100,
         leadStaffId: null,
         assistingStaff1Id: null,
         assistingStaff2Id: null,
@@ -486,18 +501,19 @@ export default function NewSale() {
       prev
         .map((c) => {
           if (c.inventory.id === itemId) {
-            const newQty = c.quantity + delta;
+            const newQty = Math.round((c.quantity + delta) * 10000) / 10000;
             const maxQty = c.inventory.type === "service" ? 999 : c.inventory.quantity;
-            if (newQty > maxQty) {
+            if (c.inventory.type === "product" && newQty > maxQty) {
               toast({
                 title: "Stock Limit Reached",
-                description: `Sorry, only ${maxQty} available right now.`,
+                description: `Only ${maxQty}${c.inventory.unit ? " " + c.inventory.unit : ""} available.`,
                 variant: "destructive",
               });
               return c;
             }
-            if (newQty <= 0) return null as unknown as CartItem;
-            return { ...c, quantity: newQty, totalPrice: newQty * c.customPrice };
+            const minQty = c.inventory.allowFractional ? 0.01 : 1;
+            if (newQty < minQty) return null as unknown as CartItem;
+            return { ...c, quantity: newQty, totalPrice: Math.round(newQty * c.customPrice * 100) / 100 };
           }
           return c;
         })
@@ -511,15 +527,16 @@ export default function NewSale() {
         .map((c) => {
           if (c.inventory.id === itemId) {
             const maxQty = c.inventory.type === "service" ? 999 : c.inventory.quantity;
-            const validQty = Math.max(1, Math.min(newQty, maxQty));
-            if (newQty > maxQty) {
+            const minQty = c.inventory.allowFractional ? 0.01 : 1;
+            if (c.inventory.type === "product" && newQty > maxQty) {
               toast({
                 title: "Stock Limit Reached",
-                description: `Sorry, only ${maxQty} available right now.`,
+                description: `Only ${maxQty}${c.inventory.unit ? " " + c.inventory.unit : ""} available.`,
                 variant: "destructive",
               });
             }
-            return { ...c, quantity: validQty, totalPrice: validQty * c.customPrice };
+            const validQty = Math.max(minQty, c.inventory.type === "product" ? Math.min(newQty, maxQty) : newQty);
+            return { ...c, quantity: validQty, totalPrice: Math.round(validQty * c.customPrice * 100) / 100 };
           }
           return c;
         })
@@ -789,12 +806,23 @@ export default function NewSale() {
       }
     },
     onError: (error: Error) => {
-      const isZeroPriceError = error.message?.toLowerCase().includes("cannot be sold for ₦0") || 
-                              error.message?.toLowerCase().includes("only active promotions can apply");
+      const msg = error.message || "";
+      const isZeroPriceError = msg.toLowerCase().includes("cannot be sold for ₦0") ||
+                               msg.toLowerCase().includes("only active promotions can apply");
+      const isStockError = msg.toLowerCase().includes("only have") ||
+                           msg.toLowerCase().includes("in stock") ||
+                           msg.toLowerCase().includes("cannot be sold in fractional") ||
+                           msg.toLowerCase().includes("stock limit") ||
+                           msg.toLowerCase().includes("out of stock");
+
       toast({
-        title: isZeroPriceError ? "Invalid Item Price" : "Couldn't Complete Sale",
-        description: isZeroPriceError 
-          ? "Items cannot be priced at ₦0 during checkout unless covered by an active promotion." 
+        title: isZeroPriceError ? "Invalid Item Price"
+             : isStockError    ? "Stock Issue"
+             :                   "Couldn't Complete Sale",
+        description: isZeroPriceError
+          ? "Items cannot be priced at ₦0 during checkout unless covered by an active promotion."
+          : isStockError
+          ? msg
           : getUserFriendlyError(error, "processing this sale"),
         variant: "destructive",
       });

@@ -54,7 +54,7 @@ export const insertOrganisationSchema = createInsertSchema(organisations).omit({
   logoUrl: z.string().optional(),
   receiptPrefix: z.string().optional(),
   address: z.string().optional(),
-  phone: z.string().optional(),
+  phone: z.string().trim().refine(v => !v || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.").optional().or(z.literal("")),
   phoneCountryCode: z.string().default("+234"),
   businessUrl: z.string().optional(),
 });
@@ -91,6 +91,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   customers: many(customers),
   staff: many(staff),
   inventory: many(inventory),
+  products: many(products),
   storeCounters: many(storeCounters),
 }));
 
@@ -98,7 +99,7 @@ export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, cre
   name: trimmedString(1, "Store name is required"),
   code: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1, "Store code is required")),
   address: optionalTrimmedString(),
-  phone: optionalTrimmedString(),
+  phone: z.string().trim().refine(v => !v || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.").optional().or(z.literal("")),
   phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
@@ -162,7 +163,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
   name: trimmedString(1, "Customer name is required"),
   customerNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
-  mobileNumber: z.string().transform(s => s.trim()).optional().default(""),
+  mobileNumber: z.string().transform(s => s.trim()).refine(v => !v || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.").optional().default(""),
   address: z.string().transform(s => s.trim()).default(""),
   birthday: z.string().optional().nullable(),
   storeCreditBalance: z.number().optional(),
@@ -195,7 +196,7 @@ export const staff = pgTable("staff", {
   commissionTypeOverride: text("commission_type_override"), // percentage or fixed_per_service
   commissionFixedAmountOverride: numeric("commission_fixed_amount_override", { precision: 12, scale: 2 }).$type<number>(),
   overrideFormula: boolean("override_formula").notNull().default(false),
-  commissionFormulaOverride: text("commission_formula_override"), // formula_a, formula_b, formula_c, formula_d
+  commissionFormulaOverride: text("commission_formula_override"), // formula_a, formula_b, formula_c, formula_d, formula_f
   overrideAttendanceRates: boolean("override_attendance_rates").notNull().default(false),
   activeDayRateOverride: numeric("active_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
   passiveDayRateOverride: numeric("passive_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
@@ -244,6 +245,32 @@ export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isAr
 export type InsertStaff = z.infer<typeof insertStaffSchema>;
 export type Staff = typeof staff.$inferSelect;
 
+// Products Table
+export const products = pgTable("products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // 'product' or 'service'
+  category: text("category"),
+  brand: text("brand"),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  unique("products_store_name_unique").on(table.storeId, table.name),
+]);
+
+export const productsRelations = relations(products, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [products.storeId],
+    references: [stores.id],
+  }),
+  variants: many(inventory),
+}));
+
 // Inventory table
 export const inventory = pgTable("inventory", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -252,17 +279,24 @@ export const inventory = pgTable("inventory", {
   type: text("type").notNull(), // 'product' or 'service'
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  quantity: integer("quantity").notNull().default(0), // Only relevant for products
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(0), // Supports fractional quantities (e.g. 1.5 kg)
+  allowFractional: boolean("allow_fractional").notNull().default(false), // When true, quantity can be a decimal
+  unit: text("unit"), // Optional unit label shown in UI and on receipts (e.g. 'kg', 'litre', 'm')
+  reorderPoint: numeric("reorder_point", { precision: 12, scale: 2 }).$type<number>(), // Per-item low-stock threshold (null = use global setting)
   commissionSplitOverride: boolean("commission_split_override").default(false).notNull(),
   commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
   commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),
   isBundle: boolean("is_bundle").default(false).notNull(),
   parentInventoryId: varchar("parent_inventory_id"), // Self-referencing foreign key later
+  productId: varchar("product_id").references(() => products.id),
+  sku: text("sku"),
+  barcode: text("barcode"),
   variantDimensions: jsonb("variant_dimensions"),
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
 }, (table) => [
   unique("inventory_store_name_unique").on(table.storeId, table.name),
+  unique("inventory_store_sku_unique").on(table.storeId, table.sku),
   index("idx_inventory_store_qty").on(table.storeId, table.quantity),
 ]);
 
@@ -270,6 +304,10 @@ export const inventoryRelations = relations(inventory, ({ one, many }) => ({
   store: one(stores, {
     fields: [inventory.storeId],
     references: [stores.id],
+  }),
+  product: one(products, {
+    fields: [inventory.productId],
+    references: [products.id],
   }),
   orders: many(orders),
   transactions: many(transactions),
@@ -319,7 +357,7 @@ export const bookingItems = pgTable("booking_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   bookingId: varchar("booking_id").notNull().references(() => bookings.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: integer("quantity").notNull().default(1),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(1),
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
 });
@@ -374,11 +412,26 @@ export const insertBookingItemSchema = createInsertSchema(bookingItems).omit({ i
 export type InsertBookingItem = z.infer<typeof insertBookingItemSchema>;
 export type BookingItem = typeof bookingItems.$inferSelect;
 
-export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true }).extend({
+export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true, updatedAt: true, isDeleted: true, deletedAt: true }).extend({
+  name: trimmedString(1, "Product name is required"),
+  type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
+});
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type Product = typeof products.$inferSelect;
+
+export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true, isDeleted: true, deletedAt: true }).extend({
   name: trimmedString(1, "Item name is required"),
   type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
-  costPrice: z.number(),
-  sellingPrice: z.number(),
+  // numeric columns come back as strings from pg driver — coerce to number
+  quantity: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number().min(0)).default(0),
+  costPrice: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number()),
+  sellingPrice: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number()),
+  productId: z.string().optional().nullable(),
+  sku: z.string().optional().nullable(),
+  barcode: z.string().optional().nullable(),
+  allowFractional: z.boolean().optional().default(false),
+  unit: z.string().optional().nullable(),
+  reorderPoint: z.preprocess(v => (v === "" || v === null || v === undefined ? null : Number(v)), z.number().min(0).nullable()).optional(),
 });
 export type InsertInventory = z.infer<typeof insertInventorySchema>;
 export type Inventory = typeof inventory.$inferSelect;
@@ -394,9 +447,9 @@ export const inventoryRestockEvents = pgTable("inventory_restock_events", {
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   staffId: varchar("staff_id").references(() => staff.id), // Who performed the restock
   userId: varchar("user_id").references(() => users.id), // Alternative: owner/manager without staff record
-  quantityAdded: integer("quantity_added").notNull(),
-  previousQuantity: integer("previous_quantity").notNull(),
-  newQuantity: integer("new_quantity").notNull(),
+  quantityAdded: numeric("quantity_added", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  previousQuantity: numeric("previous_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  newQuantity: numeric("new_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
   unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(), // Cost per unit for this restock
   previousCostPrice: numeric("previous_cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   newCostPrice: numeric("new_cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
@@ -454,8 +507,8 @@ export const orders = pgTable("orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: integer("quantity").notNull(),
-  returnedQuantity: integer("returned_quantity").notNull().default(0),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  returnedQuantity: numeric("returned_quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   refundedAmount: numeric("refunded_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   taxApplied: numeric("tax_applied", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
@@ -616,8 +669,8 @@ export const profitLoss = pgTable("profit_loss", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  totalQuantitySold: integer("total_quantity_sold").notNull().default(0),
-  quantityRemaining: integer("quantity_remaining").notNull().default(0),
+  totalQuantitySold: numeric("total_quantity_sold", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  quantityRemaining: numeric("quantity_remaining", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   totalRevenue: numeric("total_revenue", { precision: 15, scale: 2 }).$type<number>().notNull().default(0),
   totalGrossProfit: numeric("total_gross_profit", { precision: 15, scale: 2 }).$type<number>().notNull().default(0),
 }, (table) => [
@@ -722,6 +775,14 @@ export const users = pgTable("users", {
   loginAttempts: integer("login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until"),
   lastLoginAt: timestamp("last_login_at"),
+
+  // Resend activation code rate-limit (replaces in-memory resendLimitMap)
+  resendAttempts: integer("resend_attempts").notNull().default(0),
+  resendWindowStart: timestamp("resend_window_start"),
+
+  // Supervisor override rate-limit (replaces in-memory supervisorLockoutMap)
+  supervisorAttempts: integer("supervisor_attempts").notNull().default(0),
+  supervisorLockedUntil: timestamp("supervisor_locked_until"),
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -894,7 +955,7 @@ export const settings = pgTable("settings", {
   defaultPaymentMethod: text("default_payment_method").notNull().default("hybrid"), // fixed, commission, hybrid
   commissionType: text("commission_type").notNull().default("percentage"), // percentage, fixed_per_service
   commissionFixedAmount: numeric("commission_fixed_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  commissionFormula: text("commission_formula").notNull().default("formula_b"), // formula_a, formula_b, formula_c, formula_d
+  commissionFormula: text("commission_formula").notNull().default("formula_b"), // formula_a, formula_b, formula_c, formula_d, formula_f
   leaveDayRate: numeric("leave_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   payLeaveDays: boolean("pay_leave_days").notNull().default(false),
   holidayDayRate: numeric("holiday_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
@@ -1026,8 +1087,8 @@ export type ReminderLog = typeof reminderLogs.$inferSelect;
 
 // ========== PAYROLL TABLES ==========
 
-// Attendance status enum
-export const attendanceStatusEnum = ["present", "absent", "off_day", "holiday"] as const;
+// Attendance status enum — 'leave' added to support paid/unpaid leave tracking
+export const attendanceStatusEnum = ["present", "absent", "off_day", "holiday", "leave"] as const;
 export type AttendanceStatus = typeof attendanceStatusEnum[number];
 
 // Attendance records table - one record per staff per day
@@ -1416,15 +1477,15 @@ export const returnLogs = pgTable("return_logs", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   orderId: varchar("order_id").notNull().references(() => orders.id),
-  quantity: integer("quantity").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 4 }).$type<number>().notNull(),
   refundAmount: numeric("refund_amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
   refundMethod: text("refund_method").notNull(),
   reason: text("reason"),
   staffId: varchar("staff_id").references(() => staff.id),
   userId: varchar("user_id").references(() => users.id),
   restockEventId: varchar("restock_event_id").references(() => inventoryRestockEvents.id),
-  inventoryQuantityBeforeReturn: integer("inventory_quantity_before_return").notNull().default(0),
-  inventoryQuantityAfterReturn: integer("inventory_quantity_after_return").notNull().default(0),
+  inventoryQuantityBeforeReturn: numeric("inventory_quantity_before_return", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  inventoryQuantityAfterReturn: numeric("inventory_quantity_after_return", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -1520,6 +1581,7 @@ export const vendors = pgTable("vendors", {
   phone: text("phone"),
   address: text("address"),
   notes: text("notes"),
+  isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -1546,7 +1608,10 @@ export const vendorBillRelations = relations(vendorBills, ({ one }) => ({
   restockEvent: one(inventoryRestockEvents, { fields: [vendorBills.linkedRestockEventId], references: [inventoryRestockEvents.id] }),
 }));
 
-export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true });
+export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true }).extend({
+  email: z.string().trim().toLowerCase().refine(v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v), "Enter a valid email address.").optional().or(z.literal("")),
+  phone: z.string().trim().refine(v => !v || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.").optional().or(z.literal("")),
+});
 export const insertVendorBillSchema = createInsertSchema(vendorBills).omit({ id: true, createdAt: true }).extend({
   amount: z.number(),
   amountPaid: z.number().optional(),
@@ -1572,9 +1637,9 @@ export const stockAuditItems = pgTable("stock_audit_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   auditId: varchar("audit_id").notNull().references(() => stockAudits.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  systemQuantity: integer("system_quantity").notNull(),
-  physicalQuantity: integer("physical_quantity").notNull(),
-  variance: integer("variance").notNull(),
+  systemQuantity: numeric("system_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  physicalQuantity: numeric("physical_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  variance: numeric("variance", { precision: 12, scale: 2 }).$type<number>().notNull(),
   reason: text("reason"),
 });
 
@@ -1600,7 +1665,7 @@ export const bundleComponents = pgTable("bundle_components", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   parentInventoryId: varchar("parent_inventory_id").notNull().references(() => inventory.id),
   componentInventoryId: varchar("component_inventory_id").notNull().references(() => inventory.id),
-  quantity: integer("quantity").notNull().default(1),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(1),
 });
 
 export const bundleComponentsRelations = relations(bundleComponents, ({ one }) => ({
@@ -1629,7 +1694,7 @@ export const quoteItems = pgTable("quote_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   quoteId: varchar("quote_id").notNull().references(() => quotes.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: integer("quantity").notNull().default(1),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(1),
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
 });
@@ -1674,8 +1739,8 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   poId: varchar("po_id").notNull().references(() => purchaseOrders.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: integer("quantity").notNull(),
-  receivedQuantity: integer("received_quantity").notNull().default(0),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  receivedQuantity: numeric("received_quantity", { precision: 12, scale: 4 }).$type<number>().notNull().default(0),
   unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
   totalCost: numeric("total_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
 });
@@ -1718,7 +1783,7 @@ export const stockTransferItems = pgTable("stock_transfer_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   transferId: varchar("transfer_id").notNull().references(() => stockTransfers.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: integer("quantity").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
 });
 
 export const stockTransferRelations = relations(stockTransfers, ({ one, many }) => ({
@@ -1865,3 +1930,103 @@ export const insertSuperAdminAuditLogSchema = createInsertSchema(superAdminAudit
 export type InsertSuperAdminAuditLog = z.infer<typeof insertSuperAdminAuditLogSchema>;
 export type SuperAdminAuditLog = typeof superAdminAuditLogs.$inferSelect;
 
+// ── Persistent Email Queue ──────────────────────────────────────────────────
+export const pendingEmails = pgTable("pending_emails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  to: text("to").notNull(),
+  subject: text("subject").notNull(),
+  html: text("html").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'sent' | 'failed'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type PendingEmail = typeof pendingEmails.$inferSelect;
+export type InsertPendingEmail = typeof pendingEmails.$inferInsert;
+
+// ── Application Audit Logs ──────────────────────────────────────────────────
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  action: text("action").notNull(),
+  resource: text("resource").notNull(),
+  resourceId: text("resource_id"),
+  userId: text("user_id"),
+  ip: text("ip"),
+  status: text("status").notNull(), // 'success' | 'failure'
+  errorMessage: text("error_message"),
+  details: jsonb("details"),
+});
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+
+// ── Payroll Deductions ──────────────────────────────────────────────────────
+// Per-staff deductions applied against gross pay before disbursement
+export const payrollDeductions = pgTable("payroll_deductions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  type: text("type").notNull(), // 'tax', 'advance_recovery', 'penalty', 'insurance', 'other'
+  label: text("label").notNull(), // Human-readable description shown on payslip
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const payrollDeductionsRelations = relations(payrollDeductions, ({ one }) => ({
+  period: one(payrollPeriods, { fields: [payrollDeductions.periodId], references: [payrollPeriods.id] }),
+  staff: one(staff, { fields: [payrollDeductions.staffId], references: [staff.id] }),
+}));
+
+export type PayrollDeduction = typeof payrollDeductions.$inferSelect;
+export type InsertPayrollDeduction = typeof payrollDeductions.$inferInsert;
+
+// ── Payroll Disbursements ───────────────────────────────────────────────────
+// Tracks how each staff member was actually paid for a period
+export const payrollDisbursements = pgTable("payroll_disbursements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  method: text("method").notNull().default("cash"), // 'cash', 'bank_transfer', 'mobile_money'
+  reference: text("reference"), // Bank reference or transaction ID
+  notes: text("notes"),
+  paidByUserId: varchar("paid_by_user_id").references(() => users.id),
+  paidAt: timestamp("paid_at").notNull().defaultNow(),
+});
+
+export const payrollDisbursementsRelations = relations(payrollDisbursements, ({ one }) => ({
+  period: one(payrollPeriods, { fields: [payrollDisbursements.periodId], references: [payrollPeriods.id] }),
+  staff: one(staff, { fields: [payrollDisbursements.staffId], references: [staff.id] }),
+}));
+
+export type PayrollDisbursement = typeof payrollDisbursements.$inferSelect;
+export type InsertPayrollDisbursement = typeof payrollDisbursements.$inferInsert;
+
+// ── Salary Advances ─────────────────────────────────────────────────────────
+// Mid-period cash advances to staff, tracked for payroll deduction
+export const salaryAdvances = pgTable("salary_advances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  date: text("date").notNull(), // YYYY-MM-DD
+  notes: text("notes"),
+  recoveredPeriodId: varchar("recovered_period_id").references(() => payrollPeriods.id), // Set when deducted from payroll
+  isRecovered: boolean("is_recovered").notNull().default(false),
+  givenByUserId: varchar("given_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const salaryAdvancesRelations = relations(salaryAdvances, ({ one }) => ({
+  store: one(stores, { fields: [salaryAdvances.storeId], references: [stores.id] }),
+  staff: one(staff, { fields: [salaryAdvances.staffId], references: [staff.id] }),
+  recoveredPeriod: one(payrollPeriods, { fields: [salaryAdvances.recoveredPeriodId], references: [payrollPeriods.id] }),
+}));
+
+export type SalaryAdvance = typeof salaryAdvances.$inferSelect;
+export type InsertSalaryAdvance = typeof salaryAdvances.$inferInsert;

@@ -16,6 +16,7 @@ import {
   parseISO
 } from "date-fns";
 import { Plus, Calendar, List as ListIcon, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { 
   Card, 
   CardContent, 
@@ -261,6 +262,17 @@ export default function BookingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <SpeedDialFAB
+        actions={[
+          {
+            label: "New Booking",
+            icon: <Calendar className="h-5 w-5" />,
+            onClick: () => setLocation("/bookings/new"),
+            testId: "fab-new-booking",
+          },
+        ]}
+      />
     </div>
   );
 }

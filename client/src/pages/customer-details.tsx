@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { buildSlug, isUUID } from "@/lib/slug";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { ArrowLeft, User, Phone, MapPin, Hash, Calendar, Package, Coins, CreditCard, Receipt, AlertCircle, BookOpen, Check } from "lucide-react";
@@ -74,7 +75,7 @@ export default function CustomerDetails() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Profiles merged successfully!" });
       setIsMergeWizardOpen(false);
-      setLocation(`/customers/${data.id}`);
+      setLocation(`/customers/${buildSlug(data.name, data.id)}`);
     },
     onError: (err: any) => {
       toast({ title: "Merge Failed", description: err.message || "An error occurred", variant: "destructive" });
@@ -85,36 +86,50 @@ export default function CustomerDetails() {
     dismissMutation.mutate({ targetId, duplicateId });
   };
 
-  const { data: customers = [] } = useQuery<Customer[]>({
+  // Fetch the full customer list — used for slug resolution, duplicate lookups, and sub-queries
+  const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
     enabled: !!currentStore?.id,
   });
 
-  const customer = customers.find(c => c.id === customerId);
+  // Resolve slug (e.g. "excellent-bolujo-2fb89fa9") or plain UUID to a Customer from the list.
+  // Slug format: "{name-parts}-{first-8-chars-of-uuid}"
+  const customer = useMemo(() => {
+    if (!customerId) return undefined;
+    if (isUUID(customerId)) return customers.find(c => c.id === customerId);
+    const prefix = customerId.match(/-([0-9a-f]{8})$/i)?.[1]?.toLowerCase() ?? "";
+    return prefix ? customers.find(c => c.id.toLowerCase().startsWith(prefix)) : undefined;
+  }, [customerId, customers]);
+
+  // True UUID used for sub-queries that take customerId as a query param (not path param)
+  const resolvedCustomerId = customer?.id;
+
+  // Show loading skeleton while the customers list is still fetching
+  const customerLoading = customersLoading && !customer;
 
   const { data: transactions = [], isLoading: transactionsLoading } = useQuery<TransactionWithRelations[]>({
-    queryKey: ["/api/customers", customerId, "transactions"],
-    enabled: !!customerId,
+    queryKey: ["/api/customers", resolvedCustomerId, "transactions"],
+    enabled: !!resolvedCustomerId,
   });
 
   const { data: creditEntries = [], isLoading: creditLoading } = useQuery<any[]>({
-    queryKey: ["/api/customers", customerId, "credit-ledger"],
+    queryKey: ["/api/customers", resolvedCustomerId, "credit-ledger"],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/credit/ledger?storeId=${currentStore?.id}&customerId=${customerId}`);
+      const res = await apiRequest("GET", `/api/credit/ledger?storeId=${currentStore?.id}&customerId=${resolvedCustomerId}`);
       return res.json();
     },
-    enabled: !!customerId && !!currentStore?.id,
+    enabled: !!resolvedCustomerId && !!currentStore?.id,
   });
 
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery<any[]>({
-    queryKey: ["/api/customers", customerId, "bookings"],
+    queryKey: ["/api/customers", resolvedCustomerId, "bookings"],
     queryFn: async () => {
-      const res = await fetch(`/api/bookings?storeId=${currentStore?.id}&customerId=${customerId}`);
+      const res = await fetch(`/api/bookings?storeId=${currentStore?.id}&customerId=${resolvedCustomerId}`);
       if (!res.ok) return [];
       const json = await res.json();
       return json.data || [];
     },
-    enabled: !!customerId && !!currentStore?.id,
+    enabled: !!resolvedCustomerId && !!currentStore?.id,
   });
 
   const formatCurrency = (value: number, currency: string = "NGN") => {
@@ -174,7 +189,11 @@ export default function CustomerDetails() {
           <Package className="h-3 w-3 text-muted-foreground" />
           <div>
             <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
-            <Badge variant="outline" className="text-xs capitalize mt-1">
+            <Badge variant="outline" className={`text-xs capitalize mt-1 ${
+              tx.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+              : tx.inventory?.type === "product" ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
+              : tx.inventory?.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
+              : ""}`}>
               {tx.inventory?.type ?? "unknown"}
             </Badge>
           </div>
@@ -222,6 +241,14 @@ export default function CustomerDetails() {
             Please <Link href="/settings/stores" className="underline font-medium">set up your business and store</Link> first.
           </AlertDescription>
         </Alert>
+      </div>
+    );
+  }
+
+  if (customerLoading) {
+    return (
+      <div className="space-y-4 p-6">
+        {[1, 2, 3].map(i => <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />)}
       </div>
     );
   }

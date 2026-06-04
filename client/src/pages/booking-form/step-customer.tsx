@@ -34,6 +34,9 @@ import { cn } from "@/lib/utils";
 import type { Customer } from "@shared/schema";
 import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { BookingFormValues, InsertCustomer, newCustomerSchema } from "./types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
+import { getDefaultCountryCode } from "@/lib/validation-utils";
 
 interface StepCustomerProps {
   form: UseFormReturn<BookingFormValues>;
@@ -106,6 +109,21 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
       customerNumber: "",
     },
   });
+
+  const defaultCountry = getDefaultCountryCode(currentStore?.currency);
+  const defaultDialCode = deduplicatedCountryCodes.find(c => c.code === defaultCountry)?.dialCode ?? "+234";
+
+  const handleCreateCustomer = (data: InsertCustomer) => {
+    if (data.mobileNumber) {
+      const dialCode = deduplicatedCountryCodes.find(c => c.code === (data.countryCode ?? defaultCountry))?.dialCode ?? defaultDialCode;
+      const phoneCheck = validatePhoneNumber(data.mobileNumber, dialCode);
+      if (!phoneCheck.valid) {
+        customerForm.setError("mobileNumber", { message: phoneCheck.error });
+        return;
+      }
+    }
+    createCustomerMutation.mutate(data);
+  };
 
   const createCustomerMutation = useMutation({
     mutationFn: async (data: InsertCustomer) => {
@@ -357,7 +375,7 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
             </DialogDescription>
           </DialogHeader>
           <Form {...customerForm}>
-            <form onSubmit={customerForm.handleSubmit((data) => createCustomerMutation.mutate(data))} className="space-y-4">
+            <form onSubmit={customerForm.handleSubmit(handleCreateCustomer)} className="space-y-4">
               <FormField
                 control={customerForm.control}
                 name="name"
@@ -376,10 +394,30 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
                 name="mobileNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Mobile Number</FormLabel>
-                    <FormControl>
-                      <Input placeholder="08012345678" {...field} />
-                    </FormControl>
+                    <FormLabel>Mobile Number (Optional)</FormLabel>
+                    <div className="flex gap-2">
+                      <FormField control={customerForm.control} name="countryCode" render={({ field: ccField }) => (
+                        <Select
+                          value={deduplicatedCountryCodes.find(c => c.code === ccField.value)?.dialCode ?? defaultDialCode}
+                          onValueChange={(dialCode) => {
+                            const country = deduplicatedCountryCodes.find(c => c.dialCode === dialCode);
+                            ccField.onChange(country?.code ?? defaultCountry);
+                          }}
+                        >
+                          <SelectTrigger className="w-[110px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[280px]">
+                            {deduplicatedCountryCodes.map(c => (
+                              <SelectItem key={c.dialCode} value={c.dialCode}>{c.name} ({c.dialCode})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )} />
+                      <FormControl>
+                        <Input placeholder="08012345678" {...field} />
+                      </FormControl>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}

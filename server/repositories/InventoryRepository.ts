@@ -11,7 +11,7 @@ import {
   type InventoryBatch,
   type InsertInventoryBatch,
 } from "@shared/schema";
-import { eq, and, or, ilike, asc, sql, count, gt } from "drizzle-orm";
+import { eq, and, or, ilike, asc, sql, count, gt, inArray } from "drizzle-orm";
 
 export interface PaginationOptions {
   page: number;
@@ -36,7 +36,7 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
   }
 
   async getInventory(storeId: string): Promise<Inventory[]> {
-    return await db.select().from(inventory).where(and(eq(inventory.storeId, storeId), eq(inventory.isDeleted, false)));
+    return await db.select().from(inventory).where(and(eq(inventory.storeId, storeId), eq(inventory.isDeleted, false))).orderBy(asc(inventory.name));
   }
 
   async getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
@@ -77,6 +77,29 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
         hasMore: page < totalPages,
       },
     };
+  }
+
+  async getInventoryForStores(storeIds: string[], options: PaginationOptions): Promise<PaginatedResult<Inventory>> {
+    const { page, limit, search } = options;
+    const offset = (page - 1) * limit;
+
+    const conditions = [inArray(inventory.storeId, storeIds), eq(inventory.isDeleted, false)];
+    if (search) {
+      conditions.push(or(ilike(inventory.name, `%${search}%`), ilike(inventory.type, `%${search}%`))!);
+    }
+
+    const [countResult] = await db.select({ count: count() }).from(inventory).where(and(...conditions));
+    const total = countResult.count;
+
+    const data = await db.select()
+      .from(inventory)
+      .where(and(...conditions))
+      .orderBy(asc(inventory.name))
+      .limit(limit)
+      .offset(offset);
+
+    const totalPages = Math.ceil(total / limit);
+    return { data, pagination: { total, page, limit, totalPages, hasMore: page < totalPages } };
   }
 
   async getInventoryItem(id: string): Promise<Inventory | undefined> {

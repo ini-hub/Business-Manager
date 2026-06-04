@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight } from "lucide-react";
+import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 
 
 // ─── Step Schemas ──────────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ const storeSchema = z.object({
 
 const staffSchema = z.object({
   name: z.string().min(1, "Staff name is required"),
-  email: z.string().email("Valid email required"),
+  email: z.string().trim().email("Enter a valid email address (e.g. name@example.com)."),
   mobileNumber: z.string().min(1, "Phone number is required"),
   countryCode: z.string().default("+234"),
   role: z.enum(["manager", "staff"]),
@@ -94,6 +95,11 @@ export default function OnboardingWizard() {
 
   const staffMutation = useMutation({
     mutationFn: async (data: z.infer<typeof staffSchema>) => {
+      const phoneCheck = validatePhoneNumber(data.mobileNumber, data.countryCode);
+      if (!phoneCheck.valid) {
+        staffForm.setError("mobileNumber", { message: phoneCheck.error });
+        throw new Error(phoneCheck.error);
+      }
       const res = await apiRequest("POST", "/api/staff", { ...data, storeId: createdStoreId });
       if (!res.ok) throw await res.json();
       return res.json();
@@ -272,7 +278,21 @@ export default function OnboardingWizard() {
                     <FormField control={staffForm.control} name="mobileNumber" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Phone Number</FormLabel>
-                        <FormControl><Input placeholder="08012345678" {...field} /></FormControl>
+                        <div className="flex gap-2">
+                          <FormField control={staffForm.control} name="countryCode" render={({ field: ccField }) => (
+                            <Select onValueChange={ccField.onChange} value={ccField.value}>
+                              <SelectTrigger className="w-[110px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[280px]">
+                                {deduplicatedCountryCodes.map(c => (
+                                  <SelectItem key={c.dialCode} value={c.dialCode}>{c.name} ({c.dialCode})</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )} />
+                          <FormControl><Input placeholder="08012345678" {...field} /></FormControl>
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )} />

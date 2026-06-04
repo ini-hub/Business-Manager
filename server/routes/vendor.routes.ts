@@ -30,11 +30,12 @@ import {
 import { z } from "zod";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode, sanitizeEmail, validateEmailFormat } from "../sanitize";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { withVendorId, withVendorBillId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -43,16 +44,17 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerVendorRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ---------- 3. ACCOUNTS PAYABLE (VENDORS & BILLS) ----------
   // Get Vendors
-  app.get("/api/vendors", async (req, res) => {
+  app.get("/api/vendors", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const result = await storage.vendorRepo.getVendors(storeId);
+      const includeArchived = req.query.includeArchived === "true";
+      const result = await storage.vendorRepo.getVendors(storeId, includeArchived);
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Could not fetch vendors." });
@@ -64,13 +66,14 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
     try {
       const { storeId, name, contactName, email, phone, address, notes } = req.body;
       if (!storeId || !name) return res.status(400).json({ error: "Store ID and name are required." });
+      if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const result = await storage.vendorRepo.createVendor({
         storeId,
         name,
         contactName,
-        email,
+        email: email ? sanitizeEmail(email) : undefined,
         phone,
         address,
         notes,
@@ -81,18 +84,32 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
     }
   });
 
+  // Get Single Vendor
+  app.get("/api/vendors/:id", isAuthenticated, withVendorId, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      res.json(vendor);
+    } catch {
+      res.status(500).json({ error: "Could not fetch vendor." });
+    }
+  });
+
   // Update Vendor
-  app.patch("/api/vendors/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/vendors/:id", withVendorId, requireManagerOrOwner, async (req, res) => {
     try {
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
 
       const { name, contactName, email, phone, address, notes } = req.body;
+      if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
+
       const updated = await storage.vendorRepo.updateVendor(req.params.id, {
         name,
         contactName,
-        email,
+        email: email !== undefined ? (email ? sanitizeEmail(email) : "") : undefined,
         phone,
         address,
         notes,
@@ -103,22 +120,55 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
     }
   });
 
+  // Archive Vendor
+  app.patch("/api/vendors/:id/archive", withVendorId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      const updated = await storage.vendorRepo.archiveVendor(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not archive vendor." });
+    }
+  });
+
+  // Restore Vendor
+  app.patch("/api/vendors/:id/restore", withVendorId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      const updated = await storage.vendorRepo.restoreVendor(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not restore vendor." });
+    }
+  });
+
   // Delete Vendor
-  app.delete("/api/vendors/:id", requireRole("owner"), async (req, res) => {
+  app.delete("/api/vendors/:id", withVendorId, requireRole("owner"), async (req, res) => {
     try {
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
 
+      // Check for linked records that would block deletion
+      const conflict = await storage.vendorRepo.getVendorDeletionConflicts(req.params.id);
+      if (conflict) {
+        return res.status(409).json({ error: conflict });
+      }
+
       await storage.vendorRepo.deleteVendor(req.params.id);
       res.status(204).end();
     } catch (error) {
+      console.error("Delete vendor error:", error);
       res.status(500).json({ error: "Could not delete vendor." });
     }
   });
 
   // Get Vendor Bills
-  app.get("/api/vendors/bills", async (req, res) => {
+  app.get("/api/vendors/bills", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -157,8 +207,20 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
     }
   });
 
+  // Get Single Vendor Bill
+  app.get("/api/vendors/bills/:id", isAuthenticated, withVendorBillId, async (req, res) => {
+    try {
+      const bill = await storage.vendorRepo.getVendorBill(req.params.id);
+      if (!bill) return res.status(404).json({ error: "Bill not found." });
+      if (!(await checkStoreAccess(bill.storeId, req, res))) return;
+      res.json(bill);
+    } catch {
+      res.status(500).json({ error: "Could not fetch bill." });
+    }
+  });
+
   // Update Vendor Bill
-  app.patch("/api/vendors/bills/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/vendors/bills/:id", withVendorBillId, requireManagerOrOwner, async (req, res) => {
     try {
       const bill = await storage.vendorRepo.getVendorBill(req.params.id);
       if (!bill) return res.status(404).json({ error: "Vendor bill not found." });
@@ -177,7 +239,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
   });
 
   // Delete Vendor Bill
-  app.delete("/api/vendors/bills/:id", requireRole("owner"), async (req, res) => {
+  app.delete("/api/vendors/bills/:id", withVendorBillId, requireRole("owner"), async (req, res) => {
     try {
       const bill = await storage.vendorRepo.getVendorBill(req.params.id);
       if (!bill) return res.status(404).json({ error: "Vendor bill not found." });
@@ -192,7 +254,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
 
   // ---------- 4. STOCK AUDITING (PHYSICAL VS. SYSTEM) ----------
   // Get Stock Audits
-  app.get("/api/stock-audits", async (req, res) => {
+  app.get("/api/stock-audits", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -206,7 +268,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
   });
 
   // Get Stock Audit Details
-  app.get("/api/stock-audits/:id", async (req, res) => {
+  app.get("/api/stock-audits/:id", isAuthenticated, async (req, res) => {
     try {
       const result = await storage.stockAuditRepo.getAudit(req.params.id);
       if (!result) return res.status(404).json({ error: "Stock audit not found." });
@@ -272,7 +334,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
 
   // ---------- 6. QUOTES & ESTIMATES ----------
   // Get all quotes for a store
-  app.get("/api/quotes", async (req, res) => {
+  app.get("/api/quotes", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -299,7 +361,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
   });
 
   // Get a single quote
-  app.get("/api/quotes/:id", async (req, res) => {
+  app.get("/api/quotes/:id", isAuthenticated, async (req, res) => {
     try {
       const quote = await storage.quoteRepo.getQuote(req.params.id);
       if (!quote) return res.status(404).json({ error: "Quote not found." });
@@ -373,7 +435,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
 
   // ---------- 7. PURCHASE ORDERS ----------
   // Get all POs
-  app.get("/api/purchase-orders", async (req, res) => {
+  app.get("/api/purchase-orders", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -387,127 +449,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
   });
 
   // Get single PO
-  app.get("/api/purchase-orders/:id", async (req, res) => {
-    try {
-      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
-      if (!po) return res.status(404).json({ error: "Purchase order not found." });
-      if (!(await checkStoreAccess(po.storeId, req, res))) return;
-
-      res.json(po);
-    } catch (error) {
-      res.status(500).json({ error: "Could not fetch purchase order." });
-    }
-  });
-
-  // Create PO
-  app.post("/api/purchase-orders", requireManagerOrOwner, async (req, res) => {
-    try {
-      const { storeId, vendorId, poNumber, expectedDelivery, items } = req.body;
-      if (!storeId || !vendorId || !poNumber || !Array.isArray(items)) {
-        return res.status(400).json({ error: "storeId, vendorId, poNumber, and items array are required." });
-      }
-      if (!(await checkStoreAccess(storeId, req, res))) return;
-
-      const created = await storage.purchaseOrderRepo.createPurchaseOrder({
-        storeId,
-        vendorId,
-        poNumber,
-        expectedDelivery: expectedDelivery ? new Date(expectedDelivery) : null,
-        status: "draft",
-        items: items.map((i: any) => ({
-          inventoryId: i.inventoryId,
-          quantity: Number(i.quantity),
-          unitCost: Number(i.unitCost),
-        })),
-      });
-
-      res.status(201).json(created);
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message || "Could not create purchase order." });
-    }
-  });
-
-  // Update PO Status
-  app.patch("/api/purchase-orders/:id/status", requireManagerOrOwner, async (req, res) => {
-    try {
-      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
-      if (!po) return res.status(404).json({ error: "Purchase order not found." });
-      if (!(await checkStoreAccess(po.storeId, req, res))) return;
-
-      const { status } = req.body;
-      if (!status) return res.status(400).json({ error: "Status is required." });
-
-      const updated = await storage.purchaseOrderRepo.updatePurchaseOrderStatus(req.params.id, status);
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ error: "Could not update purchase order status." });
-    }
-  });
-
-  // Receive PO items
-  app.post("/api/purchase-orders/:id/receive", requireManagerOrOwner, async (req, res) => {
-    try {
-      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
-      if (!po) return res.status(404).json({ error: "Purchase order not found." });
-      if (!(await checkStoreAccess(po.storeId, req, res))) return;
-
-      const { itemsToReceive, staffId } = req.body;
-      if (!Array.isArray(itemsToReceive)) {
-        return res.status(400).json({ error: "itemsToReceive array is required." });
-      }
-
-      const userId = getUserId(req) || null;
-      const result = await storage.purchaseOrderRepo.receivePOItems(
-        req.params.id,
-        itemsToReceive.map((i: any) => ({
-          inventoryId: i.inventoryId,
-          quantity: Number(i.quantity),
-        })),
-        staffId || null,
-        userId
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.message });
-      }
-
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message || "Could not fulfill purchase order items." });
-    }
-  });
-
-  // Delete PO
-  app.delete("/api/purchase-orders/:id", requireManagerOrOwner, async (req, res) => {
-    try {
-      const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
-      if (!po) return res.status(404).json({ error: "Purchase order not found." });
-      if (!(await checkStoreAccess(po.storeId, req, res))) return;
-
-      await storage.purchaseOrderRepo.deletePurchaseOrder(req.params.id);
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: "Could not delete purchase order." });
-    }
-  });
-
-  // ---------- 7. PURCHASE ORDERS ----------
-  // Get all POs
-  app.get("/api/purchase-orders", async (req, res) => {
-    try {
-      const storeId = req.query.storeId as string;
-      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
-      if (!(await checkStoreAccess(storeId, req, res))) return;
-
-      const list = await storage.purchaseOrderRepo.getPurchaseOrders(storeId);
-      res.json(list);
-    } catch (error) {
-      res.status(500).json({ error: "Could not fetch purchase orders." });
-    }
-  });
-
-  // Get single PO
-  app.get("/api/purchase-orders/:id", async (req, res) => {
+  app.get("/api/purchase-orders/:id", isAuthenticated, async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -613,7 +555,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
 
   // ---------- 8. STOCK TRANSFERS ----------
   // Get transfers
-  app.get("/api/stock-transfers", async (req, res) => {
+  app.get("/api/stock-transfers", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -627,7 +569,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
   });
 
   // Get single transfer
-  app.get("/api/stock-transfers/:id", async (req, res) => {
+  app.get("/api/stock-transfers/:id", isAuthenticated, async (req, res) => {
     try {
       const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
       if (!transfer) return res.status(404).json({ error: "Transfer not found." });
@@ -708,7 +650,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
 
   // ---------- 9. TAX RATES ----------
   // Get tax rates
-  app.get("/api/tax-rates", async (req, res) => {
+  app.get("/api/tax-rates", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -760,7 +702,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated: _isAuth, r
       if (!rate) return res.status(404).json({ error: "Tax rate not found." });
       if (!(await checkStoreAccess(rate.storeId, req, res))) return;
 
-      const updated = await storage.taxRateRepo.updateTaxRate(req.params.id, req.body);
+      const { name, rate: rateValue, isDefault } = req.body;
+      const updated = await storage.taxRateRepo.updateTaxRate(req.params.id, { name, rate: rateValue, isDefault });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update tax rate." });

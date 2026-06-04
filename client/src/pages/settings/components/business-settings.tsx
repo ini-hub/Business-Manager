@@ -303,9 +303,10 @@ export function BusinessSettingsSection() {
                 <div className="grid grid-cols-1 gap-2">
                   {[
                     { value: "formula_d", label: "Formula D — Pure Commission", badge: "Simplest", eq: "Commission = Rate% × Total Service Revenue", desc: "No transport costs are deducted. Staff earns their full percentage of every service they worked on.", badgeColor: "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300" },
-                    { value: "formula_b", label: "Formula B — Active & Passive Deduction", badge: "Recommended", eq: "Commission = Rate% × (Revenue − Active Transport − Passive Transport)", desc: "Active and passive day transport pay is subtracted from the pool before commission is calculated. Most balanced for salons.", badgeColor: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" },
-                    { value: "formula_a", label: "Formula A — Total Attendance Deduction", badge: "Most conservative", eq: "Commission = Rate% × (Revenue − All Attendance Pay incl. Leaves & Holidays)", desc: "All attendance entitlements (including paid leaves and holidays) are deducted from the revenue pool before commission.", badgeColor: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
-                    { value: "formula_c", label: "Formula C — Active Days Only Deduction", badge: "Focused", eq: "Commission = Rate% × (Revenue − Active Transport Only)", desc: "Only active day transport is deducted. Passive, leave, and holiday days are not deducted.", badgeColor: "bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300" },
+                    { value: "formula_b", label: "Formula B — Active & Passive Split Deduction", badge: "Recommended", eq: "Commission = Rate% × (Revenue − Active Transport − Passive Transport)", desc: "Active and passive day transport pay is subtracted from the pool before commission is calculated. Most balanced for salons.", badgeColor: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" },
+                    { value: "formula_a", label: "Formula A — Single Rate Present Day Deduction", badge: "Most conservative", eq: "Commission = Rate% × (Revenue − (Active+Passive days × Active rate))", desc: "All present days (active and passive) are charged at the active day rate and deducted before commission is calculated.", badgeColor: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
+                    { value: "formula_c", label: "Formula C — Full Split + Leave & Holiday Deduction", badge: "Focused", eq: "Commission = Rate% × (Revenue − Active − Passive − Leave − Holiday)", desc: "Active, passive, leave, and holiday pay are all deducted from the revenue pool before commission.", badgeColor: "bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300" },
+                    { value: "formula_f", label: "Formula F — Fixed Amount Per Service", badge: "Flat rate", eq: "Commission = Fixed Amount × Services Worked", desc: "Staff earns a fixed naira amount for every service they work, regardless of service price or attendance. Set Commission Type to 'Flat Amount per Service' above.", badgeColor: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300" },
                   ].map((formula) => (
                     <button key={formula.value} type="button" onClick={() => setCommissionFormula(formula.value)}
                       className={`rounded-lg border-2 p-3 text-left transition-all duration-200 ${commissionFormula === formula.value ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border hover:border-primary/40"}`}>
@@ -505,14 +506,17 @@ export function BusinessSettingsSection() {
                 const passiveTransportPay = samplePassiveDays * passiveDayTransport;
                 const totalAttendance = activeTransportPay + passiveTransportPay;
 
+                const sampleServicesWorked = 3; // sample for formula_f preview
                 let commissionable = sampleRevenue;
                 if (commissionFormula === "formula_b") commissionable = Math.max(0, sampleRevenue - activeTransportPay - passiveTransportPay);
-                else if (commissionFormula === "formula_a") commissionable = Math.max(0, sampleRevenue - totalAttendance);
-                else if (commissionFormula === "formula_c") commissionable = Math.max(0, sampleRevenue - activeTransportPay);
+                else if (commissionFormula === "formula_a") commissionable = Math.max(0, sampleRevenue - (sampleActiveDays + samplePassiveDays) * activeDayTransport);
+                else if (commissionFormula === "formula_c") commissionable = Math.max(0, sampleRevenue - activeTransportPay - passiveTransportPay);
 
-                const commissionEarned = commissionType === "percentage"
-                  ? (commissionRate / 100) * commissionable
-                  : commissionFixedAmount;
+                const commissionEarned = commissionFormula === "formula_f"
+                  ? commissionFixedAmount * sampleServicesWorked
+                  : commissionType === "percentage"
+                    ? (commissionRate / 100) * commissionable
+                    : commissionFixedAmount;
 
                 let netPay = 0;
                 if (defaultPaymentMethod === "fixed") {

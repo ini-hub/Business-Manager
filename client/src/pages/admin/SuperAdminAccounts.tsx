@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { validateEmail } from "@/lib/validation-utils";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -148,14 +149,14 @@ export default function SuperAdminAccounts() {
 
   const handleCreateSubmit = () => {
     if (!name || !email || !password || !role) {
-      toast({
-        title: "Required Fields",
-        description: "Please specify name, email, password and security clearance role.",
-        variant: "destructive",
-      });
+      toast({ title: "Required Fields", description: "Please specify name, email, password and security clearance role.", variant: "destructive" });
       return;
     }
-
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) {
+      toast({ title: "Invalid Email", description: emailCheck.error, variant: "destructive" });
+      return;
+    }
     createAdminMutation.mutate({ name, email, password, role });
   };
 

@@ -21,42 +21,75 @@ import {
   type InsertOrder,
   type TransactionWithRelations,
 } from "@shared/schema";
-import { eq, and, or, ilike, desc } from "drizzle-orm";
+import { eq, and, or, ilike, desc, gte, lte } from "drizzle-orm";
 import { serializeUser } from "../storage";
-import type { PaginationOptions, PaginatedResult } from "../storage";
+
+export interface TransactionFilters {
+  startDate?: Date;
+  endDate?: Date;
+}
+
+// ─── Shared helpers ──────────────────────────────────────────────────────────
+
+function buildTransactionFromRow(row: {
+  tx: typeof transactions.$inferSelect;
+  checkout: typeof checkouts.$inferSelect;
+  order: typeof orders.$inferSelect | null;
+  inv: typeof inventory.$inferSelect;
+  customer: typeof customers.$inferSelect;
+  store: typeof stores.$inferSelect;
+  staffMember: typeof staff.$inferSelect | null;
+  voidedBy: typeof users.$inferSelect | null;
+}): TransactionWithRelations {
+  const { tx, checkout, order, inv, customer, store, staffMember, voidedBy } = row;
+
+  const quantity = order?.quantity ?? 1;
+  const returnedQuantity = order?.returnedQuantity ?? 0;
+  const refundedAmount = order?.refundedAmount ?? 0;
+
+  const basketSubtotal = Number(checkout.subtotal) || 1;
+  const orderPrice = Number(order?.totalPrice) || tx.amount;
+  const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
+
+  return {
+    ...tx,
+    customer,
+    inventory: inv,
+    checkout: {
+      ...checkout,
+      totalPrice: tx.amount,
+      subtotal: orderPrice,
+      discountAmount: proportionalDiscount,
+      quantity,
+      returnedQuantity,
+      refundedAmount,
+      staff: staffMember ?? undefined,
+      voidedByUser: voidedBy ? serializeUser(voidedBy) : null,
+    },
+    store,
+  };
+}
+
+async function resolveReceiptPrefix(
+  tx: any,
+  storeId: string
+): Promise<string> {
+  const [store] = await tx.select().from(stores).where(eq(stores.id, storeId));
+  if (!store) return "RCP";
+
+  const [storeSetting] = await tx.select().from(settings).where(eq(settings.storeId, storeId));
+  const [business] = await tx.select().from(businesses).where(eq(businesses.id, store.businessId));
+
+  if (storeSetting?.receiptPrefix && storeSetting.receiptPrefix !== "RCP") {
+    return storeSetting.receiptPrefix;
+  }
+  if (business?.receiptPrefix) {
+    return `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
+  }
+  return `RCP-${store.code.trim().toUpperCase()}`;
+}
 
 export class TransactionRepository {
-  // ─── Public so SalesRepository can call it ───────────────────────────────
-  async getNextAvailableTransactionNumber(tx: any, storeId: string): Promise<string> {
-    const [store] = await tx.select().from(stores).where(eq(stores.id, storeId));
-    if (!store) throw new Error("Store not found");
-
-    const [storeSetting] = await tx.select().from(settings).where(eq(settings.storeId, storeId));
-    const [business] = await tx.select().from(businesses).where(eq(businesses.id, store.businessId));
-
-    let prefix = "RCP";
-    if (storeSetting?.receiptPrefix && storeSetting.receiptPrefix !== "RCP") {
-      prefix = storeSetting.receiptPrefix;
-    } else if (business?.receiptPrefix) {
-      prefix = `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
-    } else {
-      prefix = `RCP-${store.code.trim().toUpperCase()}`;
-    }
-
-    const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
-    if (!counter) {
-      await tx.insert(storeCounters).values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 });
-      return `${prefix}-TN-1`;
-    }
-
-    const nextNum = counter.nextTransactionNumber;
-    await tx.update(storeCounters)
-      .set({ nextTransactionNumber: nextNum + 1 })
-      .where(eq(storeCounters.id, counter.id));
-
-    return `${prefix}-TN-${nextNum}`;
-  }
-
   // ─── Orders ───────────────────────────────────────────────────────────────
   async createOrder(order: InsertOrder): Promise<Order> {
     const [newOrder] = await db.insert(orders).values(order).returning();
@@ -95,148 +128,83 @@ export class TransactionRepository {
     return result.length > 0;
   }
 
-  // ─── Transactions ─────────────────────────────────────────────────────────
-  async getTransactions(storeId: string): Promise<TransactionWithRelations[]> {
-    const txs = await db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.storeId, storeId))
-      .orderBy(desc(transactions.transactionDate));
+  // ─── Receipt number counter ───────────────────────────────────────────────
+  async getNextAvailableTransactionNumber(tx: any, storeId: string): Promise<string> {
+    const prefix = await resolveReceiptPrefix(tx, storeId);
 
-    const result: TransactionWithRelations[] = [];
-
-    for (const tx of txs) {
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      if (!checkout) continue;
-
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
-      if (!inventoryItem) continue;
-
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      if (!customer) continue;
-
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      if (!store) continue;
-
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-
-      let voidedByUser: any = null;
-      if (checkout.voidedByUserId) {
-        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
-        voidedByUser = serializeUser(user) || null;
-      }
-
-      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
-      const quantity = order?.quantity ?? 1;
-      const returnedQuantity = order?.returnedQuantity ?? 0;
-      const refundedAmount = order?.refundedAmount ?? 0;
-
-      const basketSubtotal = Number(checkout.subtotal) || 1;
-      const orderPrice = Number(order?.totalPrice) || tx.amount;
-      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
-
-      result.push({
-        ...tx,
-        customer,
-        inventory: inventoryItem,
-        checkout: {
-          ...checkout,
-          totalPrice: tx.amount,
-          subtotal: orderPrice,
-          discountAmount: proportionalDiscount,
-          quantity,
-          returnedQuantity,
-          refundedAmount,
-          staff: foundStaff,
-          voidedByUser,
-        },
-        store,
-      });
+    const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
+    if (!counter) {
+      await tx.insert(storeCounters).values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 });
+      return `${prefix}-TN-1`;
     }
 
-    return result;
+    const nextNum = counter.nextTransactionNumber;
+    await tx.update(storeCounters)
+      .set({ nextTransactionNumber: nextNum + 1 })
+      .where(eq(storeCounters.id, counter.id));
+
+    return `${prefix}-TN-${nextNum}`;
   }
 
-  async getTransactionsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<TransactionWithRelations>> {
-    const { page, limit, search } = options;
+  // ─── Transactions ─────────────────────────────────────────────────────────
+  async getTransactions(
+    storeId: string,
+    filters: TransactionFilters = {}
+  ): Promise<TransactionWithRelations[]> {
+    const conditions = [eq(transactions.storeId, storeId)];
+    if (filters.startDate) conditions.push(gte(transactions.transactionDate, filters.startDate));
+    if (filters.endDate) conditions.push(lte(transactions.transactionDate, filters.endDate));
 
-    const txs = await db
-      .select()
+    const rows = await db
+      .select({
+        tx: transactions,
+        checkout: checkouts,
+        order: orders,
+        inv: inventory,
+        customer: customers,
+        store: stores,
+        staffMember: staff,
+        voidedBy: users,
+      })
       .from(transactions)
-      .where(eq(transactions.storeId, storeId))
+      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .leftJoin(orders, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(transactions.inventoryId, inventory.id))
+      .innerJoin(customers, eq(transactions.customerId, customers.id))
+      .innerJoin(stores, eq(transactions.storeId, stores.id))
+      .leftJoin(staff, eq(checkouts.staffId, staff.id))
+      .leftJoin(users, eq(checkouts.voidedByUserId, users.id))
+      .where(and(...conditions))
       .orderBy(desc(transactions.transactionDate));
 
-    const data: TransactionWithRelations[] = [];
+    return rows.map(buildTransactionFromRow);
+  }
 
-    for (const tx of txs) {
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      if (!checkout) continue;
+  async getTransactionById(id: string): Promise<TransactionWithRelations | null> {
+    const rows = await db
+      .select({
+        tx: transactions,
+        checkout: checkouts,
+        order: orders,
+        inv: inventory,
+        customer: customers,
+        store: stores,
+        staffMember: staff,
+        voidedBy: users,
+      })
+      .from(transactions)
+      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .leftJoin(orders, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(transactions.inventoryId, inventory.id))
+      .innerJoin(customers, eq(transactions.customerId, customers.id))
+      .innerJoin(stores, eq(transactions.storeId, stores.id))
+      .leftJoin(staff, eq(checkouts.staffId, staff.id))
+      .leftJoin(users, eq(checkouts.voidedByUserId, users.id))
+      .where(eq(transactions.id, id))
+      .limit(1);
 
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
-      if (!inventoryItem) continue;
-
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      if (!customer) continue;
-
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      if (!store) continue;
-
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-
-      let voidedByUser: any = null;
-      if (checkout.voidedByUserId) {
-        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
-        voidedByUser = serializeUser(user) || null;
-      }
-
-      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
-      const quantity = order?.quantity ?? 1;
-      const returnedQuantity = order?.returnedQuantity ?? 0;
-      const refundedAmount = order?.refundedAmount ?? 0;
-
-      const basketSubtotal = Number(checkout.subtotal) || 1;
-      const orderPrice = Number(order?.totalPrice) || tx.amount;
-      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
-
-      data.push({
-        ...tx,
-        customer,
-        inventory: inventoryItem,
-        checkout: {
-          ...checkout,
-          totalPrice: tx.amount,
-          subtotal: orderPrice,
-          discountAmount: proportionalDiscount,
-          quantity,
-          returnedQuantity,
-          refundedAmount,
-          staff: foundStaff,
-          voidedByUser,
-        },
-        store,
-      });
-    }
-
-    let filteredData = data;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredData = data.filter(tx =>
-        tx.customer?.name?.toLowerCase().includes(searchLower) ||
-        tx.inventory?.name?.toLowerCase().includes(searchLower) ||
-        tx.checkout?.receiptNumber?.toLowerCase().includes(searchLower) ||
-        tx.checkout?.paymentMethod?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    const total = filteredData.length;
-    const offset = (page - 1) * limit;
-    const paginatedData = filteredData.slice(offset, offset + limit);
-    const totalPages = Math.max(1, Math.ceil(total / limit));
-
-    return {
-      data: paginatedData,
-      pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
-    };
+    if (rows.length === 0) return null;
+    return buildTransactionFromRow(rows[0]);
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
@@ -245,60 +213,29 @@ export class TransactionRepository {
   }
 
   async getTransactionsByCustomer(customerId: string): Promise<TransactionWithRelations[]> {
-    const txs = await db
-      .select()
+    const rows = await db
+      .select({
+        tx: transactions,
+        checkout: checkouts,
+        order: orders,
+        inv: inventory,
+        customer: customers,
+        store: stores,
+        staffMember: staff,
+        voidedBy: users,
+      })
       .from(transactions)
+      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .leftJoin(orders, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(transactions.inventoryId, inventory.id))
+      .innerJoin(customers, eq(transactions.customerId, customers.id))
+      .innerJoin(stores, eq(transactions.storeId, stores.id))
+      .leftJoin(staff, eq(checkouts.staffId, staff.id))
+      .leftJoin(users, eq(checkouts.voidedByUserId, users.id))
       .where(eq(transactions.customerId, customerId))
       .orderBy(desc(transactions.transactionDate));
 
-    const result: TransactionWithRelations[] = [];
-
-    for (const tx of txs) {
-      const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, tx.checkoutId));
-      if (!checkout) continue;
-
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, tx.inventoryId));
-      if (!inventoryItem) continue;
-
-      const [customer] = await db.select().from(customers).where(eq(customers.id, tx.customerId));
-      if (!customer) continue;
-
-      const [store] = await db.select().from(stores).where(eq(stores.id, tx.storeId));
-      if (!store) continue;
-
-      const [foundStaff] = await db.select().from(staff).where(eq(staff.id, checkout.staffId));
-
-      let voidedByUser: any = null;
-      if (checkout.voidedByUserId) {
-        const [user] = await db.select().from(users).where(eq(users.id, checkout.voidedByUserId));
-        voidedByUser = serializeUser(user) || null;
-      }
-
-      const [order] = await db.select().from(orders).where(eq(orders.id, checkout.orderId));
-      const quantity = order?.quantity ?? 1;
-
-      const basketSubtotal = Number(checkout.subtotal) || 1;
-      const orderPrice = Number(order?.totalPrice) || tx.amount;
-      const proportionalDiscount = (orderPrice / basketSubtotal) * (checkout.discountAmount || 0);
-
-      result.push({
-        ...tx,
-        customer,
-        inventory: inventoryItem,
-        checkout: {
-          ...checkout,
-          totalPrice: tx.amount,
-          subtotal: orderPrice,
-          discountAmount: proportionalDiscount,
-          quantity,
-          staff: foundStaff,
-          voidedByUser,
-        },
-        store,
-      });
-    }
-
-    return result;
+    return rows.map(buildTransactionFromRow);
   }
 
   async getReceiptPayload(checkoutId: string) {
@@ -334,6 +271,12 @@ export class TransactionRepository {
     const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, checkoutId));
     const [customer] = tx ? await db.select().from(customers).where(eq(customers.id, tx.customerId)) : [null];
 
+    let voidedByUser: any = null;
+    if (primaryCheckout.voidedByUserId) {
+      const [user] = await db.select().from(users).where(eq(users.id, primaryCheckout.voidedByUserId));
+      if (user) voidedByUser = serializeUser(user);
+    }
+
     const [creditEntry] = await db
       .select()
       .from(creditEntries)
@@ -360,12 +303,13 @@ export class TransactionRepository {
       });
     }
 
+    // Resolve receipt prefix using the shared helper (non-transactional read context)
     let resolvedPrefix = "RCP";
     if (storeSettings?.receiptPrefix && storeSettings.receiptPrefix !== "RCP") {
       resolvedPrefix = storeSettings.receiptPrefix;
-    } else if (business?.receiptPrefix) {
+    } else if (business?.receiptPrefix && store) {
       resolvedPrefix = `${business.receiptPrefix}-${store.code.trim().toUpperCase()}`;
-    } else {
+    } else if (store) {
       resolvedPrefix = `RCP-${store.code.trim().toUpperCase()}`;
     }
 
@@ -373,7 +317,7 @@ export class TransactionRepository {
       business: business ? { name: business.name } : null,
       store: store ? { name: store.name, currency: store.currency, phone: store.phone, address: store.address } : null,
       settings: storeSettings ? { receiptPrefix: resolvedPrefix, receiptThankYouMessage: storeSettings.receiptThankYouMessage } : null,
-      checkout: primaryCheckout,
+      checkout: { ...primaryCheckout, voidedByUser },
       order: items[0]?.order || null,
       inventory: items[0]?.inventory || null,
       customer,

@@ -84,6 +84,32 @@ export class PayrollService {
       attendanceByDateStaff.get(rec.date)!.set(rec.staffId, rec.status);
     }
 
+    // Helper to get dates in range (defined early so prorateBase can use it below)
+    const getDatesInRangeEarly = (start: string, end: string): string[] => {
+      const dates: string[] = [];
+      const curr = new Date(start);
+      const last = new Date(end);
+      while (curr <= last) {
+        dates.push(curr.toISOString().split("T")[0]);
+        curr.setDate(curr.getDate() + 1);
+      }
+      return dates;
+    };
+
+    // G1: Prorate the monthly base salary to match the actual period type.
+    // payPerMonth / fixedBaseAmount are always stored as monthly figures.
+    // - monthly  → full amount (31-day months must not overpay vs 28-day months)
+    // - biweekly → exactly half the monthly salary
+    // - weekly   → 7/30 of the monthly salary (standardised sub-monthly slice)
+    const prorateBase = (monthly: number): number => {
+      switch (period.periodType) {
+        case "monthly":  return monthly;
+        case "biweekly": return Math.round((monthly / 2) * 100) / 100;
+        case "weekly":   return Math.round((monthly * 7 / 30) * 100) / 100;
+        default:         return monthly;
+      }
+    };
+
     // Generate resolved compensation mapping for each staff
     const resolvedComp = new Map<string, {
       paymentMethod: string;
@@ -100,6 +126,7 @@ export class PayrollService {
       payOffDays: boolean;
       commissionRate: number;
       baseSalary: number;
+      monthlyBaseSalary: number;
     }>();
 
     for (const s of allStaff) {
@@ -107,20 +134,22 @@ export class PayrollService {
       const commissionType = s.overrideCommission ? (s.commissionTypeOverride ?? storeSettings.commissionType) : storeSettings.commissionType;
       const commissionFixedAmount = s.overrideCommission ? (s.commissionFixedAmountOverride ?? storeSettings.commissionFixedAmount) : storeSettings.commissionFixedAmount;
       const commissionFormula = s.overrideFormula ? (s.commissionFormulaOverride ?? storeSettings.commissionFormula) : storeSettings.commissionFormula;
-      
+
       const activeDayRate = s.overrideAttendanceRates ? (s.activeDayRateOverride ?? storeSettings.activeDayTransport) : storeSettings.activeDayTransport;
       const passiveDayRate = s.overrideAttendanceRates ? (s.passiveDayRateOverride ?? storeSettings.passiveDayTransport) : storeSettings.passiveDayTransport;
       const leaveDayRate = s.overrideAttendanceRates ? (s.leaveDayRateOverride ?? storeSettings.leaveDayRate) : storeSettings.leaveDayRate;
       const payLeaveDays = s.overrideAttendanceRates ? s.payLeaveDaysOverride : storeSettings.payLeaveDays;
-      
+
       const holidayDayRate = s.overrideAttendanceRates ? (s.holidayDayRateOverride ?? storeSettings.holidayDayRate) : storeSettings.holidayDayRate;
       const payHolidayDays = s.overrideAttendanceRates ? s.payHolidayDaysOverride : storeSettings.payHolidayDays;
-      
+
       const offDayRate = s.overrideAttendanceRates ? (s.offDayRateOverride ?? storeSettings.offDayRate) : storeSettings.offDayRate;
       const payOffDays = s.overrideAttendanceRates ? s.payOffDaysOverride : storeSettings.payOffDays;
-      
+
       const commissionRate = s.commissionRateOverride ?? storeSettings.commissionRate;
-      const baseSalary = s.overridePaymentMethod ? s.payPerMonth : storeSettings.fixedBaseAmount;
+      const monthlyBaseSalary = s.overridePaymentMethod ? s.payPerMonth : storeSettings.fixedBaseAmount;
+      // G1: apply proration so weekly/biweekly periods don't pay the full monthly base
+      const baseSalary = prorateBase(monthlyBaseSalary);
 
       resolvedComp.set(s.id, {
         paymentMethod,
@@ -137,22 +166,12 @@ export class PayrollService {
         payOffDays,
         commissionRate,
         baseSalary,
+        monthlyBaseSalary,
       });
     }
 
-    // Helper to get dates in range
-    const getDatesInRange = (start: string, end: string): string[] => {
-      const dates: string[] = [];
-      const curr = new Date(start);
-      const last = new Date(end);
-      while (curr <= last) {
-        dates.push(curr.toISOString().split("T")[0]);
-        curr.setDate(curr.getDate() + 1);
-      }
-      return dates;
-    };
-
-    const dateRange = getDatesInRange(period.startDate, period.endDate);
+    // dateRange already computed above via getDatesInRangeEarly (used for proration)
+    const dateRange = getDatesInRangeEarly(period.startDate, period.endDate);
 
     // Group checkouts by receipt to distribute discounts correctly
     const effectivePrices = new Map<string, number>();
@@ -389,13 +408,16 @@ export class PayrollService {
       let commissionableRevenue = 0;
       const formulaSteps: string[] = [];
 
-      formulaSteps.push(`Step 1: Resolved compensation settings (Payment Method: ${comp.paymentMethod.toUpperCase()}, Commission Type: ${comp.commissionType}, Formula: ${comp.commissionFormula.toUpperCase()}, Base Salary: ₦${comp.baseSalary})`);
+      const prorateNote = period.periodType !== "monthly"
+        ? ` [prorated for ${period.periodType}: ₦${comp.monthlyBaseSalary}/month → ₦${comp.baseSalary}]`
+        : "";
+      formulaSteps.push(`Step 1: Resolved compensation settings (Payment Method: ${comp.paymentMethod.toUpperCase()}, Commission Type: ${comp.commissionType}, Formula: ${comp.commissionFormula.toUpperCase()}, Base Salary: ₦${comp.baseSalary}${prorateNote})`);
       formulaSteps.push(`Step 2: Compiled attendance logs (Active: ${totals.activeDays} days @ ₦${comp.activeDayRate}/day = ₦${activePay}, Passive: ${totals.passiveDays} days @ ₦${comp.passiveDayRate}/day = ₦${passivePay}, Leaves: ${totals.leaveDays} days (Paid: ${comp.payLeaveDays ? "Yes" : "No"}) @ ₦${comp.leaveDayRate}/day = ₦${leavePay}, Holidays: ${totals.holidayDays} days (Paid: ${comp.payHolidayDays ? "Yes" : "No"}) @ ₦${comp.holidayDayRate}/day = ₦${holidayPay}, Off-days: ${totals.offDays} days (Paid: ${comp.payOffDays ? "Yes" : "No"}) @ ₦${comp.offDayRate}/day = ₦${offDayPay}. Total Attendance Pay: ₦${totalAttendancePay})`);
 
       if (comp.paymentMethod === "fixed") {
         netPay = comp.baseSalary;
         grossCommission = 0;
-        formulaSteps.push(`Step 3: Applied FIXED SALARY model. Fixed base salary is exactly ₦${comp.baseSalary} (services worked: ${totals.serviceCountWorked}, attendance pay ignored).`);
+        formulaSteps.push(`Step 3: Applied FIXED SALARY model. Base salary ₦${comp.baseSalary}${period.periodType !== "monthly" ? ` (prorated from ₦${comp.monthlyBaseSalary}/month for ${period.periodType} period)` : ""} — services worked: ${totals.serviceCountWorked}, attendance transport not applicable.`);
       } else {
         // Commissionable or Hybrid calculation
         if (comp.commissionFormula === "formula_a") {
@@ -495,6 +517,17 @@ export class PayrollService {
                      comp.commissionFormula === "formula_f" ? "Formula F" : "Hybrid Standard"
       };
 
+      // G2: Fixed-salary staff have no transport component in their netPay.
+      // Store zero for all monetary transport fields so the UI doesn't show phantom figures.
+      // Day-count fields (activeDays, passiveDays, etc.) are kept as attendance facts.
+      const isFixed = comp.paymentMethod === "fixed";
+      const storedActiveTransport  = isFixed ? 0 : activePay;
+      const storedPassiveTransport = isFixed ? 0 : passivePay;
+      const storedLeavePay         = isFixed ? 0 : leavePay;
+      const storedHolidayPay       = isFixed ? 0 : holidayPay;
+      const storedOffDayPay        = isFixed ? 0 : offDayPay;
+      const storedTotalTransport   = isFixed ? 0 : totalAttendancePay;
+
       const [entry] = await db.insert(payrollEntries)
         .values({
           periodId,
@@ -506,12 +539,12 @@ export class PayrollService {
           holidayDays: totals.holidayDays,
           offDays: totals.offDays,
           absentDays: totals.absentDays,
-          activeTransport: activePay,
-          passiveTransport: passivePay,
-          leavePay,
-          holidayPay,
-          offDayPay,
-          totalTransport: totalAttendancePay,
+          activeTransport:  storedActiveTransport,
+          passiveTransport: storedPassiveTransport,
+          leavePay:         storedLeavePay,
+          holidayPay:       storedHolidayPay,
+          offDayPay:        storedOffDayPay,
+          totalTransport:   storedTotalTransport,
           grossCommission,
           netPay,
           calculationDetails: calculationDetailsSnapshot,
@@ -526,12 +559,12 @@ export class PayrollService {
             holidayDays: totals.holidayDays,
             offDays: totals.offDays,
             absentDays: totals.absentDays,
-            activeTransport: activePay,
-            passiveTransport: passivePay,
-            leavePay,
-            holidayPay,
-            offDayPay,
-            totalTransport: totalAttendancePay,
+            activeTransport:  storedActiveTransport,
+            passiveTransport: storedPassiveTransport,
+            leavePay:         storedLeavePay,
+            holidayPay:       storedHolidayPay,
+            offDayPay:        storedOffDayPay,
+            totalTransport:   storedTotalTransport,
             grossCommission,
             netPay,
             calculationDetails: calculationDetailsSnapshot,
@@ -564,26 +597,40 @@ export class PayrollService {
     const business = await storage.getBusinessById(store.businessId);
     const splitCalculator = new CommissionSplitCalculator(business, store);
 
+    // G1: Prorate base salary for drill-down view — mirrors calculatePayrollForPeriod logic exactly.
+    // monthly → full amount, biweekly → ÷ 2, weekly → × 7/30
+    const drilldownProrateBase = (monthly: number): number => {
+      switch (period.periodType) {
+        case "monthly":  return monthly;
+        case "biweekly": return Math.round((monthly / 2) * 100) / 100;
+        case "weekly":   return Math.round((monthly * 7 / 30) * 100) / 100;
+        default:         return monthly;
+      }
+    };
+
     // Resolve compensation parameters for this staff member
+    const monthlyBaseSalaryForDrilldown = staffMember.overridePaymentMethod
+      ? staffMember.payPerMonth
+      : storeSettings.fixedBaseAmount;
     const comp = {
       paymentMethod: staffMember.overridePaymentMethod ? staffMember.paymentMethod : storeSettings.defaultPaymentMethod,
       commissionType: staffMember.overrideCommission ? (staffMember.commissionTypeOverride ?? storeSettings.commissionType) : storeSettings.commissionType,
       commissionFixedAmount: staffMember.overrideCommission ? (staffMember.commissionFixedAmountOverride ?? storeSettings.commissionFixedAmount) : storeSettings.commissionFixedAmount,
       commissionFormula: staffMember.overrideFormula ? (staffMember.commissionFormulaOverride ?? storeSettings.commissionFormula) : storeSettings.commissionFormula,
-      
+
       activeDayRate: staffMember.overrideAttendanceRates ? (staffMember.activeDayRateOverride ?? storeSettings.activeDayTransport) : storeSettings.activeDayTransport,
       passiveDayRate: staffMember.overrideAttendanceRates ? (staffMember.passiveDayRateOverride ?? storeSettings.passiveDayTransport) : storeSettings.passiveDayTransport,
       leaveDayRate: staffMember.overrideAttendanceRates ? (staffMember.leaveDayRateOverride ?? storeSettings.leaveDayRate) : storeSettings.leaveDayRate,
       payLeaveDays: staffMember.overrideAttendanceRates ? staffMember.payLeaveDaysOverride : storeSettings.payLeaveDays,
-      
+
       holidayDayRate: staffMember.overrideAttendanceRates ? (staffMember.holidayDayRateOverride ?? storeSettings.holidayDayRate) : storeSettings.holidayDayRate,
       payHolidayDays: staffMember.overrideAttendanceRates ? staffMember.payHolidayDaysOverride : storeSettings.payHolidayDays,
-      
+
       offDayRate: staffMember.overrideAttendanceRates ? (staffMember.offDayRateOverride ?? storeSettings.offDayRate) : storeSettings.offDayRate,
       payOffDays: staffMember.overrideAttendanceRates ? staffMember.payOffDaysOverride : storeSettings.payOffDays,
-      
+
       commissionRate: staffMember.commissionRateOverride ?? storeSettings.commissionRate,
-      baseSalary: staffMember.overridePaymentMethod ? staffMember.payPerMonth : storeSettings.fixedBaseAmount,
+      baseSalary: drilldownProrateBase(monthlyBaseSalaryForDrilldown),
     };
 
     // Fetch period checkouts and orders
@@ -624,19 +671,13 @@ export class PayrollService {
       checkoutsByDate.get(dateStr)!.push(row);
     }
 
-    // Helper to get dates in range
-    const getDatesInRange = (start: string, end: string): string[] => {
+    const dateRange = (() => {
       const dates: string[] = [];
-      const curr = new Date(start);
-      const last = new Date(end);
-      while (curr <= last) {
-        dates.push(curr.toISOString().split("T")[0]);
-        curr.setDate(curr.getDate() + 1);
-      }
+      const curr = new Date(period.startDate);
+      const last = new Date(period.endDate);
+      while (curr <= last) { dates.push(curr.toISOString().split("T")[0]); curr.setDate(curr.getDate() + 1); }
       return dates;
-    };
-
-    const dateRange = getDatesInRange(period.startDate, period.endDate);
+    })();
 
     // Group checkouts by receipt to distribute discounts correctly
     const effectivePrices = new Map<string, number>();

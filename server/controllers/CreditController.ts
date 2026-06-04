@@ -121,7 +121,7 @@ export class CreditController extends BaseController {
 
   private async createCreditEntry(req: Request, res: Response): Promise<Response> {
     try {
-      const { storeId, customerId, amountOwed, amountPaidUpfront, dueDate, description, notes } = req.body;
+      const { storeId, customerId, amountOwed, amountPaidUpfront, dueDate, description, notes, linkedTransactionId } = req.body;
       if (!storeId || !customerId || amountOwed === undefined) {
         return this.badRequest(res, "Required fields are missing.");
       }
@@ -140,8 +140,14 @@ export class CreditController extends BaseController {
         description,
         notes,
         status,
-        linkedTransactionId: null,
+        linkedTransactionId: linkedTransactionId || null,
       });
+
+      // When converting an existing transaction to credit, update its payment method so
+      // it shows as "credit" in transaction history and is no longer ambiguously "pending"
+      if (linkedTransactionId) {
+        await storage.updateCheckoutPaymentMethod(linkedTransactionId, "credit", "pending");
+      }
 
       return this.created(res, entry);
     } catch (e) {

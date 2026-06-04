@@ -43,10 +43,10 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-export function registerCashRoutes(app: Express, { isAuthenticated: _isAuth, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+export function registerCashRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ---------- 2. CASH DRAWER MANAGEMENT ----------
   // Get Active Session for Store
-  app.get("/api/cash-register/session", async (req, res) => {
+  app.get("/api/cash-register/session", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -60,7 +60,7 @@ export function registerCashRoutes(app: Express, { isAuthenticated: _isAuth, req
   });
 
   // Get All Sessions for Store
-  app.get("/api/cash-register/sessions", async (req, res) => {
+  app.get("/api/cash-register/sessions", isAuthenticated, async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -74,7 +74,7 @@ export function registerCashRoutes(app: Express, { isAuthenticated: _isAuth, req
   });
 
   // Open Register Session
-  app.post("/api/cash-register/open", async (req, res) => {
+  app.post("/api/cash-register/open", isAuthenticated, async (req, res) => {
     try {
       const { storeId, openingFloat, notes } = req.body;
       if (!storeId || openingFloat === undefined) {
@@ -102,7 +102,7 @@ export function registerCashRoutes(app: Express, { isAuthenticated: _isAuth, req
   });
 
   // Record Cash Drop
-  app.post("/api/cash-register/drop", async (req, res) => {
+  app.post("/api/cash-register/drop", isAuthenticated, async (req, res) => {
     try {
       const { sessionId, amount, notes } = req.body;
       if (!sessionId || amount === undefined) {
@@ -133,7 +133,7 @@ export function registerCashRoutes(app: Express, { isAuthenticated: _isAuth, req
   });
 
   // Get Cash Drops for Session
-  app.get("/api/cash-register/sessions/:sessionId/drops", async (req, res) => {
+  app.get("/api/cash-register/sessions/:sessionId/drops", isAuthenticated, async (req, res) => {
     try {
       const { sessionId } = req.params;
       const session = await storage.cashRegisterRepo.findById(sessionId);
@@ -148,7 +148,7 @@ export function registerCashRoutes(app: Express, { isAuthenticated: _isAuth, req
   });
 
   // Close Register Session
-  app.post("/api/cash-register/close", async (req, res) => {
+  app.post("/api/cash-register/close", isAuthenticated, async (req, res) => {
     try {
       const { sessionId, actualCash, notes } = req.body;
       if (!sessionId || actualCash === undefined) {

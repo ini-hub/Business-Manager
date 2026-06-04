@@ -3,20 +3,24 @@ import { db } from "../db";
 import {
   vendors,
   vendorBills,
+  purchaseOrders,
   type Vendor,
   type InsertVendor,
   type VendorBill,
   type InsertVendorBill,
 } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 
 export class VendorRepository extends BaseRepository<typeof vendors> {
   constructor() {
     super(vendors);
   }
 
-  async getVendors(storeId: string): Promise<Vendor[]> {
-    return db.select().from(vendors).where(eq(vendors.storeId, storeId)).orderBy(desc(vendors.createdAt));
+  async getVendors(storeId: string, includeArchived = false): Promise<Vendor[]> {
+    const conditions = includeArchived
+      ? eq(vendors.storeId, storeId)
+      : and(eq(vendors.storeId, storeId), eq(vendors.isArchived, false));
+    return db.select().from(vendors).where(conditions).orderBy(desc(vendors.createdAt));
   }
 
   async getVendor(id: string): Promise<Vendor | undefined> {
@@ -30,6 +34,36 @@ export class VendorRepository extends BaseRepository<typeof vendors> {
 
   async updateVendor(id: string, data: Partial<InsertVendor>): Promise<Vendor | undefined> {
     const [updated] = await db.update(vendors).set(data).where(eq(vendors.id, id)).returning();
+    return updated;
+  }
+
+  async getVendorDeletionConflicts(id: string): Promise<string | null> {
+    const [billCount] = await db
+      .select({ n: count() })
+      .from(vendorBills)
+      .where(eq(vendorBills.vendorId, id));
+    if (Number(billCount.n) > 0) {
+      return `This vendor has ${billCount.n} bill(s) on record. Delete or reassign them before removing the vendor.`;
+    }
+
+    const [poCount] = await db
+      .select({ n: count() })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.vendorId, id));
+    if (Number(poCount.n) > 0) {
+      return `This vendor has ${poCount.n} purchase order(s) on record. Delete or reassign them before removing the vendor.`;
+    }
+
+    return null;
+  }
+
+  async archiveVendor(id: string): Promise<Vendor | undefined> {
+    const [updated] = await db.update(vendors).set({ isArchived: true }).where(eq(vendors.id, id)).returning();
+    return updated;
+  }
+
+  async restoreVendor(id: string): Promise<Vendor | undefined> {
+    const [updated] = await db.update(vendors).set({ isArchived: false }).where(eq(vendors.id, id)).returning();
     return updated;
   }
 

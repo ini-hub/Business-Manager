@@ -11,6 +11,7 @@ import {
   Umbrella,
   Users,
   AlertCircle,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,17 +30,19 @@ import { Link } from "wouter";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
 
 const STATUS_CONFIG: Record<AttendanceStatus, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
-  present:  { label: "Present",  color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800", icon: CheckCircle2 },
-  absent:   { label: "Absent",   color: "text-red-700 dark:text-red-400",         bg: "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800",                   icon: XCircle },
-  off_day:  { label: "Off Day",  color: "text-slate-600 dark:text-slate-400",     bg: "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700",           icon: Coffee },
-  holiday:  { label: "Holiday",  color: "text-amber-700 dark:text-amber-400",     bg: "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800",           icon: Umbrella },
+  present:  { label: "Present",  color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800",  icon: CheckCircle2 },
+  absent:   { label: "Absent",   color: "text-red-700 dark:text-red-400",         bg: "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800",                  icon: XCircle },
+  off_day:  { label: "Off Day",  color: "text-slate-600 dark:text-slate-400",     bg: "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700",          icon: Coffee },
+  holiday:  { label: "Holiday",  color: "text-amber-700 dark:text-amber-400",     bg: "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800",          icon: Umbrella },
+  leave:    { label: "Leave",    color: "text-blue-700 dark:text-blue-400",       bg: "bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800",              icon: BookOpen },
 };
 
 const STATUS_DOT: Record<AttendanceStatus, string> = {
   present: "bg-emerald-500",
-  absent: "bg-red-500",
+  absent:  "bg-red-500",
   off_day: "bg-slate-400",
   holiday: "bg-amber-400",
+  leave:   "bg-blue-400",
 };
 
 function StatusBadge({ status, isActive }: { status: AttendanceStatus; isActive?: boolean }) {
@@ -231,22 +234,20 @@ export default function AttendancePage() {
 
   // ─── Summary counts for a staff member in the current period ────────────────
   function getSummary(staffId: string) {
-    let active = 0, passive = 0, absent = 0, offDay = 0, holiday = 0;
+    let active = 0, passive = 0, absent = 0, offDay = 0, holiday = 0, leave = 0;
     recordMap.forEach((r, key) => {
       if (!key.startsWith(staffId + ":")) return;
       const dateStr = key.split(":")[1];
       if (r.status === "present") {
-        if (activeStaffDays.has(`${staffId}:${dateStr}`)) {
-          active++;
-        } else {
-          passive++;
-        }
+        if (activeStaffDays.has(`${staffId}:${dateStr}`)) active++;
+        else passive++;
       }
       else if (r.status === "absent") absent++;
       else if (r.status === "off_day") offDay++;
       else if (r.status === "holiday") holiday++;
+      else if (r.status === "leave") leave++;
     });
-    return { active, passive, absent, offDay, holiday };
+    return { active, passive, absent, offDay, holiday, leave };
   }
 
   // ─── Daily View ─────────────────────────────────────────────────────────────
@@ -421,7 +422,7 @@ export default function AttendancePage() {
                         title={titleStr}
                         onClick={() => {
                           if (!canEdit) return;
-                          const statuses: AttendanceStatus[] = ["present", "absent", "off_day", "holiday"];
+                          const statuses: AttendanceStatus[] = ["present", "absent", "off_day", "holiday", "leave"];
                           const nextIdx = status ? (statuses.indexOf(status) + 1) % statuses.length : 0;
                           markMutation.mutate({ staffId: s.id, date: dateStr, status: statuses[nextIdx] });
                         }}
