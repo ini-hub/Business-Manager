@@ -328,10 +328,18 @@ export default function NewSale() {
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
-  const { data: inventory = [], isLoading } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id],
+  const { data: products = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/products", currentStore?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/products?storeId=${currentStore?.id}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
+
+  // Flat variant list — kept for booking prefill, cart logic, promotions
+  const inventory: Inventory[] = products.flatMap((p: any) => p.variants ?? []);
 
   const { data: promotionsList = [] } = useQuery<any[]>({
     queryKey: ["/api/promotions", currentStore?.id],
@@ -416,11 +424,10 @@ export default function NewSale() {
     }
   }, [bookingDetails, setLocation, toast]);
 
-  const filteredInventory = searchTerm
-    ? availableInventory.filter((item) =>
-        item.name.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : availableInventory;
+  // Available product groups — used by ProductGrid (services always available, products need stock)
+  const availableProducts = products.filter((p: any) =>
+    p.type === "service" || (p.variants ?? []).some((v: any) => v.quantity > 0)
+  );
 
   const storeCurrency = currentStore?.currency || "NGN";
   
@@ -999,7 +1006,7 @@ export default function NewSale() {
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2 space-y-6">
           <ProductGrid
-            inventory={availableInventory}
+            products={availableProducts}
             isLoading={isLoading}
             cart={cart}
             searchTerm={searchTerm}

@@ -820,19 +820,15 @@ export function PolymorphicTable<T extends { id: string | number }>({
                 return (
                   <TableRow
                     key={item.id}
-                    onClick={() => {
-                      if (!multiselect) {
-                        onRowClick?.(item);
-                      }
-                    }}
+                    onClick={() => onRowClick?.(item)}
                     className={cn(
                       "hover:bg-muted/20 transition-colors duration-150",
-                      (onRowClick || multiselect) && "cursor-pointer",
+                      onRowClick && "cursor-pointer",
                       isSelected && "bg-primary/5 hover:bg-primary/10"
                     )}
                   >
                     {multiselect && (
-                      <TableCell 
+                      <TableCell
                         className="w-12 px-4 py-3 text-center"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -849,12 +845,6 @@ export function PolymorphicTable<T extends { id: string | number }>({
                     {columns.map((column) => (
                       <TableCell
                         key={column.key}
-                        onClick={(e) => {
-                          if (multiselect && column.key !== "actions") {
-                            e.stopPropagation();
-                            handleSelectRow(item.id);
-                          }
-                        }}
                         className={cn(
                           column.className,
                           column.align === "right" && "text-right font-mono text-xs"

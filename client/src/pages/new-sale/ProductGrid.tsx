@@ -1,12 +1,22 @@
-import { Search, Package, WifiOff } from "lucide-react";
+import { useState } from "react";
+import { Search, Package, WifiOff, ChevronDown, Layers } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Inventory } from "@shared/schema";
 import type { CartItem } from "./types";
 
+// Shape returned by /api/products
+interface ProductGroup {
+  id: string;
+  name: string;
+  type: "product" | "service";
+  variants: Inventory[];
+}
+
 interface ProductGridProps {
-  inventory: Inventory[];
+  products: ProductGroup[];
   isLoading: boolean;
   cart: CartItem[];
   searchTerm: string;
@@ -16,8 +26,25 @@ interface ProductGridProps {
   isOffline?: boolean;
 }
 
+// Strip parent-name prefix from a variant name and fall back to variantDimensions values.
+function variantLabel(variant: Inventory, parentName: string): string {
+  const dims = (variant as any).variantDimensions as Record<string, string> | null;
+  if (dims && Object.keys(dims).length > 0) {
+    return Object.values(dims).join(" / ");
+  }
+  const prefix = `${parentName} - `;
+  if (variant.name.startsWith(prefix)) return variant.name.slice(prefix.length);
+  return variant.name;
+}
+
+// A product is available for sale if it's a service (unlimited) or has at least one in-stock variant.
+function isAvailable(product: ProductGroup): boolean {
+  if (product.type === "service") return true;
+  return product.variants.some((v) => v.quantity > 0);
+}
+
 export function ProductGrid({
-  inventory,
+  products,
   isLoading,
   cart,
   searchTerm,
@@ -26,9 +53,32 @@ export function ProductGrid({
   formatCurrency,
   isOffline = false,
 }: ProductGridProps) {
+  const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
+
+  const available = products.filter(isAvailable);
+
   const filtered = searchTerm
-    ? inventory.filter((item) => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    : inventory;
+    ? available.filter((p) => {
+        const q = searchTerm.toLowerCase();
+        return (
+          p.name.toLowerCase().includes(q) ||
+          p.variants.some((v) => v.name.toLowerCase().includes(q))
+        );
+      })
+    : available;
+
+  const cartCountFor = (product: ProductGroup) =>
+    cart
+      .filter((c) => product.variants.some((v) => v.id === c.inventory.id))
+      .reduce((sum, c) => sum + c.quantity, 0);
+
+  const handleTileClick = (product: ProductGroup) => {
+    if (product.variants.length === 1) {
+      onAddToCart(product.variants[0]);
+    } else {
+      setOpenPopoverId((prev) => (prev === product.id ? null : product.id));
+    }
+  };
 
   return (
     <Card>
@@ -74,39 +124,122 @@ export function ProductGrid({
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {filtered.map((item) => {
-              const inCart = cart.find((c) => c.inventory.id === item.id);
-              return (
+            {filtered.map((product) => {
+              const cartQty = cartCountFor(product);
+              const hasMultipleVariants = product.variants.length > 1;
+              // Price range display
+              const prices = product.variants.map((v) => v.sellingPrice);
+              const minPrice = Math.min(...prices);
+              const maxPrice = Math.max(...prices);
+              const priceLabel =
+                minPrice === maxPrice
+                  ? formatCurrency(minPrice)
+                  : `${formatCurrency(minPrice)} – ${formatCurrency(maxPrice)}`;
+
+              const tile = (
                 <div
-                  key={item.id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover-elevate cursor-pointer"
-                  onClick={() => onAddToCart(item)}
-                  data-testid={`item-${item.id}`}
+                  key={product.id}
+                  className="flex items-center justify-between p-4 rounded-lg border hover-elevate cursor-pointer select-none"
+                  onClick={() => handleTileClick(product)}
+                  data-testid={`item-${product.id}`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-sm truncate">{item.name}</p>
-                      <Badge variant="outline" className={`text-[10px] h-5 py-0 capitalize shrink-0 ${
-                        item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
-                        : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
-                        {item.type}
+                      <p className="font-medium text-sm truncate">{product.name}</p>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] h-5 py-0 capitalize shrink-0 ${
+                          product.type === "service"
+                            ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
+                            : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
+                        }`}
+                      >
+                        {product.type}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {formatCurrency(item.sellingPrice)}
-                      {item.type === "product" && (
-                        <span className="ml-2 text-muted-foreground/70">
-                          {item.quantity} in stock
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground">{priceLabel}</p>
+                      {hasMultipleVariants && (
+                        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+                          <Layers className="h-2.5 w-2.5" />
+                          {product.variants.length} options
                         </span>
                       )}
-                    </p>
+                    </div>
                   </div>
-                  {inCart && (
-                    <Badge variant="secondary" className="ml-2 shrink-0">
-                      ×{inCart.quantity}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    {cartQty > 0 && (
+                      <Badge variant="secondary">×{cartQty}</Badge>
+                    )}
+                    {hasMultipleVariants && (
+                      <ChevronDown
+                        className={`h-4 w-4 text-muted-foreground transition-transform duration-150 ${
+                          openPopoverId === product.id ? "rotate-180" : ""
+                        }`}
+                      />
+                    )}
+                  </div>
                 </div>
+              );
+
+              if (!hasMultipleVariants) return tile;
+
+              return (
+                <Popover
+                  key={product.id}
+                  open={openPopoverId === product.id}
+                  onOpenChange={(open) => setOpenPopoverId(open ? product.id : null)}
+                >
+                  <PopoverTrigger asChild>{tile}</PopoverTrigger>
+                  <PopoverContent
+                    className="w-72 p-2"
+                    align="start"
+                    side="bottom"
+                    sideOffset={4}
+                  >
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 pb-2">
+                      Choose a variant
+                    </p>
+                    <div className="space-y-1">
+                      {product.variants.map((variant) => {
+                        const inCartQty = cart.find((c) => c.inventory.id === variant.id)?.quantity ?? 0;
+                        const outOfStock =
+                          product.type === "product" && variant.quantity <= 0;
+                        return (
+                          <button
+                            key={variant.id}
+                            type="button"
+                            disabled={outOfStock}
+                            onClick={() => {
+                              onAddToCart(variant);
+                              setOpenPopoverId(null);
+                            }}
+                            className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <span className="font-medium truncate block">
+                                {variantLabel(variant, product.name)}
+                              </span>
+                              {outOfStock && (
+                                <span className="text-[10px] text-destructive">Out of stock</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 ml-3">
+                              {inCartQty > 0 && (
+                                <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                                  ×{inCartQty}
+                                </Badge>
+                              )}
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {formatCurrency(variant.sellingPrice)}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               );
             })}
           </div>
