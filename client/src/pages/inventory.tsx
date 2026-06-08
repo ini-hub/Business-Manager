@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, CheckSquare } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { z } from "zod";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -97,6 +97,9 @@ export default function InventoryPage() {
   const [isAuditFormOpen, setIsAuditFormOpen] = useState(false);
   const [isAuditDetailOpen, setIsAuditDetailOpen] = useState(false);
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState<{ archived: string[]; deleted: string[]; failed: string[] } | null>(null);
   const [conductedByStaffId, setConductedByStaffId] = useState("");
   const [auditNotes, setAuditNotes] = useState("");
   const [auditItems, setAuditItems] = useState<{
@@ -438,10 +441,86 @@ export default function InventoryPage() {
     },
   });
 
+  const bulkArchiveMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) => apiRequest("POST", `/api/inventory/${id}/archive`))
+      );
+      const archived = ids.filter((_, i) => results[i].status === "fulfilled");
+      const failed = ids.filter((_, i) => results[i].status === "rejected");
+      return { archived, failed };
+    },
+    onSuccess: ({ archived, failed }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      setSelectedIds([]);
+      if (failed.length === 0) {
+        toast({ title: `${archived.length} item${archived.length !== 1 ? "s" : ""} archived` });
+      } else {
+        toast({
+          title: `${archived.length} archived, ${failed.length} failed`,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: () => toast({ title: "Bulk archive failed", variant: "destructive" }),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const deleted: string[] = [];
+      const archived: string[] = [];
+      const failed: string[] = [];
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await apiRequest("DELETE", `/api/inventory/${id}`);
+            if (res.ok) {
+              deleted.push(id);
+            } else {
+              const body = await res.json().catch(() => ({}));
+              const msg: string = body?.error ?? "";
+              if (res.status === 400 && (msg.includes("sales") || msg.includes("history"))) {
+                // Has sales history — archive instead
+                const archiveRes = await apiRequest("POST", `/api/inventory/${id}/archive`);
+                if (archiveRes.ok) archived.push(id);
+                else failed.push(id);
+              } else {
+                failed.push(id);
+              }
+            }
+          } catch {
+            failed.push(id);
+          }
+        })
+      );
+      return { deleted, archived, failed };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      setSelectedIds([]);
+      setBulkDeleteResult(result);
+      setIsBulkDeleteOpen(false);
+      const total = result.deleted.length + result.archived.length;
+      const parts: string[] = [];
+      if (result.deleted.length) parts.push(`${result.deleted.length} deleted`);
+      if (result.archived.length) parts.push(`${result.archived.length} archived (had sales history)`);
+      if (result.failed.length) parts.push(`${result.failed.length} failed`);
+      toast({
+        title: total > 0 ? `Done — ${parts.join(", ")}` : "Nothing could be removed",
+        variant: result.failed.length > 0 && total === 0 ? "destructive" : "default",
+      });
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+  });
+
   const restockMutation = useMutation({
     mutationFn: async () => {
       if (!selectedItem) return;
-      
+
       return apiRequest("POST", `/api/inventory/${selectedItem.id}/restock`, {
         quantityAdded: restockData.quantity,
         unitCost: restockData.unitCost || selectedItem.costPrice,
@@ -876,7 +955,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <Tabs defaultValue="all" value={filterType} onValueChange={(v) => setFilterType(v as FilterType)} className="w-full space-y-6">
+      <Tabs defaultValue="all" value={filterType} onValueChange={(v) => { setFilterType(v as FilterType); setSelectedIds([]); }} className="w-full space-y-6">
         <PolymorphicTabsList 
           variant="default"
           tabs={[
@@ -1129,6 +1208,45 @@ export default function InventoryPage() {
           ];
 
           return (
+            <>
+              {/* Bulk action bar */}
+              {selectedIds.length > 0 && user?.role !== "staff" && (
+                <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 gap-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                    <span>{selectedIds.length} item{selectedIds.length !== 1 ? "s" : ""} selected</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedIds([])}
+                      className="h-7 text-xs"
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                      disabled={bulkArchiveMutation.isPending}
+                      onClick={() => bulkArchiveMutation.mutate(selectedIds as string[])}
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                      {bulkArchiveMutation.isPending ? "Archiving…" : "Archive Selected"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 text-xs gap-1.5"
+                      onClick={() => setIsBulkDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete Selected
+                    </Button>
+                  </div>
+                </div>
+              )}
             <DataTable
               data={tableData}
               columns={columns}
@@ -1138,6 +1256,9 @@ export default function InventoryPage() {
               isLoading={isLoading}
               emptyMessage="Track wholesale product stocks, services catalog, and split commission margins."
               onRowClick={navigateToDetails}
+              multiselect={user?.role !== "staff"}
+              selectedIds={selectedIds}
+              onSelectedIdsChange={setSelectedIds}
               filterConfigs={filterConfigs}
               emptyIcon={<Package className="h-6 w-6" />}
               emptyTitle="No Inventory Items"
@@ -1150,6 +1271,7 @@ export default function InventoryPage() {
                 )
               }
             />
+            </>
           );
         })()
       )}
@@ -1201,6 +1323,34 @@ export default function InventoryPage() {
           isLoading={deleteMutation.isPending}
         />
       )}
+
+      {/* Bulk delete confirmation */}
+      <Dialog open={isBulkDeleteOpen} onOpenChange={setIsBulkDeleteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete {selectedIds.length} item{selectedIds.length !== 1 ? "s" : ""}?
+            </DialogTitle>
+            <DialogDescription className="pt-1">
+              Items with no sales history will be permanently deleted.
+              Items that have sales records will be <strong>archived</strong> instead to preserve your reports.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 pt-2">
+            <Button
+              variant="destructive"
+              onClick={() => bulkDeleteMutation.mutate(selectedIds as string[])}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              {bulkDeleteMutation.isPending ? "Processing…" : `Delete / Archive ${selectedIds.length} item${selectedIds.length !== 1 ? "s" : ""}`}
+            </Button>
+            <Button variant="outline" onClick={() => setIsBulkDeleteOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isDuplicateOpen} onOpenChange={setIsDuplicateOpen}>
         <DialogContent className="max-w-md">
