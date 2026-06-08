@@ -182,6 +182,7 @@ export default function InventoryNewPage() {
   // ── Derived ───────────────────────────────────────────────────────────
 
   const steps = useMemo(() => {
+    if (type === "service" && hasVariants) return ["Basics", "Define Variants", "Prices", "Review"];
     if (type === "service") return ["Basics", "Pricing", "Review"];
     if (hasVariants) return ["Basics", "Define Variants", "Prices & Stock", "Review"];
     return ["Basics", "Pricing & Stock", "Review"];
@@ -208,19 +209,16 @@ export default function InventoryNewPage() {
     if (step === 0) {
       return name.trim() !== "" && type !== "" && (!isMultiStore || storeId !== "");
     }
-    // Service pricing OR simple product pricing
-    if (
-      (step === 1 && type === "service") ||
-      (step === 1 && type === "product" && !hasVariants)
-    ) {
+    // Simple pricing (no variants)
+    if (step === 1 && !hasVariants) {
       return pricingValid.all;
     }
-    // Variant attribute setup
-    if (step === 1 && type === "product" && hasVariants) {
+    // Variant attribute setup (product or service)
+    if (step === 1 && hasVariants) {
       return attributes.some((a) => a.values.length > 0) && selectedCombos.length > 0;
     }
-    // Variant default pricing
-    if (step === 2 && type === "product" && hasVariants) {
+    // Variant default pricing (product or service)
+    if (step === 2 && hasVariants) {
       return pricingValid.all;
     }
     return true;
@@ -312,7 +310,7 @@ export default function InventoryNewPage() {
       const product = await parentRes.json();
 
       // 2. Add Variants
-      if (type === "product" && hasVariants) {
+      if (hasVariants) {
         for (const combo of selectedCombos) {
           const key = comboKey(combo);
           const detail = variantDetails[key];
@@ -324,9 +322,9 @@ export default function InventoryNewPage() {
             detail?.sellingPrice !== "" && detail?.sellingPrice !== undefined
               ? Number(detail.sellingPrice)
               : finalSelling;
-          const vQty = detail?.quantity ?? 0;
-          const vFractional = detail?.allowFractional ?? false;
-          const vUnit = detail?.unit?.trim() || null;
+          const vQty = type === "product" ? (detail?.quantity ?? 0) : 0;
+          const vFractional = type === "product" ? (detail?.allowFractional ?? false) : false;
+          const vUnit = type === "product" && (detail?.allowFractional ?? false) ? detail?.unit?.trim() || null : null;
 
           const varRes = await apiRequest("POST", `/api/products/${product.id}/variants`, {
             name: `${name.trim()} - ${comboLabel(combo)}`,
@@ -337,6 +335,9 @@ export default function InventoryNewPage() {
             sku: `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             allowFractional: vFractional,
             unit: vFractional ? vUnit : null,
+            commissionSplitOverride: type === "service" ? commissionOverride : false,
+            commissionSplitBusinessShare: bizShare,
+            commissionSplitStaffShare: staffShare,
           });
           if (!varRes.ok) {
             const err = await varRes.json().catch(() => ({}));
@@ -366,10 +367,9 @@ export default function InventoryNewPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       toast({
         title: "Item added",
-        description:
-          hasVariants && type === "product"
-            ? `"${name}" created with ${selectedCombos.length} variant${selectedCombos.length !== 1 ? "s" : ""}.`
-            : `"${name}" has been added to inventory.`,
+        description: hasVariants
+          ? `"${name}" created with ${selectedCombos.length} variant${selectedCombos.length !== 1 ? "s" : ""}.`
+          : `"${name}" has been added to inventory.`,
       });
       setLocation(`/inventory/${buildSlug(name.trim(), product.id)}`);
     } catch (err: any) {
@@ -475,7 +475,6 @@ export default function InventoryNewPage() {
                       type="button"
                       onClick={() => {
                         setType(t);
-                        if (t === "service") setHasVariants(false);
                         setShowErrors(false);
                       }}
                       className={cn(
@@ -512,7 +511,7 @@ export default function InventoryNewPage() {
                 </div>
               </div>
 
-              {type === "product" && (
+              {type !== "" && (
                 <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
                   <div className="space-y-0.5">
                     <div className="text-sm font-medium flex items-center gap-2">
@@ -520,7 +519,9 @@ export default function InventoryNewPage() {
                       Has Variants
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Different sizes, colors, or other attributes
+                      {type === "service"
+                        ? "Different durations, packages, or tiers"
+                        : "Different sizes, colors, or other attributes"}
                     </p>
                   </div>
                   <Switch
@@ -533,8 +534,8 @@ export default function InventoryNewPage() {
             </div>
           )}
 
-          {/* ── Step 1 (service): Pricing ────────────────────────────── */}
-          {step === 1 && type === "service" && (
+          {/* ── Step 1 (service, no variants): Pricing ───────────────── */}
+          {step === 1 && type === "service" && !hasVariants && (
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -742,8 +743,8 @@ export default function InventoryNewPage() {
             </div>
           )}
 
-          {/* ── Step 1 (product, variants): Define Variants ──────────── */}
-          {step === 1 && type === "product" && hasVariants && (
+          {/* ── Step 1 (variants): Define Variants ───────────────────── */}
+          {step === 1 && hasVariants && (
             <div className="space-y-5">
               <p className="text-sm text-muted-foreground flex items-start gap-2">
                 <Info className="h-4 w-4 mt-0.5 shrink-0" />
@@ -937,8 +938,8 @@ export default function InventoryNewPage() {
             </div>
           )}
 
-          {/* ── Step 2 (variant product): Prices & Stock ─────────────── */}
-          {step === 2 && type === "product" && hasVariants && (
+          {/* ── Step 2 (variants): Prices ────────────────────────────── */}
+          {step === 2 && hasVariants && (
             <div className="space-y-5">
               <div className="rounded-lg border p-4 bg-muted/10 space-y-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -991,6 +992,51 @@ export default function InventoryNewPage() {
                 )}
               </div>
 
+              {/* Commission override — services only */}
+              {type === "service" && (
+                <div className="rounded-lg border p-4 space-y-4 bg-muted/10">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">Override Commission Split</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Applies to all variants of this service
+                      </p>
+                    </div>
+                    <Switch
+                      checked={commissionOverride}
+                      onCheckedChange={setCommissionOverride}
+                    />
+                  </div>
+                  {commissionOverride && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label>Business Share (%)</Label>
+                        <Input
+                          type="number"
+                          value={bizShare}
+                          onChange={(e) => setBizShare(Number(e.target.value))}
+                          placeholder="80"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Staff Share (%)</Label>
+                        <Input
+                          type="number"
+                          value={staffShare}
+                          onChange={(e) => setStaffShare(Number(e.target.value))}
+                          placeholder="20"
+                        />
+                      </div>
+                      {bizShare + staffShare !== 100 && (
+                        <p className="col-span-2 text-sm text-destructive">
+                          Shares must sum to 100%.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <div>
                   <Label>Per-Variant Overrides</Label>
@@ -999,89 +1045,127 @@ export default function InventoryNewPage() {
                   </p>
                 </div>
                 <div className="rounded-lg border overflow-hidden">
-                  <div className="grid grid-cols-[1fr_90px_90px_60px_56px_72px] gap-2 px-4 py-2 bg-muted/30 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                    <span>Variant</span>
-                    <span>Cost ({sym})</span>
-                    <span>Selling ({sym})</span>
-                    <span>Stock</span>
-                    <span>Frac?</span>
-                    <span>Unit</span>
-                  </div>
-                  <div className="divide-y max-h-72 overflow-y-auto">
-                    {selectedCombos.map((combo) => {
-                      const key = comboKey(combo);
-                      const detail = variantDetails[key] || { costPrice: "", sellingPrice: "", quantity: 0, allowFractional: false, unit: "" };
-                      return (
-                        <div
-                          key={key}
-                          className="grid grid-cols-[1fr_90px_90px_60px_56px_72px] items-center gap-2 px-4 py-2"
-                        >
-                          <span className="text-sm font-medium truncate">
-                            {comboLabel(combo)}
-                          </span>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder={costPrice !== "" ? String(costPrice) : "0"}
-                            value={detail.costPrice ?? ""}
-                            onChange={(e) =>
-                              updateVariantDetail(
-                                key,
-                                "costPrice",
-                                e.target.value === "" ? "" : parseFloat(e.target.value)
-                              )
-                            }
-                            className="h-8 text-sm px-2"
-                          />
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder={sellingPrice !== "" ? String(sellingPrice) : "0"}
-                            value={detail.sellingPrice ?? ""}
-                            onChange={(e) =>
-                              updateVariantDetail(
-                                key,
-                                "sellingPrice",
-                                e.target.value === "" ? "" : parseFloat(e.target.value)
-                              )
-                            }
-                            className="h-8 text-sm px-2"
-                          />
-                          <Input
-                            type="number"
-                            min="0"
-                            step={detail.allowFractional ? "0.01" : "1"}
-                            placeholder="0"
-                            value={detail.quantity ?? 0}
-                            onChange={(e) =>
-                              updateVariantDetail(
-                                key,
-                                "quantity",
-                                detail.allowFractional ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 0
-                              )
-                            }
-                            className="h-8 text-sm px-2"
-                          />
-                          <div className="flex justify-center">
-                            <Switch
-                              checked={detail.allowFractional ?? false}
-                              onCheckedChange={(v) => updateVariantDetail(key, "allowFractional", v)}
-                              className="scale-75"
-                            />
-                          </div>
-                          <Input
-                            placeholder="kg"
-                            value={detail.unit ?? ""}
-                            disabled={!detail.allowFractional}
-                            onChange={(e) => updateVariantDetail(key, "unit", e.target.value)}
-                            className="h-8 text-xs px-2"
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {type === "product" ? (
+                    <>
+                      <div className="grid grid-cols-[1fr_90px_90px_60px_56px_72px] gap-2 px-4 py-2 bg-muted/30 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <span>Variant</span>
+                        <span>Cost ({sym})</span>
+                        <span>Selling ({sym})</span>
+                        <span>Stock</span>
+                        <span>Frac?</span>
+                        <span>Unit</span>
+                      </div>
+                      <div className="divide-y max-h-72 overflow-y-auto">
+                        {selectedCombos.map((combo) => {
+                          const key = comboKey(combo);
+                          const detail = variantDetails[key] || { costPrice: "", sellingPrice: "", quantity: 0, allowFractional: false, unit: "" };
+                          return (
+                            <div
+                              key={key}
+                              className="grid grid-cols-[1fr_90px_90px_60px_56px_72px] items-center gap-2 px-4 py-2"
+                            >
+                              <span className="text-sm font-medium truncate">
+                                {comboLabel(combo)}
+                              </span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={costPrice !== "" ? String(costPrice) : "0"}
+                                value={detail.costPrice ?? ""}
+                                onChange={(e) =>
+                                  updateVariantDetail(key, "costPrice", e.target.value === "" ? "" : parseFloat(e.target.value))
+                                }
+                                className="h-8 text-sm px-2"
+                              />
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={sellingPrice !== "" ? String(sellingPrice) : "0"}
+                                value={detail.sellingPrice ?? ""}
+                                onChange={(e) =>
+                                  updateVariantDetail(key, "sellingPrice", e.target.value === "" ? "" : parseFloat(e.target.value))
+                                }
+                                className="h-8 text-sm px-2"
+                              />
+                              <Input
+                                type="number"
+                                min="0"
+                                step={detail.allowFractional ? "0.01" : "1"}
+                                placeholder="0"
+                                value={detail.quantity ?? 0}
+                                onChange={(e) =>
+                                  updateVariantDetail(key, "quantity", detail.allowFractional ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 0)
+                                }
+                                className="h-8 text-sm px-2"
+                              />
+                              <div className="flex justify-center">
+                                <Switch
+                                  checked={detail.allowFractional ?? false}
+                                  onCheckedChange={(v) => updateVariantDetail(key, "allowFractional", v)}
+                                  className="scale-75"
+                                />
+                              </div>
+                              <Input
+                                placeholder="kg"
+                                value={detail.unit ?? ""}
+                                disabled={!detail.allowFractional}
+                                onChange={(e) => updateVariantDetail(key, "unit", e.target.value)}
+                                className="h-8 text-xs px-2"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-[1fr_100px_100px] gap-2 px-4 py-2 bg-muted/30 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <span>Variant</span>
+                        <span>Cost ({sym})</span>
+                        <span>Selling ({sym})</span>
+                      </div>
+                      <div className="divide-y max-h-72 overflow-y-auto">
+                        {selectedCombos.map((combo) => {
+                          const key = comboKey(combo);
+                          const detail = variantDetails[key] || { costPrice: "", sellingPrice: "", quantity: 0, allowFractional: false, unit: "" };
+                          return (
+                            <div
+                              key={key}
+                              className="grid grid-cols-[1fr_100px_100px] items-center gap-2 px-4 py-2"
+                            >
+                              <span className="text-sm font-medium truncate">
+                                {comboLabel(combo)}
+                              </span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={costPrice !== "" ? String(costPrice) : "0"}
+                                value={detail.costPrice ?? ""}
+                                onChange={(e) =>
+                                  updateVariantDetail(key, "costPrice", e.target.value === "" ? "" : parseFloat(e.target.value))
+                                }
+                                className="h-8 text-sm px-2"
+                              />
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={sellingPrice !== "" ? String(sellingPrice) : "0"}
+                                value={detail.sellingPrice ?? ""}
+                                onChange={(e) =>
+                                  updateVariantDetail(key, "sellingPrice", e.target.value === "" ? "" : parseFloat(e.target.value))
+                                }
+                                className="h-8 text-sm px-2"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1111,7 +1195,7 @@ export default function InventoryNewPage() {
                       </dd>
                     </div>
                   )}
-                  {!(type === "product" && hasVariants) && (
+                  {!hasVariants && (
                     <>
                       <div className="flex justify-between">
                         <dt className="text-muted-foreground">Cost Price</dt>
@@ -1137,7 +1221,7 @@ export default function InventoryNewPage() {
                       )}
                     </>
                   )}
-                  {type === "product" && hasVariants && (
+                  {hasVariants && (
                     <>
                       <div className="flex justify-between">
                         <dt className="text-muted-foreground">Default Cost</dt>
@@ -1159,7 +1243,7 @@ export default function InventoryNewPage() {
                 </dl>
               </div>
 
-              {type === "product" && hasVariants && selectedCombos.length > 0 && (
+              {hasVariants && selectedCombos.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Variants to be created

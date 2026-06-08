@@ -1030,10 +1030,12 @@ export default function InventoryDetails() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Layers className="h-4 w-4 text-primary" />
-                  Product Variants
+                  {isService ? "Service Variants" : "Product Variants"}
                 </CardTitle>
                 <CardDescription>
-                  Size, color, and other dimensions grouped under this product.
+                  {isService
+                    ? "Different packages, durations, or tiers grouped under this service."
+                    : "Size, color, and other dimensions grouped under this product."}
                 </CardDescription>
               </div>
               <Button onClick={() => setLocation(`/inventory/${inventoryId}/variants/new`)}>
@@ -1047,7 +1049,9 @@ export default function InventoryDetails() {
                   <Layers className="h-10 w-10 mx-auto mb-3 text-muted-foreground/30" />
                   <p className="font-semibold text-muted-foreground">No variants yet</p>
                   <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-                    Create size, color, or other options to track stock separately.
+                    {isService
+                      ? "Create different packages, durations, or tiers with their own pricing."
+                      : "Create size, color, or other options to track stock separately."}
                   </p>
                   <Button variant="outline" size="sm" className="mt-4" onClick={() => setLocation(`/inventory/${inventoryId}/variants/new`)}>
                     <Plus className="h-3.5 w-3.5 mr-1.5" /> Create First Variant
