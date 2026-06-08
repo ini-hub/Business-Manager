@@ -1091,7 +1091,9 @@ export default function InventoryDetails() {
                     },
                     {
                       key: "quantity", header: "Stock",
-                      render: (row: any) => (
+                      render: (row: any) => row.type === "service" ? (
+                        <span className="text-muted-foreground text-xs">Unlimited</span>
+                      ) : (
                         <span className={cn("font-mono font-medium", row.quantity === 0 && "text-destructive")}>
                           {row.quantity}
                         </span>

@@ -127,6 +127,7 @@ export class ProductController extends BaseController {
       if (error instanceof z.ZodError) {
         return this.badRequest(res, error.errors.map(e => e.message).join(". "));
       }
+      console.error("[createProduct]", error);
       return this.error(res, "We couldn't create the product. Please try again.");
     }
   }
@@ -269,6 +270,7 @@ export class ProductController extends BaseController {
       if (error instanceof z.ZodError) {
         return this.badRequest(res, error.errors.map(e => e.message).join(". "));
       }
+      console.error("[createVariant]", error);
       return this.error(res, "We couldn't create the variant. Please try again.");
     }
   }

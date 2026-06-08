@@ -304,7 +304,7 @@ export default function InventoryNewPage() {
 
       if (!parentRes.ok) {
         const err = await parentRes.json().catch(() => ({}));
-        throw new Error((err as any).error || "Failed to create product");
+        throw new Error((err as any).error?.message || (err as any).error || "Failed to create product");
       }
 
       const product = await parentRes.json();
@@ -332,7 +332,7 @@ export default function InventoryNewPage() {
             sellingPrice: vSelling,
             quantity: vQty,
             variantDimensions: combo,
-            sku: `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            sku: `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             allowFractional: vFractional,
             unit: vFractional ? vUnit : null,
             commissionSplitOverride: type === "service" ? commissionOverride : false,
@@ -341,7 +341,7 @@ export default function InventoryNewPage() {
           });
           if (!varRes.ok) {
             const err = await varRes.json().catch(() => ({}));
-            throw new Error((err as any).error || `Failed to create variant ${comboLabel(combo)}`);
+            throw new Error((err as any).error?.message || (err as any).error || `Failed to create variant ${comboLabel(combo)}`);
           }
         }
       } else {
@@ -360,7 +360,7 @@ export default function InventoryNewPage() {
         });
         if (!varRes.ok) {
           const err = await varRes.json().catch(() => ({}));
-          throw new Error((err as any).error || "Failed to create variant item");
+          throw new Error((err as any).error?.message || (err as any).error || "Failed to create variant item");
         }
       }
 
