@@ -8,6 +8,7 @@ import path from "path";
 import { csrfMiddleware } from "./csrf";
 import { startBookingReminderService } from "./services/BookingReminderService";
 import { startCreditReminderService } from "./services/CreditReminderService";
+import { runMigrations } from "./migrate";
 
 // Manually load .env file if DATABASE_URL is not already in env
 if (!process.env.DATABASE_URL) {
@@ -117,6 +118,8 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await runMigrations();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
