@@ -74,4 +74,11 @@ export const withCustomerId = makeSlugMiddleware(resolveCustomerId);
 export const withVendorId = makeSlugMiddleware(resolveVendorId);
 export const withVendorBillId = makeSlugMiddleware(resolveVendorBillId, "billId");
 export const withExpenseId = makeSlugMiddleware(resolveExpenseId);
-export const withProductId = makeSlugMiddleware(resolveProductId);
+// Resolves a product slug: checks products table first, then inventory (for legacy orphaned items)
+async function resolveProductOrInventoryId(param: string): Promise<string | null> {
+  const fromProducts = await resolveProductId(param);
+  if (fromProducts) return fromProducts;
+  return resolveInventoryId(param);
+}
+
+export const withProductId = makeSlugMiddleware(resolveProductOrInventoryId);
