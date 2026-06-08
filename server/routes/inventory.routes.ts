@@ -373,8 +373,6 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             parentProductId = existing.id;
           }
 
-          if (row.type?.toLowerCase() === "service") throw new Error("Services cannot have variants.");
-
           // Collect variant_* columns → variantDimensions object
           const variantDimensions: Record<string, string> = {};
           for (const [key, value] of Object.entries(row)) {
@@ -383,14 +381,19 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             }
           }
 
+          // Inherit type from parent product; fall back to row's type if provided
+          const parentProduct = await storage.getProduct(parentProductId);
+          const variantType = (parentProduct?.type ?? row.type?.toLowerCase() ?? "product") as "product" | "service";
+
           const variantName = toTitleCase(sanitizeString(row.name));
           await storage.createInventoryItem(insertInventorySchema.parse({
             storeId,
             name: variantName,
-            type: "product",
+            type: variantType,
             costPrice: parseFloat(row.costPrice) || 0,
             sellingPrice: parseFloat(row.sellingPrice) || 0,
-            quantity: parseInt(row.quantity) || 0,
+            // Services have no stock quantity
+            quantity: variantType === "service" ? 0 : (parseInt(row.quantity) || 0),
             productId: parentProductId,
             variantDimensions: Object.keys(variantDimensions).length ? variantDimensions : undefined,
           }));

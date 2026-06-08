@@ -5,8 +5,16 @@ import { useRoute, useLocation } from "wouter";
 import {
   ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock,
   Edit, Infinity, Info, AlertTriangle, Plus, Trash2, Layers, Wrench, BarChart2,
-  ShoppingBag, Tag, DollarSign
+  ShoppingBag, Tag, DollarSign, Pencil
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -43,6 +51,7 @@ import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/c
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { AddVariantsSheet } from "@/components/add-variants-sheet";
 
 const inventoryEditFormSchema = insertInventorySchema.refine(
   (data) => data.costPrice > 0,
@@ -135,43 +144,89 @@ export default function InventoryDetails() {
   });
 
   // --- VARIANTS ---
-  const [isVariantDialogOpen, setIsVariantDialogOpen] = useState(false);
-  const [newVariantData, setNewVariantData] = useState({
-    name: "", costPrice: 0, sellingPrice: 0, quantity: 0, size: "", color: "",
-  });
-  const [customAttrs, setCustomAttrs] = useState<{ key: string; value: string }[]>([]);
-  const [attrKey, setAttrKey] = useState("");
-  const [attrValue, setAttrValue] = useState("");
-
-  useEffect(() => {
-    if (!isVariantDialogOpen || !inventory) return;
-    const parts = [];
-    if (newVariantData.size) parts.push(newVariantData.size);
-    if (newVariantData.color) parts.push(newVariantData.color);
-    customAttrs.forEach(attr => { if (attr.value) parts.push(attr.value); });
-    const attrsStr = parts.join(" / ");
-    const generatedName = attrsStr ? `${inventory.name} - ${attrsStr}` : inventory.name;
-    setNewVariantData(prev => ({ ...prev, name: generatedName }));
-  }, [newVariantData.size, newVariantData.color, customAttrs, isVariantDialogOpen, inventory?.name]);
-
+  const [isAddVariantsSheetOpen, setIsAddVariantsSheetOpen] = useState(false);
   const variants = inventory?.variants || [];
 
-  const createVariantMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return apiRequest("POST", `/api/products/${inventoryId}/variants`, data);
+  // Per-variant edit dialog
+  const [editingVariant, setEditingVariant] = useState<any | null>(null);
+  const [editCost, setEditCost] = useState<number | "">("");
+  const [editSelling, setEditSelling] = useState<number | "">("");
+  const [editQty, setEditQty] = useState<number>(0);
+
+  const openVariantEdit = (v: any) => {
+    setEditingVariant(v);
+    setEditCost(Number(v.costPrice) || "");
+    setEditSelling(Number(v.sellingPrice) || "");
+    setEditQty(Number(v.quantity) || 0);
+  };
+
+  const variantEditMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingVariant) return;
+      const res = await apiRequest("PATCH", `/api/inventory/${editingVariant.id}`, {
+        costPrice: Number(editCost) || 0,
+        sellingPrice: Number(editSelling) || 0,
+        quantity: inventory?.type === "product" ? editQty : 0,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Failed to update variant");
+      }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/products", currentStore?.id] });
-      toast({ title: "Variant created successfully" });
-      setIsVariantDialogOpen(false);
-      setNewVariantData({ name: "", costPrice: 0, sellingPrice: 0, quantity: 0, size: "", color: "" });
-      setCustomAttrs([]);
-      setAttrKey(""); setAttrValue("");
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({ title: "Variant updated" });
+      setEditingVariant(null);
     },
-    onError: (error: Error) => {
-      toast({ title: "Failed to create variant", description: error.message, variant: "destructive" });
+    onError: (e: Error) =>
+      toast({ title: "Couldn't update variant", description: e.message, variant: "destructive" }),
+  });
+
+  // Per-variant delete / archive
+  const [deletingVariant, setDeletingVariant] = useState<any | null>(null);
+  const [variantDeleteBlockedBySales, setVariantDeleteBlockedBySales] = useState(false);
+
+  const variantDeleteMutation = useMutation({
+    mutationFn: async (v: any) => {
+      const res = await apiRequest("DELETE", `/api/inventory/${v.id}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Failed to delete variant");
+      }
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({ title: "Variant deleted" });
+      setDeletingVariant(null);
+      setVariantDeleteBlockedBySales(false);
+    },
+    onError: (e: Error) => {
+      const msg = e.message ?? "";
+      if (msg.includes("sales") || msg.includes("history") || msg.includes("records")) {
+        setVariantDeleteBlockedBySales(true);
+      } else {
+        toast({ title: "Couldn't delete variant", description: msg, variant: "destructive" });
+        setDeletingVariant(null);
+      }
+    },
+  });
+
+  const variantArchiveMutation = useMutation({
+    mutationFn: async (v: any) =>
+      apiRequest("POST", `/api/inventory/${v.id}/archive`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
+      toast({ title: "Variant archived", description: `"${deletingVariant?.name}" is now hidden from active inventory.` });
+      setDeletingVariant(null);
+      setVariantDeleteBlockedBySales(false);
+    },
+    onError: (e: Error) =>
+      toast({ title: "Couldn't archive variant", description: e.message, variant: "destructive" }),
   });
 
   // --- FIFO EXPIRY BATCHES ---
@@ -560,12 +615,14 @@ export default function InventoryDetails() {
                   : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
                   {isService ? "Service" : isBundle ? "Bundle" : "Product"}
                 </Badge>
-                <Badge
-                  variant={stockStatus.variant}
-                  className={cn("font-medium", stockStatus.color)}
-                >
-                  {stockStatus.label}
-                </Badge>
+                {!isService && (
+                  <Badge
+                    variant={stockStatus.variant}
+                    className={cn("font-medium", stockStatus.color)}
+                  >
+                    {stockStatus.label}
+                  </Badge>
+                )}
                 {inventory.isProductGroup && !isSimpleProduct && (
                   <Badge variant="secondary" className="text-xs">
                     {variantsList.length} variants
@@ -683,19 +740,65 @@ export default function InventoryDetails() {
         {/* OVERVIEW TAB */}
         <TabsContent value="overview" className="space-y-4 mt-0">
           {isService ? (
-            <Card>
-              <CardContent className="pt-5">
-                <div className="flex items-start gap-3 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <>
+              {/* Service pricing metrics */}
+              {(() => {
+                const vl: any[] = variantsList.length > 0 ? variantsList : (primaryVariant ? [primaryVariant] : []);
+                const hasPrices = vl.length > 0 && vl.some((v: any) => v.sellingPrice > 0);
+                if (!hasPrices) return null;
+
+                const profits = vl.map((v: any) => Number(v.sellingPrice) - Number(v.costPrice));
+                const costs = vl.map((v: any) => Number(v.costPrice));
+                const sellings = vl.map((v: any) => Number(v.sellingPrice));
+                const lo = (arr: number[]) => Math.min(...arr);
+                const hi = (arr: number[]) => Math.max(...arr);
+                const single = vl.length === 1;
+                const fmt = formatCurrency;
+                const range = (min: number, max: number) =>
+                  min === max ? fmt(min) : `${fmt(min)} – ${fmt(max)}`;
+
+                return (
                   <div>
-                    <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Service Item</p>
-                    <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
-                      Services have unlimited availability and don't require stock tracking. Every sale of this service earns {formatCurrency(profit)} in profit.
-                    </p>
+                    <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-0.5">Pricing</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Tag className="h-3 w-3" /> Cost Price
+                        </p>
+                        <p className="font-mono font-semibold text-lg">
+                          {single ? fmt(costs[0]) : range(lo(costs), hi(costs))}
+                        </p>
+                        {!single && lo(costs) !== hi(costs) && (
+                          <p className="text-xs text-muted-foreground">range across {vl.length} variants</p>
+                        )}
+                      </div>
+                      <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <ShoppingBag className="h-3 w-3" /> Selling Price
+                        </p>
+                        <p className="font-mono font-semibold text-lg">
+                          {single ? fmt(sellings[0]) : range(lo(sellings), hi(sellings))}
+                        </p>
+                        {!single && lo(sellings) !== hi(sellings) && (
+                          <p className="text-xs text-muted-foreground">per variant</p>
+                        )}
+                      </div>
+                      <div className="p-4 rounded-xl border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800 space-y-1">
+                        <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                          <TrendingUp className="h-3 w-3" /> Profit per Sale
+                        </p>
+                        <p className={cn("font-mono font-semibold text-lg",
+                          lo(profits) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                        )}>
+                          {single ? fmt(profits[0]) : range(lo(profits), hi(profits))}
+                        </p>
+                        <p className="text-xs text-green-600 dark:text-green-500">per booking / sale</p>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                );
+              })()}
+            </>
           ) : (
             <>
               {/* Stock Value Summary */}
@@ -1038,9 +1141,9 @@ export default function InventoryDetails() {
                     : "Size, color, and other dimensions grouped under this product."}
                 </CardDescription>
               </div>
-              <Button onClick={() => setLocation(`/inventory/${inventoryId}/variants/new`)}>
+              <Button onClick={() => setIsAddVariantsSheetOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Variant
+                Add Variants
               </Button>
             </CardHeader>
             <CardContent>
@@ -1053,7 +1156,7 @@ export default function InventoryDetails() {
                       ? "Create different packages, durations, or tiers with their own pricing."
                       : "Create size, color, or other options to track stock separately."}
                   </p>
-                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setLocation(`/inventory/${inventoryId}/variants/new`)}>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setIsAddVariantsSheetOpen(true)}>
                     <Plus className="h-3.5 w-3.5 mr-1.5" /> Create First Variant
                   </Button>
                 </div>
@@ -1103,6 +1206,15 @@ export default function InventoryDetails() {
                       key: "action", header: "",
                       render: (row: any) => (
                         <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Edit prices / stock"
+                            onClick={(e) => { e.stopPropagation(); openVariantEdit(row); }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}`)}>
                             Details
                           </Button>
@@ -1111,6 +1223,19 @@ export default function InventoryDetails() {
                               Restock
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            title="Delete or archive this variant"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeletingVariant(row);
+                              setVariantDeleteBlockedBySales(false);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       )
                     },
@@ -1242,6 +1367,160 @@ export default function InventoryDetails() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Variant delete / archive dialog */}
+      {deletingVariant && (
+        variantDeleteBlockedBySales ? (
+          <Dialog open onOpenChange={(open) => { if (!open) { setDeletingVariant(null); setVariantDeleteBlockedBySales(false); } }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  Cannot Delete "{deletingVariant.name}"
+                </DialogTitle>
+                <DialogDescription className="pt-1">
+                  This variant has existing sales records that must be preserved.
+                  You can <strong>archive</strong> it instead — it will be hidden from
+                  active inventory and cannot be sold, but all past sales remain intact.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2 pt-2">
+                <Button
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                  disabled={variantArchiveMutation.isPending}
+                  onClick={() => variantArchiveMutation.mutate(deletingVariant)}
+                >
+                  {variantArchiveMutation.isPending ? "Archiving…" : "Archive Variant"}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => { setDeletingVariant(null); setVariantDeleteBlockedBySales(false); }}>
+                  Cancel
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : (
+          <Dialog open onOpenChange={(open) => { if (!open) setDeletingVariant(null); }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                  Delete Variant?
+                </DialogTitle>
+                <DialogDescription className="pt-1 space-y-2">
+                  <p>
+                    Permanently delete <span className="font-semibold">"{deletingVariant.name}"</span>?
+                    This cannot be undone.
+                  </p>
+                  {variants.length <= 1 && (
+                    <p className="text-amber-600 dark:text-amber-400 text-xs font-medium">
+                      This is the only variant. Deleting it will leave the product with no variants.
+                    </p>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2 pt-2">
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  disabled={variantDeleteMutation.isPending}
+                  onClick={() => variantDeleteMutation.mutate(deletingVariant)}
+                >
+                  {variantDeleteMutation.isPending ? "Deleting…" : "Delete Permanently"}
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => setDeletingVariant(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )
+      )}
+
+      {/* Variant edit dialog */}
+      <Dialog open={!!editingVariant} onOpenChange={(open) => { if (!open) setEditingVariant(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Pencil className="h-4 w-4" />
+              Edit Variant
+            </DialogTitle>
+            <DialogDescription className="truncate">
+              {editingVariant?.name}
+              {editingVariant?.variantDimensions && Object.keys(editingVariant.variantDimensions).length > 0 && (
+                <span className="ml-2 text-xs">
+                  ({Object.entries(editingVariant.variantDimensions as Record<string,string>).map(([k,v]) => `${k}: ${v}`).join(", ")})
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="ev-cost">Cost Price</Label>
+                <Input
+                  id="ev-cost"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={editCost}
+                  onChange={(e) => setEditCost(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ev-selling">Selling Price</Label>
+                <Input
+                  id="ev-selling"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={editSelling}
+                  onChange={(e) => setEditSelling(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                />
+              </div>
+            </div>
+            {inventory?.type === "product" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ev-qty">Stock Quantity</Label>
+                <Input
+                  id="ev-qty"
+                  type="number"
+                  min="0"
+                  step={editingVariant?.allowFractional ? "0.01" : "1"}
+                  value={editQty}
+                  onChange={(e) => setEditQty(editingVariant?.allowFractional ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 0)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use Restock to add stock with cost tracking. Edit stock here only for corrections.
+                </p>
+              </div>
+            )}
+            <Separator />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditingVariant(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => variantEditMutation.mutate()}
+                disabled={variantEditMutation.isPending || !editCost || !editSelling}
+              >
+                {variantEditMutation.isPending ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Variants Sheet */}
+      {inventory && (
+        <AddVariantsSheet
+          open={isAddVariantsSheetOpen}
+          onOpenChange={setIsAddVariantsSheetOpen}
+          parentId={inventoryId!}
+          parentName={inventory.name}
+          parentType={inventory.type}
+        />
+      )}
     </div>
   );
 }
