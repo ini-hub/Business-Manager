@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import {
   ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock,
-  Edit, Infinity, Info, AlertTriangle, Plus, Trash2, Layers, Wrench, BarChart2,
+  Edit, Infinity, Info, AlertTriangle, Archive, Plus, Trash2, Layers, Wrench, BarChart2,
   ShoppingBag, Tag, DollarSign, Pencil
 } from "lucide-react";
 import {
@@ -1197,9 +1197,6 @@ export default function InventoryDetails() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}`)}>
-                            Details
-                          </Button>
                           {row.type === "product" && (
                             <Button variant="outline" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}/restock`)}>
                               Restock
@@ -1208,15 +1205,18 @@ export default function InventoryDetails() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            title="Delete or archive this variant"
+                            className="h-7 w-7 text-muted-foreground"
+                            title={row.hasSales ? "Archive variant" : "Delete variant"}
                             onClick={(e) => {
                               e.stopPropagation();
                               setDeletingVariant(row);
-                              setVariantDeleteBlockedBySales(false);
+                              setVariantDeleteBlockedBySales(!!row.hasSales);
                             }}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            {row.hasSales
+                              ? <Archive className="h-3.5 w-3.5 text-amber-500" />
+                              : <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                            }
                           </Button>
                         </div>
                       )
@@ -1357,13 +1357,11 @@ export default function InventoryDetails() {
             <DialogContent className="max-w-sm">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  Cannot Delete "{deletingVariant.name}"
+                  <Archive className="h-5 w-5 text-amber-500" />
+                  Archive "{deletingVariant.name}"?
                 </DialogTitle>
                 <DialogDescription className="pt-1">
-                  This variant has existing sales records that must be preserved.
-                  You can <strong>archive</strong> it instead — it will be hidden from
-                  active inventory and cannot be sold, but all past sales remain intact.
+                  This variant has sales history, so it cannot be permanently deleted. Archiving will hide it from active inventory and prevent new sales, while keeping all past records intact.
                 </DialogDescription>
               </DialogHeader>
               <div className="flex flex-col gap-2 pt-2">
@@ -1419,79 +1417,175 @@ export default function InventoryDetails() {
       )}
 
       {/* Variant edit dialog */}
-      <Dialog open={!!editingVariant} onOpenChange={(open) => { if (!open) setEditingVariant(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Pencil className="h-4 w-4" />
-              Edit Variant
-            </DialogTitle>
-            <DialogDescription className="truncate">
-              {editingVariant?.name}
-              {editingVariant?.variantDimensions && Object.keys(editingVariant.variantDimensions).length > 0 && (
-                <span className="ml-2 text-xs">
-                  ({Object.entries(editingVariant.variantDimensions as Record<string,string>).map(([k,v]) => `${k}: ${v}`).join(", ")})
-                </span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-1">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="ev-cost">Cost Price</Label>
-                <Input
-                  id="ev-cost"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={editCost}
-                  onChange={(e) => setEditCost(e.target.value === "" ? "" : parseFloat(e.target.value))}
-                  autoFocus
-                />
+      {editingVariant && (() => {
+        const cost = editCost === "" ? 0 : Number(editCost);
+        const sell = editSelling === "" ? 0 : Number(editSelling);
+        const profit = sell - cost;
+        const margin = sell > 0 ? (profit / sell) * 100 : 0;
+        const priceInvalid = editCost !== "" && editSelling !== "" && sell < cost;
+        const dims = editingVariant.variantDimensions as Record<string, string> | null;
+        const dimEntries = dims ? Object.entries(dims).filter(([, v]) => !!v) : [];
+        const isProduct = inventory?.type === "product";
+
+        return (
+          <Dialog open onOpenChange={(open) => { if (!open) setEditingVariant(null); }}>
+            <DialogContent className="max-w-md p-0 overflow-hidden gap-0">
+              {/* ── Identity header ── */}
+              <div className="px-6 pt-6 pb-5 border-b bg-muted/30">
+                <div className="flex items-start gap-3">
+                  <div className={cn(
+                    "p-2.5 rounded-lg border shrink-0",
+                    isProduct
+                      ? "bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800"
+                      : "bg-violet-50 border-violet-200 dark:bg-violet-950/30 dark:border-violet-800"
+                  )}>
+                    {isProduct
+                      ? <Package className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+                      : <Wrench className="h-5 w-5 text-violet-600 dark:text-violet-400" />}
+                  </div>
+                  <div className="min-w-0">
+                    <DialogTitle className="text-base font-semibold leading-snug truncate">
+                      {editingVariant.name}
+                    </DialogTitle>
+                    {dimEntries.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {dimEntries.map(([k, v]) => (
+                          <Badge key={k} variant="secondary" className="text-[11px] h-5 font-normal gap-1">
+                            <span className="text-muted-foreground">{k}:</span>
+                            <span className="font-medium">{v}</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ev-selling">Selling Price</Label>
-                <Input
-                  id="ev-selling"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={editSelling}
-                  onChange={(e) => setEditSelling(e.target.value === "" ? "" : parseFloat(e.target.value))}
-                />
+
+              <div className="px-6 py-5 space-y-5">
+                {/* ── Pricing section ── */}
+                <div className="space-y-3">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Pricing</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ev-cost" className="text-sm">Cost Price</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                          {formatCurrency(0).replace(/[\d,. ]+/, "")}
+                        </span>
+                        <Input
+                          id="ev-cost"
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          placeholder="0.00"
+                          value={editCost}
+                          onChange={(e) => setEditCost(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                          className={cn("pl-7", priceInvalid && "border-destructive focus-visible:ring-destructive")}
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ev-selling" className="text-sm">Selling Price</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                          {formatCurrency(0).replace(/[\d,. ]+/, "")}
+                        </span>
+                        <Input
+                          id="ev-selling"
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          placeholder="0.00"
+                          value={editSelling}
+                          onChange={(e) => setEditSelling(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                          className={cn("pl-7", priceInvalid && "border-destructive focus-visible:ring-destructive")}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live margin row */}
+                  {editCost !== "" && editSelling !== "" && (
+                    priceInvalid ? (
+                      <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        <p className="text-xs text-destructive font-medium">Selling price cannot be less than cost price.</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between rounded-lg bg-muted/40 border px-3 py-2">
+                        <span className="text-xs text-muted-foreground">Profit per sale</span>
+                        <div className="flex items-center gap-3">
+                          <span className={cn(
+                            "text-sm font-mono font-semibold",
+                            profit >= 0 ? "text-green-600 dark:text-green-400" : "text-destructive"
+                          )}>
+                            {formatCurrency(profit)}
+                          </span>
+                          <Badge variant="outline" className={cn(
+                            "text-[11px] h-5 font-medium",
+                            profit >= 0
+                              ? "text-green-700 border-green-200 bg-green-50 dark:bg-green-950/20"
+                              : "text-destructive border-destructive/30 bg-destructive/5"
+                          )}>
+                            {margin.toFixed(1)}%
+                          </Badge>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+
+                {/* ── Stock section (products only) ── */}
+                {isProduct && (
+                  <>
+                    <Separator />
+                    <div className="space-y-3">
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Stock</p>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ev-qty" className="text-sm">
+                          Quantity{editingVariant.unit ? ` (${editingVariant.unit})` : ""}
+                        </Label>
+                        <Input
+                          id="ev-qty"
+                          type="number"
+                          min="0"
+                          step={editingVariant.allowFractional ? "0.01" : "1"}
+                          value={editQty}
+                          onChange={(e) => setEditQty(
+                            editingVariant.allowFractional
+                              ? parseFloat(e.target.value) || 0
+                              : parseInt(e.target.value) || 0
+                          )}
+                        />
+                      </div>
+                      <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
+                        <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                          Use <strong>Restock</strong> to add stock — it tracks unit cost and updates profitability. Edit quantity here only to correct a counting error.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ── Actions ── */}
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="outline" onClick={() => setEditingVariant(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => variantEditMutation.mutate()}
+                    disabled={variantEditMutation.isPending || !editCost || !editSelling || priceInvalid}
+                  >
+                    {variantEditMutation.isPending ? "Saving…" : "Save Changes"}
+                  </Button>
+                </div>
               </div>
-            </div>
-            {inventory?.type === "product" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="ev-qty">Stock Quantity</Label>
-                <Input
-                  id="ev-qty"
-                  type="number"
-                  min="0"
-                  step={editingVariant?.allowFractional ? "0.01" : "1"}
-                  value={editQty}
-                  onChange={(e) => setEditQty(editingVariant?.allowFractional ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 0)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Use Restock to add stock with cost tracking. Edit stock here only for corrections.
-                </p>
-              </div>
-            )}
-            <Separator />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setEditingVariant(null)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => variantEditMutation.mutate()}
-                disabled={variantEditMutation.isPending || !editCost || !editSelling}
-              >
-                {variantEditMutation.isPending ? "Saving…" : "Save Changes"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* Add Variants Sheet */}
       {inventory && (

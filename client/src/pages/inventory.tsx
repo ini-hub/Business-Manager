@@ -812,11 +812,16 @@ export default function InventoryPage() {
             onClick={(e) => {
               e.stopPropagation();
               setSelectedItem(item);
+              setDeleteBlockedBySales(!!item.hasSales);
               setIsDeleteOpen(true);
             }}
             data-testid={`button-delete-${item.id}`}
+            title={item.hasSales ? "Archive item" : "Delete item"}
           >
-            <Trash2 className="h-4 w-4" />
+            {item.hasSales
+              ? <Archive className="h-4 w-4 text-amber-500" />
+              : <Trash2 className="h-4 w-4 text-destructive" />
+            }
           </Button>
         </div>
       ),
@@ -1284,13 +1289,11 @@ export default function InventoryPage() {
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <ArchiveX className="h-5 w-5 text-amber-500" />
-                Cannot Delete "{selectedItem?.name}"
+                <Archive className="h-5 w-5 text-amber-500" />
+                Archive "{selectedItem?.name}"?
               </DialogTitle>
               <DialogDescription className="pt-1">
-                This item has existing sales records that must be preserved for your reports and history.
-                <br /><br />
-                You can <strong>archive</strong> it instead — it will be hidden from your active inventory and can no longer be sold, but all past sales and reports remain unaffected.
+                This item has sales history, so it cannot be permanently deleted. Archiving will hide it from your active inventory and prevent new sales, while keeping all past records intact.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-2 pt-2">

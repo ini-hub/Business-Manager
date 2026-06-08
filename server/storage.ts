@@ -831,6 +831,10 @@ export class DatabaseStorage implements IStorage {
     return this.productRepo.deleteProduct(id);
   }
 
+  async hardDeleteProduct(id: string): Promise<boolean> {
+    return this.productRepo.hardDeleteProduct(id);
+  }
+
   async getArchivedProducts(storeId: string): Promise<any[]> {
     return this.productRepo.getArchivedProducts(storeId);
   }
@@ -874,6 +878,10 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInventoryItem(id: string): Promise<boolean> {
     return this.inventoryRepo.deleteInventoryItem(id);
+  }
+
+  async hardDeleteInventoryItem(id: string): Promise<boolean> {
+    return this.inventoryRepo.hardDeleteInventoryItem(id);
   }
 
   async hasInventoryTransactions(id: string): Promise<boolean> {

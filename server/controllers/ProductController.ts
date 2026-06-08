@@ -17,6 +17,7 @@ export class ProductController extends BaseController {
     router.delete("/products/:id", isAuthenticated, withProductId, this.deleteProduct.bind(this));
     router.post("/products/:id/variants", isAuthenticated, withProductId, this.createVariant.bind(this));
     router.post("/products/:id/restore", isAuthenticated, withProductId, this.restoreProduct.bind(this));
+    router.delete("/products/:id/permanent", isAuthenticated, withProductId, this.permanentDeleteProduct.bind(this));
   }
 
   private isManagerOrOwner(req: Request): boolean {
@@ -231,6 +232,37 @@ export class ProductController extends BaseController {
       return this.ok(res, { success: true });
     } catch {
       return this.error(res, "We couldn't restore this item. Please try again.");
+    }
+  }
+
+  private async permanentDeleteProduct(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!this.isManagerOrOwner(req)) {
+        return this.forbidden(res, "Only managers or owners can permanently delete items.");
+      }
+
+      const product = await storage.getProductByIdRaw(req.params.id);
+      if (!product) return this.notFound(res, "Product not found.");
+
+      if (!(await this.verifyStoreAccess(req, product.storeId))) {
+        return this.forbidden(res, "You don't have access to this product.");
+      }
+
+      // Block permanent deletion if any variant has sales history
+      for (const variant of product.variants || []) {
+        if (await storage.hasInventoryTransactions(variant.id)) {
+          return this.badRequest(
+            res,
+            "Cannot permanently delete — this item has sales records that must be preserved for your reports."
+          );
+        }
+      }
+
+      await storage.hardDeleteProduct(req.params.id);
+      return res.sendStatus(204);
+    } catch (error: any) {
+      console.error("[permanentDeleteProduct]", error);
+      return this.error(res, "We couldn't permanently delete this item. Please try again.");
     }
   }
 

@@ -7,7 +7,7 @@ import {
   expenses,
   products,
 } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
 
 const UUID_REGEX =
@@ -49,6 +49,28 @@ export const resolveVendorBillId = (p: string) => resolveParam(p, vendorBills);
 export const resolveExpenseId = (p: string) => resolveParam(p, expenses);
 export const resolveProductId = (p: string) => resolveParam(p, products);
 
+/**
+ * Resolves a product slug. If the slug matches an inventory item (variant)
+ * rather than a product group, returns the variant's parent product ID instead.
+ * This allows variant URLs to transparently serve the parent product group page.
+ */
+async function resolveProductOrParentId(param: string): Promise<string | null> {
+  // 1. Try the products table directly
+  const productId = await resolveProductId(param);
+  if (productId) return productId;
+
+  // 2. Try the inventory table — if found, return the parent product's ID
+  const variantId = await resolveInventoryId(param);
+  if (!variantId) return null;
+
+  const [row] = await db
+    .select({ productId: inventory.productId })
+    .from(inventory)
+    .where(eq(inventory.id, variantId))
+    .limit(1);
+
+  return row?.productId ?? null;
+}
 
 // ── Express middleware factory ──────────────────────────────────────────────
 
@@ -75,4 +97,4 @@ export const withCustomerId = makeSlugMiddleware(resolveCustomerId);
 export const withVendorId = makeSlugMiddleware(resolveVendorId);
 export const withVendorBillId = makeSlugMiddleware(resolveVendorBillId, "billId");
 export const withExpenseId = makeSlugMiddleware(resolveExpenseId);
-export const withProductId = makeSlugMiddleware(resolveProductId);
+export const withProductId = makeSlugMiddleware(resolveProductOrParentId);

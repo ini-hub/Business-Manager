@@ -136,6 +136,11 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
     return result.length > 0;
   }
 
+  async hardDeleteInventoryItem(id: string): Promise<boolean> {
+    const result = await db.delete(inventory).where(eq(inventory.id, id)).returning();
+    return result.length > 0;
+  }
+
   async hasInventoryTransactions(id: string): Promise<boolean> {
     const result = await db.select({ count: count() }).from(transactions).where(eq(transactions.inventoryId, id));
     return result[0].count > 0;
