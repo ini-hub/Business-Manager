@@ -127,15 +127,23 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       for (const item of items) {
         try {
           const data = bulkItemSchema.parse(item);
+          const itemName = toTitleCase(sanitizeString(data.name));
+
+          // Ensure a product group exists before creating the inventory item
+          let product = await storage.getProductByName(storeId, itemName);
+          if (!product) {
+            product = await storage.createProduct({ storeId, name: itemName, type: data.type });
+          }
 
           await storage.createInventoryItem({
             storeId,
-            name: data.name,
+            name: itemName,
             type: data.type,
             quantity: data.quantity,
             costPrice: data.costPrice,
             sellingPrice: data.sellingPrice,
             allowFractional: false,
+            productId: product.id,
           });
           results.success++;
         } catch (err: any) {
@@ -874,6 +882,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         sellingPrice: sanitizeNumber(sellingPrice),
         quantity: parentItem.type === "product" ? sanitizeNumber(quantity) : 0,
         parentInventoryId: parentItem.id,
+        productId: parentItem.productId,
         variantDimensions: variantDimensions || {},
         allowFractional: parentItem.allowFractional,
         unit: parentItem.unit,

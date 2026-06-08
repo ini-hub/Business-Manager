@@ -83,23 +83,16 @@ export default function InventoryDetails() {
   const { data: inventory, isLoading: itemLoading } = useQuery<any>({
     queryKey: ["inventory-detail", inventoryId],
     queryFn: async () => {
-      const prodRes = await fetch(`/api/products/${inventoryId}`);
-      if (prodRes.ok) {
-        const prod = await prodRes.json();
-        return { isProductGroup: true, ...prod };
-      }
-      const invRes = await fetch(`/api/inventory/${inventoryId}`);
-      if (invRes.ok) {
-        const inv = await invRes.json();
-        return { isProductGroup: false, ...inv };
-      }
-      throw new Error("Item not found");
+      const res = await fetch(`/api/products/${inventoryId}`);
+      if (!res.ok) throw new Error("Item not found");
+      return res.json();
     },
     enabled: !!inventoryId,
   });
 
-  const isSimpleProduct = inventory?.isProductGroup && inventory?.variants && inventory?.variants.length === 1;
-  const primaryVariant = isSimpleProduct ? inventory.variants[0] : (!inventory?.isProductGroup ? inventory : null);
+  // Every item is now a product group; "simple" = exactly one variant
+  const isSimpleProduct = inventory?.variants?.length === 1;
+  const primaryVariant = isSimpleProduct ? inventory.variants[0] : null;
   const activeVariantId = primaryVariant?.id;
 
   const [isRestockOpen, setIsRestockOpen] = useState(false);
@@ -362,7 +355,7 @@ export default function InventoryDetails() {
 
   const getStockStatus = (item: any) => {
     if (item.type === "service") return { label: "Service", variant: "secondary" as const, color: "" };
-    const qty = item.isProductGroup ? totalQuantity : (item.quantity || 0);
+    const qty = totalQuantity;
     if (qty === 0) return { label: "Out of Stock", variant: "destructive" as const, color: "" };
     if (qty <= lowStockThreshold) return { label: "Low Stock", variant: "secondary" as const, color: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100" };
     return { label: "In Stock", variant: "secondary" as const, color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" };
@@ -527,25 +520,14 @@ export default function InventoryDetails() {
   const minSelling = variantsList.length > 0 ? Math.min(...variantsList.map((v: any) => v.sellingPrice)) : 0;
   const maxSelling = variantsList.length > 0 ? Math.max(...variantsList.map((v: any) => v.sellingPrice)) : 0;
 
-  const costPrice = inventory.isProductGroup
-    ? (isSimpleProduct ? (primaryVariant?.costPrice ?? 0) : 0)
-    : (inventory.costPrice ?? 0);
-  const sellingPrice = inventory.isProductGroup
-    ? (isSimpleProduct ? (primaryVariant?.sellingPrice ?? 0) : 0)
-    : (inventory.sellingPrice ?? 0);
+  const costPrice = isSimpleProduct ? (primaryVariant?.costPrice ?? 0) : 0;
+  const sellingPrice = isSimpleProduct ? (primaryVariant?.sellingPrice ?? 0) : 0;
   const profit = sellingPrice - costPrice;
   const profitMargin = costPrice > 0 ? (profit / sellingPrice) * 100 : 0;
 
-  const totalQuantity = inventory.isProductGroup
-    ? variantsList.reduce((sum: number, v: any) => sum + (v.quantity || 0), 0)
-    : (inventory.quantity || 0);
-
-  const totalCostValue = inventory.isProductGroup
-    ? variantsList.reduce((sum: number, v: any) => sum + ((v.costPrice || 0) * (v.quantity || 0)), 0)
-    : (costPrice * totalQuantity);
-  const totalSellingValue = inventory.isProductGroup
-    ? variantsList.reduce((sum: number, v: any) => sum + ((v.sellingPrice || 0) * (v.quantity || 0)), 0)
-    : (sellingPrice * totalQuantity);
+  const totalQuantity = variantsList.reduce((sum: number, v: any) => sum + (v.quantity || 0), 0);
+  const totalCostValue = variantsList.reduce((sum: number, v: any) => sum + ((v.costPrice || 0) * (v.quantity || 0)), 0);
+  const totalSellingValue = variantsList.reduce((sum: number, v: any) => sum + ((v.sellingPrice || 0) * (v.quantity || 0)), 0);
   const totalPotentialProfit = totalSellingValue - totalCostValue;
 
   const stockStatus = getStockStatus(inventory);
@@ -623,7 +605,7 @@ export default function InventoryDetails() {
                     {stockStatus.label}
                   </Badge>
                 )}
-                {inventory.isProductGroup && !isSimpleProduct && (
+                {!isSimpleProduct && (
                   <Badge variant="secondary" className="text-xs">
                     {variantsList.length} variants
                   </Badge>
@@ -643,7 +625,7 @@ export default function InventoryDetails() {
                 Cost Price
               </p>
               <p className="font-mono font-semibold text-base" data-testid="text-cost-price">
-                {inventory.isProductGroup && !isSimpleProduct
+                {!isSimpleProduct
                   ? (minCost === maxCost ? formatCurrency(minCost) : `${formatCurrency(minCost)} – ${formatCurrency(maxCost)}`)
                   : formatCurrency(costPrice)
                 }
@@ -657,7 +639,7 @@ export default function InventoryDetails() {
                 Selling Price
               </p>
               <p className="font-mono font-semibold text-base" data-testid="text-selling-price">
-                {inventory.isProductGroup && !isSimpleProduct
+                {!isSimpleProduct
                   ? (minSelling === maxSelling ? formatCurrency(minSelling) : `${formatCurrency(minSelling)} – ${formatCurrency(maxSelling)}`)
                   : formatCurrency(sellingPrice)
                 }
@@ -670,7 +652,7 @@ export default function InventoryDetails() {
                 <TrendingUp className="h-3 w-3" />
                 Profit / Unit
               </p>
-              {inventory.isProductGroup && !isSimpleProduct
+              {!isSimpleProduct
                 ? <p className="text-sm text-muted-foreground">See variants matrix</p>
                 : (
                   <div>
@@ -731,7 +713,7 @@ export default function InventoryDetails() {
             ...(inventory.type === "product" && !!activeVariantId ? [{ value: "restock-history", label: "Restock History" }] : []),
             ...(!!activeVariantId ? [{ value: "sustaining-costs", label: "Profitability" }] : []),
             ...(isBundle && !!activeVariantId ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
-            ...(inventory.isProductGroup ? [{ value: "variants", label: "Variants" }] : []),
+            { value: "variants", label: "Variants" },
             ...(inventory.type === "product" && !isBundle && !!activeVariantId ? [{ value: "expiry-batches", label: "Expiry Batches" }] : []),
           ]}
           variant="default"

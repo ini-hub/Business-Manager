@@ -288,7 +288,7 @@ export const inventory = pgTable("inventory", {
   commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),
   isBundle: boolean("is_bundle").default(false).notNull(),
   parentInventoryId: varchar("parent_inventory_id"), // Self-referencing foreign key later
-  productId: varchar("product_id").references(() => products.id),
+  productId: varchar("product_id").notNull().references(() => products.id),
   sku: text("sku"),
   barcode: text("barcode"),
   variantDimensions: jsonb("variant_dimensions"),
@@ -426,7 +426,7 @@ export const insertInventorySchema = createInsertSchema(inventory).omit({ id: tr
   quantity: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number().min(0)).default(0),
   costPrice: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number()),
   sellingPrice: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number()),
-  productId: z.string().optional().nullable(),
+  productId: z.string().min(1, "Product group ID is required"),
   sku: z.string().optional().nullable(),
   barcode: z.string().optional().nullable(),
   allowFractional: z.boolean().optional().default(false),

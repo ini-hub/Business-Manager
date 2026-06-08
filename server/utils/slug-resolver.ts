@@ -49,6 +49,7 @@ export const resolveVendorBillId = (p: string) => resolveParam(p, vendorBills);
 export const resolveExpenseId = (p: string) => resolveParam(p, expenses);
 export const resolveProductId = (p: string) => resolveParam(p, products);
 
+
 // ── Express middleware factory ──────────────────────────────────────────────
 
 function makeSlugMiddleware(
@@ -74,11 +75,4 @@ export const withCustomerId = makeSlugMiddleware(resolveCustomerId);
 export const withVendorId = makeSlugMiddleware(resolveVendorId);
 export const withVendorBillId = makeSlugMiddleware(resolveVendorBillId, "billId");
 export const withExpenseId = makeSlugMiddleware(resolveExpenseId);
-// Resolves a product slug: checks products table first, then inventory (for legacy orphaned items)
-async function resolveProductOrInventoryId(param: string): Promise<string | null> {
-  const fromProducts = await resolveProductId(param);
-  if (fromProducts) return fromProducts;
-  return resolveInventoryId(param);
-}
-
-export const withProductId = makeSlugMiddleware(resolveProductOrInventoryId);
+export const withProductId = makeSlugMiddleware(resolveProductId);

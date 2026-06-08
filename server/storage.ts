@@ -865,23 +865,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {
-    let productId = item.productId;
-    if (!productId) {
-      // Find or create product group for simple items
-      let product = await this.productRepo.getProductByName(item.storeId, item.name);
-      if (!product) {
-        product = await this.productRepo.createProduct({
-          storeId: item.storeId,
-          name: item.name,
-          type: item.type,
-        });
-      }
-      productId = product.id;
-    }
-    return this.inventoryRepo.createInventoryItem({
-      ...item,
-      productId,
-    });
+    return this.inventoryRepo.createInventoryItem(item);
   }
 
   async updateInventoryItem(id: string, itemData: Partial<InsertInventory>): Promise<Inventory | undefined> {

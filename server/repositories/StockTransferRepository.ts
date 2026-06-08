@@ -5,6 +5,7 @@ import {
   stockTransferItems,
   stores,
   inventory,
+  products,
   inventoryRestockEvents,
   profitLoss,
   type StockTransfer,
@@ -14,7 +15,7 @@ import {
   type Inventory,
   type Store,
 } from "@shared/schema";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, sql } from "drizzle-orm";
 
 export class StockTransferRepository extends BaseRepository<typeof stockTransfers> {
   constructor() {
@@ -209,7 +210,24 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
               reason: "Regular Restock",
             });
           } else {
-            // Create a brand new inventory item for the destination store
+            // Create a product group + inventory item for the destination store
+            const [newProduct] = await tx
+              .insert(products)
+              .values({
+                storeId: transfer.toStoreId,
+                name: line.inv.name,
+                type: line.inv.type,
+              })
+              .onConflictDoNothing()
+              .returning();
+            // If product already exists for this store, look it up
+            const destProduct = newProduct ?? await tx.query.products.findFirst({
+              where: and(
+                eq(products.storeId, transfer.toStoreId),
+                sql`lower(${products.name}) = ${line.inv.name.toLowerCase()}`
+              ),
+            });
+
             const [newDestItem] = await tx
               .insert(inventory)
               .values({
@@ -222,6 +240,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
                 commissionSplitOverride: line.inv.commissionSplitOverride,
                 commissionSplitBusinessShare: line.inv.commissionSplitBusinessShare,
                 commissionSplitStaffShare: line.inv.commissionSplitStaffShare,
+                productId: destProduct!.id,
               })
               .returning();
 

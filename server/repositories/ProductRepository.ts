@@ -6,7 +6,7 @@ import {
   type Product,
   type InsertProduct,
 } from "@shared/schema";
-import { eq, and, or, ilike, asc, isNull, sql, count } from "drizzle-orm";
+import { eq, and, or, ilike, asc, sql, count } from "drizzle-orm";
 
 export interface PaginationOptions {
   page: number;
@@ -31,7 +31,7 @@ export class ProductRepository extends BaseRepository<typeof products> {
   }
 
   async getProducts(storeId: string): Promise<any[]> {
-    const fromProducts = await db.query.products.findMany({
+    return db.query.products.findMany({
       where: and(eq(products.storeId, storeId), eq(products.isDeleted, false)),
       with: {
         variants: {
@@ -40,38 +40,6 @@ export class ProductRepository extends BaseRepository<typeof products> {
       },
       orderBy: asc(products.name),
     });
-
-    // Fallback: include legacy inventory items that were never linked to a product group.
-    // These exist in stores that were set up before the products table was introduced.
-    const orphaned = await db
-      .select()
-      .from(inventory)
-      .where(and(
-        eq(inventory.storeId, storeId),
-        eq(inventory.isDeleted, false),
-        isNull(inventory.productId),
-      ));
-
-    const orphanedAsProducts = orphaned.map((item) => ({
-      id: item.id,
-      storeId: item.storeId,
-      name: item.name,
-      type: item.type,
-      category: null,
-      brand: null,
-      description: null,
-      isActive: true,
-      isDeleted: false,
-      deletedAt: null,
-      createdAt: item.id,
-      updatedAt: item.id,
-      variants: [item],
-      _isOrphaned: true,
-    }));
-
-    return [...fromProducts, ...orphanedAsProducts].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
   }
 
   async getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>> {
@@ -110,19 +78,12 @@ export class ProductRepository extends BaseRepository<typeof products> {
 
     return {
       data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasMore: page < totalPages,
-      },
+      pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
     };
   }
 
   async getProduct(id: string): Promise<any> {
-    // Try products table first (new-style items)
-    const fromProducts = await db.query.products.findFirst({
+    return db.query.products.findFirst({
       where: and(eq(products.id, id), eq(products.isDeleted, false)),
       with: {
         variants: {
@@ -130,44 +91,13 @@ export class ProductRepository extends BaseRepository<typeof products> {
         },
       },
     });
-    if (fromProducts) return fromProducts;
-
-    // Fallback: legacy inventory item used directly as its own product group
-    const [item] = await db
-      .select()
-      .from(inventory)
-      .where(and(eq(inventory.id, id), eq(inventory.isDeleted, false), isNull(inventory.productId)));
-    if (!item) return undefined;
-    return {
-      id: item.id,
-      storeId: item.storeId,
-      name: item.name,
-      type: item.type,
-      category: null,
-      brand: null,
-      description: null,
-      isActive: true,
-      isDeleted: false,
-      deletedAt: null,
-      variants: [item],
-      _isOrphaned: true,
-    };
   }
 
   async getProductByIdRaw(id: string): Promise<any> {
-    const fromProducts = await db.query.products.findFirst({
+    return db.query.products.findFirst({
       where: eq(products.id, id),
       with: { variants: true },
     });
-    if (fromProducts) return fromProducts;
-
-    // Fallback for legacy items
-    const [item] = await db
-      .select()
-      .from(inventory)
-      .where(and(eq(inventory.id, id), isNull(inventory.productId)));
-    if (!item) return undefined;
-    return { id: item.id, storeId: item.storeId, name: item.name, type: item.type, variants: [item], _isOrphaned: true };
   }
 
   async getProductByName(storeId: string, name: string): Promise<Product | undefined> {
@@ -196,40 +126,11 @@ export class ProductRepository extends BaseRepository<typeof products> {
   }
 
   async getArchivedProducts(storeId: string): Promise<any[]> {
-    const fromProducts = await db.query.products.findMany({
+    return db.query.products.findMany({
       where: and(eq(products.storeId, storeId), eq(products.isDeleted, true)),
       with: { variants: true },
       orderBy: asc(products.name),
     });
-
-    // Fallback: legacy archived inventory items with no product group
-    const orphaned = await db
-      .select()
-      .from(inventory)
-      .where(and(
-        eq(inventory.storeId, storeId),
-        eq(inventory.isDeleted, true),
-        isNull(inventory.productId),
-      ));
-
-    const orphanedAsProducts = orphaned.map((item) => ({
-      id: item.id,
-      storeId: item.storeId,
-      name: item.name,
-      type: item.type,
-      category: null,
-      brand: null,
-      description: null,
-      isActive: false,
-      isDeleted: true,
-      deletedAt: item.deletedAt,
-      variants: [item],
-      _isOrphaned: true,
-    }));
-
-    return [...fromProducts, ...orphanedAsProducts].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
   }
 
   async restoreProduct(id: string): Promise<boolean> {
@@ -246,12 +147,9 @@ export class ProductRepository extends BaseRepository<typeof products> {
 
   async deleteProduct(id: string): Promise<boolean> {
     const now = new Date();
-    // Soft-delete variants
     await db.update(inventory)
       .set({ isDeleted: true, deletedAt: now })
       .where(eq(inventory.productId, id));
-
-    // Soft-delete product
     const result = await db.update(products)
       .set({ isDeleted: true, deletedAt: now, updatedAt: now })
       .where(eq(products.id, id))
