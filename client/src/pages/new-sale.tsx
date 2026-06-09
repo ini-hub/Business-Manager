@@ -23,6 +23,8 @@ import {
   BookOpen,
   CheckCircle2,
   WifiOff,
+  FileEdit,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -74,6 +76,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { CustomerPresenter, StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
@@ -134,6 +143,10 @@ export default function NewSale() {
   const [closeRegisterNotes, setCloseRegisterNotes] = useState<string>("");
   const [showCloseSummary, setShowCloseSummary] = useState<boolean>(false);
   const [closeSummaryData, setCloseSummaryData] = useState<any>(null);
+
+  // Draft state
+  const [draftsOpen, setDraftsOpen] = useState<boolean>(false);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
 
   const { data: activeSession } = useQuery<any>({
     queryKey: ["/api/cash-register/session", currentStore?.id],
@@ -251,6 +264,131 @@ export default function NewSale() {
       });
     },
   });
+
+  // ── Drafts ─────────────────────────────────────────────────────────────────
+  const { data: drafts = [], refetch: refetchDrafts } = useQuery<any[]>({
+    queryKey: ["/api/sales/drafts", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/sales/drafts?storeId=${currentStore?.id}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
+  const saveDraftMutation = useMutation({
+    mutationFn: async (isUpdate: boolean) => {
+      const cartData = cart.map(c => ({
+        inventoryId: c.inventory.id,
+        name: c.inventory.name,
+        type: c.inventory.type,
+        quantity: c.quantity,
+        customPrice: c.customPrice,
+        totalPrice: c.totalPrice,
+        leadStaffId: c.leadStaffId ?? null,
+        assistingStaff1Id: c.assistingStaff1Id ?? null,
+        assistingStaff2Id: c.assistingStaff2Id ?? null,
+        commissionSplit: c.commissionSplit,
+        unit: c.inventory.unit ?? null,
+        allowFractional: c.inventory.allowFractional,
+      }));
+
+      const customerName = customers.find(c => c.id === selectedCustomer)?.name;
+      const draftName = customerName
+        ? `${customerName} — ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : `Draft — ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+
+      const payload = {
+        storeId: currentStore!.id,
+        name: draftName,
+        cartData,
+        customerId: selectedCustomer || null,
+        staffId: selectedStaff || null,
+        paymentMethod,
+        discountAmount: discountAmount || 0,
+        discountPercent: discountPercent || 0,
+        discountReason: discountReason || undefined,
+        discountApprovedBy: discountApprovedBy || undefined,
+        redeemPoints,
+        redeemStoreCredit,
+        creditUpfrontPaid: creditUpfrontPaid || 0,
+        creditDueDate: creditDueDate || undefined,
+        splitPayments: paymentMethod === "split" ? splitPayments : undefined,
+      };
+
+      if (isUpdate && activeDraftId) {
+        const res = await apiRequest("PUT", `/api/sales/drafts/${activeDraftId}`, payload);
+        if (!res.ok) throw new Error("Failed to update draft");
+        return res.json();
+      } else {
+        const res = await apiRequest("POST", "/api/sales/drafts", payload);
+        if (!res.ok) throw new Error("Failed to save draft");
+        return res.json();
+      }
+    },
+    onSuccess: (data) => {
+      setActiveDraftId(data.id);
+      refetchDrafts();
+      toast({ title: "Draft saved!", description: "You can load it from the Drafts panel." });
+    },
+    onError: () => {
+      toast({ title: "Could not save draft", variant: "destructive" });
+    },
+  });
+
+  const deleteDraftMutation = useMutation({
+    mutationFn: async (draftId: string) => {
+      const res = await apiRequest("DELETE", `/api/sales/drafts/${draftId}?storeId=${currentStore?.id}`);
+      if (!res.ok) throw new Error("Failed to delete draft");
+      return res.json();
+    },
+    onSuccess: (_, draftId) => {
+      if (activeDraftId === draftId) setActiveDraftId(null);
+      refetchDrafts();
+      toast({ title: "Draft deleted." });
+    },
+    onError: () => {
+      toast({ title: "Could not delete draft", variant: "destructive" });
+    },
+  });
+
+  const loadDraft = (draft: any) => {
+    // Restore cart from stored snapshot — map back to CartItem using current inventory list
+    const restoredCart = draft.cartData.map((item: any) => {
+      const inv = inventory.find(i => i.id === item.inventoryId);
+      if (!inv) return null;
+      return {
+        inventory: inv,
+        quantity: item.quantity,
+        customPrice: item.customPrice,
+        totalPrice: item.totalPrice,
+        leadStaffId: item.leadStaffId ?? null,
+        assistingStaff1Id: item.assistingStaff1Id ?? null,
+        assistingStaff2Id: item.assistingStaff2Id ?? null,
+        commissionSplit: item.commissionSplit ?? "standard",
+        showAsst1: !!item.assistingStaff1Id,
+        showAsst2: !!item.assistingStaff2Id,
+      };
+    }).filter(Boolean);
+
+    setCart(restoredCart);
+    if (draft.customerId) setSelectedCustomer(draft.customerId);
+    if (draft.staffId) setSelectedStaff(draft.staffId);
+    if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod as any);
+    setDiscountAmount(Number(draft.discountAmount) || 0);
+    setDiscountPercent(Number(draft.discountPercent) || 0);
+    setDiscountReason(draft.discountReason || "");
+    setDiscountApprovedBy(draft.discountApprovedBy || "");
+    setApplyDiscount(Number(draft.discountAmount) > 0);
+    setRedeemPoints(draft.redeemPoints ?? false);
+    setRedeemStoreCredit(draft.redeemStoreCredit ?? false);
+    setCreditUpfrontPaid(Number(draft.creditUpfrontPaid) || 0);
+    setCreditDueDate(draft.creditDueDate || "");
+    if (draft.splitPayments) setSplitPayments(draft.splitPayments);
+    setActiveDraftId(draft.id);
+    setDraftsOpen(false);
+    toast({ title: "Draft loaded!", description: "Your cart has been restored." });
+  };
 
   const searchParams = new URLSearchParams(window.location.search);
   const bookingId = searchParams.get("bookingId");
@@ -791,6 +929,13 @@ export default function NewSale() {
         toast({ title: "Sale completed successfully!" });
       }
 
+      // Delete the active draft now that the sale is complete
+      if (activeDraftId && currentStore?.id) {
+        apiRequest("DELETE", `/api/sales/drafts/${activeDraftId}?storeId=${currentStore.id}`)
+          .then(() => { setActiveDraftId(null); refetchDrafts(); })
+          .catch(() => {});
+      }
+
       setCart([]);
       setSelectedCustomer("");
       setSelectedStaff("");
@@ -939,6 +1084,19 @@ export default function NewSale() {
         description={`Create a new sales transaction for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="relative flex items-center gap-2 rounded-xl h-9 px-3 text-xs"
+              onClick={() => setDraftsOpen(true)}
+            >
+              <FileEdit className="h-3.5 w-3.5" />
+              Drafts
+              {drafts.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+                  {drafts.length}
+                </span>
+              )}
+            </Button>
             {activeSession ? (
               <Popover>
                 <PopoverTrigger asChild>
@@ -1866,7 +2024,24 @@ export default function NewSale() {
                 </Alert>
               </div>
             )}
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-2">
+              {cart.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="w-full text-xs h-9"
+                  disabled={saveDraftMutation.isPending}
+                  onClick={() => saveDraftMutation.mutate(!!activeDraftId)}
+                >
+                  {saveDraftMutation.isPending ? (
+                    "Saving..."
+                  ) : (
+                    <>
+                      <FileEdit className="mr-2 h-3.5 w-3.5" />
+                      {activeDraftId ? "Update Draft" : "Save as Draft"}
+                    </>
+                  )}
+                </Button>
+              )}
               <Button
                 className="w-full"
                 disabled={checkoutMutation.isPending}
@@ -2258,6 +2433,82 @@ export default function NewSale() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Drafts Panel */}
+      <Sheet open={draftsOpen} onOpenChange={setDraftsOpen}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle className="flex items-center gap-2">
+              <FileEdit className="h-4 w-4" />
+              Saved Drafts
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              Load a saved cart to continue where you left off. Drafts do not affect inventory or financials.
+            </SheetDescription>
+          </SheetHeader>
+
+          {drafts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+              <Clock className="h-10 w-10 mb-3 opacity-30" />
+              <p className="text-sm font-medium">No drafts yet</p>
+              <p className="text-xs mt-1">Build a cart and click "Save as Draft" to keep it for later.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {drafts.map((draft: any) => {
+                const itemCount = draft.cartData?.length ?? 0;
+                const total = draft.cartData?.reduce((s: number, i: any) => s + i.totalPrice, 0) ?? 0;
+                const isActive = draft.id === activeDraftId;
+                return (
+                  <div
+                    key={draft.id}
+                    className={cn(
+                      "rounded-xl border p-3.5 space-y-2 transition-colors",
+                      isActive ? "border-primary/50 bg-primary/5" : "hover:border-primary/20"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{draft.name || "Untitled Draft"}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {itemCount} item{itemCount !== 1 ? "s" : ""} · {formatCurrency(total)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(draft.updatedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                        </p>
+                      </div>
+                      {isActive && (
+                        <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold shrink-0">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 h-8 text-xs"
+                        onClick={() => loadDraft(draft)}
+                        disabled={isActive}
+                      >
+                        {isActive ? "Loaded" : "Load"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs text-destructive hover:text-destructive hover:border-destructive/50"
+                        onClick={() => deleteDraftMutation.mutate(draft.id)}
+                        disabled={deleteDraftMutation.isPending}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* 3. Reconciliation Summary Report Modal */}
       <Dialog open={showCloseSummary} onOpenChange={setShowCloseSummary}>

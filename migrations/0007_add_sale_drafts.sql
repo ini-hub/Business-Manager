@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS "sale_drafts" (
+  "id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  "store_id" varchar NOT NULL REFERENCES "stores"("id"),
+  "created_by_user_id" varchar REFERENCES "users"("id"),
+  "name" text,
+  "cart_data" jsonb NOT NULL,
+  "customer_id" varchar REFERENCES "customers"("id"),
+  "staff_id" varchar REFERENCES "staff"("id"),
+  "payment_method" text DEFAULT 'cash',
+  "discount_amount" numeric(12, 2) DEFAULT 0,
+  "discount_percent" numeric(5, 2) DEFAULT 0,
+  "discount_reason" text,
+  "discount_approved_by" text,
+  "redeem_points" boolean NOT NULL DEFAULT false,
+  "redeem_store_credit" boolean NOT NULL DEFAULT false,
+  "credit_upfront_paid" numeric(12, 2) DEFAULT 0,
+  "credit_due_date" text,
+  "split_payments" jsonb,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);

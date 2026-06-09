@@ -501,4 +501,118 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
+  // ========== SALE DRAFTS ==========
+
+  app.get("/api/sales/drafts", isAuthenticated, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const drafts = await storage.listDrafts(storeId);
+      res.json(drafts);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load drafts." });
+    }
+  });
+
+  app.get("/api/sales/drafts/:id", isAuthenticated, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const draft = await storage.getDraft(req.params.id, storeId);
+      if (!draft) return res.status(404).json({ error: "Draft not found." });
+      res.json(draft);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load draft." });
+    }
+  });
+
+  const draftSchema = z.object({
+    storeId: z.string(),
+    name: z.string().optional(),
+    cartData: z.array(z.object({
+      inventoryId: z.string(),
+      name: z.string(),
+      type: z.string(),
+      quantity: z.number(),
+      customPrice: z.number(),
+      totalPrice: z.number(),
+      leadStaffId: z.string().nullable().optional(),
+      assistingStaff1Id: z.string().nullable().optional(),
+      assistingStaff2Id: z.string().nullable().optional(),
+      commissionSplit: z.string().optional(),
+      unit: z.string().nullable().optional(),
+      allowFractional: z.boolean().optional(),
+    })),
+    customerId: z.string().nullable().optional(),
+    staffId: z.string().nullable().optional(),
+    paymentMethod: z.string().optional(),
+    discountAmount: z.number().optional(),
+    discountPercent: z.number().optional(),
+    discountReason: z.string().optional(),
+    discountApprovedBy: z.string().optional(),
+    redeemPoints: z.boolean().optional(),
+    redeemStoreCredit: z.boolean().optional(),
+    creditUpfrontPaid: z.number().optional(),
+    creditDueDate: z.string().optional(),
+    splitPayments: z.array(z.object({ method: z.string(), amount: z.number() })).optional(),
+  });
+
+  function normalizeDraftCartData(cartData: any[]): any[] {
+    return cartData.map(item => ({
+      ...item,
+      leadStaffId: item.leadStaffId ?? null,
+      assistingStaff1Id: item.assistingStaff1Id ?? null,
+      assistingStaff2Id: item.assistingStaff2Id ?? null,
+      commissionSplit: item.commissionSplit ?? "standard",
+    }));
+  }
+
+  app.post("/api/sales/drafts", isAuthenticated, async (req, res) => {
+    try {
+      const data = draftSchema.parse(req.body);
+      if (!(await checkStoreAccess(data.storeId, req, res))) return;
+      const userId = getUserId(req);
+      const draft = await storage.saveDraft({
+        ...data,
+        cartData: normalizeDraftCartData(data.cartData),
+        createdByUserId: userId ?? undefined,
+      });
+      res.status(201).json(draft);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      res.status(500).json({ error: "Could not save draft." });
+    }
+  });
+
+  app.put("/api/sales/drafts/:id", isAuthenticated, async (req, res) => {
+    try {
+      const body = draftSchema.parse(req.body);
+      if (!(await checkStoreAccess(body.storeId, req, res))) return;
+      const draft = await storage.updateDraft(req.params.id, body.storeId, {
+        ...body,
+        cartData: normalizeDraftCartData(body.cartData),
+      } as any);
+      if (!draft) return res.status(404).json({ error: "Draft not found." });
+      res.json(draft);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      res.status(500).json({ error: "Could not update draft." });
+    }
+  });
+
+  app.delete("/api/sales/drafts/:id", isAuthenticated, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const deleted = await storage.deleteDraft(req.params.id, storeId);
+      if (!deleted) return res.status(404).json({ error: "Draft not found." });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Could not delete draft." });
+    }
+  });
+
 }

@@ -508,4 +508,88 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
+  // ─── Staff Customer Profile ────────────────────────────────────────────────
+
+  app.get("/api/staff/:id/customer-profile", isAuthenticated, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) return res.status(404).json({ error: "Staff member not found." });
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      const customer = await storage.getCustomerByStaffId(req.params.id);
+      res.json(customer || null);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load customer profile." });
+    }
+  });
+
+  app.post("/api/staff/:id/link-customer", requireManagerOrOwner, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) return res.status(404).json({ error: "Staff member not found." });
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+
+      const { customerId, createNew } = req.body;
+
+      if (createNew) {
+        const existingLink = await storage.getCustomerByStaffId(req.params.id);
+        if (existingLink) {
+          return res.status(400).json({ error: "This staff member already has a linked customer profile." });
+        }
+        const newCustomer = await storage.createCustomer({
+          storeId: staffMember.storeId,
+          name: staffMember.name,
+          mobileNumber: staffMember.mobileNumber || "",
+          countryCode: staffMember.countryCode,
+          address: "",
+          customerNumber: "",
+          staffId: req.params.id,
+        });
+        auditLogger.logDataModification("customer", newCustomer.id, getUserId(req), "LINK_STAFF", true, `Linked to staff ${req.params.id}`);
+        return res.status(201).json(newCustomer);
+      }
+
+      if (!customerId) return res.status(400).json({ error: "customerId or createNew is required." });
+
+      const customer = await storage.getCustomer(customerId);
+      if (!customer) return res.status(404).json({ error: "Customer not found." });
+      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this customer." });
+      }
+
+      const existing = await storage.getCustomerByStaffId(req.params.id);
+      if (existing && existing.id !== customerId) {
+        return res.status(400).json({ error: "This staff member already has a linked customer profile. Unlink it first." });
+      }
+
+      const updated = await storage.linkStaffToCustomer(customerId, req.params.id);
+      auditLogger.logDataModification("customer", customerId, getUserId(req), "LINK_STAFF", true, `Linked to staff ${req.params.id}`);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not link customer profile." });
+    }
+  });
+
+  app.delete("/api/staff/:id/link-customer", requireManagerOrOwner, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) return res.status(404).json({ error: "Staff member not found." });
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+
+      const customer = await storage.getCustomerByStaffId(req.params.id);
+      if (!customer) return res.status(404).json({ error: "No linked customer profile found." });
+
+      await storage.unlinkStaffFromCustomer(customer.id);
+      auditLogger.logDataModification("customer", customer.id, getUserId(req), "UNLINK_STAFF", true, `Unlinked from staff ${req.params.id}`);
+      res.status(204).end();
+    } catch (error) {
+      res.status(500).json({ error: "Could not unlink customer profile." });
+    }
+  });
+
 }

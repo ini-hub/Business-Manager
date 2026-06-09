@@ -394,6 +394,21 @@ export class CustomerRepository {
     return fresh || newCustomer;
   }
 
+  async linkStaffToCustomer(customerId: string, staffId: string): Promise<Customer | undefined> {
+    const [updated] = await db.update(customers).set({ staffId }).where(eq(customers.id, customerId)).returning();
+    return updated;
+  }
+
+  async unlinkStaffFromCustomer(customerId: string): Promise<Customer | undefined> {
+    const [updated] = await db.update(customers).set({ staffId: null }).where(eq(customers.id, customerId)).returning();
+    return updated;
+  }
+
+  async getCustomerByStaffId(staffId: string): Promise<Customer | undefined> {
+    const [customer] = await db.select().from(customers).where(eq(customers.staffId, staffId));
+    return customer;
+  }
+
   async searchCustomers(storeId: string, query: string): Promise<Customer[]> {
     return db.select()
       .from(customers)

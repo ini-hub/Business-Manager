@@ -20,7 +20,9 @@ import {
   storeCreditTransactions,
   bundleComponents,
   payrollPeriods,
+  saleDrafts,
   type ProfitLossWithInventory,
+  type SaleDraft,
 } from "@shared/schema";
 import { eq, and, or, gt, gte, lte, sql, desc } from "drizzle-orm";
 import { InventoryRepository } from "./InventoryRepository";
@@ -987,5 +989,88 @@ export class SalesRepository {
       const message = error instanceof Error ? error.message : "Could not process return.";
       return { success: false, message };
     }
+  }
+
+  // ── Draft CRUD ───────────────────────────────────────────────────────────
+
+  async saveDraft(data: {
+    storeId: string;
+    createdByUserId?: string;
+    name?: string;
+    cartData: SaleDraft["cartData"];
+    customerId?: string | null;
+    staffId?: string | null;
+    paymentMethod?: string;
+    discountAmount?: number;
+    discountPercent?: number;
+    discountReason?: string;
+    discountApprovedBy?: string;
+    redeemPoints?: boolean;
+    redeemStoreCredit?: boolean;
+    creditUpfrontPaid?: number;
+    creditDueDate?: string;
+    splitPayments?: Array<{ method: string; amount: number }>;
+  }): Promise<SaleDraft> {
+    const [draft] = await db.insert(saleDrafts).values({
+      storeId: data.storeId,
+      createdByUserId: data.createdByUserId ?? null,
+      name: data.name ?? null,
+      cartData: data.cartData,
+      customerId: data.customerId ?? null,
+      staffId: data.staffId ?? null,
+      paymentMethod: data.paymentMethod ?? "cash",
+      discountAmount: data.discountAmount ?? 0,
+      discountPercent: data.discountPercent ?? 0,
+      discountReason: data.discountReason ?? null,
+      discountApprovedBy: data.discountApprovedBy ?? null,
+      redeemPoints: data.redeemPoints ?? false,
+      redeemStoreCredit: data.redeemStoreCredit ?? false,
+      creditUpfrontPaid: data.creditUpfrontPaid ?? 0,
+      creditDueDate: data.creditDueDate ?? null,
+      splitPayments: data.splitPayments ?? null,
+    }).returning();
+    return draft;
+  }
+
+  async updateDraft(id: string, storeId: string, data: Partial<{
+    name: string;
+    cartData: SaleDraft["cartData"];
+    customerId: string | null;
+    staffId: string | null;
+    paymentMethod: string;
+    discountAmount: number;
+    discountPercent: number;
+    discountReason: string;
+    discountApprovedBy: string;
+    redeemPoints: boolean;
+    redeemStoreCredit: boolean;
+    creditUpfrontPaid: number;
+    creditDueDate: string;
+    splitPayments: Array<{ method: string; amount: number }>;
+  }>): Promise<SaleDraft | null> {
+    const [draft] = await db.update(saleDrafts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(saleDrafts.id, id), eq(saleDrafts.storeId, storeId)))
+      .returning();
+    return draft ?? null;
+  }
+
+  async listDrafts(storeId: string): Promise<SaleDraft[]> {
+    return db.select().from(saleDrafts)
+      .where(eq(saleDrafts.storeId, storeId))
+      .orderBy(desc(saleDrafts.updatedAt));
+  }
+
+  async getDraft(id: string, storeId: string): Promise<SaleDraft | null> {
+    const [draft] = await db.select().from(saleDrafts)
+      .where(and(eq(saleDrafts.id, id), eq(saleDrafts.storeId, storeId)));
+    return draft ?? null;
+  }
+
+  async deleteDraft(id: string, storeId: string): Promise<boolean> {
+    const result = await db.delete(saleDrafts)
+      .where(and(eq(saleDrafts.id, id), eq(saleDrafts.storeId, storeId)))
+      .returning({ id: saleDrafts.id });
+    return result.length > 0;
   }
 }

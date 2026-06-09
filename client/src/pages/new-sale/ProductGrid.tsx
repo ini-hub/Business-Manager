@@ -192,7 +192,7 @@ export function ProductGrid({
                 >
                   <PopoverTrigger asChild>{tile}</PopoverTrigger>
                   <PopoverContent
-                    className="w-72 p-2"
+                    className="w-80 max-w-[92vw] p-2"
                     align="start"
                     side="bottom"
                     sideOffset={4}
@@ -200,11 +200,14 @@ export function ProductGrid({
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 pb-2">
                       Choose a variant
                     </p>
-                    <div className="space-y-1">
+                    <div className="space-y-1 max-h-72 overflow-y-auto">
                       {product.variants.map((variant) => {
                         const inCartQty = cart.find((c) => c.inventory.id === variant.id)?.quantity ?? 0;
                         const outOfStock =
                           product.type === "product" && variant.quantity <= 0;
+                        const label = variantLabel(variant, product.name);
+                        const dims = (variant as any).variantDimensions as Record<string, string> | null;
+                        const dimEntries = dims ? Object.entries(dims) : null;
                         return (
                           <button
                             key={variant.id}
@@ -214,25 +217,34 @@ export function ProductGrid({
                               onAddToCart(variant);
                               setOpenPopoverId(null);
                             }}
-                            className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left"
+                            className="w-full flex items-start justify-between rounded-md px-3 py-2.5 text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left gap-3"
                           >
-                            <div className="flex-1 min-w-0">
-                              <span className="font-medium truncate block">
-                                {variantLabel(variant, product.name)}
-                              </span>
+                            <div className="flex-1 min-w-0 space-y-0.5">
+                              {dimEntries && dimEntries.length > 1 ? (
+                                dimEntries.map(([key, value]) => (
+                                  <div key={key} className="flex items-baseline gap-1.5 flex-wrap">
+                                    <span className="text-[10px] text-muted-foreground uppercase font-semibold shrink-0">
+                                      {key}:
+                                    </span>
+                                    <span className="font-medium text-sm break-words">{value}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="font-medium break-words leading-snug">{label}</span>
+                              )}
                               {outOfStock && (
-                                <span className="text-[10px] text-destructive">Out of stock</span>
+                                <span className="text-[10px] text-destructive block">Out of stock</span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-3">
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                {formatCurrency(variant.sellingPrice)}
+                              </span>
                               {inCartQty > 0 && (
                                 <Badge variant="secondary" className="text-[10px] h-4 px-1">
                                   ×{inCartQty}
                                 </Badge>
                               )}
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {formatCurrency(variant.sellingPrice)}
-                              </span>
                             </div>
                           </button>
                         );

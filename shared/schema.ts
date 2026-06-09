@@ -145,6 +145,7 @@ export const customers = pgTable("customers", {
   isConfirmedDistinct: boolean("is_confirmed_distinct").notNull().default(false),
   duplicateOfId: varchar("duplicate_of_id"), // Links to other duplicate customer profile
   mergedIntoId: varchar("merged_into_id"), // Links to target profile if merged
+  staffId: varchar("staff_id"), // Links to staff record if this customer is a staff member
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
@@ -157,6 +158,10 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
     references: [stores.id],
   }),
   transactions: many(transactions),
+  staffMember: one(staff, {
+    fields: [customers.staffId],
+    references: [staff.id],
+  }),
 }));
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, isArchived: true }).extend({
@@ -167,6 +172,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
   address: z.string().transform(s => s.trim()).default(""),
   birthday: z.string().optional().nullable(),
   storeCreditBalance: z.number().optional(),
+  staffId: z.string().optional().nullable(),
 });
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
@@ -2029,4 +2035,45 @@ export const salaryAdvancesRelations = relations(salaryAdvances, ({ one }) => ({
 }));
 
 export type SalaryAdvance = typeof salaryAdvances.$inferSelect;
+
+// ── Sale Drafts ──────────────────────────────────────────────────────────────
+// Saved (but not yet committed) POS cart sessions. Nothing in here touches
+// inventory, revenue, or any financial record — it is purely a snapshot of
+// the in-progress cart so staff can return to it later.
+export const saleDrafts = pgTable("sale_drafts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  name: text("name"), // optional label shown in the drafts list
+  cartData: jsonb("cart_data").notNull().$type<Array<{
+    inventoryId: string;
+    name: string;
+    type: string;
+    quantity: number;
+    customPrice: number;
+    totalPrice: number;
+    leadStaffId: string | null;
+    assistingStaff1Id: string | null;
+    assistingStaff2Id: string | null;
+    commissionSplit: string;
+    unit?: string | null;
+    allowFractional?: boolean;
+  }>>(),
+  customerId: varchar("customer_id").references(() => customers.id),
+  staffId: varchar("staff_id").references(() => staff.id),
+  paymentMethod: text("payment_method").default("cash"),
+  discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).$type<number>().default(0),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).$type<number>().default(0),
+  discountReason: text("discount_reason"),
+  discountApprovedBy: text("discount_approved_by"),
+  redeemPoints: boolean("redeem_points").notNull().default(false),
+  redeemStoreCredit: boolean("redeem_store_credit").notNull().default(false),
+  creditUpfrontPaid: numeric("credit_upfront_paid", { precision: 12, scale: 2 }).$type<number>().default(0),
+  creditDueDate: text("credit_due_date"),
+  splitPayments: jsonb("split_payments").$type<Array<{ method: string; amount: number }>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type SaleDraft = typeof saleDrafts.$inferSelect;
 export type InsertSalaryAdvance = typeof salaryAdvances.$inferInsert;

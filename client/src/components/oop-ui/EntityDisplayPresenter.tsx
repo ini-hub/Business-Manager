@@ -59,8 +59,30 @@ export abstract class BaseEntityPresenter implements IDisplayableEntity {
  * Specialized Presenter for Customers
  */
 export class CustomerPresenter extends BaseEntityPresenter {
-  constructor(customer: { name: string; customerNumber: string; mobileNumber?: string | null }) {
+  private isStaff: boolean;
+
+  constructor(customer: { name: string; customerNumber: string; mobileNumber?: string | null; staffId?: string | null }) {
     super(customer.name, customer.customerNumber, customer.mobileNumber);
+    this.isStaff = !!customer.staffId;
+  }
+
+  override renderVisual(): React.ReactNode {
+    const sec = this.getSecondaryNumber();
+    return (
+      <div className="flex flex-col text-left">
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-sm text-foreground">{this.getName()}</span>
+          {this.isStaff && (
+            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 leading-none">
+              Staff
+            </span>
+          )}
+        </div>
+        <span className="text-xs text-muted-foreground font-mono">
+          {this.getIdentifier()}{sec ? ` • ${sec}` : ""}
+        </span>
+      </div>
+    );
   }
 }
 

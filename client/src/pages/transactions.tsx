@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { startOfDay, endOfDay, subDays } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -205,8 +205,14 @@ export default function Transactions() {
     },
   ];
 
-  // Server already filters by date range via query params; use the result directly.
-  const filteredTransactions = transactions;
+  const [staffSaleFilter, setStaffSaleFilter] = useState<"all" | "staff" | "regular">("all");
+
+  // Apply staff sale filter on top of date-range results
+  const filteredTransactions = useMemo(() => {
+    if (staffSaleFilter === "staff") return transactions.filter(tx => !!(tx.customer as any)?.staffId);
+    if (staffSaleFilter === "regular") return transactions.filter(tx => !(tx.customer as any)?.staffId);
+    return transactions;
+  }, [transactions, staffSaleFilter]);
 
 
   const storeCurrency = currentStore?.currency || "NGN";
@@ -342,6 +348,7 @@ export default function Transactions() {
           name: tx.customer?.name || "Unknown",
           customerNumber: tx.customer?.customerNumber || tx.customerId || "—",
           mobileNumber: tx.customer?.mobileNumber,
+          staffId: (tx.customer as any)?.staffId,
         });
         return (
           <div className="flex items-center gap-2">
@@ -570,6 +577,23 @@ export default function Transactions() {
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
               <CardTitle className="text-base font-medium">Transaction History</CardTitle>
               <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 rounded-md border bg-background p-1">
+                  {(["all", "staff", "regular"] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setStaffSaleFilter(opt)}
+                      className={`flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                        staffSaleFilter === opt
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {opt === "staff" && <UserCheck className="h-3 w-3" />}
+                      {opt === "all" ? "All Sales" : opt === "staff" ? "Staff Sales" : "Regular"}
+                    </button>
+                  ))}
+                </div>
                 <DateRangeFilter
                   dateRange={dateRange}
                   onDateRangeChange={setDateRange}

@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, User, Briefcase, Settings2 } from "lucide-react";
+import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, User, Briefcase, Settings2, UserCheck, UserPlus, Unlink, Link2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,18 +13,21 @@ import { Switch } from "@/components/ui/switch";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStaffSchema, type Staff } from "@shared/schema";
+import { insertStaffSchema, type Staff, type Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getCurrencyByCode } from "@/lib/currency-utils";
 import { z } from "zod";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 const localStaffSchema = z.object({
   storeId: z.string().min(1, "Store ID is required"),
@@ -64,6 +67,10 @@ export default function StaffFormPage() {
   const isOwner = user?.role === "owner";
   const staffId = id === "new" ? undefined : id;
 
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [selectedLinkCustomerId, setSelectedLinkCustomerId] = useState<string>("");
+
   const { data: staffMember, isLoading: isLoadingStaff } = useQuery<Staff>({
     queryKey: [`/api/staff/${staffId}`],
     enabled: !!staffId,
@@ -71,6 +78,55 @@ export default function StaffFormPage() {
       const res = await apiRequest("GET", `/api/staff/${staffId}`);
       if (!res.ok) throw new Error("Staff member not found");
       return res.json();
+    },
+  });
+
+  const { data: linkedCustomer, isLoading: isLoadingCustomer } = useQuery<Customer | null>({
+    queryKey: [`/api/staff/${staffId}/customer-profile`],
+    enabled: !!staffId,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/staff/${staffId}/customer-profile`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const { data: customerSearchResults = [] } = useQuery<Customer[]>({
+    queryKey: ["/api/customers", staffMember?.storeId, customerSearchQuery],
+    enabled: isLinkDialogOpen && customerSearchQuery.trim().length >= 2 && !!staffMember?.storeId,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/customers?storeId=${staffMember!.storeId}&search=${encodeURIComponent(customerSearchQuery)}&limit=10&page=1`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.data || [];
+    },
+  });
+
+  const linkCustomerMutation = useMutation({
+    mutationFn: (payload: { customerId?: string; createNew?: boolean }) =>
+      apiRequest("POST", `/api/staff/${staffId}/link-customer`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}/customer-profile`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      toast({ title: "Customer profile linked successfully" });
+      setIsLinkDialogOpen(false);
+      setSelectedLinkCustomerId("");
+      setCustomerSearchQuery("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't Link Profile", description: getUserFriendlyError(error), variant: "destructive" });
+    },
+  });
+
+  const unlinkCustomerMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/staff/${staffId}/link-customer`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}/customer-profile`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      toast({ title: "Customer profile unlinked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't Unlink Profile", description: getUserFriendlyError(error), variant: "destructive" });
     },
   });
 
@@ -594,6 +650,70 @@ export default function StaffFormPage() {
               </Card>
             )}
 
+            {/* Customer Profile Link — only shown when editing an existing staff member */}
+            {staffId && (
+              <Card className="border-0 shadow-sm">
+                <CardContent className="pt-5 pb-5 px-5 space-y-3">
+                  <SectionHeader icon={<UserCheck className="h-3.5 w-3.5" />} label="Customer Profile" />
+                  <p className="text-xs text-muted-foreground">
+                    Link a customer profile so purchases made by this staff member are tracked as staff sales.
+                  </p>
+                  {isLoadingCustomer ? (
+                    <div className="h-14 rounded-lg bg-muted animate-pulse" />
+                  ) : linkedCustomer ? (
+                    <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+                          <UserCheck className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium leading-none">{linkedCustomer.name}</p>
+                          <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                            {linkedCustomer.customerNumber}{linkedCustomer.mobileNumber ? ` • ${linkedCustomer.mobileNumber}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive gap-1.5"
+                        disabled={unlinkCustomerMutation.isPending}
+                        onClick={() => unlinkCustomerMutation.mutate()}
+                      >
+                        <Unlink className="h-3.5 w-3.5" />
+                        Unlink
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => setIsLinkDialogOpen(true)}
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        Link Existing Customer
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        disabled={linkCustomerMutation.isPending}
+                        onClick={() => linkCustomerMutation.mutate({ createNew: true })}
+                      >
+                        <UserPlus className="h-3.5 w-3.5" />
+                        Create & Link
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Bottom actions */}
             <div className="flex gap-3 pt-2 pb-8">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setLocation("/staff")}>Cancel</Button>
@@ -604,6 +724,57 @@ export default function StaffFormPage() {
           </form>
         </Form>
       </div>
+
+      {/* Link Customer Dialog */}
+      <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Link Customer Profile</DialogTitle>
+            <DialogDescription>
+              Search for an existing customer to link to this staff member.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Input
+              placeholder="Search by name or phone…"
+              value={customerSearchQuery}
+              onChange={(e) => { setCustomerSearchQuery(e.target.value); setSelectedLinkCustomerId(""); }}
+              autoFocus
+            />
+            {customerSearchQuery.trim().length >= 2 && (
+              <div className="rounded-md border divide-y max-h-48 overflow-y-auto">
+                {customerSearchResults.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">No customers found</p>
+                ) : (
+                  customerSearchResults.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`w-full text-left px-3 py-2.5 hover:bg-muted transition-colors ${selectedLinkCustomerId === c.id ? "bg-muted" : ""}`}
+                      onClick={() => setSelectedLinkCustomerId(c.id)}
+                    >
+                      <p className="text-sm font-medium">{c.name}</p>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {c.customerNumber}{c.mobileNumber ? ` • ${c.mobileNumber}` : ""}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsLinkDialogOpen(false)}>Cancel</Button>
+            <Button
+              type="button"
+              disabled={!selectedLinkCustomerId || linkCustomerMutation.isPending}
+              onClick={() => linkCustomerMutation.mutate({ customerId: selectedLinkCustomerId })}
+            >
+              {linkCustomerMutation.isPending ? "Linking…" : "Link Profile"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

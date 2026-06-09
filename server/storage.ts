@@ -226,6 +226,9 @@ export interface IStorage {
   getBusinessCustomerCount(businessId: string, startDate?: string, endDate?: string): Promise<number>;
   searchGlobalCustomers(businessId: string, currentStoreId: string, query: string): Promise<any[]>;
   profileGlobalCustomer(customerId: string, targetStoreId: string): Promise<Customer>;
+  linkStaffToCustomer(customerId: string, staffId: string): Promise<Customer | undefined>;
+  unlinkStaffFromCustomer(customerId: string): Promise<Customer | undefined>;
+  getCustomerByStaffId(staffId: string): Promise<Customer | undefined>;
 
   // Staff
   getStaffList(storeId: string, includeArchived?: boolean): Promise<Staff[]>;
@@ -451,6 +454,13 @@ export interface IStorage {
 
   // Update payment method/status post-checkout
   updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean>;
+
+  // Sale Drafts
+  saveDraft(data: Parameters<SalesRepository["saveDraft"]>[0]): Promise<import("@shared/schema").SaleDraft>;
+  updateDraft(id: string, storeId: string, data: Parameters<SalesRepository["updateDraft"]>[2]): Promise<import("@shared/schema").SaleDraft | null>;
+  listDrafts(storeId: string): Promise<import("@shared/schema").SaleDraft[]>;
+  getDraft(id: string, storeId: string): Promise<import("@shared/schema").SaleDraft | null>;
+  deleteDraft(id: string, storeId: string): Promise<boolean>;
 
 
 
@@ -751,6 +761,18 @@ export class DatabaseStorage implements IStorage {
 
   async profileGlobalCustomer(customerId: string, targetStoreId: string): Promise<Customer> {
     return this.customerRepo.profileGlobalCustomer(customerId, targetStoreId);
+  }
+
+  async linkStaffToCustomer(customerId: string, staffId: string): Promise<Customer | undefined> {
+    return this.customerRepo.linkStaffToCustomer(customerId, staffId);
+  }
+
+  async unlinkStaffFromCustomer(customerId: string): Promise<Customer | undefined> {
+    return this.customerRepo.unlinkStaffFromCustomer(customerId);
+  }
+
+  async getCustomerByStaffId(staffId: string): Promise<Customer | undefined> {
+    return this.customerRepo.getCustomerByStaffId(staffId);
   }
 
   // ─── Staff Repo Delegation ─────────────────────────────────────────────────
@@ -1058,6 +1080,26 @@ export class DatabaseStorage implements IStorage {
 
   async getStoreCreditTransactions(customerId: string): Promise<any[]> {
     return this.salesRepo.getStoreCreditTransactions(customerId);
+  }
+
+  async saveDraft(data: Parameters<SalesRepository["saveDraft"]>[0]) {
+    return this.salesRepo.saveDraft(data);
+  }
+
+  async updateDraft(id: string, storeId: string, data: Parameters<SalesRepository["updateDraft"]>[2]) {
+    return this.salesRepo.updateDraft(id, storeId, data);
+  }
+
+  async listDrafts(storeId: string) {
+    return this.salesRepo.listDrafts(storeId);
+  }
+
+  async getDraft(id: string, storeId: string) {
+    return this.salesRepo.getDraft(id, storeId);
+  }
+
+  async deleteDraft(id: string, storeId: string) {
+    return this.salesRepo.deleteDraft(id, storeId);
   }
 
   // ─── Analytics Repo Delegation ─────────────────────────────────────────────
