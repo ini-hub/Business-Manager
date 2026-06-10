@@ -95,6 +95,7 @@ import SystemHealth from "@/pages/admin/SystemHealth";
 import AuditLogs from "@/pages/admin/AuditLogs";
 import SuperAdminAccounts from "@/pages/admin/SuperAdminAccounts";
 import AdminLayout from "@/components/admin/AdminLayout";
+import VerifyPayslipPage from "@/pages/verify-payslip";
 
 function OnboardingRoute() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -188,6 +189,7 @@ function Router() {
       <Route path="/auth/forgot-password" component={ForgotPassword} />
       <Route path="/auth/reset-password" component={ResetPassword} />
       <Route path="/onboarding" component={OnboardingRoute} />
+      <Route path="/verify/payslip/:id" component={VerifyPayslipPage} />
       <Route>
         {isAuthenticated ? <AuthenticatedLayout /> : <Landing />}
       </Route>

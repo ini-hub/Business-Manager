@@ -522,24 +522,6 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.get("/api/customers/:id", async (req, res) => {
-    try {
-      const customer = await storage.getCustomer(req.params.id);
-      if (!customer) {
-        return res.status(404).json({ error: "Customer not found." });
-      }
-
-      // Verify user has access to this customer's store
-      if (!await verifyRecordStoreAccess(req, customer.storeId)) {
-        return res.status(403).json({ error: "You don't have access to this customer." });
-      }
-
-      res.json(customer);
-    } catch (error) {
-      res.status(500).json({ error: "We couldn't load customer information. Please try again." });
-    }
-  });
-
   app.post("/api/customers", async (req, res) => {
     try {
       const sanitizedBody = {

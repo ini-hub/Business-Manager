@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, X, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
 import type { ExpenseCategory, Inventory } from "@shared/schema";
+import { Badge } from "@/components/ui/badge";
 
 const schema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -59,6 +60,8 @@ export default function ExpenseEditPage() {
 
   const [isNewCategoryMode, setIsNewCategoryMode] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [linkedProductIds, setLinkedProductIds] = useState<string[]>([]);
+  const [allocationDriver, setAllocationDriver] = useState<"count" | "revenue">("count");
 
   const { data: expense, isLoading } = useQuery<any>({
     queryKey: ["/api/expenses", id],
@@ -87,6 +90,15 @@ export default function ExpenseEditPage() {
     enabled: !!currentStore?.id,
   });
 
+  const { data: productGroups = [] } = useQuery<{ id: string; name: string; type: string }[]>({
+    queryKey: ["/api/products", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/products?storeId=${currentStore!.id}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id,
+  });
+
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { title: "", amount: 0, date: "", notes: "", paymentMethod: "cash", splitCash: 0, splitTransfer: 0, splitPos: 0 },
@@ -107,6 +119,9 @@ export default function ExpenseEditPage() {
         splitTransfer: splits.find((p: any) => p.method === "transfer")?.amount || 0,
         splitPos: splits.find((p: any) => p.method === "pos")?.amount || 0,
       });
+      const linked = (expense as any).linkedProducts ?? [];
+      setLinkedProductIds(linked.map((l: any) => l.productId));
+      setAllocationDriver((expense as any).allocationDriver ?? "count");
     }
   }, [expense, form]);
 
@@ -145,6 +160,8 @@ export default function ExpenseEditPage() {
         date: data.date, notes: data.notes,
         inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
         storeId: currentStore!.id, paymentMethod: data.paymentMethod, splitPayments,
+        linkedProductIds,
+        allocationDriver: linkedProductIds.length > 0 ? allocationDriver : undefined,
       });
     },
     onSuccess: () => {
@@ -239,23 +256,80 @@ export default function ExpenseEditPage() {
                 )} />
               )}
 
-              <FormField control={form.control} name="inventoryId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Linked Service / Product (optional)</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || "none"}>
-                    <FormControl>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      {inventoryItems.map((i) => (
-                        <SelectItem key={i.id} value={i.id}>{i.name} ({i.type})</SelectItem>
+              {/* Multi-select product/service linker */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  Related Services / Products <span className="text-muted-foreground font-normal">(Optional)</span>
+                </label>
+
+                {linkedProductIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1">
+                    {linkedProductIds.map(pid => {
+                      const p = productGroups.find(g => g.id === pid);
+                      return (
+                        <Badge key={pid} variant="secondary" className="flex items-center gap-1 pr-1">
+                          <span className="text-xs">{p?.name ?? pid}</span>
+                          <button
+                            type="button"
+                            onClick={() => setLinkedProductIds(ids => ids.filter(id => id !== pid))}
+                            className="rounded-full hover:bg-muted-foreground/20 p-0.5"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <Select
+                  value=""
+                  onValueChange={(val) => {
+                    if (val && !linkedProductIds.includes(val))
+                      setLinkedProductIds(ids => [...ids, val]);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Add a service or product..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {productGroups
+                      .filter(p => !linkedProductIds.includes(p.id))
+                      .map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                          <span className="ml-1.5 text-xs text-muted-foreground capitalize">({p.type})</span>
+                        </SelectItem>
                       ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+                  </SelectContent>
+                </Select>
+
+                {linkedProductIds.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Allocation driver</p>
+                    <div className="flex gap-3">
+                      {(["count", "revenue"] as const).map(d => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setAllocationDriver(d)}
+                          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                            allocationDriver === d
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "border-border text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          {d === "count" ? "By transaction count" : "By revenue generated"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Cost splits automatically based on how often each service/product is sold in the report period.
+                    </p>
+                  </div>
+                )}
+              </div>
 
               <FormField control={form.control} name="notes" render={({ field }) => (
                 <FormItem>

@@ -126,8 +126,10 @@ export class AnalyticsService {
     startDate?: string,
     endDate?: string
   ): Promise<any> {
-    // 1. Fetch all inventory items for this store
+    // 1. Fetch all inventory items and their parent products for this store
     const items = await storage.getInventory(storeId);
+    const productList = await storage.getProducts(storeId);
+    const productNameMap = new Map<string, string>(productList.map((p: any) => [p.id, p.name]));
 
     // 2. Fetch completed checkouts and their orders in the range
     const checkoutConditions: any[] = [
@@ -151,7 +153,59 @@ export class AnalyticsService {
       .where(and(...checkoutConditions));
 
     // 3. Fetch all expenses linked to specific items in the period
-    const allLinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "linked");
+    const allLinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "linked") as any[];
+
+    // Pre-compute per-product sales metrics (count + revenue) for allocation
+    // key = productId
+    const productSalesCount = new Map<string, number>();
+    const productSalesRevenue = new Map<string, number>();
+    for (const item of items) {
+      const itemSales = sales.filter(s => s.inventoryId === item.id);
+      const pid = item.productId;
+      const cnt = itemSales.reduce((s, r) => s + Math.max(0, r.quantity - (r.returnedQuantity || 0)), 0);
+      const rev = itemSales.reduce((s, r) => s + Math.max(0, r.totalPrice - (r.refundedAmount || 0)), 0);
+      productSalesCount.set(pid, (productSalesCount.get(pid) ?? 0) + cnt);
+      productSalesRevenue.set(pid, (productSalesRevenue.get(pid) ?? 0) + rev);
+    }
+
+    // Build per-product sustaining cost and breakdown from linked expenses
+    // sustainingMap: productId -> total allocated cost
+    // breakdownMap:  productId -> [{ title, amount, percent }]
+    const sustainingMap = new Map<string, number>();
+    const breakdownMap  = new Map<string, { title: string; amount: number; percent: number }[]>();
+
+    for (const exp of allLinkedExpenses) {
+      const linked: { productId: string; productName: string }[] = exp.linkedProducts ?? [];
+
+      // Legacy single-link: fall back to inventoryId → productId
+      let linkedProductIds: string[] = linked.map(l => l.productId);
+      if (linkedProductIds.length === 0 && exp.inventoryId) {
+        const legacyItem = items.find(i => i.id === exp.inventoryId);
+        if (legacyItem) linkedProductIds = [legacyItem.productId];
+      }
+      if (linkedProductIds.length === 0) continue;
+
+      // Compute weight for each linked product
+      const driver = exp.allocationDriver ?? "count";
+      const weights = linkedProductIds.map(pid =>
+        driver === "revenue"
+          ? (productSalesRevenue.get(pid) ?? 0)
+          : (productSalesCount.get(pid) ?? 0)
+      );
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+      linkedProductIds.forEach((pid, idx) => {
+        // If total weight is zero (nothing sold yet) fall back to equal share
+        const share = totalWeight > 0 ? weights[idx] / totalWeight : 1 / linkedProductIds.length;
+        const allocated = Number(exp.amount) * share;
+        const percent = Math.round(share * 100);
+
+        sustainingMap.set(pid, (sustainingMap.get(pid) ?? 0) + allocated);
+
+        if (!breakdownMap.has(pid)) breakdownMap.set(pid, []);
+        breakdownMap.get(pid)!.push({ title: exp.title, amount: allocated, percent });
+      });
+    }
 
     // 4. Group calculations per item
     const itemSummaries = items.map((item) => {
@@ -162,14 +216,16 @@ export class AnalyticsService {
       const grossProfit = revenue - cogs;
       const grossProfitMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
-      const itemExpenses = allLinkedExpenses.filter((e) => e.inventoryId === item.id);
-      const sustainingCosts = itemExpenses.reduce((sum, e) => sum + e.amount, 0);
+      const sustainingCosts = sustainingMap.get(item.productId) ?? 0;
+      const sustainingBreakdown = breakdownMap.get(item.productId) ?? [];
       const netProfit = grossProfit - sustainingCosts;
       const netProfitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
       const status = netProfit > 0 ? "profit" : netProfit < 0 ? "loss" : "breakeven";
 
       return {
         id: item.id,
+        productId: item.productId,
+        productName: productNameMap.get(item.productId) || item.name,
         name: item.name,
         type: item.type,
         revenue,
@@ -178,6 +234,7 @@ export class AnalyticsService {
         grossProfit,
         grossProfitMargin,
         sustainingCosts,
+        sustainingBreakdown,
         netProfit,
         netProfitMargin,
         status,

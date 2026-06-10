@@ -2,13 +2,19 @@ import { db } from "../db";
 import {
   payrollPeriods,
   payrollEntries,
+  payrollDeductions,
+  payrollDisbursements,
+  payslipRecords,
+  salaryAdvances,
   staff,
+  stores,
   type PayrollPeriod,
   type InsertPayrollPeriod,
   type PayrollPeriodStatus,
   type PayrollEntryWithStaff,
   type DailySummaryLine,
   type CommissionBreakdown,
+  type PayslipRecord,
 } from "@shared/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { payrollService } from "../services/PayrollService";
@@ -68,6 +74,10 @@ export class PayrollRepository {
     }
 
     await db.transaction(async (tx) => {
+      await tx.update(salaryAdvances).set({ recoveredPeriodId: null }).where(eq(salaryAdvances.recoveredPeriodId, id));
+      await tx.delete(payslipRecords).where(eq(payslipRecords.periodId, id));
+      await tx.delete(payrollDeductions).where(eq(payrollDeductions.periodId, id));
+      await tx.delete(payrollDisbursements).where(eq(payrollDisbursements.periodId, id));
       await tx.delete(payrollEntries).where(eq(payrollEntries.periodId, id));
       await tx.delete(payrollPeriods).where(eq(payrollPeriods.id, id));
     });
@@ -103,5 +113,43 @@ export class PayrollRepository {
     const { ExpenseRepository } = await import("./ExpenseRepository");
     const expenseRepo = new ExpenseRepository();
     return expenseRepo.getPaidPayrollExpenses(storeId, startDate, endDate);
+  }
+
+  async registerPayslip(data: {
+    storeId: string;
+    periodId: string;
+    staffId: string;
+    generatedByUserId?: string;
+    grossPay: number;
+    netPay: number;
+  }): Promise<PayslipRecord> {
+    const [record] = await db.insert(payslipRecords).values(data).returning();
+    return record;
+  }
+
+  async getPayslipRecord(id: string): Promise<(PayslipRecord & {
+    staff: { name: string; staffNumber: string } | null;
+    store: { name: string } | null;
+    period: { startDate: string; endDate: string } | null;
+  }) | undefined> {
+    const [row] = await db.select({
+      record: payslipRecords,
+      staffMember: staff,
+      store: stores,
+      period: payrollPeriods,
+    })
+      .from(payslipRecords)
+      .leftJoin(staff, eq(payslipRecords.staffId, staff.id))
+      .leftJoin(stores, eq(payslipRecords.storeId, stores.id))
+      .leftJoin(payrollPeriods, eq(payslipRecords.periodId, payrollPeriods.id))
+      .where(eq(payslipRecords.id, id));
+
+    if (!row) return undefined;
+    return {
+      ...row.record,
+      staff: row.staffMember ? { name: row.staffMember.name, staffNumber: row.staffMember.staffNumber } : null,
+      store: row.store ? { name: row.store.name } : null,
+      period: row.period ? { startDate: row.period.startDate, endDate: row.period.endDate } : null,
+    };
   }
 }

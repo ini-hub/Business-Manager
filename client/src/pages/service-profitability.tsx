@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { buildSlug } from "@/lib/slug";
-import { BarChart3, RefreshCw, Layers, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart } from "lucide-react";
+import { BarChart3, RefreshCw, Layers, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart, Info } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,12 @@ import { PageContainer } from "@/components/oop-ui/PageContainer";
 import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { analyticsApi } from "@/services/AnalyticsApiService";
 
+interface SustainingBreakdownEntry {
+  title: string;
+  amount: number;
+  percent: number;
+}
+
 interface ServiceProfitabilityItem {
   id: string;
   name: string;
@@ -26,6 +33,7 @@ interface ServiceProfitabilityItem {
   totalCogs: number;
   grossProfit: number;
   totalSustainingCosts: number;
+  sustainingBreakdown: SustainingBreakdownEntry[];
   netProfit: number;
   netProfitMargin: number;
   status: "profit" | "breakeven" | "loss";
@@ -129,7 +137,29 @@ export default function ServiceProfitabilityPage() {
       key: "totalSustainingCosts",
       header: "Sustaining Costs",
       render: (item: ServiceProfitabilityItem) => (
-        <span className="font-mono text-red-500 font-medium">{formatCurrency(item.totalSustainingCosts)}</span>
+        <div className="flex items-center gap-1">
+          <span className="font-mono text-red-500 font-medium">{formatCurrency(item.totalSustainingCosts)}</span>
+          {item.sustainingBreakdown?.length > 0 && (
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[220px] p-3 space-y-1.5">
+                  <p className="text-xs font-semibold mb-1">Sustaining Cost Breakdown</p>
+                  {item.sustainingBreakdown.map((b, i) => (
+                    <div key={i} className="flex justify-between gap-3 text-xs">
+                      <span className="text-muted-foreground truncate">{b.title}</span>
+                      <span className="font-mono shrink-0">
+                        {formatCurrency(b.amount)} <span className="text-muted-foreground">({b.percent}%)</span>
+                      </span>
+                    </div>
+                  ))}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       ),
     },
     {

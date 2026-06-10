@@ -1,8 +1,9 @@
 import { db } from "../db";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, gt, inArray } from "drizzle-orm";
 import {
   payrollPeriods,
   payrollEntries,
+  payrollDeductions,
   staff,
   checkouts,
   orders,
@@ -43,6 +44,42 @@ export class PayrollService {
     const allStaff = await db.select().from(staff).where(eq(staff.storeId, period.storeId));
     const activeStaffList = allStaff.filter(s => !s.isArchived);
     const staffMap = new Map(allStaff.map(s => [s.id, s]));
+
+    // Auto-inject carry-forward deductions from previous paid periods
+    const prevPaidPeriods = await db.select().from(payrollPeriods).where(
+      and(eq(payrollPeriods.storeId, period.storeId), eq(payrollPeriods.status, "paid"))
+    );
+    if (prevPaidPeriods.length > 0) {
+      const prevEntries = await db.select().from(payrollEntries).where(
+        and(
+          inArray(payrollEntries.periodId, prevPaidPeriods.map(p => p.id)),
+          gt(payrollEntries.carryForwardAmount, 0),
+        )
+      );
+      for (const prev of prevEntries) {
+        const existing = await db.select().from(payrollDeductions).where(
+          and(
+            eq(payrollDeductions.periodId, periodId),
+            eq(payrollDeductions.staffId, prev.staffId),
+            eq(payrollDeductions.type, "carry_forward"),
+          )
+        );
+        if (existing.length === 0) {
+          const src = prevPaidPeriods.find(p => p.id === prev.periodId);
+          const label = src
+            ? `Balance carried from ${src.startDate} – ${src.endDate}`
+            : "Balance carried from previous period";
+          await db.insert(payrollDeductions).values({
+            periodId,
+            storeId: period.storeId,
+            staffId: prev.staffId,
+            type: "carry_forward",
+            label,
+            amount: prev.carryForwardAmount,
+          });
+        }
+      }
+    }
 
     // Fetch all checkouts in period date range
     const periodCheckouts = await db.select({

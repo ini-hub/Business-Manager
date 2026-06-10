@@ -28,10 +28,12 @@ import {
   cashRegisterSessions,
   salaryAdvances,
   expenseCategories,
+  payrollEntries,
+  payrollDeductions,
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
+import { eq, and, gte, lte, gt, count, desc, sql } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
@@ -214,10 +216,33 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
       const entries = await storage.getPayrollEntries(period.id);
-      const totalAmount = entries.reduce((sum, entry) => sum + (entry.netPay || 0), 0);
       const userId = (req as any).user?.id;
 
+      // Build per-staff deduction totals
+      const allDeductions = await storage.getPayrollDeductions(period.id);
+      const deductionsByStaff = new Map<string, number>();
+      for (const d of allDeductions) {
+        deductionsByStaff.set(d.staffId, (deductionsByStaff.get(d.staffId) ?? 0) + Number(d.amount));
+      }
+
+      // Actual cash outflow = sum of max(0, netPay - deductions) per staff
+      const totalAmount = entries.reduce((sum, entry) => {
+        const staffDeductions = deductionsByStaff.get(entry.staffId) ?? 0;
+        return sum + Math.max(0, (entry.netPay || 0) - staffDeductions);
+      }, 0);
+
       const updated = await storage.updatePayrollPeriodStatus(req.params.id, "paid", userId);
+
+      // Save carry-forward amount on each entry where deductions exceed earnings
+      for (const entry of entries) {
+        const staffDeductions = deductionsByStaff.get(entry.staffId) ?? 0;
+        const deficit = staffDeductions - (entry.netPay || 0);
+        if (deficit > 0) {
+          await db.update(payrollEntries)
+            .set({ carryForwardAmount: deficit })
+            .where(eq(payrollEntries.id, entry.id));
+        }
+      }
 
       // Auto-generate Expense for the paid payroll
       try {
@@ -226,13 +251,13 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         if (!payrollCat) {
           payrollCat = await storage.createExpenseCategory({ storeId: period.storeId, name: "Payroll", isSystem: true });
         }
-          await storage.createExpense({
-            storeId: period.storeId,
-            categoryId: payrollCat.id,
-            title: `Payroll — ${period.startDate} to ${period.endDate}`,
-            amount: totalAmount,
-            date: new Date().toISOString().split("T")[0],
-          });
+        await storage.createExpense({
+          storeId: period.storeId,
+          categoryId: payrollCat.id,
+          title: `Payroll — ${period.startDate} to ${period.endDate}`,
+          amount: totalAmount,
+          date: new Date().toISOString().split("T")[0],
+        });
       } catch (e) {
         console.error("Failed to auto-generate payroll expense:", e);
       }
@@ -557,11 +582,18 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         }
       }
 
+      const linkedProductIds: string[] | undefined = Array.isArray(req.body.linkedProductIds)
+        ? req.body.linkedProductIds.filter((id: any) => typeof id === "string" && id.length > 0)
+        : undefined;
+      const allocationDriver: string | undefined = req.body.allocationDriver ?? undefined;
+
       const expense = await storage.createExpense({
         ...data,
         inventoryId: data.inventoryId === "none" ? null : (data.inventoryId || null),
         paymentMethod: data.paymentMethod || "cash",
-        splitPayments: data.paymentMethod === "split" ? data.splitPayments : null
+        splitPayments: data.paymentMethod === "split" ? data.splitPayments : null,
+        linkedProductIds,
+        allocationDriver,
       });
       res.status(201).json(expense);
     } catch (error) {
@@ -606,10 +638,17 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         }
       }
 
+      const linkedProductIds: string[] | undefined = Array.isArray(req.body.linkedProductIds)
+        ? req.body.linkedProductIds.filter((id: any) => typeof id === "string" && id.length > 0)
+        : undefined;
+      const allocationDriver: string | undefined = req.body.allocationDriver ?? undefined;
+
       const expense = await storage.updateExpense(req.params.id, {
         ...data,
         inventoryId: data.inventoryId === "none" ? null : (data.inventoryId || undefined),
-        splitPayments: targetPaymentMethod === "split" ? targetSplitPayments : (data.paymentMethod && data.paymentMethod !== "split" ? null : undefined)
+        splitPayments: targetPaymentMethod === "split" ? targetSplitPayments : (data.paymentMethod && data.paymentMethod !== "split" ? null : undefined),
+        linkedProductIds,
+        allocationDriver,
       });
       res.json(expense);
     } catch (error) {
@@ -629,8 +668,84 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
+  // ── Payslip document registration (generates a verifiable UUID) ──────────────
+  app.post("/api/payroll/payslips/register", requireManagerOrOwner, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { storeId, periodId, staffId, grossPay, netPay } = req.body;
+      if (!storeId || !periodId || !staffId) {
+        return res.status(400).json({ error: "storeId, periodId, and staffId are required" });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const record = await storage.registerPayslip({
+        storeId,
+        periodId,
+        staffId,
+        generatedByUserId: user?.id,
+        grossPay: Number(grossPay) || 0,
+        netPay: Number(netPay) || 0,
+      });
+      res.json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Could not register payslip." });
+    }
+  });
+
+  // ── Public payslip verification (no auth required) ────────────────────────
+  app.get("/api/verify/payslip/:id", async (req, res) => {
+    try {
+      const record = await storage.getPayslipRecord(req.params.id);
+      if (!record) return res.status(404).json({ error: "Payslip record not found." });
+      res.json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Verification failed." });
+    }
+  });
+
   // ==========================================
   // V2/V3/V4 SME GAPS INTEGRATION ENDPOINTS
   // ==========================================
+
+  // Coverage gap detection — service transactions not covered by any payroll period
+  app.get("/api/payroll/coverage-gaps", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "storeId required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      // Find service checkouts with no covering payroll period
+      const rows = await db.execute(
+        sql`
+          SELECT
+            c.lead_staff_id   AS staff_id,
+            s.name            AS staff_name,
+            MIN(c.created_at::date)::text  AS earliest_date,
+            MAX(c.created_at::date)::text  AS latest_date,
+            COUNT(DISTINCT c.id)           AS service_count,
+            SUM(c.total_price)             AS uncovered_revenue
+          FROM checkouts c
+          JOIN orders o ON c.order_id = o.id
+          JOIN inventory i ON o.inventory_id = i.id
+          LEFT JOIN staff s ON s.id = c.lead_staff_id
+          WHERE c.store_id     = ${storeId}
+            AND c.is_voided    = false
+            AND i.type         = 'service'
+            AND c.lead_staff_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM payroll_periods pp
+              WHERE pp.store_id = c.store_id
+                AND c.created_at::date BETWEEN pp.start_date::date AND pp.end_date::date
+            )
+          GROUP BY c.lead_staff_id, s.name
+          ORDER BY earliest_date
+        `
+      );
+
+      res.json(rows.rows ?? rows);
+    } catch (e) {
+      console.error("Coverage gaps error:", e);
+      res.status(500).json({ error: "Could not compute coverage gaps." });
+    }
+  });
 
 }

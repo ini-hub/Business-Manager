@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { ArrowLeft, Lock, TrendingUp, Calendar, ChevronDown, ChevronUp, DollarSign, Printer, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Lock, TrendingUp, Calendar, ChevronDown, ChevronUp, DollarSign, Printer, Minus, Plus, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +27,7 @@ export default function PayrollDetailPage() {
   const [, params] = useRoute("/payroll/:periodId/staff/:staffId");
   const periodId = params?.periodId ?? "";
   const staffId = params?.staffId ?? "";
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
   const { toast } = useToast();
   const qc = useQueryClient();
   const currency = currentStore?.currency || "NGN";
@@ -106,53 +106,205 @@ export default function PayrollDetailPage() {
 
   const totalEarned = breakdown.reduce((sum, b) => sum + b.earned, 0);
 
+  const isPeriodOngoing = period ? new Date(period.endDate) > new Date() : false;
+
   const printPayslip = async () => {
-    if (!entry || !period) return;
+    if (!entry || !period || !currentStore) return;
     const { jsPDF } = await import("jspdf");
+    const QRCode = (await import("qrcode")).default;
     const doc = new jsPDF({ unit: "mm", format: "a5" });
-    const gross = entry.netPay || 0;
-    const net = gross - totalDeductions;
-    const biz = currentStore?.name || "Business";
-    const per = `${format(parseISO(period.startDate), "MMM d")} – ${format(parseISO(period.endDate), "MMM d, yyyy")}`;
 
-    doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    doc.text("PAYSLIP", 105, 16, { align: "center" });
-    doc.setFontSize(9); doc.setFont("helvetica", "normal");
-    doc.text(biz, 105, 22, { align: "center" });
-    doc.text(`Period: ${per}`, 105, 28, { align: "center" });
+    // ₦ (U+20A6) is outside Latin-1 — jsPDF built-in fonts silently degrade it
+    const pdfFmt = (v: number) => fmtCur(v).replace(/₦/g, "NGN ");
 
-    doc.setFontSize(10); doc.setFont("helvetica", "bold");
-    doc.text(entry.staff?.name || "Staff", 14, 38);
-    doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text(`Staff #: ${entry.staff?.staffNumber || "—"}`, 14, 43);
+    // Layout
+    const W = 148;
+    const L = 14;
+    const R = 134;
+    const C = (L + R) / 2;
 
-    let y = 52;
-    const row = (label: string, value: string, bold = false) => {
-      doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.text(label, 14, y);
-      doc.text(value, 148, y, { align: "right" });
-      y += 6;
-    };
+    // Palette
+    const NAVY:  [number,number,number] = [26,  35,  79];
+    const WHITE: [number,number,number] = [255, 255, 255];
+    const STRIPE:[number,number,number] = [245, 246, 250];
+    const LABEL: [number,number,number] = [110, 115, 135];
+    const BODY:  [number,number,number] = [35,  40,  58];
+    const GREEN: [number,number,number] = [21,  128, 61];
+    const RED:   [number,number,number] = [180, 35,  35];
 
-    doc.setLineWidth(0.3); doc.line(14, y - 2, 148, y - 2);
-    row("Base Salary", fmtCur(entry.calculationDetails?.baseSalary || 0));
-    row("Transport Allowance", fmtCur(entry.totalTransport || 0));
-    row("Gross Commission", fmtCur(entry.grossCommission || 0));
-    y += 2; doc.line(14, y - 2, 148, y - 2);
-    row("GROSS PAY", fmtCur(gross), true);
+    const gross     = entry.netPay || 0;
+    const net       = gross - totalDeductions;
+    const bizName   = business?.name || "Business";
+    const storeName = currentStore?.name || "";
+    const per       = `${format(parseISO(period.startDate), "MMM d")} – ${format(parseISO(period.endDate), "MMM d, yyyy")}`;
 
-    if (deductions.length > 0) {
-      y += 3;
-      doc.setFont("helvetica", "bold"); doc.text("Deductions:", 14, y); y += 5;
-      for (const d of deductions) {
-        row(`  ${d.label}`, `- ${fmtCur(Number(d.amount))}`);
+    // Register with backend to get a verifiable document ID
+    let docId: string | null = null;
+    try {
+      const res = await fetch("/api/payroll/payslips/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ storeId: currentStore.id, periodId: period.id, staffId: entry.staffId, grossPay: gross, netPay: net }),
+      });
+      if (res.ok) {
+        const record = await res.json();
+        docId = record.id;
       }
-      y += 2; doc.line(14, y - 2, 148, y - 2);
+    } catch { /* non-blocking — PDF still generates without a doc ID */ }
+
+    // Pre-render QR code as a data URL (points to the public verify page)
+    let qrDataUrl: string | null = null;
+    if (docId) {
+      try {
+        const verifyUrl = `${window.location.origin}/verify/payslip/${docId}`;
+        qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 80, margin: 1, color: { dark: "#1a2350", light: "#ffffff" } });
+      } catch { /* skip QR on failure */ }
     }
 
-    row("NET PAY", fmtCur(net), true);
-    doc.setFontSize(7); doc.setTextColor(150);
-    doc.text(`Generated on ${format(new Date(), "MMM d, yyyy")}`, 105, y + 8, { align: "center" });
+    // ── Header band ───────────────────────────────────────────────────────────
+    doc.setFillColor(...NAVY);
+    doc.rect(0, 0, W, 32, "F");
+
+    doc.setTextColor(...WHITE);
+    doc.setFontSize(20); doc.setFont("helvetica", "bold");
+    doc.text("PAYSLIP", L, 16);
+
+    doc.setFontSize(9); doc.setFont("helvetica", "bold");
+    doc.text(bizName, R, 10, { align: "right" });
+    doc.setFontSize(8); doc.setFont("helvetica", "normal");
+    if (storeName) doc.text(storeName, R, 17, { align: "right" });
+    doc.setFontSize(7.5);
+    doc.text(`Period: ${per}`, R, storeName ? 24 : 18, { align: "right" });
+
+    // ── Staff info block ──────────────────────────────────────────────────────
+    doc.setTextColor(...NAVY);
+    doc.setFontSize(13); doc.setFont("helvetica", "bold");
+    doc.text(entry.staff?.name || "Staff", L, 44);
+
+    doc.setFontSize(8); doc.setFont("helvetica", "normal");
+    doc.setTextColor(...LABEL);
+    doc.text(`Staff #: ${entry.staff?.staffNumber || "—"}`, L, 51);
+    if (entry.staff?.role) {
+      doc.text(entry.staff.role.toUpperCase(), R, 51, { align: "right" });
+    }
+
+    doc.setDrawColor(210, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.line(L, 55, R, 55);
+
+    // ── Earnings ──────────────────────────────────────────────────────────────
+    let y = 63;
+
+    doc.setFontSize(7); doc.setFont("helvetica", "bold");
+    doc.setTextColor(...LABEL);
+    doc.text("EARNINGS", L, y);
+    y += 5;
+
+    const earningsRows: [string, number][] = [
+      ["Base Salary",         entry.calculationDetails?.baseSalary || 0],
+      ["Transport Allowance", entry.totalTransport  || 0],
+      ["Gross Commission",    entry.grossCommission || 0],
+    ];
+    if ((entry.leavePay   || 0) > 0) earningsRows.push(["Leave Pay",   entry.leavePay]);
+    if ((entry.holidayPay || 0) > 0) earningsRows.push(["Holiday Pay", entry.holidayPay]);
+    if ((entry.offDayPay  || 0) > 0) earningsRows.push(["Off-Day Pay", entry.offDayPay]);
+
+    earningsRows.forEach(([label, value], i) => {
+      if (i % 2 === 0) {
+        doc.setFillColor(...STRIPE);
+        doc.rect(L - 2, y - 4.5, R - L + 4, 7, "F");
+      }
+      doc.setFontSize(8.5); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...BODY);
+      doc.text(label, L + 2, y);
+      doc.text(pdfFmt(value), R - 2, y, { align: "right" });
+      y += 7;
+    });
+
+    // Gross pay subtotal row
+    y += 1;
+    doc.setFillColor(228, 231, 244);
+    doc.rect(L - 2, y - 1, R - L + 4, 8, "F");
+    doc.setFontSize(9); doc.setFont("helvetica", "bold");
+    doc.setTextColor(...NAVY);
+    doc.text("Gross Pay", L + 2, y + 5);
+    doc.text(pdfFmt(gross), R - 2, y + 5, { align: "right" });
+    y += 13;
+
+    // ── Deductions ────────────────────────────────────────────────────────────
+    if (deductions.length > 0) {
+      doc.setFontSize(7); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...LABEL);
+      doc.text("DEDUCTIONS", L, y);
+      y += 5;
+
+      deductions.forEach((d: any, i: number) => {
+        if (i % 2 === 0) {
+          doc.setFillColor(...STRIPE);
+          doc.rect(L - 2, y - 4.5, R - L + 4, 7, "F");
+        }
+        doc.setFontSize(8.5); doc.setFont("helvetica", "normal");
+        doc.setTextColor(...BODY);
+        doc.text(d.label, L + 2, y);
+        doc.setTextColor(...RED);
+        doc.text(`- ${pdfFmt(Number(d.amount))}`, R - 2, y, { align: "right" });
+        y += 7;
+      });
+      y += 3;
+    }
+
+    // ── Net pay band ──────────────────────────────────────────────────────────
+    const isDeficit = net < 0;
+    doc.setFillColor(...(isDeficit ? RED : GREEN));
+    doc.rect(L - 2, y, R - L + 4, 11, "F");
+    doc.setFontSize(11); doc.setFont("helvetica", "bold");
+    doc.setTextColor(...WHITE);
+    doc.text(isDeficit ? "DEFICIT" : "NET PAY", L + 2, y + 7.5);
+    doc.text(pdfFmt(Math.abs(net)), R - 2, y + 7.5, { align: "right" });
+    y += 14;
+
+    // Carry-forward note when net is negative
+    if (isDeficit) {
+      doc.setFontSize(7); doc.setFont("helvetica", "italic");
+      doc.setTextColor(...RED);
+      doc.text(`* Deficit of ${pdfFmt(Math.abs(net))} will carry forward to next payroll period`, C, y, { align: "center" });
+      y += 6;
+    } else {
+      y += 3;
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    // Thin separator
+    doc.setDrawColor(210, 213, 225);
+    doc.setLineWidth(0.2);
+    doc.line(L, y, R, y);
+    y += 5;
+
+    if (isPeriodOngoing) {
+      doc.setFontSize(7); doc.setFont("helvetica", "normal");
+      doc.setTextColor(200, 100, 0);
+      doc.text("* Period not yet closed - figures may change", C, y, { align: "center" });
+      y += 5;
+    }
+
+    // QR code + doc ID (left), generation date (right)
+    const qrSize = 18;
+    if (qrDataUrl) {
+      doc.addImage(qrDataUrl, "PNG", L, y - 1, qrSize, qrSize);
+      doc.setFontSize(6); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...NAVY);
+      doc.text("ORIGINAL COPY", L + qrSize + 2, y + 4);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...LABEL);
+      doc.setFontSize(5.5);
+      doc.text(`Doc ID: ${docId}`, L + qrSize + 2, y + 8);
+      doc.text("Scan QR to verify authenticity", L + qrSize + 2, y + 12);
+    }
+
+    doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+    doc.setTextColor(...LABEL);
+    doc.text(`Generated on ${format(new Date(), "MMM d, yyyy")}`, R, y + (qrDataUrl ? 4 : 0), { align: "right" });
 
     doc.save(`payslip-${entry.staff?.name || staffId}-${period.startDate}.pdf`);
   };
@@ -226,28 +378,42 @@ export default function PayrollDetailPage() {
       )}
 
       {/* Final Net Pay Callout */}
-      {entry && (
-        <Card className="border-primary/20 bg-primary/5">
+      {entry && (() => {
+        const finalTakeHome = (entry.netPay || 0) - totalDeductions;
+        const isNegative = finalTakeHome < 0;
+        return (
+        <Card className={isNegative ? "border-destructive/40 bg-destructive/5" : "border-primary/20 bg-primary/5"}>
           <CardContent className="flex items-center justify-between py-4 flex-wrap gap-4">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <DollarSign className="h-5 w-5" />
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${isNegative ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}>
+                {isNegative ? <AlertTriangle className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
               </div>
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Net Pay (before deductions)</p>
-                <p className="text-2xl font-bold font-mono text-primary">{fmtCur(entry.netPay || 0)}</p>
+                <p className={`text-2xl font-bold font-mono ${isNegative ? "text-destructive" : "text-primary"}`}>{fmtCur(entry.netPay || 0)}</p>
                 {totalDeductions > 0 && (
-                  <p className="text-xs text-destructive mt-0.5">Final take-home after deductions: {fmtCur((entry.netPay || 0) - totalDeductions)}</p>
+                  <p className={`text-xs mt-0.5 font-medium ${isNegative ? "text-destructive" : "text-muted-foreground"}`}>
+                    Final take-home after deductions: {fmtCur(finalTakeHome)}
+                    {isNegative && ` — deficit of ${fmtCur(Math.abs(finalTakeHome))} will carry forward`}
+                  </p>
                 )}
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={printPayslip}>
-              <Printer className="mr-2 h-4 w-4" />
-              Download Payslip PDF
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              {isPeriodOngoing && (
+                <p className="text-[11px] text-amber-600 font-medium">
+                  ⚠ Period still open — figures may change
+                </p>
+              )}
+              <Button variant="outline" size="sm" onClick={printPayslip}>
+                <Printer className="mr-2 h-4 w-4" />
+                Download Payslip PDF
+              </Button>
+            </div>
           </CardContent>
         </Card>
-      )}
+        );
+      })()}
 
       {/* Deductions Panel */}
       <Card>

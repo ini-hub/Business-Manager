@@ -45,6 +45,19 @@ export type RouteMiddlewares = {
 };
 
 export function registerInventoryRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+  // ── Product groups (for expense linking) ─────────────────────────────────
+  app.get("/api/products", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "storeId required" });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const productList = await storage.getProducts(storeId);
+      res.json(productList.filter((p: any) => !p.isDeleted));
+    } catch {
+      res.status(500).json({ error: "Could not fetch products." });
+    }
+  });
+
   // ========== INVENTORY ==========
   app.post("/api/inventory", requireManagerOrOwner, async (req, res) => {
     try {
@@ -596,19 +609,46 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
 
       const summary = await analyticsService.getServiceProfitability(storeId, startDate, endDate);
 
-      // Map to frontend expected ServiceProfitabilityReport format
-      const items = [...(summary.services || []), ...(summary.products || [])].map(item => ({
-        id: item.id,
-        name: item.name,
-        type: item.type,
-        totalRevenue: item.revenue || 0,
-        totalCogs: item.cogs || 0,
-        grossProfit: item.grossProfit || 0,
-        totalSustainingCosts: item.sustainingCosts || 0,
-        netProfit: item.netProfit || 0,
-        netProfitMargin: item.netProfitMargin || 0,
-        status: item.status,
-      }));
+      // Group variants by their parent product and aggregate metrics
+      type GroupEntry = {
+        id: string; name: string; type: string;
+        totalRevenue: number; totalCogs: number; grossProfit: number;
+        totalSustainingCosts: number; netProfit: number;
+        sustainingBreakdown: { title: string; amount: number; percent: number }[];
+      };
+      const groupMap = new Map<string, GroupEntry>();
+
+      for (const item of [...(summary.services || []), ...(summary.products || [])]) {
+        const key = item.productId || item.id;
+        if (groupMap.has(key)) {
+          const g = groupMap.get(key)!;
+          g.totalRevenue         += item.revenue          || 0;
+          g.totalCogs            += item.cogs              || 0;
+          g.grossProfit          += item.grossProfit       || 0;
+          g.totalSustainingCosts += item.sustainingCosts   || 0;
+          g.netProfit            += item.netProfit         || 0;
+          // merge breakdown entries from variants
+          g.sustainingBreakdown.push(...(item.sustainingBreakdown ?? []));
+        } else {
+          groupMap.set(key, {
+            id: item.productId || item.id,
+            name: item.productName || item.name,
+            type: item.type,
+            totalRevenue:          item.revenue          || 0,
+            totalCogs:             item.cogs              || 0,
+            grossProfit:           item.grossProfit       || 0,
+            totalSustainingCosts:  item.sustainingCosts   || 0,
+            netProfit:             item.netProfit         || 0,
+            sustainingBreakdown:   item.sustainingBreakdown ?? [],
+          });
+        }
+      }
+
+      const items = Array.from(groupMap.values()).map(g => {
+        const netProfitMargin = g.totalRevenue > 0 ? (g.netProfit / g.totalRevenue) * 100 : 0;
+        const status = g.netProfit > 0 ? "profit" : g.netProfit < 0 ? "loss" : "breakeven";
+        return { ...g, netProfitMargin, status };
+      });
 
       const totalRevenue = items.reduce((sum, item) => sum + item.totalRevenue, 0);
       const totalCogs = items.reduce((sum, item) => sum + item.totalCogs, 0);

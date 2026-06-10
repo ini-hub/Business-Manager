@@ -1201,6 +1201,7 @@ export const payrollEntries = pgTable("payroll_entries", {
   holidayPay: numeric("holiday_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   offDayPay: numeric("off_day_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   calculationDetails: jsonb("calculation_details"),
+  carryForwardAmount: numeric("carry_forward_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
@@ -1296,7 +1297,8 @@ export const expenses = pgTable("expenses", {
   title: text("title").notNull(),
   amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   categoryId: varchar("category_id").notNull().references(() => expenseCategories.id),
-  inventoryId: varchar("inventory_id").references(() => inventory.id),
+  inventoryId: varchar("inventory_id").references(() => inventory.id), // legacy single-link — superseded by expense_linked_items
+  allocationDriver: text("allocation_driver").notNull().default("count"), // 'count' | 'revenue'
   date: text("date").notNull(), // ISO Date YYYY-MM-DD
   notes: text("notes"),
   receiptUrl: text("receipt_url"),
@@ -1342,6 +1344,24 @@ export type ExpenseWithCategory = Expense & {
   category: ExpenseCategory;
   inventory?: Inventory | null;
 };
+
+// ── Expense Linked Items ──────────────────────────────────────────────────────
+// Links an expense to one or more product groups for activity-based allocation.
+// The cost split is derived at query time from actual sales data (count/revenue).
+export const expenseLinkedItems = pgTable("expense_linked_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  expenseId: varchar("expense_id").notNull().references(() => expenses.id, { onDelete: "cascade" }),
+  productId: varchar("product_id").notNull().references(() => products.id),
+}, (table) => [
+  unique("expense_linked_items_unique").on(table.expenseId, table.productId),
+]);
+
+export const expenseLinkedItemsRelations = relations(expenseLinkedItems, ({ one }) => ({
+  expense: one(expenses, { fields: [expenseLinkedItems.expenseId], references: [expenses.id] }),
+  product: one(products, { fields: [expenseLinkedItems.productId], references: [products.id] }),
+}));
+
+export type ExpenseLinkedItem = typeof expenseLinkedItems.$inferSelect;
 
 // Notifications table
 export const notifications = pgTable("notifications", {
@@ -2077,3 +2097,25 @@ export const saleDrafts = pgTable("sale_drafts", {
 
 export type SaleDraft = typeof saleDrafts.$inferSelect;
 export type InsertSalaryAdvance = typeof salaryAdvances.$inferInsert;
+
+// ── Payslip Records ───────────────────────────────────────────────────────────
+// Immutable log of every payslip PDF that was generated. The UUID is embedded
+// in the PDF as a QR code so the document can be verified against this record.
+export const payslipRecords = pgTable("payslip_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
+  staffId: varchar("staff_id").notNull().references(() => staff.id),
+  generatedByUserId: varchar("generated_by_user_id").references(() => users.id),
+  grossPay: numeric("gross_pay", { precision: 12, scale: 2 }).$type<number>(),
+  netPay: numeric("net_pay", { precision: 12, scale: 2 }).$type<number>(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+});
+
+export const payslipRecordsRelations = relations(payslipRecords, ({ one }) => ({
+  store: one(stores, { fields: [payslipRecords.storeId], references: [stores.id] }),
+  period: one(payrollPeriods, { fields: [payslipRecords.periodId], references: [payrollPeriods.id] }),
+  staff: one(staff, { fields: [payslipRecords.staffId], references: [staff.id] }),
+}));
+
+export type PayslipRecord = typeof payslipRecords.$inferSelect;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Wallet, Calendar, FileText, Plus, Check } from "lucide-react";
+import { ArrowLeft, Wallet, Calendar, FileText, Plus, Check, X, Link2 } from "lucide-react";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import type { ExpenseCategory, Inventory } from "@shared/schema";
+import { Badge } from "@/components/ui/badge";
 
 const expenseSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -71,6 +72,8 @@ export default function AddExpensePage() {
 
   const [isNewCategoryMode, setIsNewCategoryMode] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
+  const [linkedProductIds, setLinkedProductIds] = useState<string[]>([]);
+  const [allocationDriver, setAllocationDriver] = useState<"count" | "revenue">("count");
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseSchema),
@@ -137,6 +140,17 @@ export default function AddExpensePage() {
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
 
+  const { data: productGroups = [] } = useQuery<{ id: string; name: string; type: string }[]>({
+    queryKey: ["/api/products", currentStore?.id],
+    queryFn: async () => {
+      const storeId = currentStore?.id === "all" ? (stores[0]?.id ?? "") : (currentStore?.id ?? "");
+      if (!storeId) return [];
+      const res = await apiRequest("GET", `/api/products?storeId=${storeId}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id,
+  });
+
   const addCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
       const activeStoreId = form.getValues("storeId") || currentStore!.id;
@@ -186,7 +200,9 @@ export default function AddExpensePage() {
         inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
         storeId: data.storeId || currentStore!.id,
         paymentMethod: data.paymentMethod,
-        splitPayments
+        splitPayments,
+        linkedProductIds: linkedProductIds.length > 0 ? linkedProductIds : undefined,
+        allocationDriver: linkedProductIds.length > 0 ? allocationDriver : undefined,
       };
       await apiRequest("POST", "/api/expenses", submissionData);
     },
@@ -377,31 +393,81 @@ export default function AddExpensePage() {
                   />
                 )}
 
-                <FormField
-                  control={form.control}
-                  name="inventoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm font-medium">Related Service / Product (Optional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "none"}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select an item" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {inventoryItems.map((item) => (
-                            <SelectItem key={item.id} value={item.id}>
-                              {item.name} ({item.type})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
+                {/* Multi-select product/service linker */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-1.5">
+                    <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    Related Services / Products <span className="text-muted-foreground font-normal">(Optional)</span>
+                  </label>
+
+                  {/* Selected chips */}
+                  {linkedProductIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-1">
+                      {linkedProductIds.map(pid => {
+                        const p = productGroups.find(g => g.id === pid);
+                        return (
+                          <Badge key={pid} variant="secondary" className="flex items-center gap-1 pr-1">
+                            <span className="text-xs">{p?.name ?? pid}</span>
+                            <button
+                              type="button"
+                              onClick={() => setLinkedProductIds(ids => ids.filter(id => id !== pid))}
+                              className="rounded-full hover:bg-muted-foreground/20 p-0.5"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </Badge>
+                        );
+                      })}
+                    </div>
                   )}
-                />
+
+                  <Select
+                    value=""
+                    onValueChange={(val) => {
+                      if (val && !linkedProductIds.includes(val))
+                        setLinkedProductIds(ids => [...ids, val]);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Add a service or product..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {productGroups
+                        .filter(p => !linkedProductIds.includes(p.id))
+                        .map(p => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                            <span className="ml-1.5 text-xs text-muted-foreground capitalize">({p.type})</span>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+
+                  {linkedProductIds.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <p className="text-xs font-medium text-muted-foreground">Allocation driver</p>
+                      <div className="flex gap-3">
+                        {(["count", "revenue"] as const).map(d => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setAllocationDriver(d)}
+                            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                              allocationDriver === d
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-border text-muted-foreground hover:border-primary/50"
+                            }`}
+                          >
+                            {d === "count" ? "By transaction count" : "By revenue generated"}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Cost splits automatically based on how often each service/product is sold in the report period.
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 <FormField
                   control={form.control}

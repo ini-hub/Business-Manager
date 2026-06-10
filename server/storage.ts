@@ -399,8 +399,8 @@ export interface IStorage {
     inventoryId?: string
   ): Promise<ExpenseWithCategory[]>;
   getExpenseById(id: string): Promise<ExpenseWithCategory | null>;
-  createExpense(data: InsertExpense): Promise<Expense>;
-  updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense>;
+  createExpense(data: InsertExpense & { linkedProductIds?: string[]; allocationDriver?: string }): Promise<Expense>;
+  updateExpense(id: string, data: Partial<InsertExpense> & { linkedProductIds?: string[]; allocationDriver?: string }): Promise<Expense>;
   deleteExpense(id: string): Promise<void>;
 
   getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<{
@@ -466,6 +466,10 @@ export interface IStorage {
 
   // Payroll Expenses
   getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]>;
+
+  // Payslip Records
+  registerPayslip(data: { storeId: string; periodId: string; staffId: string; generatedByUserId?: string; grossPay: number; netPay: number }): Promise<any>;
+  getPayslipRecord(id: string): Promise<any>;
 
   // Staff Performance
   getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
@@ -1218,6 +1222,14 @@ export class DatabaseStorage implements IStorage {
     return this.payrollRepo.getPayrollDrillDown(periodId, staffId);
   }
 
+  async registerPayslip(data: { storeId: string; periodId: string; staffId: string; generatedByUserId?: string; grossPay: number; netPay: number }) {
+    return this.payrollRepo.registerPayslip(data);
+  }
+
+  async getPayslipRecord(id: string) {
+    return this.payrollRepo.getPayslipRecord(id);
+  }
+
   // ─── Payroll Deductions ─────────────────────────────────────────────────────
   async getPayrollDeductions(periodId: string, staffId?: string): Promise<PayrollDeduction[]> {
     const conditions: any[] = [eq(payrollDeductions.periodId, periodId)];
@@ -1399,11 +1411,11 @@ export class DatabaseStorage implements IStorage {
     return this.expenseRepo.getExpenseById(id);
   }
 
-  async createExpense(data: InsertExpense): Promise<Expense> {
+  async createExpense(data: InsertExpense & { linkedProductIds?: string[]; allocationDriver?: string }): Promise<Expense> {
     return this.expenseRepo.createExpense(data);
   }
 
-  async updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense> {
+  async updateExpense(id: string, data: Partial<InsertExpense> & { linkedProductIds?: string[]; allocationDriver?: string }): Promise<Expense> {
     return this.expenseRepo.updateExpense(id, data);
   }
 

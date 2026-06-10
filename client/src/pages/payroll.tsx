@@ -127,6 +127,16 @@ export default function PayrollPage() {
   const selectedPeriod = periods.find(p => p.id === selectedPeriodId);
 
   // Unrecorded attendance days for selected period
+  // Coverage gap detection — service transactions not covered by any payroll period
+  const { data: coverageGaps = [] } = useQuery<{ staff_id: string; staff_name: string; earliest_date: string; latest_date: string; service_count: number; uncovered_revenue: number }[]>({
+    queryKey: ["/api/payroll/coverage-gaps", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/payroll/coverage-gaps?storeId=${currentStore?.id}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
   const { data: unrecordedDays = [] } = useQuery<{ staffId: string; staffName: string; unrecordedDates: string[] }[]>({
     queryKey: ["/api/payroll/periods/unrecorded", selectedPeriodId],
     queryFn: async () => {
@@ -289,6 +299,24 @@ export default function PayrollPage() {
           </div>
         }
       />
+
+      {/* Coverage gap warning */}
+      {coverageGaps.length > 0 && (() => {
+        const earliest = coverageGaps.reduce((min, g) => g.earliest_date < min ? g.earliest_date : min, coverageGaps[0].earliest_date);
+        const latest   = coverageGaps.reduce((max, g) => g.latest_date   > max ? g.latest_date   : max, coverageGaps[0].latest_date);
+        const totalServices = coverageGaps.reduce((s, g) => s + Number(g.service_count), 0);
+        const staffNames = [...new Set(coverageGaps.map(g => g.staff_name).filter(Boolean))].join(", ");
+        return (
+          <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-700">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <AlertDescription className="text-amber-800 dark:text-amber-300">
+              <span className="font-semibold">{totalServices} service transaction{totalServices !== 1 ? "s" : ""} ({earliest} – {latest}) are not covered by any payroll period</span>
+              {staffNames && <span className="text-amber-700 dark:text-amber-400"> · Staff affected: {staffNames}</span>}
+              <span className="block mt-1 text-xs">Create payroll periods for those dates to include this revenue in staff earnings. If the business was on a break, no action is needed.</span>
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Period list */}
