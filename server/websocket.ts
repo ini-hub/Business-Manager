@@ -4,8 +4,12 @@ import { verifyToken } from "./auth";
 
 let wss: WebSocketServer | null = null;
 
+interface AuthenticatedWebSocket extends WebSocket {
+  __businessId: string;
+}
+
 // Map businessId -> set of authenticated WebSocket connections
-const businessClients = new Map<string, Set<WebSocket>>();
+const businessClients = new Map<string, Set<AuthenticatedWebSocket>>();
 
 function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
   const list: Record<string, string> = {};
@@ -25,7 +29,7 @@ function getBusinessIdFromRequest(request: IncomingMessage): string | null {
   return claims?.organisationId ?? null;
 }
 
-function removeSocket(businessId: string, ws: WebSocket): void {
+function removeSocket(businessId: string, ws: AuthenticatedWebSocket): void {
   const bucket = businessClients.get(businessId);
   if (!bucket) return;
   bucket.delete(ws);
@@ -48,7 +52,7 @@ export function initWebSocketServer(server: Server) {
       }
 
       wss?.handleUpgrade(request, socket, head, (ws) => {
-        (ws as any).__businessId = businessId;
+        (ws as AuthenticatedWebSocket).__businessId = businessId;
         wss?.emit("connection", ws, request);
       });
     } catch (err) {
@@ -57,19 +61,16 @@ export function initWebSocketServer(server: Server) {
     }
   });
 
-  wss.on("connection", (ws: WebSocket) => {
-    const businessId: string = (ws as any).__businessId;
+  wss.on("connection", (ws: AuthenticatedWebSocket) => {
+    const businessId = ws.__businessId;
 
     if (!businessClients.has(businessId)) {
       businessClients.set(businessId, new Set());
     }
     businessClients.get(businessId)!.add(ws);
 
-    console.log(`[WS] Connection for business ${businessId}. Clients in bucket: ${businessClients.get(businessId)?.size}`);
-
     ws.on("close", () => {
       removeSocket(businessId, ws);
-      console.log(`[WS] Connection closed for business ${businessId}`);
     });
 
     ws.on("error", (err) => {

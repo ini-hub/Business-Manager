@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } from "@shared/schema";
+
+type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number };
+type AuditPerson = { name?: string; email?: string };
+type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
 import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, CheckSquare } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
-import { z } from "zod";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { FormDescription } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/metric-card";
@@ -16,14 +18,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -41,9 +35,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { insertInventorySchema, type Inventory, type InsertInventory } from "@shared/schema";
+import { useMultiStoreQuery } from "@/hooks/useMultiStoreQuery";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -55,44 +47,15 @@ import { buildSlug } from "@/lib/slug";
 
 type FilterType = "all" | "product" | "service" | "low-stock" | "audits" | "archived";
 
-const inventoryFormSchema = insertInventorySchema.refine(
-  (data) => data.costPrice > 0,
-  {
-    message: "Cost price must be greater than zero.",
-    path: ["costPrice"],
-  }
-).refine(
-  (data) => data.type === 'service' || (data.quantity !== undefined && data.quantity !== null && data.quantity >= 1),
-  {
-    message: "Products must have a quantity of at least 1.",
-    path: ["quantity"],
-  }
-).refine(data => {
-  if (data.commissionSplitOverride) {
-    const businessShare = data.commissionSplitBusinessShare ?? 0;
-    const staffShare = data.commissionSplitStaffShare ?? 0;
-    return businessShare + staffShare === 100;
-  }
-  return true;
-}, {
-  message: "Override split percentages must sum to exactly 100%",
-  path: ["commissionSplitStaffShare"]
-});
-
 export default function InventoryPage() {
   const { toast } = useToast();
-  const { currentStore, stores } = useStore();
+  const { currentStore } = useStore();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [shouldRedirectBack, setShouldRedirectBack] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteBlockedBySales, setDeleteBlockedBySales] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
-  const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
-  const [duplicateItem, setDuplicateItem] = useState<Inventory | null>(null);
-  const [duplicatePayload, setDuplicatePayload] = useState<InsertInventory | null>(null);
-  const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ProductWithVariants | null>(null);
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [isAuditFormOpen, setIsAuditFormOpen] = useState(false);
   const [isAuditDetailOpen, setIsAuditDetailOpen] = useState(false);
@@ -120,124 +83,32 @@ export default function InventoryPage() {
     receiptUrl: "",
   });
 
-  const { data: inventoryList = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/products", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/products?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        const mergedMap = new Map<string, any>();
-        for (const list of responses) {
-          for (const item of list) {
-            const key = item.id;
-            const existing = mergedMap.get(key);
-            if (existing) {
-              if (item.storeName && !existing.storeName?.includes(item.storeName)) {
-                existing.storeName = `${existing.storeName}, ${item.storeName}`;
-              }
-            } else {
-              mergedMap.set(key, { ...item });
-            }
-          }
-        }
-        return Array.from(mergedMap.values());
-      }
-      const res = await fetch(`/api/products?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch products");
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
+  const { data: inventoryList = [], isLoading } = useMultiStoreQuery<ProductWithVariants>(
+    "/api/products",
+    { merge: "dedup-by-id" }
+  );
 
-  const { data: archivedList = [], isLoading: isLoadingArchived } = useQuery<any[]>({
-    queryKey: ["/api/products/archived", currentStore?.id],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/products/archived?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch { return []; }
-          })
-        );
-        return responses.flat();
-      }
-      const res = await fetch(`/api/products/archived?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch archived items");
-      return res.json();
-    },
-    enabled: filterType === "archived" && (currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id),
-  });
+  const { data: archivedList = [], isLoading: isLoadingArchived } = useMultiStoreQuery<ProductWithVariants>(
+    "/api/products/archived",
+    { enabled: filterType === "archived" }
+  );
 
-  const { data: settingsData } = useQuery<any>({
+  const { data: settingsData } = useQuery<Settings>({
     queryKey: ["/api/settings", currentStore?.id],
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
-  const { data: auditsList = [], isLoading: isLoadingAudits } = useQuery<any[]>({
-    queryKey: ["/api/stock-audits", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/stock-audits?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      }
-      const res = await fetch(`/api/stock-audits?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch stock audits");
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? (stores.length > 0 && filterType === "audits") : (!!currentStore?.id && filterType === "audits"),
-  });
+  const { data: auditsRaw = [], isLoading: isLoadingAudits } = useMultiStoreQuery<StockAudit>(
+    "/api/stock-audits",
+    { enabled: filterType === "audits" }
+  );
+  const auditsList = [...auditsRaw].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 
-  const { data: staffList = [] } = useQuery<any[]>({
-    queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/staff?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat();
-      }
-      const res = await fetch(`/api/staff?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch staff");
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
+  const { data: staffList = [] } = useMultiStoreQuery<Staff>("/api/staff");
 
-  const { data: auditDetail, isLoading: isLoadingAuditDetail } = useQuery<any>({
+  const { data: auditDetail, isLoading: isLoadingAuditDetail } = useQuery<AuditDetail>({
     queryKey: ["/api/stock-audits", selectedAuditId],
     queryFn: async () => {
       const res = await fetch(`/api/stock-audits/${selectedAuditId}`);
@@ -311,75 +182,6 @@ export default function InventoryPage() {
       (item) => item.type === "product" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
     ).length;
   }, [inventoryList, lowStockThreshold]);
-
-  const form = useForm<InsertInventory>({
-    resolver: zodResolver(inventoryFormSchema),
-    defaultValues: {
-      storeId: currentStore?.id || "",
-      name: "",
-      type: "product",
-      costPrice: 0,
-      sellingPrice: 0,
-      quantity: 1,
-      commissionSplitOverride: false,
-      commissionSplitBusinessShare: 80,
-      commissionSplitStaffShare: 20,
-    },
-  });
-
-  const watchType = form.watch("type");
-  const watchCostPrice = form.watch("costPrice");
-  const watchSellingPrice = form.watch("sellingPrice");
-  const hasZeroMargin = watchCostPrice > 0 && watchCostPrice === watchSellingPrice;
-
-  const createMutation = useMutation({
-    mutationFn: (data: InsertInventory) => apiRequest("POST", "/api/inventory", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Item created successfully" });
-      closeForm();
-    },
-    onError: (error: Error) => {
-      const msg = error.message ?? "";
-      if (msg.startsWith("archived:")) {
-        toast({
-          title: "Item Is Archived",
-          description: msg.replace("archived:", "").trim() + " Switch to the Archived tab to restore it.",
-          variant: "destructive",
-        });
-        setFilterType("archived");
-      } else {
-        toast({
-          title: "Couldn't Add Item",
-          description: getUserFriendlyError(error, "adding this item"),
-          variant: "destructive",
-        });
-      }
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: (data: InsertInventory) =>
-      apiRequest("PATCH", `/api/inventory/${selectedItem?.id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Item updated successfully" });
-      const itemId = selectedItem?.id;
-      closeForm();
-      if (shouldRedirectBack && itemId) {
-        setLocation(`/inventory/${itemId}`);
-      }
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Update Item", 
-        description: getUserFriendlyError(error, "updating this item"), 
-        variant: "destructive" 
-      });
-    },
-  });
 
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/inventory/${selectedItem?.id}`),
@@ -582,52 +384,20 @@ export default function InventoryPage() {
 
   const openEditForm = (item: any) => setLocation(`/inventory/${buildSlug(item.name, item.id)}/edit`);
 
-  const closeForm = () => {
-    setIsFormOpen(false);
-    setSelectedItem(null);
-    setShouldRedirectBack(false);
-    form.reset();
-  };
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const editId = params.get("edit");
     if (editId && inventoryList.length > 0) {
       const item = inventoryList.find((i) => i.id === editId);
       if (item) {
-        setShouldRedirectBack(true);
         openEditForm(item);
-        // Clear query parameter from the URL
-        const newUrl = window.location.pathname;
-        window.history.replaceState({}, "", newUrl);
+        window.history.replaceState({}, "", window.location.pathname);
       }
     }
   }, [inventoryList]);
 
-  const navigateToDetails = (item: Inventory) => {
+  const navigateToDetails = (item: ProductWithVariants) => {
     setLocation(`/inventory/${buildSlug(item.name, item.id)}`);
-  };
-
-  const onSubmit = (data: InsertInventory) => {
-    if (data.sellingPrice < data.costPrice) {
-      form.setError("sellingPrice", { type: "manual", message: "Selling price cannot be less than cost price." });
-      return;
-    }
-
-    if (selectedItem) {
-      updateMutation.mutate(data);
-    } else {
-      const existing = inventoryList.find(
-        (item) => item.name.toLowerCase().trim() === data.name.toLowerCase().trim()
-      );
-      if (existing) {
-        setDuplicateItem(existing);
-        setDuplicatePayload(data);
-        setIsDuplicateOpen(true);
-        return;
-      }
-      createMutation.mutate(data);
-    }
   };
 
   const getStockBadge = (item: any) => {
@@ -1354,76 +1124,6 @@ export default function InventoryPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={isDuplicateOpen} onOpenChange={setIsDuplicateOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
-              <AlertTriangle className="h-5 w-5" />
-              Duplicate Item Name
-            </DialogTitle>
-            <DialogDescription className="space-y-3 pt-2">
-              <p className="text-sm font-medium text-foreground">
-                An item named "{duplicateItem?.name}" already exists in your inventory.
-              </p>
-              <div className="rounded-lg bg-muted p-3 space-y-1.5 text-xs text-muted-foreground">
-                <div className="flex justify-between">
-                  <span>Type:</span>
-                  <span className="font-semibold capitalize text-foreground">{duplicateItem?.type}</span>
-                </div>
-                {duplicateItem?.type === "product" && (
-                  <div className="flex justify-between">
-                    <span>Current Stock:</span>
-                    <span className="font-semibold text-foreground">{duplicateItem?.quantity} units</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span>Selling Price:</span>
-                  <span className="font-semibold text-foreground">{formatCurrency(duplicateItem?.sellingPrice || 0)}</span>
-                </div>
-              </div>
-              <p className="text-xs">
-                Would you like to restock this existing item, or would you prefer to close this and rename your new item?
-              </p>
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2 pt-4">
-            <Button
-              variant="outline"
-              onClick={() => setIsDuplicateOpen(false)}
-            >
-              Cancel
-            </Button>
-            {duplicateItem?.type === "product" && (
-              <Button
-                variant="outline"
-                className="border-amber-200 hover:bg-amber-50 dark:border-amber-900 dark:hover:bg-amber-950"
-                onClick={() => {
-                  setIsDuplicateOpen(false);
-                  setIsFormOpen(false); // Close the Add Item dialog
-                  setSelectedItem(duplicateItem);
-                  setLocation(`/inventory/${buildSlug(duplicateItem.name, duplicateItem.id)}/restock`);
-                }}
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Restock Existing
-              </Button>
-            )}
-            <Button
-              onClick={() => {
-                setIsDuplicateOpen(false);
-                toast({
-                  title: "Rename Your Item",
-                  description: "Please update the item name to create a new record.",
-                });
-              }}
-            >
-              Rename Name
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
 
       {/* Audit Details Dialog */}
       <Dialog open={isAuditDetailOpen} onOpenChange={setIsAuditDetailOpen}>

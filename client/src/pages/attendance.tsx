@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import type { TransactionWithRelations } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, parseISO, startOfWeek, getDay, addMonths, subMonths } from "date-fns";
 import {
@@ -123,7 +124,7 @@ export default function AttendancePage() {
   });
 
   // Fetch transactions to resolve active vs passive status dynamically
-  const { data: transactions = [] } = useQuery<any[]>({
+  const { data: transactions = [] } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/transactions?storeId=${currentStore?.id}`);
@@ -136,10 +137,8 @@ export default function AttendancePage() {
   const activeStaffDays = useMemo(() => {
     const s = new Set<string>();
     for (const tx of transactions) {
-      if (tx.inventory?.type === "service" && tx.checkout) {
-        const dateStr = typeof tx.transactionDate === "string" 
-          ? tx.transactionDate.split("T")[0] 
-          : new Date(tx.transactionDate).toISOString().split("T")[0];
+      if ((tx.inventory?.type === "service" || tx.inventory?.type === "mixed") && tx.checkout) {
+        const dateStr = new Date(tx.transactionDate as unknown as string).toISOString().split("T")[0];
         
         if (tx.checkout.leadStaffId) s.add(`${tx.checkout.leadStaffId}:${dateStr}`);
         if (tx.checkout.assistingStaff1Id) s.add(`${tx.checkout.assistingStaff1Id}:${dateStr}`);

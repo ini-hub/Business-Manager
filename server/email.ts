@@ -176,8 +176,8 @@ export async function sendAccountLockedEmail(
   });
 }
 
-export async function sendSMS(phone: string, textContent: string): Promise<void> {
-  console.log(`[SMS Service] Outbound SMS to [${phone}]:\n"${textContent}"`);
+export async function sendSMS(_phone: string, _textContent: string): Promise<void> {
+  // SMS provider not yet integrated
 }
 
 export async function sendEmailVerificationOtpEmail(

@@ -52,11 +52,11 @@ export const adminRouter = Router();
 
 // Immutable Audit Log Helper
 async function writeAuditLog(req: Request, action: string, target: string, details?: any) {
-  const admin = (req as any).admin;
+  const admin = req.admin;
   if (!admin) return;
   try {
     await db.insert(superAdminAuditLogs).values({
-      adminId: admin.id,
+      adminId: admin.adminId,
       adminEmail: admin.email,
       adminRole: admin.role,
       action,
@@ -226,7 +226,7 @@ adminRouter.post("/auth/verify-mfa", async (req: Request, res: Response) => {
 
 // Admin Profile
 adminRouter.get("/auth/me", isAdminAuthenticated, (req: Request, res: Response) => {
-  return res.json({ admin: (req as any).admin });
+  return res.json({ admin: req.admin });
 });
 
 // Admin Logout
@@ -1541,7 +1541,7 @@ adminRouter.post("/feature-flags", isAdminAuthenticated, requireAdminRole(["supe
         status: status || "off",
         scopedOrgIds: scopedOrgIds ? JSON.stringify(scopedOrgIds) : null,
         description,
-        updatedBy: (req as any).admin.email,
+        updatedBy: req.admin!.email,
       })
       .returning();
 
@@ -1571,7 +1571,7 @@ adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["s
         scopedOrgIds: scopedOrgIds !== undefined ? JSON.stringify(scopedOrgIds) : flag.scopedOrgIds,
         description: description !== undefined ? description : flag.description,
         updatedAt: new Date(),
-        updatedBy: (req as any).admin.email,
+        updatedBy: req.admin!.email,
       })
       .where(eq(featureFlags.id, id))
       .returning();
@@ -1637,7 +1637,7 @@ adminRouter.post("/announcements", isAdminAuthenticated, requireAdminRole(["supe
         showFrom: showFrom ? new Date(showFrom) : new Date(),
         showUntil: showUntil ? new Date(showUntil) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         dismissible: dismissible !== undefined ? dismissible : true,
-        createdBy: (req as any).admin.email,
+        createdBy: req.admin!.email,
       })
       .returning();
 
@@ -1712,9 +1712,9 @@ adminRouter.get("/system/audit-logs", isAdminAuthenticated, requireAdminRole(["s
     let list = await db.select().from(superAdminAuditLogs).orderBy(desc(superAdminAuditLogs.createdAt));
 
     // Finance Admins can only view their own action logs
-    const admin = (req as any).admin;
-    if (admin.role === "finance_admin") {
-      list = list.filter(l => l.adminId === admin.id);
+    const admin = req.admin;
+    if (admin?.role === "finance_admin") {
+      list = list.filter(l => l.adminId === admin.adminId);
     }
 
     let filtered = list;
@@ -1853,9 +1853,9 @@ adminRouter.post("/super-admins/:id/reset-mfa", isAdminAuthenticated, requireAdm
 // Suspend/Deactivate admin account
 adminRouter.delete("/super-admins/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   const { id } = req.params;
-  const currentAdmin = (req as any).admin;
+  const currentAdmin = req.admin;
 
-  if (id === currentAdmin.id) {
+  if (id === currentAdmin?.adminId) {
     return res.status(400).json({ error: "You cannot deactivate your own account. Ask another Super Admin." });
   }
 

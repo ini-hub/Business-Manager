@@ -87,7 +87,7 @@ function getClientIp(req: Request): string {
 }
 
 function getUserId(req: Request): string | undefined {
-  return (req as any).user?.claims?.sub;
+  return req.user?.userId;
 }
 
 // Rate limiting configuration for security
@@ -158,7 +158,7 @@ export async function registerRoutes(
 
   // ========== MULTI-TENANCY HELPERS ==========
   async function checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
-    const userId = (req as any).user?.userId || (req as any).user?.id;
+    const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "Authentication required." });
       return false;
@@ -177,7 +177,7 @@ export async function registerRoutes(
     }
 
     // Staff members are restricted to their own assigned store
-    const userRole = (req as any).user?.role;
+    const userRole = req.user?.role;
     if (userRole === "staff") {
       const staffRecord = await storage.getStaffByUserId(userId);
       if (staffRecord && staffRecord.storeId !== storeId) {
@@ -190,7 +190,7 @@ export async function registerRoutes(
   }
 
   async function checkBusinessAccess(businessId: string, req: Request, res: Response): Promise<boolean> {
-    const userId = (req as any).user?.userId || (req as any).user?.id;
+    const userId = req.user?.userId;
     if (!userId) {
       res.status(401).json({ error: "Authentication required." });
       return false;
@@ -204,7 +204,7 @@ export async function registerRoutes(
   }
 
   async function getUserStores(req: Request): Promise<any[]> {
-    const userId = (req as any).user?.userId || (req as any).user?.id;
+    const userId = req.user?.userId;
     if (!userId) return [];
     const user = await storage.getUser(userId);
     if (!user || !user.businessId) return [];
@@ -642,7 +642,7 @@ export async function registerRoutes(
         isVerified: user.isVerified || user.isEmailVerified || user.isPhoneVerified,
       };
 
-      (req as any).user = payload;
+      req.user = payload;
 
       res.json({
         message: "Login successful.",
@@ -719,7 +719,7 @@ export async function registerRoutes(
   app.post("/api/auth/organisation/switch", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { organisationId } = req.body;
-      const userId = (req as any).user.userId;
+      const userId = req.user!.userId;
 
       if (!organisationId) {
         return res.status(400).json({ error: "Organisation ID is required." });
@@ -781,7 +781,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Business name is required." });
       }
 
-      const userId = (req as any).user.userId || (req as any).user.id;
+      const userId = req.user!.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User account not found." });
@@ -1246,7 +1246,10 @@ export async function registerRoutes(
       }
 
       // Supervisor must belong to the same business as the requester
-      const requesterId = (req as any).user?.userId || (req as any).user?.id;
+      const requesterId = req.user?.userId;
+      if (!requesterId) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
       const requester = await storage.getUser(requesterId);
       if (!requester || user.businessId !== requester.businessId) {
         return res.status(403).json({ error: "Supervisor must belong to the same business." });
@@ -1294,7 +1297,7 @@ export async function registerRoutes(
       // Success: clear lockout
       await storage.updateUser(user.id, { supervisorAttempts: 0, supervisorLockedUntil: null });
 
-      console.info(`[Supervisor Override] Authorized by user ${user.id} (${user.role}) from IP ${(req as any).ip}`);
+      console.info(`[Supervisor Override] Authorized by user ${user.id} (${user.role}) from IP ${req.ip}`);
 
       res.json({
         success: true,
@@ -1429,7 +1432,7 @@ export async function registerRoutes(
   };
 
   const requireManagerOrOwner = (req: Request, res: Response, next: NextFunction) => {
-    const role = (req as any).user?.role;
+    const role = req.user?.role;
     if (role !== "manager" && role !== "owner") {
       return res.status(403).json({ error: "Only managers and owners can access this feature." });
     }
