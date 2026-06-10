@@ -13,8 +13,8 @@ if (!RESEND_API_KEY || !EMAIL_FROM) {
 
 const transporter = nodemailer.createTransport({
   host: "smtp.resend.com",
-  port: 587,
-  secure: false,
+  port: 465,
+  secure: true,
   auth: { user: "resend", pass: RESEND_API_KEY },
 });
 
