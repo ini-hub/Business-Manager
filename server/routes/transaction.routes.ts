@@ -38,12 +38,20 @@ function groupTransactions(txs: any[]): any[] {
     const hasService = group.some((t: any) => t.inventory?.type === "service");
     const hasProduct = group.some((t: any) => t.inventory?.type === "product");
     const basketType = hasService && hasProduct ? "mixed" : hasService ? "service" : "product";
+    // Pick lead/assisting staff from whichever checkout in the group has them set
+    // (product checkouts have null lead staff even within a mixed receipt)
+    const leadStaffId = group.find((t: any) => t.checkout?.leadStaffId)?.checkout?.leadStaffId ?? firstTx.checkout?.leadStaffId ?? null;
+    const assistingStaff1Id = group.find((t: any) => t.checkout?.assistingStaff1Id)?.checkout?.assistingStaff1Id ?? firstTx.checkout?.assistingStaff1Id ?? null;
+    const assistingStaff2Id = group.find((t: any) => t.checkout?.assistingStaff2Id)?.checkout?.assistingStaff2Id ?? firstTx.checkout?.assistingStaff2Id ?? null;
     result.push({
       ...firstTx,
       amount: totalAmount,
       inventory: { ...firstTx.inventory, type: basketType },
       checkout: {
         ...firstTx.checkout,
+        leadStaffId,
+        assistingStaff1Id,
+        assistingStaff2Id,
         totalPrice: totalTotalPrice,
         subtotal: totalSubtotal,
         discountAmount: totalDiscountAmount,
