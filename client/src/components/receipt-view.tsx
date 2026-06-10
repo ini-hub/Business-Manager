@@ -50,6 +50,8 @@ interface ReceiptPayload {
       allowFractional?: boolean | null;
     } | null;
     leadStaff?: { name: string } | null;
+    assistingStaff1?: { name: string } | null;
+    assistingStaff2?: { name: string } | null;
   }>;
   customer: { name: string; customerNumber: string } | null;
   staff: { name: string } | null;
@@ -190,6 +192,16 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
             {isPromo && (
               <div className="text-[10px] text-gray-500 pl-2 italic">
                 ↳ Promotion Applied: {promoName}
+              </div>
+            )}
+            {item.inventory?.type === "service" && item.leadStaff && (
+              <div className="text-[10px] text-gray-500 pl-2">
+                ↳ Performed by: {item.leadStaff.name}
+              </div>
+            )}
+            {item.inventory?.type === "service" && item.assistingStaff1 && (
+              <div className="text-[10px] text-gray-500 pl-2">
+                ↳ Assisted by: {item.assistingStaff1.name}{item.assistingStaff2 ? `, ${item.assistingStaff2.name}` : ""}
               </div>
             )}
           </div>

@@ -3,15 +3,41 @@ import {
   staff,
   stores,
   checkouts,
+  orders,
+  inventory,
   attendanceRecords,
   type Staff,
   type InsertStaff,
   type Store,
 } from "@shared/schema";
-import { eq, and, or, ilike, count, asc, desc } from "drizzle-orm";
+import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull } from "drizzle-orm";
+import { commissionService } from "../services/CommissionService";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 
 export class StaffRepository {
+  // ─── Revenue share helper ─────────────────────────────────────────────────
+  private revenueShare(
+    staffId: string,
+    checkout: { leadStaffId: string | null; staffId: string; assistingStaff1Id: string | null; assistingStaff2Id: string | null; commissionSplit: string },
+    totalPrice: number
+  ): number {
+    const staffCount =
+      1 +
+      (checkout.assistingStaff1Id ? 1 : 0) +
+      (checkout.assistingStaff2Id ? 1 : 0);
+
+    const { leadShare, asstShare } = commissionService.calculateSplitShares(
+      checkout.commissionSplit,
+      staffCount
+    );
+
+    const isLead =
+      checkout.leadStaffId === staffId ||
+      (!checkout.leadStaffId && checkout.staffId === staffId);
+
+    return totalPrice * (isLead ? leadShare : asstShare);
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
   private async getNextAvailableStaffNumber(storeId: string): Promise<string> {
     const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
@@ -189,9 +215,64 @@ export class StaffRepository {
     return result[0].count > 0;
   }
 
+  async getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }> {
+    const checkoutConditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
+      or(
+        eq(checkouts.leadStaffId, staffId),
+        and(eq(checkouts.staffId, staffId), isNull(checkouts.leadStaffId)),
+        eq(checkouts.assistingStaff1Id, staffId),
+        eq(checkouts.assistingStaff2Id, staffId),
+      )!,
+    ];
+    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
+    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+
+    const rows = await db.select({
+      checkout: checkouts,
+      order: orders,
+      inventoryItem: inventory,
+    })
+      .from(orders)
+      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .where(and(...checkoutConditions))
+      .orderBy(desc(checkouts.createdAt));
+
+    const services: any[] = [];
+    const products: any[] = [];
+
+    for (const row of rows) {
+      let role: string;
+      if (row.checkout.leadStaffId === staffId || (!row.checkout.leadStaffId && row.checkout.staffId === staffId)) {
+        role = "lead";
+      } else if (row.checkout.assistingStaff1Id === staffId) {
+        role = "assistant";
+      } else {
+        role = "assistant";
+      }
+
+      const entry = {
+        inventoryName: row.inventoryItem.name,
+        receiptNumber: row.checkout.receiptNumber,
+        date: row.checkout.createdAt,
+        revenue: this.revenueShare(staffId, row.checkout, row.order.totalPrice),
+        role,
+      };
+
+      if (row.inventoryItem.type === "service") {
+        services.push(entry);
+      } else {
+        products.push({ ...entry, quantity: row.order.quantity });
+      }
+    }
+
+    return { services, products };
+  }
+
   async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
-    const { gte, lte } = await import("drizzle-orm");
-    const { orders, inventory } = await import("@shared/schema");
 
     const activeStaff = await db.select().from(staff).where(and(eq(staff.storeId, storeId), eq(staff.isArchived, false)));
 
@@ -220,11 +301,16 @@ export class StaffRepository {
     const attendanceList = await db.select().from(attendanceRecords).where(and(...attendanceConditions));
 
     return activeStaff.map(s => {
-      const leadCheckouts = rows.filter(r => r.checkout.leadStaffId === s.id || (r.checkout.staffId === s.id && !r.checkout.leadStaffId));
+      const staffCheckouts = rows.filter(r =>
+        r.checkout.leadStaffId === s.id ||
+        (r.checkout.staffId === s.id && !r.checkout.leadStaffId) ||
+        r.checkout.assistingStaff1Id === s.id ||
+        r.checkout.assistingStaff2Id === s.id
+      );
 
-      const totalRevenue = leadCheckouts.reduce((sum, r) => sum + r.order.totalPrice, 0);
-      const servicesCount = leadCheckouts.filter(r => r.inventoryItem.type === "service").length;
-      const productsCount = leadCheckouts.filter(r => r.inventoryItem.type === "product").length;
+      const totalRevenue = staffCheckouts.reduce((sum, r) => sum + this.revenueShare(s.id, r.checkout, r.order.totalPrice), 0);
+      const servicesCount = staffCheckouts.filter(r => r.inventoryItem.type === "service").length;
+      const productsCount = staffCheckouts.filter(r => r.inventoryItem.type === "product").length;
 
       const staffAttendance = attendanceList.filter(a => a.staffId === s.id);
       const presentDays = staffAttendance.filter(a => a.status === "present").length;

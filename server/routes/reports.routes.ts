@@ -147,6 +147,25 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
+  // Staff performance breakdown (services + products per staff member)
+  app.get("/api/reports/staff-performance/:staffId/breakdown", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { staffId } = req.params;
+      const storeId = req.query.storeId as string;
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+
+      if (!storeId) return res.status(400).json({ error: "Please select a store first." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const data = await storage.getStaffBreakdown(staffId, storeId, startDate, endDate);
+      res.json(data);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Could not fetch staff breakdown data." });
+    }
+  });
+
   // Get attendance records
   app.get("/api/attendance", isAuthenticated, async (req, res) => {
     try {

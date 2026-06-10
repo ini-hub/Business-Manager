@@ -469,6 +469,7 @@ export interface IStorage {
 
   // Staff Performance
   getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
+  getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }>;
 
   // Search
   searchCustomers(storeId: string, query: string): Promise<Customer[]>;
@@ -1417,6 +1418,10 @@ export class DatabaseStorage implements IStorage {
   // ─── Staff Performance / Search ────────────────────────────────────────────
   async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
     return this.staffRepo.getStaffPerformance(storeId, startDate, endDate);
+  }
+
+  async getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }> {
+    return this.staffRepo.getStaffBreakdown(staffId, storeId, startDate, endDate);
   }
 
   async searchCustomers(storeId: string, query: string): Promise<Customer[]> {

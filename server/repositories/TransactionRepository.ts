@@ -255,11 +255,19 @@ export class TransactionRepository {
       const [leadStaffMember] = ch.leadStaffId
         ? await db.select().from(staff).where(eq(staff.id, ch.leadStaffId))
         : [null];
+      const [assistingStaff1Member] = ch.assistingStaff1Id
+        ? await db.select().from(staff).where(eq(staff.id, ch.assistingStaff1Id))
+        : [null];
+      const [assistingStaff2Member] = ch.assistingStaff2Id
+        ? await db.select().from(staff).where(eq(staff.id, ch.assistingStaff2Id))
+        : [null];
       items.push({
         checkout: ch,
         order,
         inventory: inventoryItem,
         leadStaff: leadStaffMember,
+        assistingStaff1: assistingStaff1Member ?? null,
+        assistingStaff2: assistingStaff2Member ?? null,
       });
     }
 

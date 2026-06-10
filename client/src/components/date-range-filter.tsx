@@ -25,6 +25,7 @@ export interface DateRange {
 interface DateRangeFilterProps {
   dateRange: DateRange;
   onDateRangeChange: (range: DateRange) => void;
+  defaultPreset?: string;
 }
 
 const presets = [
@@ -40,8 +41,9 @@ const presets = [
 export function DateRangeFilter({
   dateRange,
   onDateRangeChange,
+  defaultPreset = "today",
 }: DateRangeFilterProps) {
-  const [selectedPreset, setSelectedPreset] = useState("today");
+  const [selectedPreset, setSelectedPreset] = useState(defaultPreset);
 
   const handlePresetChange = (value: string) => {
     setSelectedPreset(value);
@@ -58,10 +60,10 @@ export function DateRangeFilter({
         onDateRangeChange({ from: startOfToday, to: today });
         break;
       case "7days":
-        onDateRangeChange({ from: subDays(today, 7), to: today });
+        onDateRangeChange({ from: startOfDay(subDays(today, 6)), to: today });
         break;
       case "30days":
-        onDateRangeChange({ from: subDays(today, 30), to: today });
+        onDateRangeChange({ from: startOfDay(subDays(today, 29)), to: today });
         break;
       case "thisMonth":
         onDateRangeChange({ from: startOfMonth(today), to: endOfMonth(today) });

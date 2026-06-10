@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, TrendingUp, TrendingDown, Calendar, ShoppingBag, Wrench, BarChart3, AlertCircle } from "lucide-react";
+import { Users, TrendingUp, TrendingDown, Calendar, ShoppingBag, Wrench, BarChart3, AlertCircle, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
@@ -100,6 +102,27 @@ export default function StaffPerformancePage() {
   const [selectedMetric, setSelectedMetric] = useState<"revenue" | "services" | "products" | "attendance" | "performance">("revenue");
   const [activeTab, setActiveTab] = useState("directory");
 
+  const [drawerStaff, setDrawerStaff] = useState<{ id: string; name: string } | null>(null);
+
+  const { data: breakdownData, isLoading: breakdownLoading } = useQuery<{ services: any[]; products: any[] }>({
+    queryKey: [
+      "/api/reports/staff-performance/breakdown",
+      drawerStaff?.id,
+      currentStore?.id,
+      dateRange?.from?.toISOString(),
+      dateRange?.to?.toISOString(),
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({ storeId: currentStore!.id });
+      if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
+      if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
+      const res = await fetch(`/api/reports/staff-performance/${drawerStaff!.id}/breakdown?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch breakdown");
+      return res.json();
+    },
+    enabled: !!drawerStaff && !!currentStore?.id,
+  });
+
   const chartData = performanceData.map((row: any) => ({
     name: row.name,
     role: row.role,
@@ -153,7 +176,7 @@ export default function StaffPerformancePage() {
     },
     {
       key: "totalRevenue",
-      header: "Revenue Generated",
+      header: "Revenue Share",
       render: (row: any) => (
         <span className="font-mono font-medium">{formatCurrency(row.totalRevenue)}</span>
       ),
@@ -174,7 +197,6 @@ export default function StaffPerformancePage() {
       key: "score",
       header: "Performance",
       render: (row: any) => {
-        // Simple heuristic: Revenue / (Present Days || 1)
         const avgRevenue = row.totalRevenue / (row.presentDays || 1);
         return (
           <div className="flex items-center gap-2">
@@ -190,6 +212,20 @@ export default function StaffPerformancePage() {
         );
       },
     },
+    {
+      key: "actions",
+      header: "",
+      render: (row: any) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs gap-1"
+          onClick={() => setDrawerStaff({ id: row.id, name: row.name })}
+        >
+          View <ChevronRight className="h-3 w-3" />
+        </Button>
+      ),
+    },
   ];
 
   const exportColumns = [
@@ -197,7 +233,7 @@ export default function StaffPerformancePage() {
     { key: "role", header: "Role" },
     { key: "servicesCount", header: "Services Performed" },
     { key: "productsCount", header: "Products Sold" },
-    { key: "totalRevenue", header: "Total Revenue Generated" },
+    { key: "totalRevenue", header: "Revenue Share" },
     { key: "presentDays", header: "Days Present" },
     { key: "absentDays", header: "Days Absent" },
   ];
@@ -220,6 +256,7 @@ export default function StaffPerformancePage() {
             <DateRangeFilter
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
+              defaultPreset="thisMonth"
             />
             <ExportToolbar
               data={performanceData}
@@ -340,6 +377,123 @@ export default function StaffPerformancePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Staff breakdown drawer */}
+      <Sheet open={!!drawerStaff} onOpenChange={(open) => { if (!open) setDrawerStaff(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+          <SheetHeader className="mb-4">
+            <SheetTitle>{drawerStaff?.name} — Revenue Breakdown</SheetTitle>
+            <p className="text-xs text-muted-foreground">
+              {dateRange?.from && dateRange?.to
+                ? `${format(dateRange.from, "dd MMM yyyy")} – ${format(dateRange.to, "dd MMM yyyy")}`
+                : "Selected period"}
+            </p>
+          </SheetHeader>
+
+          {breakdownLoading ? (
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Services */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Wrench className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-sm">Services Performed ({breakdownData?.services.length ?? 0})</h3>
+                </div>
+                {breakdownData?.services.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No services in this period.</p>
+                ) : (
+                  <div className="rounded-md border text-xs overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Service</th>
+                          <th className="text-left px-3 py-2 font-medium">Receipt</th>
+                          <th className="text-left px-3 py-2 font-medium">Date</th>
+                          <th className="text-right px-3 py-2 font-medium">Revenue</th>
+                          <th className="text-center px-3 py-2 font-medium">Role</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {breakdownData?.services.map((s: any, i: number) => (
+                          <tr key={i} className="border-t">
+                            <td className="px-3 py-2">{s.inventoryName}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{s.receiptNumber}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{format(new Date(s.date), "dd MMM")}</td>
+                            <td className="px-3 py-2 text-right font-mono">{formatCurrency(s.revenue)}</td>
+                            <td className="px-3 py-2 text-center">
+                              <Badge variant={s.role === "lead" ? "default" : "secondary"} className="text-[10px] h-4 px-1">
+                                {s.role === "lead" ? "Lead" : "Assist"}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-muted/30 border-t font-semibold">
+                        <tr>
+                          <td colSpan={3} className="px-3 py-2">Total</td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {formatCurrency(breakdownData?.services.reduce((s: number, r: any) => s + r.revenue, 0) ?? 0)}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Products */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-sm">Products Sold ({breakdownData?.products.length ?? 0})</h3>
+                </div>
+                {breakdownData?.products.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No products in this period.</p>
+                ) : (
+                  <div className="rounded-md border text-xs overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Product</th>
+                          <th className="text-left px-3 py-2 font-medium">Receipt</th>
+                          <th className="text-left px-3 py-2 font-medium">Date</th>
+                          <th className="text-center px-3 py-2 font-medium">Qty</th>
+                          <th className="text-right px-3 py-2 font-medium">Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {breakdownData?.products.map((p: any, i: number) => (
+                          <tr key={i} className="border-t">
+                            <td className="px-3 py-2">{p.inventoryName}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{p.receiptNumber}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{format(new Date(p.date), "dd MMM")}</td>
+                            <td className="px-3 py-2 text-center">{p.quantity}</td>
+                            <td className="px-3 py-2 text-right font-mono">{formatCurrency(p.revenue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-muted/30 border-t font-semibold">
+                        <tr>
+                          <td colSpan={4} className="px-3 py-2">Total</td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {formatCurrency(breakdownData?.products.reduce((s: number, r: any) => s + r.revenue, 0) ?? 0)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

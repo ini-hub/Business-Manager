@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { startOfDay, endOfDay, subDays } from "date-fns";
+import { startOfDay, endOfDay } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
@@ -36,9 +36,8 @@ export default function Transactions() {
         to: endOfDay(new Date(endDateParam))
       };
     }
-    // Default to last 30 days so users see data immediately
     return {
-      from: startOfDay(subDays(new Date(), 29)),
+      from: startOfDay(new Date()),
       to: endOfDay(new Date()),
     };
   });
@@ -597,6 +596,7 @@ export default function Transactions() {
                 <DateRangeFilter
                   dateRange={dateRange}
                   onDateRangeChange={setDateRange}
+                  defaultPreset="today"
                 />
                 <ExportToolbar
                   data={exportData as unknown as Record<string, unknown>[]}
