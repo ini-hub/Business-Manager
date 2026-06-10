@@ -8,51 +8,61 @@ import {
   orders,
   settings,
 } from "@shared/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, count, sql } from "drizzle-orm";
 import type { SalesRepository } from "./SalesRepository";
 
 export class AnalyticsRepository {
   constructor(private salesRepo: SalesRepository) {}
 
   async getDashboardStats(storeId: string, startDate?: string, endDate?: string) {
-    const storeEq = eq(customers.storeId, storeId);
+    // Build date filters once
+    const customerDateFilter = startDate || endDate ? and(
+      eq(customers.storeId, storeId),
+      ...(startDate ? [gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z"))] : []),
+      ...(endDate   ? [lte(customers.createdAt, new Date(endDate   + "T23:59:59.999Z"))] : []),
+    ) : eq(customers.storeId, storeId);
 
-    let customerConditions: any[] = [storeEq];
-    if (startDate) customerConditions.push(gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) customerConditions.push(lte(customers.createdAt, new Date(endDate + "T23:59:59.999Z")));
-    const matchedCustomers = await db.select().from(customers).where(and(...customerConditions));
-
-    const allStaff = await db.select().from(staff).where(eq(staff.storeId, storeId));
-    const allInventory = await db.select().from(inventory).where(eq(inventory.storeId, storeId));
-    const products = allInventory.filter((i) => i.type === "product");
-    const services = allInventory.filter((i) => i.type === "service");
-
-    const lowStockThresholdResult = await db.select().from(settings).where(eq(settings.storeId, storeId));
-    const lowStockThreshold = lowStockThresholdResult[0]?.lowStockThreshold || 5;
-    const lowStockItems = products.filter((p) => p.quantity <= lowStockThreshold);
-
-    let txConditions: any[] = [
+    const checkoutDateFilter = and(
       eq(checkouts.storeId, storeId),
       eq(checkouts.isVoided, false),
-      eq(checkouts.paymentStatus, "completed")
-    ];
-    if (startDate) txConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) txConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
-    const matchedCheckouts = await db.select().from(checkouts).where(and(...txConditions));
+      eq(checkouts.paymentStatus, "completed"),
+      ...(startDate ? [gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z"))] : []),
+      ...(endDate   ? [lte(checkouts.createdAt, new Date(endDate   + "T23:59:59.999Z"))] : []),
+    );
 
-    const plSummary = await this.salesRepo.getProfitLossSummary(storeId, startDate, endDate);
+    // All six queries run in parallel
+    const [
+      [{ total: totalCustomers }],
+      [{ total: totalStaff }],
+      [{ total: totalCheckouts }],
+      allInventory,
+      settingsRows,
+      plSummary,
+    ] = await Promise.all([
+      db.select({ total: count() }).from(customers).where(customerDateFilter),
+      db.select({ total: count() }).from(staff).where(eq(staff.storeId, storeId)),
+      db.select({ total: count() }).from(checkouts).where(checkoutDateFilter),
+      db.select().from(inventory).where(eq(inventory.storeId, storeId)),
+      db.select().from(settings).where(eq(settings.storeId, storeId)),
+      this.salesRepo.getProfitLossSummary(storeId, startDate, endDate),
+    ]);
+
+    const lowStockThreshold = settingsRows[0]?.lowStockThreshold || 5;
+    const products  = allInventory.filter((i) => i.type === "product");
+    const services  = allInventory.filter((i) => i.type === "service");
+    const lowStockItems = products.filter((p) => p.quantity <= lowStockThreshold);
 
     return {
-      totalCustomers: matchedCustomers.length,
-      totalStaff: allStaff.length,
+      totalCustomers,
+      totalStaff,
       totalInventory: allInventory.length,
-      totalProducts: products.length,
-      totalServices: services.length,
-      totalTransactions: matchedCheckouts.length,
-      totalRevenue: plSummary.totalRevenue,
-      grossRevenue: plSummary.grossRevenue,
+      totalProducts:  products.length,
+      totalServices:  services.length,
+      totalTransactions: totalCheckouts,
+      totalRevenue:    plSummary.totalRevenue,
+      grossRevenue:    plSummary.grossRevenue,
       returnedRevenue: plSummary.returnedRevenue,
-      totalProfit: plSummary.grossProfit,
+      totalProfit:     plSummary.grossProfit,
       lowStockItems,
     };
   }

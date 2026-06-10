@@ -1,6 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { startOfDay, endOfDay } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +25,8 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { type TransactionWithRelations } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertCircle, Clock } from "lucide-react";
+
+const PAGE_LIMIT = 50;
 
 export default function Transactions() {
   const { currentStore, stores } = useStore();
@@ -49,8 +58,14 @@ export default function Transactions() {
     return p.toString();
   }, [dateRange]);
 
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Reset page when date range or store changes
+  useEffect(() => { setPage(1); }, [dateParams, currentStore?.id]);
+
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
-    queryKey: ["/api/transactions", currentStore?.id, stores.map(s => s.id).join(","), dateParams],
+    queryKey: ["/api/transactions", currentStore?.id, stores.map(s => s.id).join(","), dateParams, page],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
@@ -65,11 +80,19 @@ export default function Transactions() {
             }
           })
         );
+        setTotalPages(1);
         return responses.flat().sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
       }
-      const res = await fetch(`/api/transactions?storeId=${currentStore?.id}&${dateParams}`);
+      const dateStr = dateParams ? `&${dateParams}` : "";
+      const res = await fetch(`/api/transactions?storeId=${currentStore?.id}${dateStr}&page=${page}&limit=${PAGE_LIMIT}`);
       if (!res.ok) throw new Error("Failed to fetch transactions");
-      return res.json();
+      const json = await res.json();
+      if (Array.isArray(json)) {
+        setTotalPages(1);
+        return json;
+      }
+      setTotalPages(json.pagination?.totalPages ?? 1);
+      return json.data as TransactionWithRelations[];
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
     refetchInterval: 60000,
@@ -621,6 +644,31 @@ export default function Transactions() {
                 onRowClick={(tx) => setLocation("/transactions/" + tx.id)}
                 filterConfigs={filterConfigs}
               />
+              {currentStore?.id !== "all" && totalPages > 1 && (
+                <Pagination className="mt-4">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        aria-disabled={page === 1}
+                        className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    <PaginationItem>
+                      <span className="px-3 py-2 text-sm text-muted-foreground">
+                        Page {page} of {totalPages}
+                      </span>
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        aria-disabled={page === totalPages}
+                        className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

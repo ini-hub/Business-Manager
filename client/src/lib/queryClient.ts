@@ -73,11 +73,17 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+export const STALE_TIMES = {
+  reference:     10 * 60 * 1000,  // 10 min — static catalog (products, staff, settings, vendors)
+  transactional:  2 * 60 * 1000,  //  2 min — mutable business records (default)
+  live:          30 * 1000,        // 30 sec — dashboard counters / POS
+} as const;
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
-      staleTime: 0,          // always check for fresh data when online
+      staleTime: STALE_TIMES.transactional,
       gcTime: 24 * 60 * 60 * 1000, // 24 h — keep cache alive for offline POS sessions
       networkMode: "offlineFirst", // serve cached data immediately; don't pause queries when offline
       refetchOnWindowFocus: true,

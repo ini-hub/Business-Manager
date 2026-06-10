@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
 import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, User, Briefcase, Settings2, UserCheck, UserPlus, Unlink, Link2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -133,11 +134,13 @@ export default function StaffFormPage() {
   const { data: customRoles = [] } = useQuery<any[]>({
     queryKey: ["/api/custom-roles"],
     enabled: isOwner,
+    staleTime: STALE_TIMES.reference,
   });
 
   const { data: storeSettings } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
     enabled: !!currentStore?.id && isOwner,
+    staleTime: STALE_TIMES.reference,
   });
   const storeDefaultCommissionRate = Math.round((storeSettings?.commissionRate ?? 0.30) * 100);
   const storeDefaultBaseAmount = storeSettings?.fixedBaseAmount ?? 30000;

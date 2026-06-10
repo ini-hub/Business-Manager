@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation, Redirect } from "wouter";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -15,87 +15,92 @@ import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 
+// Eager — needed before auth resolves or tiny catch-all
 import Landing from "@/pages/landing";
-import Dashboard from "@/pages/dashboard";
-import Customers from "@/pages/customers";
-import CustomerDetails from "@/pages/customer-details";
-import StaffPage from "@/pages/staff";
-import StaffFormPage from "@/pages/staff-form";
-import AttendancePage from "@/pages/attendance";
-import InventoryPage from "@/pages/inventory";
-import InventoryDetails from "@/pages/inventory-details";
-import InventoryNewPage from "@/pages/inventory-new";
-import InventoryEditPage from "@/pages/inventory-edit";
-import InventoryRestockPage from "@/pages/inventory-restock";
-import InventoryVariantNewPage from "@/pages/inventory-variant-new";
-import InventoryAuditNewPage from "@/pages/inventory-audit-new";
-import NewSale from "@/pages/new-sale";
-import Transactions from "@/pages/transactions";
-import TransactionDetailsPage from "@/pages/transaction-details";
-import ProfitLossPage from "@/pages/profit-loss";
-import ExpensesPage from "@/pages/expenses";
-import AddExpensePage from "@/pages/add-expense";
-import ExpenseEditPage from "@/pages/expense-edit";
-import ExpenseCategoriesPage from "@/pages/expense-categories";
-import CustomerFormPage from "@/pages/customer-form";
-import VendorFormPage from "@/pages/vendor-form";
-import VendorBillNewPage from "@/pages/vendor-bill-new";
-import VendorBillPayPage from "@/pages/vendor-bill-pay";
-import PayrollNewPage from "@/pages/payroll-new";
-import PayrollPage from "@/pages/payroll";
-import PayrollDetailPage from "@/pages/payroll-detail";
-import PayrollAdvancesPage from "@/pages/payroll-advances";
-import PayrollReportPage from "@/pages/payroll-report";
-import CreditSalesPage from "@/pages/credit-sales";
-import SettingsStoresPage from "@/pages/settings-stores";
-import SettingsIndexPage from "@/pages/settings/index";
-import PromotionsPage from "@/pages/settings/promotions";
-import OnboardingWizard from "@/pages/onboarding";
-import StaffPerformancePage from "@/pages/staff-performance";
-import ProfilePage from "@/pages/profile";
-import StaffDashboard from "@/pages/staff-dashboard";
-import NotFound from "@/pages/not-found";
-import ServiceProfitabilityPage from "@/pages/service-profitability";
-import QuotesPage from "@/pages/quotes";
-import PurchaseOrdersPage from "@/pages/purchase-orders";
-import VendorsPage from "@/pages/vendors";
-import StockTransfersPage from "@/pages/stock-transfers";
-import TaxesCompliancePage from "@/pages/settings/taxes-compliance";
-import { GlobalSearch } from "@/components/global-search";
-import { NotificationSheet } from "@/components/notification-sheet";
-
-import BookingsPage from "@/pages/bookings";
-import BookingFormPage from "@/pages/booking-form";
-import BookingDetailsPage from "@/pages/booking-details";
-
-import StoreFormPage from "@/pages/store-form";
-import BusinessFormPage from "@/pages/business-form";
-import RoleFormPage from "@/pages/role-form";
-
 import Login from "@/pages/auth/login";
 import Signup from "@/pages/auth/signup";
 import VerifyOtp from "@/pages/auth/verify-otp";
 import ForgotPassword from "@/pages/auth/forgot-password";
 import ResetPassword from "@/pages/auth/reset-password";
+import NotFound from "@/pages/not-found";
+import OnboardingWizard from "@/pages/onboarding";
+import AdminLogin from "@/pages/admin/AdminLogin";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineSyncManager } from "@/components/offline-sync-manager";
+import { GlobalSearch } from "@/components/global-search";
+import { NotificationSheet } from "@/components/notification-sheet";
+import { PageSkeleton } from "@/components/page-skeleton";
 
-// Super Admin Portal Pages & Layouts
-import AdminLogin from "@/pages/admin/AdminLogin";
-import AdminDashboard from "@/pages/admin/Dashboard";
-import BusinessesList from "@/pages/admin/BusinessesList";
-import BusinessDetails from "@/pages/admin/BusinessDetails";
-import OnboardingPipeline from "@/pages/admin/OnboardingPipeline";
-import UsersList from "@/pages/admin/UsersList";
-import TransactionsMonitor from "@/pages/admin/TransactionsMonitor";
-import RevenueAnalytics from "@/pages/admin/RevenueAnalytics";
-import FeatureFlags from "@/pages/admin/FeatureFlags";
-import AnnouncementsManager from "@/pages/admin/AnnouncementsManager";
-import SystemHealth from "@/pages/admin/SystemHealth";
-import AuditLogs from "@/pages/admin/AuditLogs";
-import SuperAdminAccounts from "@/pages/admin/SuperAdminAccounts";
+// Lazy — split into per-route chunks by Vite
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Customers = lazy(() => import("@/pages/customers"));
+const CustomerDetails = lazy(() => import("@/pages/customer-details"));
+const CustomerFormPage = lazy(() => import("@/pages/customer-form"));
+const StaffPage = lazy(() => import("@/pages/staff"));
+const StaffFormPage = lazy(() => import("@/pages/staff-form"));
+const AttendancePage = lazy(() => import("@/pages/attendance"));
+const StaffPerformancePage = lazy(() => import("@/pages/staff-performance"));
+const StaffDashboard = lazy(() => import("@/pages/staff-dashboard"));
+const InventoryPage = lazy(() => import("@/pages/inventory"));
+const InventoryDetails = lazy(() => import("@/pages/inventory-details"));
+const InventoryNewPage = lazy(() => import("@/pages/inventory-new"));
+const InventoryEditPage = lazy(() => import("@/pages/inventory-edit"));
+const InventoryRestockPage = lazy(() => import("@/pages/inventory-restock"));
+const InventoryVariantNewPage = lazy(() => import("@/pages/inventory-variant-new"));
+const InventoryAuditNewPage = lazy(() => import("@/pages/inventory-audit-new"));
+const NewSale = lazy(() => import("@/pages/new-sale"));
+const Transactions = lazy(() => import("@/pages/transactions"));
+const TransactionDetailsPage = lazy(() => import("@/pages/transaction-details"));
+const ProfitLossPage = lazy(() => import("@/pages/profit-loss"));
+const ExpensesPage = lazy(() => import("@/pages/expenses"));
+const AddExpensePage = lazy(() => import("@/pages/add-expense"));
+const ExpenseEditPage = lazy(() => import("@/pages/expense-edit"));
+const ExpenseCategoriesPage = lazy(() => import("@/pages/expense-categories"));
+const VendorsPage = lazy(() => import("@/pages/vendors"));
+const VendorFormPage = lazy(() => import("@/pages/vendor-form"));
+const VendorBillNewPage = lazy(() => import("@/pages/vendor-bill-new"));
+const VendorBillPayPage = lazy(() => import("@/pages/vendor-bill-pay"));
+const PayrollPage = lazy(() => import("@/pages/payroll"));
+const PayrollNewPage = lazy(() => import("@/pages/payroll-new"));
+const PayrollDetailPage = lazy(() => import("@/pages/payroll-detail"));
+const PayrollAdvancesPage = lazy(() => import("@/pages/payroll-advances"));
+const PayrollReportPage = lazy(() => import("@/pages/payroll-report"));
+const CreditSalesPage = lazy(() => import("@/pages/credit-sales"));
+const BookingsPage = lazy(() => import("@/pages/bookings"));
+const BookingFormPage = lazy(() => import("@/pages/booking-form"));
+const BookingDetailsPage = lazy(() => import("@/pages/booking-details"));
+const QuotesPage = lazy(() => import("@/pages/quotes"));
+const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
+const StockTransfersPage = lazy(() => import("@/pages/stock-transfers"));
+const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
+const ProfilePage = lazy(() => import("@/pages/profile"));
+const SettingsIndexPage = lazy(() => import("@/pages/settings/index"));
+const SettingsStoresPage = lazy(() => import("@/pages/settings-stores"));
+const StoreFormPage = lazy(() => import("@/pages/store-form"));
+const BusinessFormPage = lazy(() => import("@/pages/business-form"));
+const RoleFormPage = lazy(() => import("@/pages/role-form"));
+const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
+const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
+const VerifyPayslipPage = lazy(() => import("@/pages/verify-payslip"));
+
+// Super Admin Portal (lazy — separate user segment)
 import AdminLayout from "@/components/admin/AdminLayout";
-import VerifyPayslipPage from "@/pages/verify-payslip";
+const AdminDashboard = lazy(() => import("@/pages/admin/Dashboard"));
+const BusinessesList = lazy(() => import("@/pages/admin/BusinessesList"));
+const BusinessDetails = lazy(() => import("@/pages/admin/BusinessDetails"));
+const OnboardingPipeline = lazy(() => import("@/pages/admin/OnboardingPipeline"));
+const UsersList = lazy(() => import("@/pages/admin/UsersList"));
+const TransactionsMonitor = lazy(() => import("@/pages/admin/TransactionsMonitor"));
+const RevenueAnalytics = lazy(() => import("@/pages/admin/RevenueAnalytics"));
+const FeatureFlags = lazy(() => import("@/pages/admin/FeatureFlags"));
+const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
+const SystemHealth = lazy(() => import("@/pages/admin/SystemHealth"));
+const AuditLogs = lazy(() => import("@/pages/admin/AuditLogs"));
+const SuperAdminAccounts = lazy(() => import("@/pages/admin/SuperAdminAccounts"));
+
+function PageLoader() {
+  return <PageSkeleton />;
+}
 
 function OnboardingRoute() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -141,23 +146,25 @@ function SuperAdminRouter() {
       <Route path="/super-admin/login" component={AdminLogin} />
       <Route>
         <AdminLayout>
-          <Switch>
-            <Route path="/super-admin" component={AdminDashboard} />
-            <Route path="/super-admin/businesses" component={BusinessesList} />
-            <Route path="/super-admin/businesses/:id" component={BusinessDetails} />
-            <Route path="/super-admin/onboarding" component={OnboardingPipeline} />
-            <Route path="/super-admin/users" component={UsersList} />
-            <Route path="/super-admin/transactions" component={TransactionsMonitor} />
-            <Route path="/super-admin/revenue" component={RevenueAnalytics} />
-            <Route path="/super-admin/flags" component={FeatureFlags} />
-            <Route path="/super-admin/announcements" component={AnnouncementsManager} />
-            <Route path="/super-admin/health" component={SystemHealth} />
-            <Route path="/super-admin/audit-logs" component={AuditLogs} />
-            <Route path="/super-admin/accounts" component={SuperAdminAccounts} />
-            <Route>
-              <Redirect to="/super-admin" />
-            </Route>
-          </Switch>
+          <Suspense fallback={<PageLoader />}>
+            <Switch>
+              <Route path="/super-admin" component={AdminDashboard} />
+              <Route path="/super-admin/businesses" component={BusinessesList} />
+              <Route path="/super-admin/businesses/:id" component={BusinessDetails} />
+              <Route path="/super-admin/onboarding" component={OnboardingPipeline} />
+              <Route path="/super-admin/users" component={UsersList} />
+              <Route path="/super-admin/transactions" component={TransactionsMonitor} />
+              <Route path="/super-admin/revenue" component={RevenueAnalytics} />
+              <Route path="/super-admin/flags" component={FeatureFlags} />
+              <Route path="/super-admin/announcements" component={AnnouncementsManager} />
+              <Route path="/super-admin/health" component={SystemHealth} />
+              <Route path="/super-admin/audit-logs" component={AuditLogs} />
+              <Route path="/super-admin/accounts" component={SuperAdminAccounts} />
+              <Route>
+                <Redirect to="/super-admin" />
+              </Route>
+            </Switch>
+          </Suspense>
         </AdminLayout>
       </Route>
     </Switch>
@@ -189,7 +196,9 @@ function Router() {
       <Route path="/auth/forgot-password" component={ForgotPassword} />
       <Route path="/auth/reset-password" component={ResetPassword} />
       <Route path="/onboarding" component={OnboardingRoute} />
-      <Route path="/verify/payslip/:id" component={VerifyPayslipPage} />
+      <Route path="/verify/payslip/:id">
+        <Suspense fallback={<PageLoader />}><VerifyPayslipPage /></Suspense>
+      </Route>
       <Route>
         {isAuthenticated ? <AuthenticatedLayout /> : <Landing />}
       </Route>
@@ -302,6 +311,7 @@ function AuthenticatedLayout() {
             </header>
             <main className="flex-1 overflow-auto w-full min-w-0 p-3 sm:p-6">
               <div className="mx-auto max-w-7xl w-full min-w-0">
+                <Suspense fallback={<PageLoader />}>
                 <Switch>
                   <Route path="/">
                     {user?.role === "staff" ? <StaffDashboard /> : <Dashboard />}
@@ -382,6 +392,7 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route component={NotFound} />
                 </Switch>
+                </Suspense>
               </div>
             </main>
           </SidebarInset>

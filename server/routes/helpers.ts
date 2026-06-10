@@ -22,23 +22,48 @@ export function formatZodErrors(errors: any[]): string {
   return messages.join(". ");
 }
 
+// TTL cache for store-access checks — avoids 2 sequential DB queries per request
+const _accessCache = new Map<string, { authorized: boolean; expires: number }>();
+const _ACCESS_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Purge expired entries every 10 minutes so the Map doesn't grow unboundedly
+setInterval(() => {
+  const now = Date.now();
+  _accessCache.forEach((val, key) => {
+    if (val.expires <= now) _accessCache.delete(key);
+  });
+}, 10 * 60 * 1000).unref();
+
 export async function checkStoreAccessHelper(storeId: string, req: Request, res: Response): Promise<boolean> {
   const userId = (req as any).user?.userId || (req as any).user?.id;
   if (!userId) {
     res.status(401).json({ error: "Authentication required." });
     return false;
   }
+
+  const cacheKey = `${userId}:${storeId}`;
+  const now = Date.now();
+  const cached = _accessCache.get(cacheKey);
+  if (cached && cached.expires > now) {
+    if (!cached.authorized) {
+      res.status(403).json({ error: "Unauthorized access to store data." });
+    }
+    return cached.authorized;
+  }
+
   const store = await storage.getStore(storeId);
   if (!store) {
     res.status(404).json({ error: "Store not found." });
+    _accessCache.set(cacheKey, { authorized: false, expires: now + _ACCESS_TTL });
     return false;
   }
   const member = await storage.getOrganisationMember(userId, store.businessId);
-  if (!member) {
+  const authorized = !!member;
+  _accessCache.set(cacheKey, { authorized, expires: now + _ACCESS_TTL });
+  if (!authorized) {
     res.status(403).json({ error: "Unauthorized access to store data." });
-    return false;
   }
-  return true;
+  return authorized;
 }
 
 export async function checkBusinessAccess(businessId: string, req: Request, res: Response): Promise<boolean> {

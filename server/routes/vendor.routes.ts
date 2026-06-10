@@ -84,88 +84,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
-  // Get Single Vendor
-  app.get("/api/vendors/:id", isAuthenticated, withVendorId, async (req, res) => {
-    try {
-      const vendor = await storage.vendorRepo.findById(req.params.id);
-      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
-      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-      res.json(vendor);
-    } catch {
-      res.status(500).json({ error: "Could not fetch vendor." });
-    }
-  });
-
-  // Update Vendor
-  app.patch("/api/vendors/:id", withVendorId, requireManagerOrOwner, async (req, res) => {
-    try {
-      const vendor = await storage.vendorRepo.findById(req.params.id);
-      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
-      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-
-      const { name, contactName, email, phone, address, notes } = req.body;
-      if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
-
-      const updated = await storage.vendorRepo.updateVendor(req.params.id, {
-        name,
-        contactName,
-        email: email !== undefined ? (email ? sanitizeEmail(email) : "") : undefined,
-        phone,
-        address,
-        notes,
-      });
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ error: "Could not update vendor." });
-    }
-  });
-
-  // Archive Vendor
-  app.patch("/api/vendors/:id/archive", withVendorId, requireManagerOrOwner, async (req, res) => {
-    try {
-      const vendor = await storage.vendorRepo.findById(req.params.id);
-      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
-      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-      const updated = await storage.vendorRepo.archiveVendor(req.params.id);
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ error: "Could not archive vendor." });
-    }
-  });
-
-  // Restore Vendor
-  app.patch("/api/vendors/:id/restore", withVendorId, requireManagerOrOwner, async (req, res) => {
-    try {
-      const vendor = await storage.vendorRepo.findById(req.params.id);
-      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
-      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-      const updated = await storage.vendorRepo.restoreVendor(req.params.id);
-      res.json(updated);
-    } catch (error) {
-      res.status(500).json({ error: "Could not restore vendor." });
-    }
-  });
-
-  // Delete Vendor
-  app.delete("/api/vendors/:id", withVendorId, requireRole("owner"), async (req, res) => {
-    try {
-      const vendor = await storage.vendorRepo.findById(req.params.id);
-      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
-      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-
-      // Check for linked records that would block deletion
-      const conflict = await storage.vendorRepo.getVendorDeletionConflicts(req.params.id);
-      if (conflict) {
-        return res.status(409).json({ error: conflict });
-      }
-
-      await storage.vendorRepo.deleteVendor(req.params.id);
-      res.status(204).end();
-    } catch (error) {
-      console.error("Delete vendor error:", error);
-      res.status(500).json({ error: "Could not delete vendor." });
-    }
-  });
+  // ---- Bills sub-resource — must be registered BEFORE /api/vendors/:id ----
 
   // Get Vendor Bills
   app.get("/api/vendors/bills", isAuthenticated, async (req, res) => {
@@ -249,6 +168,91 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       res.status(204).end();
     } catch (error) {
       res.status(500).json({ error: "Could not delete vendor bill." });
+    }
+  });
+
+  // ---- Single vendor by ID ----
+
+  // Get Single Vendor
+  app.get("/api/vendors/:id", isAuthenticated, withVendorId, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      res.json(vendor);
+    } catch {
+      res.status(500).json({ error: "Could not fetch vendor." });
+    }
+  });
+
+  // Update Vendor
+  app.patch("/api/vendors/:id", withVendorId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+
+      const { name, contactName, email, phone, address, notes } = req.body;
+      if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
+
+      const updated = await storage.vendorRepo.updateVendor(req.params.id, {
+        name,
+        contactName,
+        email: email !== undefined ? (email ? sanitizeEmail(email) : "") : undefined,
+        phone,
+        address,
+        notes,
+      });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update vendor." });
+    }
+  });
+
+  // Archive Vendor
+  app.patch("/api/vendors/:id/archive", withVendorId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      const updated = await storage.vendorRepo.archiveVendor(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not archive vendor." });
+    }
+  });
+
+  // Restore Vendor
+  app.patch("/api/vendors/:id/restore", withVendorId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      const updated = await storage.vendorRepo.restoreVendor(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not restore vendor." });
+    }
+  });
+
+  // Delete Vendor
+  app.delete("/api/vendors/:id", withVendorId, requireRole("owner"), async (req, res) => {
+    try {
+      const vendor = await storage.vendorRepo.findById(req.params.id);
+      if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+      if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+
+      // Check for linked records that would block deletion
+      const conflict = await storage.vendorRepo.getVendorDeletionConflicts(req.params.id);
+      if (conflict) {
+        return res.status(409).json({ error: conflict });
+      }
+
+      await storage.vendorRepo.deleteVendor(req.params.id);
+      res.status(204).end();
+    } catch (error) {
+      console.error("Delete vendor error:", error);
+      res.status(500).json({ error: "Could not delete vendor." });
     }
   });
 

@@ -643,7 +643,12 @@ export const transactions = pgTable("transactions", {
   amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   transactionDate: timestamp("transaction_date").notNull().defaultNow(),
-});
+}, (t) => [
+  index("idx_transactions_store_date").on(t.storeId, t.transactionDate),
+  index("idx_transactions_checkout").on(t.checkoutId),
+  index("idx_transactions_customer").on(t.customerId),
+  index("idx_transactions_inventory").on(t.inventoryId),
+]);
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   store: one(stores, {

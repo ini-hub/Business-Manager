@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } from "@shared/schema";
 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number };
@@ -85,17 +86,18 @@ export default function InventoryPage() {
 
   const { data: inventoryList = [], isLoading } = useMultiStoreQuery<ProductWithVariants>(
     "/api/products",
-    { merge: "dedup-by-id" }
+    { merge: "dedup-by-id", staleTime: STALE_TIMES.reference }
   );
 
   const { data: archivedList = [], isLoading: isLoadingArchived } = useMultiStoreQuery<ProductWithVariants>(
     "/api/products/archived",
-    { enabled: filterType === "archived" }
+    { enabled: filterType === "archived", staleTime: STALE_TIMES.reference }
   );
 
   const { data: settingsData } = useQuery<Settings>({
     queryKey: ["/api/settings", currentStore?.id],
     enabled: !!currentStore?.id && currentStore.id !== "all",
+    staleTime: STALE_TIMES.reference,
   });
 
   const { data: auditsRaw = [], isLoading: isLoadingAudits } = useMultiStoreQuery<StockAudit>(
@@ -106,7 +108,7 @@ export default function InventoryPage() {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  const { data: staffList = [] } = useMultiStoreQuery<Staff>("/api/staff");
+  const { data: staffList = [] } = useMultiStoreQuery<Staff>("/api/staff", { staleTime: STALE_TIMES.reference });
 
   const { data: auditDetail, isLoading: isLoadingAuditDetail } = useQuery<AuditDetail>({
     queryKey: ["/api/stock-audits", selectedAuditId],

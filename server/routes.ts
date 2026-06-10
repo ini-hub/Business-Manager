@@ -267,7 +267,7 @@ export async function registerRoutes(
 
       // 3. If user is self-registered and email not verified yet -> send OTP and require OTP verification
       if (user.email && !user.isEmailVerified && !user.createdByInvitation) {
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpCode = crypto.randomInt(100000, 1000000).toString();
         const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
         await storage.updateUser(user.id, {
           otpCode,
@@ -317,7 +317,7 @@ export async function registerRoutes(
       });
 
       // Generate a 6-digit OTP code for email verification
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpCode = crypto.randomInt(100000, 1000000).toString();
       const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Create platform user in unverified state
@@ -375,7 +375,7 @@ export async function registerRoutes(
         });
       }
       
-      res.status(500).json({ error: String(error) });
+      res.status(500).json({ error: "Registration failed. Please try again." });
     }
   });
 
@@ -445,7 +445,7 @@ export async function registerRoutes(
       }
 
       // Generate random 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = crypto.randomInt(100000, 1000000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Store in DB user record
@@ -486,11 +486,11 @@ export async function registerRoutes(
 
       const user = await storage.getUserByIdentifier(emailOrPhone);
       if (!user) {
-        return res.status(404).json({ error: "Account not found." });
+        return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
       // Generate random 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = crypto.randomInt(100000, 1000000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Store in DB user record
@@ -578,7 +578,7 @@ export async function registerRoutes(
 
       // Block unverified users who try to bypass /continue and call /login directly
       if (user.email && !user.isEmailVerified && !user.createdByInvitation) {
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpCode = crypto.randomInt(100000, 1000000).toString();
         const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
         await storage.updateUser(user.id, { otpCode, otpExpiry });
         await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
@@ -928,7 +928,7 @@ export async function registerRoutes(
 
       const user = await storage.getUserByIdentifier(emailOrPhone);
       if (!user) {
-        return res.status(404).json({ error: "Account not found." });
+        return res.json({ message: "If account exists, an activation code has been sent." });
       }
 
       // Verify that the membership is actually pending or partial
@@ -972,11 +972,11 @@ export async function registerRoutes(
       const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
       let newCode = "";
       for (let i = 0; i < 4; i++) {
-        newCode += chars.charAt(Math.floor(Math.random() * chars.length));
+        newCode += chars.charAt(crypto.randomInt(0, chars.length));
       }
       newCode += "-";
       for (let i = 0; i < 4; i++) {
-        newCode += chars.charAt(Math.floor(Math.random() * chars.length));
+        newCode += chars.charAt(crypto.randomInt(0, chars.length));
       }
 
       await storage.updateUser(user.id, {
@@ -1202,7 +1202,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "User not found." });
       }
 
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpCode = crypto.randomInt(100000, 1000000).toString();
       const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       await storage.updateUser(user.id, {

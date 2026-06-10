@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import {
   ShoppingCart,
@@ -462,6 +463,7 @@ export default function NewSale() {
   const { data: staffList = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
     enabled: !!currentStore?.id && currentStore?.id !== "all",
+    staleTime: STALE_TIMES.reference,
   });
 
   const { data: products = [], isLoading } = useQuery<any[]>({
@@ -472,6 +474,7 @@ export default function NewSale() {
       return res.json();
     },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
+    staleTime: STALE_TIMES.transactional,
   });
 
   // Flat variant list — kept for booking prefill, cart logic, promotions
@@ -484,6 +487,7 @@ export default function NewSale() {
       return res.json();
     },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
+    staleTime: STALE_TIMES.reference,
   });
 
   const availableInventory = inventory.filter(

@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useLocation } from "wouter";
 import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, TrendingUp, TrendingDown, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
@@ -71,6 +78,8 @@ const customerFormSchema = insertCustomerSchema.extend({
   customerNumber: z.string().optional().default(""),
 });
 
+const PAGE_LIMIT = 50;
+
 export default function Customers() {
   const { toast } = useToast();
   const { currentStore, stores } = useStore();
@@ -83,9 +92,24 @@ export default function Customers() {
   const [duplicateCustomer, setDuplicateCustomer] = useState<any | null>(null);
   const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
   const [pendingSubmitValues, setPendingSubmitValues] = useState<any | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce search: wait 350ms after the user stops typing before sending to server
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchInput), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Reset search and page when store changes
+  useEffect(() => { setSearchInput(""); setPage(1); }, [currentStore?.id]);
+  // Reset page when debounced search changes
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(",")],
+    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(","), page, debouncedSearch],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
@@ -114,11 +138,19 @@ export default function Customers() {
             }
           }
         }
+        setTotalPages(1);
         return Array.from(mergedMap.values());
       }
-      const res = await fetch(`/api/customers?storeId=${currentStore?.id}`);
+      const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : "";
+      const res = await fetch(`/api/customers?storeId=${currentStore?.id}&page=${page}&limit=${PAGE_LIMIT}${searchParam}`);
       if (!res.ok) throw new Error("Failed to fetch customers");
-      return res.json();
+      const json = await res.json();
+      if (Array.isArray(json)) {
+        setTotalPages(1);
+        return json;
+      }
+      setTotalPages(json.pagination?.totalPages ?? 1);
+      return json.data as Customer[];
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
@@ -673,13 +705,26 @@ export default function Customers() {
             createdAt: c.createdAt
           }));
 
+          const showPagination = currentStore?.id !== "all" && totalPages > 1;
+
           return (
             <>
               <TabsContent value="active" className="mt-4">
+                {/* Server-side search for single-store (paginated); internal search for all-stores */}
+                {currentStore?.id !== "all" && (
+                  <div className="mb-3">
+                    <Input
+                      placeholder="Search active customers..."
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                      className="max-w-xs h-9"
+                    />
+                  </div>
+                )}
                 <DataTable
                   data={activeTableData}
                   columns={activeColumns}
-                  searchable
+                  searchable={currentStore?.id === "all"}
                   searchPlaceholder="Search active customers..."
                   searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
                   isLoading={isLoading}
@@ -697,6 +742,31 @@ export default function Customers() {
                     )
                   }
                 />
+                {showPagination && (
+                  <Pagination className="mt-4">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={() => setPage(p => Math.max(1, p - 1))}
+                          aria-disabled={page === 1}
+                          className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <span className="px-3 py-2 text-sm text-muted-foreground">
+                          Page {page} of {totalPages}
+                        </span>
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                          aria-disabled={page === totalPages}
+                          className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                )}
               </TabsContent>
               <TabsContent value="archived" className="mt-4">
                 <DataTable

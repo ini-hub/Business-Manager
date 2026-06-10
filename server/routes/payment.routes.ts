@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import {
@@ -71,7 +72,7 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
       }
 
       const checkoutSuffix = req.body.checkoutId ? `-checkout-${req.body.checkoutId}` : "";
-      const txRef = `tx-${storeId}${checkoutSuffix}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      const txRef = `tx-${storeId}${checkoutSuffix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
       const secretKey = integration.secretKey;
 
       // 2. Offline Sandbox Simulation for Developers and Testing

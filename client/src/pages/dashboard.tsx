@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, AlertCircle, Building2 } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
@@ -76,7 +77,8 @@ export default function Dashboard() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
-    refetchInterval: 30000, // Dashboard stats refresh every 30 seconds
+    staleTime: STALE_TIMES.live,
+    refetchInterval: 30000,
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
@@ -115,7 +117,8 @@ export default function Dashboard() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
-    refetchInterval: 30000, // Profit/Loss trend data refresh every 30 seconds
+    staleTime: STALE_TIMES.live,
+    refetchInterval: 30000,
   });
 
   const { data: topCustomers = [] } = useQuery<any[]>({
@@ -153,7 +156,8 @@ export default function Dashboard() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
-    refetchInterval: 30000, // Top customers metric refresh every 30 seconds
+    staleTime: STALE_TIMES.live,
+    refetchInterval: 30000,
   });
 
   const storeCurrency = currentStore?.currency || "NGN";

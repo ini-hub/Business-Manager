@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { Plus, UserPlus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useAuth } from "@/hooks/useAuth";
@@ -91,6 +92,7 @@ export default function StaffPage() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
+    staleTime: STALE_TIMES.reference,
   });
 
   const activeStaff = staffList.filter(s => !s.isArchived);

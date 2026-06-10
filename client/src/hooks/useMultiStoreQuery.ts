@@ -6,6 +6,7 @@ type MergeStrategy = "flat" | "dedup-by-id";
 interface UseMultiStoreQueryOptions {
   enabled?: boolean;
   merge?: MergeStrategy;
+  staleTime?: number;
 }
 
 /**
@@ -18,7 +19,7 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
   options: UseMultiStoreQueryOptions = {}
 ) {
   const { currentStore, stores } = useStore();
-  const { enabled = true, merge = "flat" } = options;
+  const { enabled = true, merge = "flat", staleTime } = options;
 
   const isAll = currentStore?.id === "all";
   const queryEnabled = enabled && (isAll ? stores.length > 0 : !!currentStore?.id);
@@ -65,5 +66,6 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
       return res.json();
     },
     enabled: queryEnabled,
+    ...(staleTime !== undefined && { staleTime }),
   });
 }

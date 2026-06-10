@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { ChevronLeft, Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ export default function ExpenseCategoriesPage() {
       return res.json();
     },
     enabled: !!currentStore?.id,
+    staleTime: STALE_TIMES.reference,
   });
 
   const addMutation = useMutation({

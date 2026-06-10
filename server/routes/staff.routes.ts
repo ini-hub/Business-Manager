@@ -209,11 +209,11 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
             const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
             let activationCode = "";
             for (let i = 0; i < 4; i++) {
-              activationCode += chars.charAt(Math.floor(Math.random() * chars.length));
+              activationCode += chars.charAt(crypto.randomInt(0, chars.length));
             }
             activationCode += "-";
             for (let i = 0; i < 4; i++) {
-              activationCode += chars.charAt(Math.floor(Math.random() * chars.length));
+              activationCode += chars.charAt(crypto.randomInt(0, chars.length));
             }
 
             const placeholderPassword = await bcrypt.hash(crypto.randomUUID(), SALT_ROUNDS);

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar, Banknote } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -171,8 +172,9 @@ export default function ExpensesPage() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
+    staleTime: STALE_TIMES.reference,
   });
-  
+
   const { data: inventoryItems = [] } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
@@ -195,6 +197,7 @@ export default function ExpensesPage() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
+    staleTime: STALE_TIMES.reference,
   });
 
   const form = useForm<ExpenseFormValues>({

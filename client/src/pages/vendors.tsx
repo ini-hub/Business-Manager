@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { STALE_TIMES } from "@/lib/queryClient";
 import { Plus, Edit, Trash2, Phone, Mail, MapPin, FileText, Building2, Archive, RotateCcw } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ export default function VendorsPage() {
       return res.json();
     },
     enabled: !!currentStore?.id && currentStore.id !== "all",
+    staleTime: STALE_TIMES.reference,
   });
 
   const vendors = allVendors.filter(v => !v.isArchived);
