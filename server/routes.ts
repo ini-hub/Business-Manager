@@ -142,6 +142,13 @@ export async function registerRoutes(
     res.json({ status: "ok", timestamp: new Date().toISOString(), uptime: process.uptime() });
   });
 
+  // Temporary email queue debug — remove after confirming delivery works
+  app.get("/api/debug/email-queue", async (_req, res) => {
+    const { getQueueStats } = await import("./services/EmailQueue");
+    const stats = await getQueueStats();
+    res.json({ ...stats, resend_key_set: !!process.env.RESEND_API_KEY, email_from_set: !!process.env.EMAIL_FROM });
+  });
+
   // Public: OG social share image — no auth required
   app.get("/og-image.png", serveOgImage);
 

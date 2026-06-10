@@ -3,17 +3,19 @@ import { db } from "../db";
 import { pendingEmails } from "@shared/schema";
 import { eq, and, lte } from "drizzle-orm";
 
-const GMAIL_USER = (process.env.GMAIL_USER || "").trim();
-const GMAIL_APP_PASSWORD = (process.env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "");
+const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
+const EMAIL_FROM = (process.env.EMAIL_FROM || "").trim();
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
 
-if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
-  console.warn("[EmailQueue] WARNING: GMAIL_USER or GMAIL_APP_PASSWORD is not set. Emails will not be sent.");
+if (!RESEND_API_KEY || !EMAIL_FROM) {
+  console.warn("[EmailQueue] WARNING: RESEND_API_KEY or EMAIL_FROM is not set. Emails will not be sent.");
 }
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  host: "smtp.resend.com",
+  port: 587,
+  secure: false,
+  auth: { user: "resend", pass: RESEND_API_KEY },
 });
 
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
@@ -22,7 +24,7 @@ const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 let flushing = false;
 
 async function flush(): Promise<void> {
-  if (flushing || !GMAIL_USER || !GMAIL_APP_PASSWORD) return;
+  if (flushing || !RESEND_API_KEY || !EMAIL_FROM) return;
   flushing = true;
 
   try {
@@ -34,7 +36,7 @@ async function flush(): Promise<void> {
     for (const item of due) {
       try {
         await transporter.sendMail({
-          from: `"${BUSINESS_NAME}" <${GMAIL_USER}>`,
+          from: `"${BUSINESS_NAME}" <${EMAIL_FROM}>`,
           to: item.to,
           subject: item.subject,
           html: item.html,
@@ -42,6 +44,7 @@ async function flush(): Promise<void> {
         console.log(`[EmailQueue] Sent to ${item.to} (attempt ${item.attempts + 1})`);
         await db.update(pendingEmails).set({ status: "sent", attempts: item.attempts + 1 }).where(eq(pendingEmails.id, item.id));
       } catch (err) {
+        console.error(`[EmailQueue] SMTP error for ${item.to}:`, err instanceof Error ? err.message : err);
         const nextAttempts = item.attempts + 1;
         if (nextAttempts >= MAX_ATTEMPTS) {
           console.error(`[EmailQueue] Dropped after ${nextAttempts} attempts — to: ${item.to}, subject: ${item.subject}`);
@@ -55,7 +58,7 @@ async function flush(): Promise<void> {
       }
     }
   } catch (err) {
-    console.error("[EmailQueue] Flush error:", err);
+    console.error("[EmailQueue] Flush error:", err instanceof Error ? err.message : err);
   } finally {
     flushing = false;
   }
