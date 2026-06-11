@@ -144,6 +144,10 @@ app.use((req, res, next) => {
   startBookingReminderService();
   startCreditReminderService();
 
+  // Flush any emails that queued while the server was down (e.g. Render free-tier spin-down)
+  const { flushOnStartup } = await import("./services/EmailQueue");
+  flushOnStartup();
+
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.

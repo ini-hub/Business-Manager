@@ -25,6 +25,19 @@ services:
       - key: EMAIL_FROM
         sync: false
 
+  # Pings the app every 14 minutes to prevent Render free-tier spin-down
+  - type: cron
+    name: keep-alive
+    runtime: node
+    region: oregon
+    plan: free
+    schedule: "*/14 * * * *"
+    buildCommand: "true"
+    startCommand: node -e "fetch(process.env.APP_URL + '/api/health').then(r => console.log('ping', r.status)).catch(e => console.error('ping failed', e.message))"
+    envVars:
+      - key: APP_URL
+        sync: false
+
 databases:
   - name: business-manager-db
     plan: free

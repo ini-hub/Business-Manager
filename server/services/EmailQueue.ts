@@ -67,6 +67,11 @@ async function flush(): Promise<void> {
 // Flush every 30 seconds
 setInterval(flush, 30_000);
 
+// Call this on server startup to drain emails queued during downtime
+export function flushOnStartup(): void {
+  flush().catch(() => undefined);
+}
+
 export function sendEmail(payload: { to: string; subject: string; html: string }): void {
   db.insert(pendingEmails).values({
     to: payload.to,
