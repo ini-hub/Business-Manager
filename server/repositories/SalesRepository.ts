@@ -839,6 +839,210 @@ export class SalesRepository {
     }
   }
 
+  // ─── processAddendum ──────────────────────────────────────────────────────
+  async processAddendum(data: {
+    originalCheckoutId: string;
+    inventoryId: string;
+    quantity: number;
+    customPrice?: number;
+    staffId: string;
+    leadStaffId?: string;
+    assistingStaff1Id?: string;
+    assistingStaff2Id?: string;
+    paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
+    reason: string;
+    userId: string;
+  }): Promise<{ success: boolean; message: string; checkoutId?: string; payrollWarning?: string }> {
+    try {
+      let newCheckoutId = "";
+      let addendumStoreId = "";
+      let payrollWarning: string | undefined;
+
+      await db.transaction(async (tx) => {
+        // 1. Fetch and validate original receipt context
+        const [originalCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.originalCheckoutId));
+        if (!originalCheckout) throw new Error("Transaction not found.");
+        if (originalCheckout.isVoided) throw new Error("Cannot add items to a voided transaction.");
+
+        const receiptCheckouts = await tx.select().from(checkouts)
+          .where(eq(checkouts.receiptNumber, originalCheckout.receiptNumber));
+        if (receiptCheckouts.some(c => c.paymentStatus === "pending")) {
+          throw new Error("Cannot add items while a payment is still pending on this receipt.");
+        }
+
+        const { receiptNumber, storeId } = originalCheckout;
+        addendumStoreId = storeId;
+
+        // Resolve customerId from original transaction
+        const [originalTx] = await tx.select().from(transactions)
+          .where(eq(transactions.checkoutId, data.originalCheckoutId));
+        if (!originalTx) throw new Error("Could not resolve customer for this transaction.");
+        const { customerId } = originalTx;
+
+        // Find the first non-addendum checkoutId under this receipt (for credit entry linking)
+        const sortedCheckouts = [...receiptCheckouts].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        const primaryCheckoutId = (sortedCheckouts.find(c => !c.isAddendum) ?? sortedCheckouts[0]).id;
+
+        // 2. Fetch and validate inventory (with row lock)
+        const [inv] = await tx.select().from(inventory)
+          .where(eq(inventory.id, data.inventoryId))
+          .for("update");
+        if (!inv) throw new Error("Item not found.");
+        if (inv.type === "product" && Number(inv.quantity) < data.quantity) {
+          throw new Error(`Insufficient stock. Only ${inv.quantity} unit(s) available.`);
+        }
+
+        // 3. Fetch store tax rate
+        const storeTaxRates = await tx.select().from(taxRates).where(eq(taxRates.storeId, storeId));
+        const defaultTax = storeTaxRates.find(r => r.isDefault);
+        const taxRatePercent = defaultTax ? Number(defaultTax.rate) : 0;
+
+        // 4. Calculate amounts
+        const unitPrice = data.customPrice != null ? data.customPrice : Number(inv.sellingPrice);
+        const lineSubtotal = unitPrice * data.quantity;
+        const lineTax = lineSubtotal * (taxRatePercent / 100);
+        const totalCharged = lineSubtotal + lineTax;
+
+        // 5. Create order
+        const [order] = await tx.insert(orders).values({
+          storeId,
+          inventoryId: data.inventoryId,
+          quantity: data.quantity,
+          totalPrice: lineSubtotal,
+          taxApplied: lineTax,
+        }).returning();
+
+        // 6. Create checkout (same receiptNumber, isAddendum: true)
+        const [newCheckout] = await tx.insert(checkouts).values({
+          storeId,
+          staffId: data.staffId,
+          leadStaffId: data.leadStaffId ?? null,
+          assistingStaff1Id: data.assistingStaff1Id ?? null,
+          assistingStaff2Id: data.assistingStaff2Id ?? null,
+          orderId: order.id,
+          receiptNumber,
+          totalPrice: lineSubtotal,
+          subtotal: lineSubtotal,
+          totalCharged,
+          taxTotal: lineTax,
+          paymentMethod: data.paymentMethod,
+          paymentStatus: "completed",
+          isAddendum: true,
+          addendumReason: data.reason,
+          createdAt: new Date(),
+        }).returning();
+
+        newCheckoutId = newCheckout.id;
+
+        // 7. Create transaction row
+        await tx.insert(transactions).values({
+          storeId,
+          customerId,
+          inventoryId: data.inventoryId,
+          checkoutId: newCheckout.id,
+          amount: totalCharged,
+          transactionDate: new Date(),
+        });
+
+        // 8. Decrement inventory only for products
+        if (inv.type === "product") {
+          await tx.update(inventory)
+            .set({ quantity: sql`${inventory.quantity} - ${data.quantity}` })
+            .where(eq(inventory.id, data.inventoryId));
+          await this.inventoryRepo.deductFIFO(data.inventoryId, data.quantity, tx);
+        }
+
+        // 9. Update profit/loss
+        const costPrice = Number(inv.costPrice) || 0;
+        const profit = lineSubtotal - costPrice * data.quantity;
+        const [existingPL] = await tx.select().from(profitLoss)
+          .where(and(eq(profitLoss.inventoryId, data.inventoryId), eq(profitLoss.storeId, storeId)));
+        if (existingPL) {
+          await tx.update(profitLoss)
+            .set({
+              totalQuantitySold: existingPL.totalQuantitySold + data.quantity,
+              quantityRemaining: Number(inv.quantity) - data.quantity,
+              totalRevenue: existingPL.totalRevenue + lineSubtotal,
+              totalGrossProfit: existingPL.totalGrossProfit + profit,
+            })
+            .where(eq(profitLoss.id, existingPL.id));
+        } else {
+          await tx.insert(profitLoss).values({
+            storeId,
+            inventoryId: data.inventoryId,
+            totalQuantitySold: data.quantity,
+            quantityRemaining: Number(inv.quantity) - data.quantity,
+            totalRevenue: lineSubtotal,
+            totalGrossProfit: profit,
+          });
+        }
+
+        // 10. Handle payment side-effects
+        if (data.paymentMethod === "cash") {
+          const [activeSession] = await tx.select().from(cashRegisterSessions)
+            .where(and(eq(cashRegisterSessions.storeId, storeId), eq(cashRegisterSessions.status, "open")));
+          if (activeSession) {
+            await tx.update(cashRegisterSessions)
+              .set({ expectedCash: sql`${cashRegisterSessions.expectedCash} + ${totalCharged}` })
+              .where(eq(cashRegisterSessions.id, activeSession.id));
+          }
+        } else if (data.paymentMethod === "credit") {
+          // Link to the primary (non-addendum) checkoutId so credit history stays grouped per receipt
+          await tx.insert(creditEntries).values({
+            storeId,
+            customerId,
+            amountOwed: totalCharged,
+            amountPaidUpfront: 0,
+            outstandingBalance: totalCharged,
+            description: `Addendum to Receipt #${receiptNumber}`,
+            linkedTransactionId: primaryCheckoutId,
+            status: "owing",
+            notes: `Addendum item added after sale — ${data.reason}`,
+          });
+        } else if (data.paymentMethod === "store_credit") {
+          const [customer] = await tx.select().from(customers).where(eq(customers.id, customerId));
+          if (!customer) throw new Error("Customer not found.");
+          if (Number(customer.storeCreditBalance || 0) < totalCharged) {
+            throw new Error(`Insufficient store credit. Available: ${customer.storeCreditBalance || 0}`);
+          }
+          await tx.update(customers)
+            .set({ storeCreditBalance: sql`${customers.storeCreditBalance} - ${totalCharged}` })
+            .where(eq(customers.id, customerId));
+          await tx.insert(storeCreditTransactions).values({
+            customerId,
+            storeId,
+            amount: -totalCharged,
+            type: "purchase_redemption",
+            checkoutId: newCheckout.id,
+          });
+        }
+      });
+
+      // Payroll warning: check if today falls in a finalized payroll period
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const affectedPeriods = await db
+        .select({ id: payrollPeriods.id, status: payrollPeriods.status, startDate: payrollPeriods.startDate, endDate: payrollPeriods.endDate })
+        .from(payrollPeriods)
+        .where(and(
+          eq(payrollPeriods.storeId, addendumStoreId),
+          sql`${payrollPeriods.startDate} <= ${todayStr}`,
+          sql`${payrollPeriods.endDate} >= ${todayStr}`,
+          sql`${payrollPeriods.status} IN ('approved', 'paid')`
+        ));
+      if (affectedPeriods.length > 0) {
+        const labels = affectedPeriods.map(p => `${p.startDate} – ${p.endDate} (${p.status})`).join(", ");
+        payrollWarning = `This addendum falls within finalized payroll period(s): ${labels}. Commission for affected staff may need manual adjustment.`;
+      }
+
+      return { success: true, message: "Item added to receipt successfully.", checkoutId: newCheckoutId, payrollWarning };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not add item to receipt.";
+      return { success: false, message };
+    }
+  }
+
   // ─── processReturn ────────────────────────────────────────────────────────
   async processReturn(data: {
     storeId: string;

@@ -1,5 +1,5 @@
-import type { KeyboardEvent } from "react";
-import { Minus, Plus, Trash2, UserCog } from "lucide-react";
+import { useState, type KeyboardEvent } from "react";
+import { Minus, Plus, Trash2, UserCog, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,8 +36,6 @@ interface CartItemRowProps {
   onUpdateStaff: (itemId: string, field: keyof CartItem, value: string | null | boolean) => void;
 }
 
-// Pressing Enter on a cart input moves focus to the next focusable element
-// inside #pos-cart-section, stopping at the checkout button.
 function advanceFocus(e: KeyboardEvent<HTMLInputElement>) {
   if (e.key !== "Enter") return;
   e.preventDefault();
@@ -60,29 +58,36 @@ export function CartItemRow({
   onRemove,
   onUpdateStaff,
 }: CartItemRowProps) {
+  const isService = item.inventory.type === "service";
+  const missingLead = isService && !item.leadStaffId;
+
+  // Auto-expand staff section when lead staff is missing (validation state)
+  const [staffExpanded, setStaffExpanded] = useState(missingLead);
+
   return (
-    <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/50">
-      <div className="flex items-center justify-between">
+    <div className={cn(
+      "flex flex-col gap-2 p-3 rounded-lg bg-muted/50",
+      missingLead && "border border-destructive/40"
+    )}>
+      {/* Row 1: name + type badge + delete (delete always anchored top-right) */}
+      <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <p className="font-medium text-sm truncate">{item.inventory.name}</p>
-            <Badge variant="outline" className="text-[10px] h-5 py-0 capitalize">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            <p className="font-medium text-sm leading-snug">{item.inventory.name}</p>
+            <Badge variant="outline" className="text-[10px] h-5 py-0 capitalize shrink-0">
               {item.inventory.type}
             </Badge>
-          </div>
-          <p className="text-xs text-muted-foreground flex items-center gap-2">
-            <span>List price: {formatCurrency(item.inventory.sellingPrice)}</span>
             {item.customPrice !== item.inventory.sellingPrice && (
-              <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-                Custom Price
+              <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
+                Custom
               </Badge>
             )}
-          </p>
+          </div>
         </div>
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-destructive"
+          className="h-7 w-7 text-destructive shrink-0 self-start"
           onClick={() => onRemove(item.inventory.id)}
           data-testid={`button-remove-${item.inventory.id}`}
         >
@@ -90,67 +95,91 @@ export function CartItemRow({
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1">
-          <Label className="text-xs text-muted-foreground whitespace-nowrap">Price:</Label>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            value={item.customPrice === 0 ? "0" : item.customPrice || ""}
-            onChange={(e) => {
-              const val = e.target.value;
-              let clean = val;
-              if (/^0\d+/.test(val)) clean = val.replace(/^0+/, "");
-              onUpdatePrice(item.inventory.id, clean === "" ? 0 : parseFloat(clean) || 0);
-            }}
-            className="h-7 w-20 font-mono text-sm"
-            data-testid={`input-price-${item.inventory.id}`}
-            onKeyDown={advanceFocus}
-          />
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : -1)}
-            data-testid={`button-decrease-${item.inventory.id}`}
-          >
-            <Minus className="h-3 w-3" />
-          </Button>
-          <Input
-            type="number"
-            step={quantityStep(item.inventory.allowFractional ?? false)}
-            min={item.inventory.allowFractional ? "0.01" : "1"}
-            max={item.inventory.type === "service" ? 999 : item.inventory.quantity || undefined}
-            value={item.quantity || ""}
-            onChange={(e) => {
-              const parsed = parseQuantityInput(e.target.value, item.inventory.allowFractional ?? false);
-              onSetExactQuantity(item.inventory.id, parsed);
-            }}
-            className="h-7 w-16 text-center font-mono text-sm px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            data-testid={`input-quantity-${item.inventory.id}`}
-            onKeyDown={advanceFocus}
-          />
-          {item.inventory.unit && (
-            <span className="text-xs text-muted-foreground font-medium">{item.inventory.unit}</span>
-          )}
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : 1)}
-            disabled={!item.inventory.allowFractional && item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
-            data-testid={`button-increase-${item.inventory.id}`}
-          >
-            <Plus className="h-3 w-3" />
-          </Button>
-        </div>
-        <span className="font-mono text-sm font-medium ml-auto">
+      {/* Row 2a: qty stepper + total + staff toggle */}
+      <div className="flex items-center gap-1 flex-nowrap">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? -0.5 : -1)}
+          data-testid={`button-decrease-${item.inventory.id}`}
+        >
+          <Minus className="h-3 w-3" />
+        </Button>
+        <Input
+          type="number"
+          step={quantityStep(item.inventory.allowFractional ?? false)}
+          min={item.inventory.allowFractional ? "0.01" : "1"}
+          max={item.inventory.type === "service" ? 999 : item.inventory.quantity || undefined}
+          value={item.quantity || ""}
+          onChange={(e) => {
+            const parsed = parseQuantityInput(e.target.value, item.inventory.allowFractional ?? false);
+            onSetExactQuantity(item.inventory.id, parsed);
+          }}
+          className="h-7 w-10 text-center font-mono text-xs px-1 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          data-testid={`input-quantity-${item.inventory.id}`}
+          onKeyDown={advanceFocus}
+        />
+        {item.inventory.unit && (
+          <span className="text-xs text-muted-foreground font-medium shrink-0">{item.inventory.unit}</span>
+        )}
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : 1)}
+          disabled={!item.inventory.allowFractional && item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
+          data-testid={`button-increase-${item.inventory.id}`}
+        >
+          <Plus className="h-3 w-3" />
+        </Button>
+        <span className="font-mono text-sm font-medium ml-auto shrink-0">
           {formatCurrency(item.totalPrice)}
         </span>
+        {isService && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-7 px-1.5 shrink-0 gap-0.5 text-xs",
+              missingLead
+                ? "text-destructive hover:text-destructive"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setStaffExpanded((v) => !v)}
+            title="Staff assignment"
+          >
+            {missingLead && <AlertCircle className="h-3 w-3" />}
+            <UserCog className="h-3 w-3" />
+            {staffExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </Button>
+        )}
       </div>
+
+      {/* Row 2b: unit price input */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-muted-foreground shrink-0">Unit price</span>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={item.customPrice === 0 ? "0" : item.customPrice || ""}
+          onChange={(e) => {
+            const val = e.target.value;
+            let clean = val;
+            if (/^0\d+/.test(val)) clean = val.replace(/^0+/, "");
+            onUpdatePrice(item.inventory.id, clean === "" ? 0 : parseFloat(clean) || 0);
+          }}
+          className="h-6 w-24 font-mono text-xs"
+          data-testid={`input-price-${item.inventory.id}`}
+          onKeyDown={advanceFocus}
+        />
+        <span className="text-[10px] text-muted-foreground shrink-0">
+          List: {formatCurrency(item.inventory.sellingPrice)}
+        </span>
+      </div>
+
+      {/* Fractional presets */}
       {item.inventory.allowFractional && (
         <div className="flex items-center gap-1 flex-wrap -mt-1">
           {item.inventory.unit && (
@@ -175,8 +204,9 @@ export function CartItemRow({
         </div>
       )}
 
-      {item.inventory.type === "service" && (
-        <div className="mt-2 pt-2 border-t border-muted space-y-2">
+      {/* Staff assignment — collapsible, only for services */}
+      {isService && staffExpanded && (
+        <div className="pt-2 border-t border-muted space-y-2">
           <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
             <UserCog className="h-3 w-3" />
             Staff Assignment

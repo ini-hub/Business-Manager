@@ -578,6 +578,8 @@ export const checkouts = pgTable("checkouts", {
   pointsRedeemed: integer("points_redeemed").notNull().default(0),
   totalCharged: numeric("total_charged", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   taxTotal: numeric("tax_total", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  isAddendum: boolean("is_addendum").notNull().default(false),
+  addendumReason: text("addendum_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_checkouts_store_created").on(table.storeId, table.createdAt),

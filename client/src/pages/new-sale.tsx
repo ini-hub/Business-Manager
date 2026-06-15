@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation } from "wouter";
@@ -149,6 +149,36 @@ export default function NewSale() {
   // Draft state
   const [draftsOpen, setDraftsOpen] = useState<boolean>(false);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+
+  // Resizable panel
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const [splitPct, setSplitPct] = useState(() => {
+    const saved = localStorage.getItem("pos-split-pct");
+    return saved ? Math.min(Math.max(Number(saved), 35), 70) : 60;
+  });
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.min(Math.max(pct, 35), 70);
+      setSplitPct(clamped);
+      localStorage.setItem("pos-split-pct", String(clamped));
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   const { data: activeSession } = useQuery<any>({
     queryKey: ["/api/cash-register/session", currentStore?.id],
@@ -1170,8 +1200,8 @@ export default function NewSale() {
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2 space-y-6">
+      <div ref={containerRef} className="flex h-[calc(100vh-8rem)] gap-0">
+        <div style={{ width: `${splitPct}%` }} className="overflow-y-auto min-w-0 pr-2">
           <ProductGrid
             products={availableProducts}
             isLoading={isLoading}
@@ -1184,7 +1214,25 @@ export default function NewSale() {
           />
         </div>
 
-        <div id="pos-cart-section" className="space-y-6">
+        {/* Drag handle */}
+        <div
+          className="w-4 flex items-center justify-center cursor-col-resize shrink-0 group relative"
+          onMouseDown={() => {
+            isDragging.current = true;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+          }}
+        >
+          <div className="h-full w-px bg-border group-hover:bg-primary/30 transition-colors" />
+          <div className="absolute flex flex-col gap-[3px] items-center justify-center">
+            {[0,1,2,3,4].map(i => (
+              <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
+            ))}
+          </div>
+        </div>
+
+        <div id="pos-cart-section" style={{ width: `${100 - splitPct}%` }} className="flex flex-col min-w-0 overflow-hidden">
+          <div className="flex-1 overflow-y-auto space-y-4 pb-2">
           <Card>
             <CardHeader>
               <CardTitle className="text-base font-medium flex items-center gap-2">
@@ -1201,23 +1249,21 @@ export default function NewSale() {
                   </p>
                 </div>
               ) : (
-                <ScrollArea className="h-[300px] pr-4">
-                  <div className="space-y-3">
-                    {cart.map((item) => (
-                      <CartItemRow
-                        key={item.inventory.id}
-                        item={item}
-                        staffList={staffList}
-                        formatCurrency={formatCurrency}
-                        onUpdateQuantity={updateQuantity}
-                        onSetExactQuantity={setExactQuantity}
-                        onUpdatePrice={updateCustomPrice}
-                        onRemove={removeFromCart}
-                        onUpdateStaff={updateStaffAssignment}
-                      />
-                    ))}
-                  </div>
-                </ScrollArea>
+                <div className="space-y-3 pr-1">
+                  {cart.map((item) => (
+                    <CartItemRow
+                      key={item.inventory.id}
+                      item={item}
+                      staffList={staffList}
+                      formatCurrency={formatCurrency}
+                      onUpdateQuantity={updateQuantity}
+                      onSetExactQuantity={setExactQuantity}
+                      onUpdatePrice={updateCustomPrice}
+                      onRemove={removeFromCart}
+                      onUpdateStaff={updateStaffAssignment}
+                    />
+                  ))}
+                </div>
               )}
             </CardContent>
             <Separator />
@@ -2023,77 +2069,74 @@ export default function NewSale() {
                 </>
               )}
             </CardContent>
+          </Card>
+          </div>{/* end scrollable zone */}
+
+          {/* Sticky checkout bar — always visible, never cut off */}
+          <div className="shrink-0 border-t bg-card px-4 py-3 space-y-2">
+            <div className="flex justify-between items-center px-0.5">
+              <span className="text-sm font-semibold text-muted-foreground">Total Remaining</span>
+              <span className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                {formatCurrency(balanceCollectedToday)}
+              </span>
+            </div>
             {serviceItemsMissingLead.length > 0 && (
-              <div className="px-6 pb-2">
-                <Alert variant="destructive" className="py-2 text-xs">
-                  <AlertDescription className="flex items-center gap-1.5 font-medium">
-                    <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shrink-0" />
-                    Please assign a Lead staff to all service items.
-                  </AlertDescription>
-                </Alert>
+              <Alert variant="destructive" className="py-2 text-xs">
+                <AlertDescription className="flex items-center gap-1.5 font-medium">
+                  <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shrink-0" />
+                  Please assign a Lead staff to all service items.
+                </AlertDescription>
+              </Alert>
+            )}
+            {cart.length > 0 && (
+              <div className="flex gap-px">
+                <Button
+                  variant="outline"
+                  className="flex-1 text-xs h-9 rounded-r-none"
+                  disabled={saveDraftMutation.isPending}
+                  onClick={() => saveDraftMutation.mutate(!!activeDraftId)}
+                >
+                  {saveDraftMutation.isPending ? "Saving..." : (
+                    <><FileEdit className="mr-2 h-3.5 w-3.5" />{activeDraftId ? "Update Draft" : "Save as Draft"}</>
+                  )}
+                </Button>
+                {activeDraftId && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="h-9 w-9 px-0 rounded-l-none border-l-0 shrink-0"
+                        disabled={saveDraftMutation.isPending}
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="text-xs">
+                      <DropdownMenuItem
+                        className="text-xs cursor-pointer"
+                        onClick={() => saveDraftMutation.mutate(false)}
+                      >
+                        <FileEdit className="mr-2 h-3.5 w-3.5" />
+                        Save as New Draft
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             )}
-            <CardFooter className="flex flex-col gap-2">
-              {cart.length > 0 && (
-                <div className="flex w-full gap-px">
-                  <Button
-                    variant="outline"
-                    className="flex-1 text-xs h-9 rounded-r-none"
-                    disabled={saveDraftMutation.isPending}
-                    onClick={() => saveDraftMutation.mutate(!!activeDraftId)}
-                  >
-                    {saveDraftMutation.isPending ? (
-                      "Saving..."
-                    ) : (
-                      <>
-                        <FileEdit className="mr-2 h-3.5 w-3.5" />
-                        {activeDraftId ? "Update Draft" : "Save as Draft"}
-                      </>
-                    )}
-                  </Button>
-                  {activeDraftId && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="h-9 w-9 px-0 rounded-l-none border-l-0 shrink-0"
-                          disabled={saveDraftMutation.isPending}
-                        >
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="text-xs">
-                        <DropdownMenuItem
-                          className="text-xs cursor-pointer"
-                          onClick={() => saveDraftMutation.mutate(false)}
-                        >
-                          <FileEdit className="mr-2 h-3.5 w-3.5" />
-                          Save as New Draft
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
+            <Button
+              className="w-full"
+              disabled={checkoutMutation.isPending}
+              onClick={handleCheckoutClick}
+              data-testid="button-checkout"
+            >
+              {checkoutMutation.isPending ? "Processing..." : (
+                <><CheckCircle className="mr-2 h-4 w-4" />{paymentMethod === "flutterwave" ? "Generate Payment Link" : "Complete Sale"}</>
               )}
-              <Button
-                className="w-full"
-                disabled={checkoutMutation.isPending}
-                onClick={handleCheckoutClick}
-                data-testid="button-checkout"
-              >
-                {checkoutMutation.isPending ? (
-                  "Processing..."
-                ) : (
-                  <>
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                    {paymentMethod === "flutterwave" ? "Generate Payment Link" : "Complete Sale"}
-                  </>
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-      </div>
+            </Button>
+          </div>
+        </div>{/* end right panel */}
+      </div>{/* end flex container */}
 
       <CashRegisterDialogs
         openRegisterDialogOpen={openRegisterDialogOpen}

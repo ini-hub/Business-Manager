@@ -22,7 +22,9 @@ function groupTransactions(txs: any[]): any[] {
   for (const [_key, group] of Array.from(groupedMap.entries())) {
     if (group.length === 0) continue;
     if (group.length === 1) { result.push(group[0]); continue; }
-    const firstTx = group[0];
+    // Prefer the oldest non-addendum checkout as the receipt representative so the
+    // transaction list links to the original sale, not an addendum appended later.
+    const firstTx = group.find((t: any) => !t.checkout?.isAddendum) ?? group[group.length - 1];
     let totalAmount = 0, totalTotalPrice = 0, totalTotalCharged = 0, totalQuantity = 0;
     let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0;
     for (const item of group) {
@@ -279,6 +281,66 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not update payment status." });
+    }
+  });
+
+  // ─── Add missed item (addendum) ──────────────────────────────────────────
+  app.post("/api/transactions/:checkoutId/addendum", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const { checkoutId } = req.params;
+      const { inventoryId, quantity, customPrice, staffId, leadStaffId, assistingStaff1Id, assistingStaff2Id, paymentMethod, reason } = req.body;
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const validPaymentMethods = ["cash", "transfer", "credit", "store_credit"];
+      if (!inventoryId || !quantity || quantity <= 0 || !staffId || !paymentMethod || !reason?.trim()) {
+        return res.status(400).json({ error: "Missing required fields." });
+      }
+      if (!validPaymentMethods.includes(paymentMethod)) {
+        return res.status(400).json({ error: "Invalid payment method. Use cash, transfer, credit, or store_credit." });
+      }
+
+      const result = await storage.processAddendum({
+        originalCheckoutId: checkoutId,
+        inventoryId,
+        quantity: Number(quantity),
+        customPrice: customPrice != null ? Number(customPrice) : undefined,
+        staffId,
+        leadStaffId: leadStaffId || undefined,
+        assistingStaff1Id: assistingStaff1Id || undefined,
+        assistingStaff2Id: assistingStaff2Id || undefined,
+        paymentMethod,
+        reason: reason.trim(),
+        userId,
+      });
+
+      if (!result.success) {
+        auditLogger.log({
+          action: "TRANSACTION_ADDENDUM",
+          resource: "checkout",
+          resourceId: checkoutId,
+          userId,
+          ip: getClientIp(req),
+          status: "failure",
+          errorMessage: result.message,
+          details: { inventoryId, quantity, paymentMethod, reason: reason.trim() },
+        });
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({
+        action: "TRANSACTION_ADDENDUM",
+        resource: "checkout",
+        resourceId: checkoutId,
+        userId,
+        ip: getClientIp(req),
+        status: "success",
+        details: { inventoryId, quantity, paymentMethod, reason: reason.trim(), newCheckoutId: result.checkoutId },
+      });
+
+      res.json({ success: true, checkoutId: result.checkoutId, payrollWarning: result.payrollWarning });
+    } catch (error) {
+      res.status(500).json({ error: "Could not add item to receipt." });
     }
   });
 

@@ -18,6 +18,7 @@ import {
   Store,
   Tag,
   ChevronRight,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +54,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
+import { AddendumDialog } from "@/components/AddendumDialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
@@ -84,6 +86,9 @@ export default function TransactionDetailsPage() {
 
   // Resolve Pending Dialog
   const [isResolvePendingOpen, setIsResolvePendingOpen] = useState(false);
+
+  // Addendum Dialog State
+  const [isAddendumOpen, setIsAddendumOpen] = useState(false);
 
   // Return Dialog State
   const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
@@ -672,6 +677,18 @@ export default function TransactionDetailsPage() {
                 </Button>
               )}
 
+              {/* Add Missed Item — only for non-voided, non-pending receipts */}
+              {canManage && !isVoided && tx.checkout?.paymentStatus !== "pending" && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start border-blue-200 hover:bg-blue-50 hover:text-blue-700 text-blue-700 dark:border-blue-900/30 dark:hover:bg-blue-950/20"
+                  onClick={() => setIsAddendumOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Missed Item
+                </Button>
+              )}
+
               {/* Void Transaction — blocked when fully returned: stock & refunds already reversed
                   by the return process; voiding on top would cause double-inventory entries */}
               {canManage && !isVoided && !isFullyReturned && (
@@ -852,6 +869,24 @@ export default function TransactionDetailsPage() {
           onOpenChange={setIsReturnDialogOpen}
           checkout={returnCheckoutObj}
           onSuccess={handleReturnSuccess}
+        />
+      )}
+
+      {/* Add Missed Item (Addendum) Dialog */}
+      {checkoutId && receiptDetails && (
+        <AddendumDialog
+          open={isAddendumOpen}
+          onOpenChange={setIsAddendumOpen}
+          checkoutId={checkoutId}
+          receiptNumber={receiptDetails.checkout?.receiptNumber ?? ""}
+          storeId={receiptDetails.checkout?.storeId ?? currentStore?.id ?? ""}
+          currency={receiptDetails.store?.currency ?? storeCurrency}
+          customerStoreCreditBalance={Number(receiptDetails.customer?.storeCreditBalance ?? 0)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: [`/api/transactions/${id}/receipt`] });
+            queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+            setIsAddendumOpen(false);
+          }}
         />
       )}
 

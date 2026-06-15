@@ -239,14 +239,22 @@ export class TransactionRepository {
   }
 
   async getReceiptPayload(checkoutId: string) {
-    const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
-    if (!primaryCheckout) return null;
+    const [seedCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
+    if (!seedCheckout) return null;
 
     const matchedCheckouts = await db.select().from(checkouts)
       .where(and(
-        eq(checkouts.receiptNumber, primaryCheckout.receiptNumber),
-        eq(checkouts.storeId, primaryCheckout.storeId)
+        eq(checkouts.receiptNumber, seedCheckout.receiptNumber),
+        eq(checkouts.storeId, seedCheckout.storeId)
       ));
+
+    // Always use the oldest non-addendum checkout as the receipt header so that
+    // navigating via an addendum's checkoutId still shows the correct payment
+    // method, staff, and totals from the original sale.
+    const sorted = [...matchedCheckouts].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    const primaryCheckout = sorted.find(c => !c.isAddendum) ?? sorted[0];
 
     const items = [];
     for (const ch of matchedCheckouts) {
@@ -276,7 +284,7 @@ export class TransactionRepository {
     const [storeSettings] = await db.select().from(settings).where(eq(settings.storeId, primaryCheckout.storeId));
     const [staffMember] = await db.select().from(staff).where(eq(staff.id, primaryCheckout.staffId));
 
-    const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, checkoutId));
+    const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, primaryCheckout.id));
     const [customer] = tx ? await db.select().from(customers).where(eq(customers.id, tx.customerId)) : [null];
 
     let voidedByUser: any = null;
@@ -285,15 +293,16 @@ export class TransactionRepository {
       if (user) voidedByUser = serializeUser(user);
     }
 
+    // Credit entries are linked to the primary (non-addendum) checkout
     const [creditEntry] = await db
       .select()
       .from(creditEntries)
-      .where(eq(creditEntries.linkedTransactionId, checkoutId));
+      .where(eq(creditEntries.linkedTransactionId, primaryCheckout.id));
 
     const rawReturnLogs = await db
       .select()
       .from(returnLogs)
-      .where(eq(returnLogs.checkoutId, checkoutId));
+      .where(eq(returnLogs.checkoutId, primaryCheckout.id));
 
     const resolvedReturnLogs = [];
     for (const log of rawReturnLogs) {

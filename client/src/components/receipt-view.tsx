@@ -35,6 +35,8 @@ interface ReceiptPayload {
       totalCharged: number;
       discountReason?: string | null;
       taxTotal?: number;
+      isAddendum?: boolean;
+      addendumReason?: string | null;
     };
     order: {
       id: string;
@@ -202,6 +204,11 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
             {item.inventory?.type === "service" && item.assistingStaff1 && (
               <div className="text-[10px] text-gray-500 pl-2">
                 ↳ Assisted by: {item.assistingStaff1.name}{item.assistingStaff2 ? `, ${item.assistingStaff2.name}` : ""}
+              </div>
+            )}
+            {item.checkout?.isAddendum && (
+              <div className="text-[10px] text-gray-500 pl-2 italic">
+                ↳ Added after sale{item.checkout.addendumReason ? ` · ${item.checkout.addendumReason}` : ""}
               </div>
             )}
           </div>

@@ -425,6 +425,20 @@ export interface IStorage {
   // Void
   voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }>;
 
+  processAddendum(data: {
+    originalCheckoutId: string;
+    inventoryId: string;
+    quantity: number;
+    customPrice?: number;
+    staffId: string;
+    leadStaffId?: string;
+    assistingStaff1Id?: string;
+    assistingStaff2Id?: string;
+    paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
+    reason: string;
+    userId: string;
+  }): Promise<{ success: boolean; message: string; checkoutId?: string; payrollWarning?: string }>;
+
   // Returns & Store Credits
   processReturn(data: {
     storeId: string;
@@ -1068,6 +1082,22 @@ export class DatabaseStorage implements IStorage {
 
   async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }> {
     return this.salesRepo.voidCheckout(checkoutId, reason, voidedByUserId);
+  }
+
+  async processAddendum(data: {
+    originalCheckoutId: string;
+    inventoryId: string;
+    quantity: number;
+    customPrice?: number;
+    staffId: string;
+    leadStaffId?: string;
+    assistingStaff1Id?: string;
+    assistingStaff2Id?: string;
+    paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
+    reason: string;
+    userId: string;
+  }): Promise<{ success: boolean; message: string; checkoutId?: string; payrollWarning?: string }> {
+    return this.salesRepo.processAddendum(data);
   }
 
   async processReturn(data: {
