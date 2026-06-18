@@ -158,6 +158,18 @@ export default function NewSale() {
     return saved ? Math.min(Math.max(Number(saved), 35), 70) : 60;
   });
 
+  // Mobile tab state
+  const [activeTab, setActiveTab] = useState<"products" | "cart">("products");
+
+  // Track lg breakpoint so inline width styles only apply on desktop
+  const [isLgScreen, setIsLgScreen] = useState(() => window.innerWidth >= 1024);
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const handler = (e: MediaQueryListEvent) => setIsLgScreen(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isDragging.current || !containerRef.current) return;
@@ -172,11 +184,27 @@ export default function NewSale() {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((e.touches[0].clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.min(Math.max(pct, 35), 70);
+      setSplitPct(clamped);
+      localStorage.setItem("pos-split-pct", String(clamped));
+    };
+    const onTouchEnd = () => {
+      isDragging.current = false;
+      document.body.style.userSelect = "";
+    };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
+    document.addEventListener("touchmove", onTouchMove, { passive: true });
+    document.addEventListener("touchend", onTouchEnd);
     return () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
     };
   }, []);
 
@@ -1104,7 +1132,7 @@ export default function NewSale() {
   const staleMinutes = lastOnlineAt ? Math.floor((Date.now() - lastOnlineAt) / 60_000) : null;
 
   return (
-    <div className={`space-y-6 ${!isOnline ? "pb-14" : ""}`}>
+    <div className="space-y-6 pb-16 lg:pb-0">
       {/* Stale-data warning when offline */}
       {!isOnline && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300">
@@ -1129,7 +1157,7 @@ export default function NewSale() {
               onClick={() => setDraftsOpen(true)}
             >
               <FileEdit className="h-3.5 w-3.5" />
-              Drafts
+              <span className="hidden sm:inline">Drafts</span>
               {drafts.length > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
                   {drafts.length}
@@ -1141,7 +1169,8 @@ export default function NewSale() {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="bg-slate-900/40 border-slate-800 text-slate-200 hover:text-white flex items-center gap-2 rounded-xl h-9 px-3">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="font-mono text-xs">₦{activeSession.expectedCash.toLocaleString()} expected</span>
+                    <span className="font-mono text-xs hidden sm:inline">₦{activeSession.expectedCash.toLocaleString()} expected</span>
+                    <span className="font-mono text-xs sm:hidden">₦{(activeSession.expectedCash / 1000).toFixed(0)}k</span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-80 p-4 bg-slate-900 border-slate-800 text-slate-350 rounded-2xl shadow-xl space-y-4 z-50">
@@ -1187,21 +1216,25 @@ export default function NewSale() {
                 </PopoverContent>
               </Popover>
             ) : (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="bg-rose-500/10 border-rose-500/20 text-rose-450 hover:bg-rose-500/20 flex items-center gap-2 rounded-xl h-9 px-3"
                 onClick={() => setOpenRegisterDialogOpen(true)}
               >
                 <span className="h-2 w-2 rounded-full bg-rose-500" />
-                <span className="text-xs font-bold">Register Drawer Closed</span>
+                <span className="text-xs font-bold hidden sm:inline">Register Drawer Closed</span>
+                <span className="text-xs font-bold sm:hidden">Closed</span>
               </Button>
             )}
           </div>
         }
       />
 
-      <div ref={containerRef} className="flex h-[calc(100vh-8rem)] gap-0">
-        <div style={{ width: `${splitPct}%` }} className="overflow-y-auto min-w-0 pr-2">
+      <div ref={containerRef} className="flex flex-col lg:flex-row lg:h-[calc(100dvh-8rem)] gap-0">
+        <div
+          style={isLgScreen ? { width: `${splitPct}%` } : undefined}
+          className={cn("min-w-0 lg:overflow-y-auto lg:pr-2", activeTab === "products" ? "block" : "hidden lg:block")}
+        >
           <ProductGrid
             products={availableProducts}
             isLoading={isLoading}
@@ -1214,12 +1247,16 @@ export default function NewSale() {
           />
         </div>
 
-        {/* Drag handle */}
+        {/* Drag handle — desktop only */}
         <div
-          className="w-4 flex items-center justify-center cursor-col-resize shrink-0 group relative"
+          className="hidden lg:flex w-4 items-center justify-center cursor-col-resize shrink-0 group relative"
           onMouseDown={() => {
             isDragging.current = true;
             document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+          }}
+          onTouchStart={() => {
+            isDragging.current = true;
             document.body.style.userSelect = "none";
           }}
         >
@@ -1231,7 +1268,11 @@ export default function NewSale() {
           </div>
         </div>
 
-        <div id="pos-cart-section" style={{ width: `${100 - splitPct}%` }} className="flex flex-col min-w-0 overflow-hidden">
+        <div
+          id="pos-cart-section"
+          style={isLgScreen ? { width: `${100 - splitPct}%` } : undefined}
+          className={cn("flex flex-col min-w-0 lg:overflow-hidden", activeTab === "cart" ? "flex" : "hidden lg:flex")}
+        >
           <div className="flex-1 overflow-y-auto space-y-4 pb-2">
           <Card>
             <CardHeader>
@@ -2190,23 +2231,36 @@ export default function NewSale() {
         userRole={user?.role}
         onApproved={setDiscountApprovedBy}
       />
-      {/* Mobile/Tablet Floating Cart Navigator */}
-      {cart.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 xl:hidden">
-          <Button
-            onClick={() => {
-              const cartElement = document.getElementById("pos-cart-section");
-              if (cartElement) {
-                cartElement.scrollIntoView({ behavior: "smooth" });
-              }
-            }}
-            className="flex items-center gap-2 rounded-full shadow-xl bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-6 text-sm font-semibold transition-all hover:scale-105 active:scale-95 duration-200"
-          >
-            <ShoppingCart className="h-5 w-5" />
-            <span>View Cart ({cart.length}) — {formatCurrency(cartTotal)}</span>
-          </Button>
-        </div>
-      )}
+      {/* Mobile tab bar */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 bg-card border-t flex">
+        <button
+          type="button"
+          onClick={() => setActiveTab("products")}
+          className={cn(
+            "flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors",
+            activeTab === "products" ? "text-primary" : "text-muted-foreground"
+          )}
+        >
+          <Package className="h-5 w-5" />
+          <span>Products</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("cart")}
+          className={cn(
+            "flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors relative",
+            activeTab === "cart" ? "text-primary" : "text-muted-foreground"
+          )}
+        >
+          <ShoppingCart className="h-5 w-5" />
+          <span>Cart</span>
+          {cart.length > 0 && (
+            <span className="absolute top-1.5 left-[calc(50%+6px)] h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+              {cart.length}
+            </span>
+          )}
+        </button>
+      </div>
 
       <DraftsSheet
         open={draftsOpen}

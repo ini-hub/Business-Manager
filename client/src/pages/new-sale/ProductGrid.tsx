@@ -107,7 +107,7 @@ export function ProductGrid({
         </div>
 
         {isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="p-4 rounded-lg border animate-pulse">
                 <div className="h-4 w-32 bg-muted rounded mb-2" />
@@ -123,7 +123,7 @@ export function ProductGrid({
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
             {filtered.map((product) => {
               const cartQty = cartCountFor(product);
               const hasMultipleVariants = product.variants.length > 1;
