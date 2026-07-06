@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import { invalidateStoreTimezone } from "../lib/dateUtils";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import {
@@ -262,6 +263,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!updatedStore) {
         return res.status(404).json({ error: "Store not found." });
       }
+      if (data.timezone) invalidateStoreTimezone(req.params.id);
       res.json(updatedStore);
     } catch (error) {
       if (error instanceof z.ZodError) {

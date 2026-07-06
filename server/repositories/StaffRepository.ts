@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   staff,
   stores,
@@ -227,8 +228,9 @@ export class StaffRepository {
         eq(checkouts.assistingStaff2Id, staffId),
       )!,
     ];
-    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz = await getStoreTimezone(storeId);
+    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
     const rows = await db.select({
       checkout: checkouts,
@@ -281,8 +283,9 @@ export class StaffRepository {
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
     ];
-    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz = await getStoreTimezone(storeId);
+    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
     const rows = await db.select({
       checkout: checkouts,

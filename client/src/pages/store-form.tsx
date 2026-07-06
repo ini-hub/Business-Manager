@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, Building2, MapPin, Phone, User, Coins, CreditCard, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Building2, MapPin, Phone, User, Coins, CreditCard, ShieldCheck, Check, Globe } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -32,6 +32,10 @@ import { z } from "zod";
 import { useEffect } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { countries, currencies } from "@/lib/currency-utils";
+import { TIMEZONES, TIMEZONE_REGIONS, getTimezoneLabel } from "@/lib/timezones";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store, Staff } from "@shared/schema";
@@ -47,6 +51,7 @@ const storeFormSchema = z.object({
   phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
+  timezone: z.string().default("Africa/Lagos"),
   managerStaffId: z.string().nullable().optional(),
   commissionSplitOverride: z.boolean().default(false),
   commissionSplitBusinessShare: z.number().min(0).max(100).default(80),
@@ -102,6 +107,7 @@ export default function StoreFormPage() {
       phoneCountryCode: "+234",
       country: "NG",
       currency: "NGN",
+      timezone: "Africa/Lagos",
       managerStaffId: null,
       commissionSplitOverride: false,
       commissionSplitBusinessShare: 80,
@@ -119,6 +125,7 @@ export default function StoreFormPage() {
         phoneCountryCode: store.phoneCountryCode || "+234",
         country: store.country || "NG",
         currency: store.currency || "NGN",
+        timezone: (store as any).timezone || "Africa/Lagos",
         managerStaffId: store.managerStaffId || null,
         commissionSplitOverride: (store as any).commissionSplitOverride ?? false,
         commissionSplitBusinessShare: (store as any).commissionSplitBusinessShare ?? 80,
@@ -344,6 +351,60 @@ export default function StoreFormPage() {
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="timezone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-2">
+                        <Globe className="h-4 w-4" />
+                        Business Timezone
+                      </FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className={cn("w-full justify-between font-normal", !field.value && "text-muted-foreground")}
+                            >
+                              {field.value ? getTimezoneLabel(field.value) : "Select timezone"}
+                              <Check className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[400px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search city or timezone..." />
+                            <CommandList className="max-h-[300px]">
+                              <CommandEmpty>No timezone found.</CommandEmpty>
+                              {TIMEZONE_REGIONS.map((region) => (
+                                <CommandGroup key={region} heading={region}>
+                                  {TIMEZONES.filter(t => t.region === region).map((tz) => (
+                                    <CommandItem
+                                      key={tz.value}
+                                      value={`${tz.label} ${tz.value}`}
+                                      onSelect={() => field.onChange(tz.value)}
+                                    >
+                                      <Check className={cn("mr-2 h-4 w-4", field.value === tz.value ? "opacity-100" : "opacity-0")} />
+                                      <span className="flex-1">{tz.label}</span>
+                                      <span className="text-xs text-muted-foreground ml-2">UTC{tz.offset}</span>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              ))}
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <FormDescription>
+                        All reports and date filters for this store will use this timezone, regardless of where staff are located.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}

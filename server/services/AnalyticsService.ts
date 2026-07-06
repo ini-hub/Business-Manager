@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, sql, or } from "drizzle-orm";
 import { checkouts, orders, creditEntries, repayments } from "@shared/schema";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 
 export class AnalyticsService {
   /**
@@ -26,6 +27,7 @@ export class AnalyticsService {
 
     const expenseList = await storage.getExpenses(storeId, startDate, endDate, "general");
 
+    const tz = await getStoreTimezone(storeId);
     const [badDebtRow] = await db
       .select({
         total: sql<number>`sum(${creditEntries.outstandingBalance})`,
@@ -35,8 +37,8 @@ export class AnalyticsService {
         and(
           eq(creditEntries.storeId, storeId),
           eq(creditEntries.status, "written_off"),
-          startDate ? gte(creditEntries.updatedAt, new Date(startDate + "T00:00:00.000Z")) : sql`true`,
-          endDate ? lte(creditEntries.updatedAt, new Date(endDate + "T23:59:59.999Z")) : sql`true`
+          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz)) : sql`true`,
+          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz)) : sql`true`
         )
       );
 
@@ -51,8 +53,8 @@ export class AnalyticsService {
         and(
           eq(creditEntries.storeId, storeId),
           eq(creditEntries.status, "written_off"),
-          startDate ? gte(creditEntries.updatedAt, new Date(startDate + "T00:00:00.000Z")) : sql`true`,
-          endDate ? lte(creditEntries.updatedAt, new Date(endDate + "T23:59:59.999Z")) : sql`true`
+          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz)) : sql`true`,
+          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz)) : sql`true`
         )
       );
 
@@ -137,8 +139,9 @@ export class AnalyticsService {
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
     ];
-    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz2 = await getStoreTimezone(storeId);
+    if (startDate) checkoutConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz2)));
+    if (endDate) checkoutConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz2)));
 
     const sales = await db
       .select({
@@ -247,6 +250,7 @@ export class AnalyticsService {
     // 5. General overheads (unlinked expenses) grouped by category
     const unlinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "general");
 
+    const tz3 = await getStoreTimezone(storeId);
     const profitWrittenOffEntries = await db
       .select({
         id: creditEntries.id,
@@ -258,8 +262,8 @@ export class AnalyticsService {
         and(
           eq(creditEntries.storeId, storeId),
           eq(creditEntries.status, "written_off"),
-          startDate ? gte(creditEntries.updatedAt, new Date(startDate + "T00:00:00.000Z")) : sql`true`,
-          endDate ? lte(creditEntries.updatedAt, new Date(endDate + "T23:59:59.999Z")) : sql`true`
+          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz3)) : sql`true`,
+          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz3)) : sql`true`
         )
       );
 
@@ -309,8 +313,9 @@ export class AnalyticsService {
       eq(checkouts.isVoided, false),
       or(gt(checkouts.discountAmount, 0), gt(checkouts.pointsRedeemed, 0)),
     ];
-    if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz4 = await getStoreTimezone(storeId);
+    if (startDate) discountConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz4)));
+    if (endDate) discountConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz4)));
 
     const uniqueTxDiscounts = await db
       .select({

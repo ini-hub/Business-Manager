@@ -303,7 +303,7 @@ export interface IStorage {
   rescheduleBooking(id: string, scheduledAt: Date, reason: string): Promise<Booking | undefined>;
 
   // Profit & Loss
-  getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]>;
+  getProfitLoss(storeId: string, startDate?: string, endDate?: string): Promise<ProfitLossWithInventory[]>;
   updateProfitLoss(inventoryId: string, storeId: string): Promise<void>;
 
   // Dashboard Stats
@@ -501,7 +501,7 @@ export interface IStorage {
   markNotificationAsRead(id: string): Promise<void>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
   createNotification(data: InsertNotification): Promise<Notification>;
-  getTopCustomers(storeId: string): Promise<any[]>;
+  getTopCustomers(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
 
   // Platform & Organisations
   getUserByPhone(phone: string): Promise<User | undefined>;
@@ -1030,7 +1030,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Sales Repo Delegation ─────────────────────────────────────────────────
-  async getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]> {
+  async getProfitLoss(storeId: string, startDate?: string, endDate?: string): Promise<ProfitLossWithInventory[]> {
+    if (startDate || endDate) {
+      return this.salesRepo.getProfitLossByDateRange(storeId, startDate, endDate);
+    }
     return this.salesRepo.getProfitLoss(storeId);
   }
 
@@ -1501,8 +1504,8 @@ export class DatabaseStorage implements IStorage {
     return this.notificationRepo.createNotification(data);
   }
 
-  async getTopCustomers(storeId: string): Promise<any[]> {
-    return this.customerRepo.getTopCustomers(storeId);
+  async getTopCustomers(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
+    return this.customerRepo.getTopCustomers(storeId, startDate, endDate);
   }
 
   async notifyManagers(storeId: string, type: string, message: string): Promise<void> {

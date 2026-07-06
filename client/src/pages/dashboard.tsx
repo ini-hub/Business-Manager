@@ -15,7 +15,7 @@ import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { useEffect, useState } from "react";
-import { format } from "date-fns";
+import { format, startOfDay, endOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -43,15 +43,14 @@ export default function Dashboard() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return {
-          from: parsed.from ? new Date(parsed.from) : undefined,
-          to: parsed.to ? new Date(parsed.to) : undefined,
-        };
+        if (parsed.from && parsed.to) {
+          return { from: new Date(parsed.from), to: new Date(parsed.to) };
+        }
       } catch (e) {
         // ignore parsing errors
       }
     }
-    return { from: undefined, to: undefined };
+    return { from: startOfDay(new Date()), to: endOfDay(new Date()) };
   });
 
   useEffect(() => {
@@ -67,6 +66,7 @@ export default function Dashboard() {
   if (dateRange.from) deepLinkParams.set("startDate", format(dateRange.from, "yyyy-MM-dd"));
   if (dateRange.to) deepLinkParams.set("endDate", format(dateRange.to, "yyyy-MM-dd"));
   const deepLinkQuery = deepLinkParams.toString() ? `?${deepLinkParams.toString()}` : "";
+  const dateQuerySuffix = deepLinkQuery ? `&${deepLinkQuery.substring(1)}` : "";
 
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats", currentStore?.id, business?.id, queryString],
@@ -82,13 +82,13 @@ export default function Dashboard() {
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss", currentStore?.id, business?.id],
+    queryKey: ["/api/profit-loss", currentStore?.id, business?.id, deepLinkQuery],
     queryFn: async () => {
       if (currentStore?.id === "all" && business?.id && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/profit-loss?storeId=${s.id}`);
+              const res = await fetch(`/api/profit-loss?storeId=${s.id}${dateQuerySuffix}`);
               if (!res.ok) return [];
               return await res.json() as ProfitLossWithInventory[];
             } catch {
@@ -112,7 +112,7 @@ export default function Dashboard() {
         }
         return Array.from(mergedMap.values());
       }
-      const res = await fetch(`/api/profit-loss?storeId=${currentStore?.id}`);
+      const res = await fetch(`/api/profit-loss?storeId=${currentStore?.id}${dateQuerySuffix}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -122,13 +122,13 @@ export default function Dashboard() {
   });
 
   const { data: topCustomers = [] } = useQuery<any[]>({
-    queryKey: ["/api/reports/top-customers", currentStore?.id, business?.id],
+    queryKey: ["/api/reports/top-customers", currentStore?.id, business?.id, deepLinkQuery],
     queryFn: async () => {
       if (currentStore?.id === "all" && business?.id && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/reports/top-customers?storeId=${s.id}`);
+              const res = await fetch(`/api/reports/top-customers?storeId=${s.id}${dateQuerySuffix}`);
               if (!res.ok) return [];
               return await res.json();
             } catch {
@@ -151,7 +151,7 @@ export default function Dashboard() {
         }
         return Array.from(mergedMap.values()).sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 5);
       }
-      const res = await fetch(`/api/reports/top-customers?storeId=${currentStore?.id}`);
+      const res = await fetch(`/api/reports/top-customers?storeId=${currentStore?.id}${dateQuerySuffix}`);
       if (!res.ok) return [];
       return res.json();
     },
@@ -184,7 +184,7 @@ export default function Dashboard() {
         description={currentStore?.id === "all" ? `Consolidated overview for all ${stores.length} branches` : `Overview for ${currentStore?.name}`}
         actions={
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-            <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} />
+            <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} />
             <Button asChild data-testid="button-new-sale" className="w-full sm:w-auto">
               <Link href="/sales/new">
                 <ShoppingCart className="mr-2 h-4 w-4" />

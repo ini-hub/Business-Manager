@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { format, subDays, startOfMonth, endOfMonth, startOfYear, startOfDay, endOfDay } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -26,6 +27,7 @@ interface DateRangeFilterProps {
   dateRange: DateRange;
   onDateRangeChange: (range: DateRange) => void;
   defaultPreset?: string;
+  timezone?: string;
 }
 
 const presets = [
@@ -42,12 +44,15 @@ export function DateRangeFilter({
   dateRange,
   onDateRangeChange,
   defaultPreset = "today",
+  timezone,
 }: DateRangeFilterProps) {
   const [selectedPreset, setSelectedPreset] = useState(defaultPreset);
 
   const handlePresetChange = (value: string) => {
     setSelectedPreset(value);
-    const today = new Date();
+    // Use store timezone for preset boundaries so all users see the same date ranges
+    const rawNow = new Date();
+    const today = timezone ? toZonedTime(rawNow, timezone) : rawNow;
     today.setHours(23, 59, 59, 999);
 
     switch (value) {

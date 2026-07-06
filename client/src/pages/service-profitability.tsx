@@ -209,6 +209,8 @@ export default function ServiceProfitabilityPage() {
         <DateRangeFilter
           dateRange={dateRange}
           onDateRangeChange={setDateRange}
+          defaultPreset="30days"
+          timezone={currentStore?.timezone}
         />
       }
     >

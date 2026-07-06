@@ -53,7 +53,9 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(400).json({ error: "Please select a store first." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const plData = await storage.getProfitLoss(storeId);
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const plData = await storage.getProfitLoss(storeId, startDate, endDate);
       res.json(plData);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load profit/loss data. Please try again." });
@@ -496,7 +498,9 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
-      const results = await storage.getTopCustomers(storeId);
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const results = await storage.getTopCustomers(storeId, startDate, endDate);
       res.json(results);
     } catch (error) {
       res.status(500).json({ error: "Could not load top customers report." });

@@ -9,6 +9,8 @@ import { Plus, Store, Pencil, Trash2, MapPin, Phone, Globe, Coins, User } from "
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store as StoreType, Staff } from "@shared/schema";
 import { getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
+import { getTimezoneOffset } from "@/lib/timezones";
+import { Clock } from "lucide-react";
 
 export function StoresManagementSection() {
   const [, setLocation] = useLocation();
@@ -166,6 +168,10 @@ export function StoresManagementSection() {
                     <p className="flex items-center gap-2">
                       <Coins className="h-3 w-3 shrink-0" />
                       {getCurrencyByCode(store.currency || "NGN")?.symbol || "₦"} {store.currency || "NGN"}
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Clock className="h-3 w-3 shrink-0" />
+                      {(store as any).timezone || "Africa/Lagos"} (UTC{getTimezoneOffset((store as any).timezone || "Africa/Lagos")})
                     </p>
                     {store.managerStaffId && getManagerName(store.managerStaffId, store.id) && (
                       <p className="flex items-center gap-2">

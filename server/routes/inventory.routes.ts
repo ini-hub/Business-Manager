@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import {
@@ -489,8 +490,9 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         eq(checkouts.paymentStatus, "completed"),
         eq(checkouts.isVoided, false),
       ];
-      if (startDate) checkoutConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-      if (endDate) checkoutConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+      const tz = await getStoreTimezone(item.storeId);
+      if (startDate) checkoutConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+      if (endDate) checkoutConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
       const sales = await db.select({
         quantity: orders.quantity,

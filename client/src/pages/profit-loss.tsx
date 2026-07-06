@@ -331,6 +331,7 @@ export default function ProfitLossPage() {
             onDateRangeChange={(r) => setDateRange(
               r.from && r.to ? { from: r.from, to: r.to } : undefined
             )}
+            timezone={currentStore?.timezone}
           />
           <ExportToolbar
             data={exportData as unknown as Record<string, unknown>[]}

@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import {
@@ -269,9 +270,10 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
       const startDateStr = req.query.startDate as string;
       const endDateStr = req.query.endDate as string;
-      
-      const start = startDateStr ? new Date(startDateStr) : new Date(new Date().setDate(new Date().getDate() - 30));
-      const end = endDateStr ? new Date(endDateStr) : new Date();
+      const tz = await getStoreTimezone(storeId);
+
+      const start = startDateStr ? toUtcStart(startDateStr, tz) : new Date(new Date().setDate(new Date().getDate() - 30));
+      const end = endDateStr ? toUtcEnd(endDateStr, tz) : new Date();
 
       // Retrieve all checkouts for Operating inflow
       const storeCheckouts = await db

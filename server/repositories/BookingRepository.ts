@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   bookings,
   bookingItems,
@@ -52,11 +53,10 @@ export class BookingRepository {
     if (filters.customerId) {
       conditions.push(eq(bookings.customerId, filters.customerId));
     }
-    if (filters.startDate) {
-      conditions.push(gte(bookings.scheduledAt, new Date(filters.startDate + "T00:00:00.000Z")));
-    }
-    if (filters.endDate) {
-      conditions.push(lte(bookings.scheduledAt, new Date(filters.endDate + "T23:59:59.999Z")));
+    if (filters.startDate || filters.endDate) {
+      const tz = await getStoreTimezone(storeId);
+      if (filters.startDate) conditions.push(gte(bookings.scheduledAt, toUtcStart(filters.startDate, tz)));
+      if (filters.endDate)   conditions.push(lte(bookings.scheduledAt, toUtcEnd(filters.endDate,   tz)));
     }
     if (filters.search) {
       const searchPattern = `%${filters.search.trim()}%`;

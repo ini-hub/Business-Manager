@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   customers,
   stores,
@@ -284,8 +285,9 @@ export class CustomerRepository {
       eq(customers.isArchived, false)
     ];
 
-    if (startDate) conditions.push(gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(customers.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz = businessStores[0] ? (await db.select({ timezone: stores.timezone }).from(stores).where(eq(stores.id, businessStores[0].id)).limit(1))[0]?.timezone ?? "Africa/Lagos" : "Africa/Lagos";
+    if (startDate) conditions.push(gte(customers.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) conditions.push(lte(customers.createdAt, toUtcEnd(endDate, tz)));
 
     const [globalCountResult] = await db
       .select({ count: sql<number>`count(distinct ${customers.globalCustomerId})` })
@@ -416,7 +418,14 @@ export class CustomerRepository {
       .limit(10);
   }
 
-  async getTopCustomers(storeId: string): Promise<any[]> {
+  async getTopCustomers(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
+    const conditions: any[] = [eq(customers.storeId, storeId), eq(checkouts.isVoided, false)];
+    if (startDate || endDate) {
+      const tz = await getStoreTimezone(storeId);
+      if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+      if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
+    }
+
     return db.select({
       id: customers.id,
       name: customers.name,
@@ -427,7 +436,7 @@ export class CustomerRepository {
       .from(customers)
       .innerJoin(transactions, eq(customers.id, transactions.customerId))
       .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
-      .where(and(eq(customers.storeId, storeId), eq(checkouts.isVoided, false)))
+      .where(and(...conditions))
       .groupBy(customers.id, customers.name, customers.customerNumber)
       .orderBy(desc(sql`sum(${checkouts.totalPrice})`))
       .limit(10);

@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   orders,
   checkouts,
@@ -109,8 +110,9 @@ export class SalesRepository {
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
     ];
-    if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz = await getStoreTimezone(storeId);
+    if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
     const rows = await db
       .select({
@@ -156,8 +158,8 @@ export class SalesRepository {
       eq(checkouts.isVoided, false),
       or(gt(checkouts.discountAmount, 0), gt(checkouts.pointsRedeemed, 0)),
     ];
-    if (startDate) discountConditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) discountConditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    if (startDate) discountConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) discountConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
     const uniqueTxDiscounts = await db
       .select({
@@ -218,6 +220,57 @@ export class SalesRepository {
       discountsGiven,
       discountsList: processedDiscounts,
     };
+  }
+
+  async getProfitLossByDateRange(storeId: string, startDate?: string, endDate?: string): Promise<ProfitLossWithInventory[]> {
+    const conditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
+    ];
+    const tz = await getStoreTimezone(storeId);
+    if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
+
+    const rows = await db
+      .select({
+        quantity: orders.quantity,
+        returnedQuantity: orders.returnedQuantity,
+        refundedAmount: orders.refundedAmount,
+        totalPrice: orders.totalPrice,
+        inventoryItem: inventory,
+      })
+      .from(orders)
+      .innerJoin(checkouts, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(inventory.id, orders.inventoryId))
+      .where(and(...conditions));
+
+    const aggregates = new Map<string, ProfitLossWithInventory>();
+    for (const row of rows) {
+      const netQuantity = Math.max(0, row.quantity - (row.returnedQuantity || 0));
+      const netTotalPrice = Math.max(0, row.totalPrice - (row.refundedAmount || 0));
+      const grossProfit = netTotalPrice - (row.inventoryItem.costPrice ?? 0) * netQuantity;
+
+      const existing = aggregates.get(row.inventoryItem.id);
+      if (existing) {
+        existing.totalQuantitySold += netQuantity;
+        existing.totalRevenue += netTotalPrice;
+        existing.totalGrossProfit += grossProfit;
+      } else {
+        aggregates.set(row.inventoryItem.id, {
+          id: row.inventoryItem.id,
+          storeId,
+          inventoryId: row.inventoryItem.id,
+          totalQuantitySold: netQuantity,
+          quantityRemaining: row.inventoryItem.type === "product" ? row.inventoryItem.quantity : 0,
+          totalRevenue: netTotalPrice,
+          totalGrossProfit: grossProfit,
+          inventory: row.inventoryItem,
+        });
+      }
+    }
+
+    return Array.from(aggregates.values());
   }
 
   // ─── Store Credit Transactions ────────────────────────────────────────────

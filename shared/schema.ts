@@ -71,6 +71,7 @@ export const stores = pgTable("stores", {
   phoneCountryCode: text("phone_country_code").default("+234"), // Default to Nigeria
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
+  timezone: text("timezone").notNull().default("Africa/Lagos"), // IANA timezone identifier
   commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).$type<number>().notNull().default(0.3000), // Default 30% service commission
   managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
@@ -103,6 +104,7 @@ export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, cre
   phoneCountryCode: z.string().default("+234"),
   country: z.string().default("NG"),
   currency: z.string().default("NGN"),
+  timezone: z.string().default("Africa/Lagos"),
   commissionRate: z.number().optional(),
 });
 export type InsertStore = z.infer<typeof insertStoreSchema>;

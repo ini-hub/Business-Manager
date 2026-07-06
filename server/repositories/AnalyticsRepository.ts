@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   customers,
   staff,
@@ -16,18 +17,19 @@ export class AnalyticsRepository {
 
   async getDashboardStats(storeId: string, startDate?: string, endDate?: string) {
     // Build date filters once
+    const tz = await getStoreTimezone(storeId);
     const customerDateFilter = startDate || endDate ? and(
       eq(customers.storeId, storeId),
-      ...(startDate ? [gte(customers.createdAt, new Date(startDate + "T00:00:00.000Z"))] : []),
-      ...(endDate   ? [lte(customers.createdAt, new Date(endDate   + "T23:59:59.999Z"))] : []),
+      ...(startDate ? [gte(customers.createdAt, toUtcStart(startDate, tz))] : []),
+      ...(endDate   ? [lte(customers.createdAt, toUtcEnd(endDate,   tz))] : []),
     ) : eq(customers.storeId, storeId);
 
     const checkoutDateFilter = and(
       eq(checkouts.storeId, storeId),
       eq(checkouts.isVoided, false),
       eq(checkouts.paymentStatus, "completed"),
-      ...(startDate ? [gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z"))] : []),
-      ...(endDate   ? [lte(checkouts.createdAt, new Date(endDate   + "T23:59:59.999Z"))] : []),
+      ...(startDate ? [gte(checkouts.createdAt, toUtcStart(startDate, tz))] : []),
+      ...(endDate   ? [lte(checkouts.createdAt, toUtcEnd(endDate,   tz))] : []),
     );
 
     // All six queries run in parallel
@@ -68,9 +70,10 @@ export class AnalyticsRepository {
   }
 
   async getSalesTrends(storeId: string, startDate?: string, endDate?: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
+    const tz = await getStoreTimezone(storeId);
     const conditions: any[] = [eq(transactions.storeId, storeId)];
-    if (startDate) conditions.push(gte(transactions.transactionDate, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(transactions.transactionDate, new Date(endDate + "T23:59:59.999Z")));
+    if (startDate) conditions.push(gte(transactions.transactionDate, toUtcStart(startDate, tz)));
+    if (endDate) conditions.push(lte(transactions.transactionDate, toUtcEnd(endDate, tz)));
 
     const allTransactions = await db
       .select()
@@ -116,8 +119,9 @@ export class AnalyticsRepository {
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
     ];
-    if (startDate) conditions.push(gte(checkouts.createdAt, new Date(startDate + "T00:00:00.000Z")));
-    if (endDate) conditions.push(lte(checkouts.createdAt, new Date(endDate + "T23:59:59.999Z")));
+    const tz = await getStoreTimezone(storeId);
+    if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
     const rows = await db
       .select({
