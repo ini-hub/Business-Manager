@@ -56,7 +56,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "./audit";
 import { bulkUploadService } from "./services/BulkUploadService";
 import { analyticsService } from "./services/AnalyticsService";
-import { initWebSocketServer } from "./websocket";
+import { initWebSocketServer, broadcastDataChange } from "./websocket";
 import { RouterRegistry } from "./controllers/RouterRegistry";
 import { AuthController } from "./controllers/AuthController";
 import { InventoryController } from "./controllers/InventoryController";
@@ -75,6 +75,7 @@ import { registerReportsRoutes } from "./routes/reports.routes";
 import { registerVendorRoutes } from "./routes/vendor.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerCashRoutes } from "./routes/cash.routes";
+import { registerAuditLogRoutes } from "./routes/audit-logs.routes";
 
 const SALT_ROUNDS = 12;
 
@@ -334,6 +335,8 @@ export async function registerRoutes(
         businessId: organisation.id, // For backward compatibility
         role: "owner", // For backward compatibility
         isVerified: false,
+        name: data.ownerName,
+        phone: data.phone ? `${data.phoneCountryCode}${data.phone}` : undefined,
       });
 
       // Update remaining fields on the user
@@ -1020,7 +1023,7 @@ export async function registerRoutes(
   // Set password for activated staff
   app.post("/api/auth/set-activated-password", async (req: Request, res: Response) => {
     try {
-      const { emailOrPhone, password } = req.body;
+      const { emailOrPhone, password, name } = req.body;
       if (!emailOrPhone || !password) {
         return res.status(400).json({ error: "Identifier and password are required." });
       }
@@ -1042,7 +1045,9 @@ export async function registerRoutes(
 
       const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-      await storage.updateUser(user.id, { passwordHash: hashedPassword });
+      const updatePayload: Record<string, any> = { passwordHash: hashedPassword };
+      if (name?.trim()) updatePayload.name = name.trim();
+      await storage.updateUser(user.id, updatePayload);
 
       // Fetch and activate workspace membership
       const members = await storage.getOrganisationsByUserId(user.id);
@@ -1490,7 +1495,7 @@ export async function registerRoutes(
   registerVendorRoutes(app, routeMiddlewares);
   registerPaymentRoutes(app, routeMiddlewares);
   registerCashRoutes(app, routeMiddlewares);
-
+  registerAuditLogRoutes(app, routeMiddlewares);
 
   return httpServer;
 }

@@ -25,6 +25,7 @@ const passwordSchema = z
   .refine((val) => !/\s/.test(val), "Password cannot contain spaces");
 
 const signupSchema = z.object({
+  ownerName: z.string().min(1, "Your name is required").transform(s => s.trim()),
   businessName: z.string().min(1, "Business name is required").transform(s => s.trim()),
   address: z.string().optional(),
   phoneCountryCode: z.string().default("+234"),
@@ -62,6 +63,7 @@ export default function Signup() {
     resolver: zodResolver(signupSchema),
     mode: "onChange",
     defaultValues: {
+      ownerName: "",
       businessName: "",
       address: "",
       phoneCountryCode: "+234",
@@ -272,6 +274,25 @@ export default function Signup() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="ownerName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Your Full Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="e.g. Amaka Johnson"
+                        autoComplete="name"
+                        data-testid="input-owner-name"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="businessName"

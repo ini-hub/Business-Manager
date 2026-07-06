@@ -157,6 +157,8 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
           triggerAutoRecalculate(s.id, todayStr).catch(console.error);
         }
 
+        const userId = (req as any).user?.id;
+        auditLogger.log({ action: "SETTINGS_UPDATE", resource: "settings", resourceId: "all", userId, ip: getClientIp(req), status: "success", details: { storeId: "all" } });
         return res.json({
           id: "all",
           storeId: "all",
@@ -169,11 +171,12 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const updated = await storage.upsertSettings(storeId, sanitizedData);
-      
+
       // Auto-recalculate any active period to immediately reflect updated default rates
       const todayStr = new Date().toISOString().split("T")[0];
       triggerAutoRecalculate(storeId, todayStr).catch(console.error);
 
+      auditLogger.log({ action: "SETTINGS_UPDATE", resource: "settings", resourceId: storeId, userId: (req as any).user?.id, ip: getClientIp(req), status: "success", details: { storeId } });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update settings." });

@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withVendorId, withVendorBillId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
@@ -69,6 +69,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const result = await storage.vendorRepo.createVendor({
         storeId,
         name,
@@ -78,6 +79,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         address,
         notes,
       });
+      auditLogger.log({ action: "VENDOR_CREATE", resource: "vendor", resourceId: result.id, userId, ip: getClientIp(req), status: "success", details: { storeId, name } });
+      broadcastChange(req, "vendor", storeId, "created");
       res.status(201).json(result);
     } catch (error) {
       res.status(500).json({ error: "Could not create vendor." });
@@ -109,6 +112,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const result = await storage.vendorRepo.createVendorBill({
         storeId,
         vendorId,
@@ -120,6 +124,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         notes,
         linkedRestockEventId: linkedRestockEventId || null,
       });
+      auditLogger.log({ action: "VENDOR_BILL_CREATE", resource: "vendor_bill", resourceId: result.id, userId, ip: getClientIp(req), status: "success", details: { storeId, vendorId, amount } });
+      broadcastChange(req, "vendor-bill", storeId, "created");
       res.status(201).json(result);
     } catch (error) {
       res.status(500).json({ error: "Could not create vendor bill." });
@@ -146,11 +152,14 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!(await checkStoreAccess(bill.storeId, req, res))) return;
 
       const { amountPaid, status, notes } = req.body;
+      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.updateVendorBill(req.params.id, {
         amountPaid: amountPaid !== undefined ? Number(amountPaid) : undefined,
         status,
         notes,
       });
+      auditLogger.log({ action: "VENDOR_BILL_UPDATE", resource: "vendor_bill", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { billId: req.params.id, amountPaid, status } });
+      broadcastChange(req, "vendor-bill", bill.storeId, "updated");
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update vendor bill." });
@@ -164,7 +173,10 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!bill) return res.status(404).json({ error: "Vendor bill not found." });
       if (!(await checkStoreAccess(bill.storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       await storage.vendorRepo.deleteVendorBill(req.params.id);
+      auditLogger.log({ action: "VENDOR_BILL_DELETE", resource: "vendor_bill", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { billId: req.params.id } });
+      broadcastChange(req, "vendor-bill", bill.storeId, "deleted");
       res.status(204).end();
     } catch (error) {
       res.status(500).json({ error: "Could not delete vendor bill." });
@@ -195,6 +207,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const { name, contactName, email, phone, address, notes } = req.body;
       if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
 
+      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.updateVendor(req.params.id, {
         name,
         contactName,
@@ -203,6 +216,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         address,
         notes,
       });
+      auditLogger.log({ action: "VENDOR_UPDATE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id, name } });
+      broadcastChange(req, "vendor", vendor.storeId, "updated");
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update vendor." });
@@ -215,7 +230,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.archiveVendor(req.params.id);
+      auditLogger.log({ action: "VENDOR_ARCHIVE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id } });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not archive vendor." });
@@ -228,7 +245,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
+      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.restoreVendor(req.params.id);
+      auditLogger.log({ action: "VENDOR_RESTORE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id } });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not restore vendor." });
@@ -248,7 +267,10 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         return res.status(409).json({ error: conflict });
       }
 
+      const userId = (req as any).user?.id;
       await storage.vendorRepo.deleteVendor(req.params.id);
+      auditLogger.log({ action: "VENDOR_DELETE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id } });
+      broadcastChange(req, "vendor", vendor.storeId, "deleted");
       res.status(204).end();
     } catch (error) {
       console.error("Delete vendor error:", error);
@@ -293,6 +315,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const result = await storage.stockAuditRepo.createAudit({
         storeId,
         conductedByStaffId,
@@ -304,6 +327,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
           reason: i.reason,
         })),
       });
+      auditLogger.log({ action: "STOCK_AUDIT_CREATE", resource: "stock_audit", resourceId: result.id, userId, ip: getClientIp(req), status: "success", details: { storeId, itemCount: items.length } });
+      broadcastChange(req, "stock-audit", storeId, "created");
       res.status(201).json(result);
     } catch (error) {
       res.status(500).json({ error: "Could not create stock audit." });
@@ -321,6 +346,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!userId) return res.status(401).json({ error: "Unauthorized." });
 
       const approved = await storage.stockAuditRepo.approveAudit(req.params.id, userId);
+      auditLogger.log({ action: "STOCK_AUDIT_APPROVE", resource: "stock_audit", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { auditId: req.params.id } });
+      broadcastChange(req, "inventory", audit.storeId, "audited");
       res.json(approved);
     } catch (error) {
       const err = error as Error;
@@ -386,6 +413,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const created = await storage.quoteRepo.createQuote({
         storeId,
         customerId: customerId || null,
@@ -399,7 +427,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
           unitPrice: Number(i.unitPrice),
         })),
       });
-
+      auditLogger.log({ action: "QUOTE_CREATE", resource: "quote", resourceId: created.id, userId, ip: getClientIp(req), status: "success", details: { storeId, quoteRef, itemCount: items.length } });
+      broadcastChange(req, "quote", storeId, "created");
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message || "Could not create quote." });
@@ -416,7 +445,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const { status } = req.body;
       if (!status) return res.status(400).json({ error: "Status is required." });
 
+      const userId = (req as any).user?.id;
       const updated = await storage.quoteRepo.updateQuoteStatus(req.params.id, status);
+      auditLogger.log({ action: "QUOTE_STATUS_UPDATE", resource: "quote", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { quoteId: req.params.id, status } });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update quote status." });
@@ -430,7 +461,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!quote) return res.status(404).json({ error: "Quote not found." });
       if (!(await checkStoreAccess(quote.storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       await storage.quoteRepo.deleteQuote(req.params.id);
+      auditLogger.log({ action: "QUOTE_DELETE", resource: "quote", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { quoteId: req.params.id } });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not delete quote." });
@@ -474,6 +507,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const created = await storage.purchaseOrderRepo.createPurchaseOrder({
         storeId,
         vendorId,
@@ -486,7 +520,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
           unitCost: Number(i.unitCost),
         })),
       });
-
+      auditLogger.log({ action: "PURCHASE_ORDER_CREATE", resource: "purchase_order", resourceId: created.id, userId, ip: getClientIp(req), status: "success", details: { storeId, vendorId, poNumber, itemCount: items.length } });
+      broadcastChange(req, "purchase-order", storeId, "created");
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message || "Could not create purchase order." });
@@ -503,7 +538,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const { status } = req.body;
       if (!status) return res.status(400).json({ error: "Status is required." });
 
+      const userId = (req as any).user?.id;
       const updated = await storage.purchaseOrderRepo.updatePurchaseOrderStatus(req.params.id, status);
+      auditLogger.log({ action: "PURCHASE_ORDER_STATUS_UPDATE", resource: "purchase_order", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { poId: req.params.id, status } });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update purchase order status." });
@@ -536,7 +573,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!result.success) {
         return res.status(400).json({ error: result.message });
       }
-
+      auditLogger.log({ action: "PURCHASE_ORDER_RECEIVE", resource: "purchase_order", resourceId: req.params.id, userId: getUserId(req), ip: getClientIp(req), status: "success", details: { poId: req.params.id, itemCount: itemsToReceive.length } });
+      broadcastChange(req, "purchase-order", po.storeId, "received");
+      broadcastChange(req, "inventory", po.storeId, "restocked");
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message || "Could not fulfill purchase order items." });
@@ -550,7 +589,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
       if (!(await checkStoreAccess(po.storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       await storage.purchaseOrderRepo.deletePurchaseOrder(req.params.id);
+      auditLogger.log({ action: "PURCHASE_ORDER_DELETE", resource: "purchase_order", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { poId: req.params.id } });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not delete purchase order." });
@@ -596,6 +637,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       }
       if (!(await checkStoreAccess(fromStoreId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const created = await storage.stockTransferRepo.createStockTransfer({
         fromStoreId,
         toStoreId,
@@ -606,7 +648,8 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
           quantity: Number(i.quantity),
         })),
       });
-
+      auditLogger.log({ action: "STOCK_TRANSFER_CREATE", resource: "stock_transfer", resourceId: created.id, userId, ip: getClientIp(req), status: "success", details: { fromStoreId, toStoreId, itemCount: items.length } });
+      broadcastChange(req, "stock-transfer", fromStoreId, "created");
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message || "Could not create stock transfer." });
@@ -631,7 +674,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!result.success) {
         return res.status(400).json({ error: result.message });
       }
-
+      auditLogger.log({ action: "STOCK_TRANSFER_STATUS_UPDATE", resource: "stock_transfer", resourceId: req.params.id, userId: getUserId(req), ip: getClientIp(req), status: "success", details: { transferId: req.params.id, status } });
+      broadcastChange(req, "stock-transfer", transfer.fromStoreId, "updated");
+      if (status === "completed") broadcastChange(req, "inventory", transfer.toStoreId, "restocked");
       res.json(result.transfer);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message || "Could not update stock transfer status." });
@@ -645,7 +690,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
       if (!(await checkStoreAccess(transfer.fromStoreId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       await storage.stockTransferRepo.deleteStockTransfer(req.params.id);
+      auditLogger.log({ action: "STOCK_TRANSFER_DELETE", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { transferId: req.params.id } });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not delete stock transfer." });
@@ -686,13 +733,14 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       const created = await storage.taxRateRepo.createTaxRate({
         storeId,
         name,
         rate: Number(rate),
         isDefault: !!isDefault,
       });
-
+      auditLogger.log({ action: "TAX_RATE_CREATE", resource: "tax_rate", resourceId: created.id, userId, ip: getClientIp(req), status: "success", details: { storeId, name, rate } });
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: "Could not create tax rate." });
@@ -707,7 +755,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!(await checkStoreAccess(rate.storeId, req, res))) return;
 
       const { name, rate: rateValue, isDefault } = req.body;
+      const userId = (req as any).user?.id;
       const updated = await storage.taxRateRepo.updateTaxRate(req.params.id, { name, rate: rateValue, isDefault });
+      auditLogger.log({ action: "TAX_RATE_UPDATE", resource: "tax_rate", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { taxRateId: req.params.id, name, rate: rateValue } });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update tax rate." });
@@ -721,7 +771,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!rate) return res.status(404).json({ error: "Tax rate not found." });
       if (!(await checkStoreAccess(rate.storeId, req, res))) return;
 
+      const userId = (req as any).user?.id;
       await storage.taxRateRepo.deleteTaxRate(req.params.id);
+      auditLogger.log({ action: "TAX_RATE_DELETE", resource: "tax_rate", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { taxRateId: req.params.id } });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not delete tax rate." });

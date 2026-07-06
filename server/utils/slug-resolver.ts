@@ -43,6 +43,16 @@ async function resolveParam(
 // ── Per-entity resolvers ────────────────────────────────────────────────────
 
 export const resolveInventoryId = (p: string) => resolveParam(p, inventory);
+
+/**
+ * Resolves an inventory slug, falling back to the products table.
+ * This matches the PATCH/DELETE route logic that checks both tables.
+ */
+async function resolveInventoryOrProductId(param: string): Promise<string | null> {
+  const inventoryId = await resolveInventoryId(param);
+  if (inventoryId) return inventoryId;
+  return resolveProductId(param);
+}
 export const resolveCustomerId = (p: string) => resolveParam(p, customers);
 export const resolveVendorId = (p: string) => resolveParam(p, vendors);
 export const resolveVendorBillId = (p: string) => resolveParam(p, vendorBills);
@@ -92,7 +102,7 @@ function makeSlugMiddleware(
   };
 }
 
-export const withInventoryId = makeSlugMiddleware(resolveInventoryId);
+export const withInventoryId = makeSlugMiddleware(resolveInventoryOrProductId);
 export const withCustomerId = makeSlugMiddleware(resolveCustomerId);
 export const withVendorId = makeSlugMiddleware(resolveVendorId);
 export const withVendorBillId = makeSlugMiddleware(resolveVendorBillId, "billId");

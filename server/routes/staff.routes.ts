@@ -42,7 +42,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -229,6 +229,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
               activationCodeExpiry: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
               activationCodeUsed: false,
               createdByInvitation: true,
+              name: data.name,
+              phone: data.mobileNumber || undefined,
             });
 
             await storage.updateUser(newUser.id, {
@@ -261,6 +263,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         console.error("Failed to process invite/activation email for staff member:", inviteError);
       }
 
+      broadcastChange(req, "staff", data.storeId, "created");
       res.status(201).json(staffMember);
     } catch (error) {
       auditLogger.logDataModification("staff", undefined, getUserId(req), "CREATE", false, (error as Error).message);
@@ -329,6 +332,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!updatedStaffMember) {
         return res.status(404).json({ error: "This staff member no longer exists. They may have been removed." });
       }
+      broadcastChange(req, "staff", staffMember.storeId, "updated");
       res.json(updatedStaffMember);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -355,6 +359,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!archived) {
         return res.status(500).json({ error: "We couldn't archive this staff member. Please try again." });
       }
+      broadcastChange(req, "staff", staffMember.storeId, "deleted");
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't archive this staff member. Please try again." });

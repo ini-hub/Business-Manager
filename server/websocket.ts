@@ -80,12 +80,10 @@ export function initWebSocketServer(server: Server) {
   });
 }
 
-export function broadcastNotification(businessId: string, payload: any): void {
+function broadcast(businessId: string, payload: object): void {
   if (!wss) return;
-
   const bucket = businessClients.get(businessId);
   if (!bucket || bucket.size === 0) return;
-
   const dataString = JSON.stringify(payload);
   for (const client of Array.from(bucket)) {
     if (client.readyState === WebSocket.OPEN) {
@@ -96,4 +94,17 @@ export function broadcastNotification(businessId: string, payload: any): void {
       }
     }
   }
+}
+
+export function broadcastNotification(businessId: string, payload: any): void {
+  broadcast(businessId, { __msgType: "notification", ...payload });
+}
+
+export function broadcastDataChange(
+  businessId: string,
+  resource: string,
+  storeId?: string,
+  action?: string,
+): void {
+  broadcast(businessId, { __msgType: "data_change", resource, storeId, action });
 }

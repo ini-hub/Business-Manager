@@ -13,6 +13,7 @@ import { StoreProvider } from "@/lib/store-context";
 import { StoreSelector } from "@/components/store-selector";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
+import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { Loader2 } from "lucide-react";
 
 // Eager — needed before auth resolves or tiny catch-all
@@ -81,6 +82,8 @@ const BusinessFormPage = lazy(() => import("@/pages/business-form"));
 const RoleFormPage = lazy(() => import("@/pages/role-form"));
 const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
 const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
+const ReportsIndexPage = lazy(() => import("@/pages/reports/index"));
+const AuditLogsPage = lazy(() => import("@/pages/reports/audit-logs"));
 const VerifyPayslipPage = lazy(() => import("@/pages/verify-payslip"));
 
 // Super Admin Portal (lazy — separate user segment)
@@ -208,6 +211,7 @@ function Router() {
 
 function AuthenticatedLayout() {
   const { user } = useAuth();
+  useRealtimeSync();
   const [location, setLocation] = useLocation();
   const sidebarStyle = {
     "--sidebar-width": "16rem",
@@ -389,6 +393,12 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/settings/promotions">
                     {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}
+                  </Route>
+                  <Route path="/reports/audit-logs">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <AuditLogsPage />}
+                  </Route>
+                  <Route path="/reports">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <ReportsIndexPage />}
                   </Route>
                   <Route component={NotFound} />
                 </Switch>

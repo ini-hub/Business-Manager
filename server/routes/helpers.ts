@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
+import { broadcastDataChange } from "../websocket";
 
 export function getUserId(req: Request): string | undefined {
   return (req as any).user?.claims?.sub;
@@ -103,6 +104,15 @@ export async function verifyStoreAccess(req: any, storeId: string): Promise<bool
 
 export async function verifyRecordStoreAccess(req: any, recordStoreId: string): Promise<boolean> {
   return verifyStoreAccess(req, recordStoreId);
+}
+
+export function broadcastChange(req: Request, resource: string, storeId?: string, action = "mutated"): void {
+  try {
+    const businessId = (req as any).user?.businessId;
+    if (businessId) broadcastDataChange(businessId, resource, storeId, action);
+  } catch {
+    // never let broadcast errors surface to the caller
+  }
 }
 
 export async function triggerAutoRecalculate(storeId: string, dateStr: string): Promise<void> {

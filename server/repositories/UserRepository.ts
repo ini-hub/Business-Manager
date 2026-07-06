@@ -17,6 +17,11 @@ export class UserRepository extends BaseRepository<typeof users> {
     return user;
   }
 
+  async getUserByPhone(phone: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.phone, phone));
+    return user;
+  }
+
   async getUserByIdentifier(emailOrPhone: string): Promise<User | undefined> {
     const clean = emailOrPhone.trim().toLowerCase();
     const [user] = await db
@@ -40,11 +45,13 @@ export class UserRepository extends BaseRepository<typeof users> {
     return user;
   }
 
-  async createUser(userData: { 
-    email: string; 
-    password: string; 
-    businessId: string; 
-    role?: UserRole; 
+  async createUser(userData: {
+    email: string;
+    password: string;
+    businessId: string;
+    name?: string;
+    phone?: string;
+    role?: UserRole;
     isVerified?: boolean;
     activationCode?: string;
     activationCodeExpiry?: Date;
@@ -55,6 +62,8 @@ export class UserRepository extends BaseRepository<typeof users> {
       email: userData.email,
       password: userData.password,
       businessId: userData.businessId,
+      name: userData.name,
+      phone: userData.phone,
       role: userData.role || "owner",
       isVerified: userData.isVerified ?? false,
       activationCode: userData.activationCode,

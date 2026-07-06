@@ -15,6 +15,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { User, Lock, Camera, Shield, CheckCircle2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { getUserFriendlyError } from "@/lib/error-utils";
@@ -26,6 +28,21 @@ export default function ProfilePage() {
   // Profile Form State
   const [name, setName] = useState(user?.name || "");
   const [photoUrl, setPhotoUrl] = useState(user?.profilePhotoUrl || "");
+
+  // Parse stored phone "+2348012345678" into country code and local number
+  const parseStoredPhone = (stored: string | null | undefined) => {
+    if (!stored) return { code: "+234", number: "" };
+    const match = deduplicatedCountryCodes
+      .slice()
+      .sort((a, b) => b.dialCode.length - a.dialCode.length)
+      .find(c => stored.startsWith(c.dialCode));
+    return match
+      ? { code: match.dialCode, number: stored.slice(match.dialCode.length) }
+      : { code: "+234", number: stored };
+  };
+  const parsedPhone = parseStoredPhone(user?.phone);
+  const [phoneCountryCode, setPhoneCountryCode] = useState(parsedPhone.code);
+  const [phone, setPhone] = useState(parsedPhone.number);
   
   // Password Form State
   const [currentPassword, setCurrentPassword] = useState("");
@@ -34,7 +51,7 @@ export default function ProfilePage() {
   const [isPasswordValid, setIsPasswordValid] = useState(false);
 
   const updateProfileMutation = useMutation({
-    mutationFn: (data: { name: string; profilePhotoUrl: string }) => 
+    mutationFn: (data: { name: string; profilePhotoUrl: string; phone: string | null }) =>
       apiRequest("PATCH", "/api/auth/user/profile", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
@@ -144,13 +161,39 @@ export default function ProfilePage() {
                   
                   <div className="grid gap-2">
                     <Label htmlFor="name">Display Name</Label>
-                    <Input 
-                      id="name" 
-                      placeholder="Your name" 
-                      value={name} 
-                      onChange={(e) => setName(e.target.value)} 
+                    <Input
+                      id="name"
+                      placeholder="Your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
                     />
                   </div>
+
+                  <div className="grid gap-2">
+                    <Label>Phone Number <span className="text-muted-foreground font-normal text-xs">(Optional)</span></Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {deduplicatedCountryCodes.map((c) => (
+                            <SelectItem key={c.dialCode} value={c.dialCode}>
+                              {c.dialCode}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        className="col-span-2"
+                        type="tel"
+                        placeholder="Phone number"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
 
                   <div className="grid gap-2">
                     <Label>Profile Photo</Label>
@@ -193,8 +236,21 @@ export default function ProfilePage() {
                 </CardContent>
                 <Separator />
                 <CardContent className="pt-6 flex justify-end">
-                  <Button 
-                    onClick={() => updateProfileMutation.mutate({ name, profilePhotoUrl: photoUrl })}
+                  <Button
+                    onClick={() => {
+                      if (phone) {
+                        const check = validatePhoneNumber(phone, phoneCountryCode);
+                        if (!check.valid) {
+                          toast({ title: "Invalid phone number", description: check.error, variant: "destructive" });
+                          return;
+                        }
+                      }
+                      updateProfileMutation.mutate({
+                        name,
+                        profilePhotoUrl: photoUrl,
+                        phone: phone ? `${phoneCountryCode}${phone}` : null,
+                      });
+                    }}
                     disabled={updateProfileMutation.isPending}
                   >
                     {updateProfileMutation.isPending ? "Saving..." : "Save Changes"}

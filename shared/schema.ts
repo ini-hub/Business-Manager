@@ -889,6 +889,7 @@ export type OtpCode = typeof otpCodes.$inferSelect;
 
 // Signup request schema (combines business + user info)
 export const signupSchema = z.object({
+  ownerName: z.string().trim().optional(),
   businessName: trimmedString(1, "Business name is required"),
   address: z.string().optional(),
   phoneCountryCode: z.string().default("+234"),

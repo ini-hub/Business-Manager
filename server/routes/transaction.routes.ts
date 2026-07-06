@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
 import { auditLogger } from "../audit";
-import { getUserId, getClientIp, checkBusinessAccess, getUserStores, verifyStoreAccess } from './helpers';
+import { getUserId, getClientIp, checkBusinessAccess, getUserStores, verifyStoreAccess, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -249,6 +249,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         details: { reason: reason.trim() },
       });
 
+      broadcastChange(req, "sales", undefined, "voided");
       res.json({ success: true, message: result.message, payrollWarning: result.payrollWarning });
     } catch (error) {
       res.status(500).json({ error: "Could not void transaction." });
@@ -338,6 +339,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         details: { inventoryId, quantity, paymentMethod, reason: reason.trim(), newCheckoutId: result.checkoutId },
       });
 
+      broadcastChange(req, "sales", undefined, "addendum");
       res.json({ success: true, checkoutId: result.checkoutId, payrollWarning: result.payrollWarning });
     } catch (error) {
       res.status(500).json({ error: "Could not add item to receipt." });
@@ -410,6 +412,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         }
       }
 
+      broadcastChange(req, "sales", storeId, "returned");
+      broadcastChange(req, "inventory", storeId, "returned");
       res.json({ success: true, message: result.message, returnLogIds: result.returnLogIds });
     } catch (error) {
       console.error("Process Return API Error:", error);

@@ -96,9 +96,9 @@ export default function ProfitLossPage() {
       dateRange?.to?.toISOString()
     ],
     queryFn: async () => {
-      const fromParam = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined;
-      const toParam = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined;
-      
+      const fromParam = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : undefined;
+      const toParam = dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : undefined;
+
       if (currentStore?.id === "all") {
         const params = new URLSearchParams();
         if (business?.id) params.append("businessId", business.id);
@@ -127,8 +127,8 @@ export default function ProfitLossPage() {
       dateRange?.to?.toISOString()
     ],
     queryFn: async () => {
-      const fromParam = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : "";
-      const toParam = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : "";
+      const fromParam = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : "";
+      const toParam = dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : "";
       
       if (currentStore?.id === "all" && business?.id && stores.length > 0) {
         const responses = await Promise.all(

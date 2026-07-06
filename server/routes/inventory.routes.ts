@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withInventoryId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
@@ -110,6 +110,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
 
       const item = await storage.createInventoryItem(data);
       auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
+      broadcastChange(req, "inventory", data.storeId, "created");
       res.status(201).json(item);
     } catch (error) {
       auditLogger.logDataModification("inventory", undefined, getUserId(req), "CREATE", false, (error as Error).message);
@@ -167,6 +168,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         }
       }
 
+      auditLogger.logDataModification("inventory", undefined, getUserId(req), "INVENTORY_BULK_IMPORT", true);
       res.json(results);
     } catch (error) {
       res.status(500).json({ error: "Bulk import failed." });
@@ -240,6 +242,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       if (!updatedItem) {
         return res.status(404).json({ error: "This item no longer exists. It may have been deleted." });
       }
+      auditLogger.logDataModification("inventory", req.params.id, getUserId(req), "INVENTORY_UPDATE", true);
+      broadcastChange(req, "inventory", item.storeId, "updated");
       res.json(updatedItem);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -259,6 +263,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           return res.status(403).json({ error: "You don't have access to this item." });
         }
         await storage.deleteInventoryItem(id);
+        auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_ARCHIVE", true);
+        broadcastChange(req, "inventory", item.storeId, "archived");
         return res.status(204).send();
       }
       const product = await storage.getProduct(id);
@@ -267,6 +273,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         return res.status(403).json({ error: "You don't have access to this item." });
       }
       await storage.deleteProduct(id);
+      auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_ARCHIVE", true);
+      broadcastChange(req, "inventory", product.storeId, "archived");
       return res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't archive this item. Please try again." });
@@ -291,6 +299,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         }
         const deleted = await storage.deleteInventoryItem(id);
         if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
+        auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_DELETE", true);
+        broadcastChange(req, "inventory", item.storeId, "deleted");
         return res.status(204).send();
       }
 
@@ -312,6 +322,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       }
       const deleted = await storage.deleteProduct(id);
       if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
+      auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_DELETE", true);
+      broadcastChange(req, "inventory", product.storeId, "deleted");
       return res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't delete this item. Please try again." });
@@ -425,6 +437,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         }
       }
 
+      auditLogger.logDataModification("inventory", undefined, getUserId(req), "INVENTORY_BULK_UPDATE", true);
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "We couldn't import your inventory. Please try again." });
@@ -730,6 +743,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         true
       );
 
+      broadcastChange(req, "inventory", item.storeId, "restocked");
       res.status(201).json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "We couldn't complete the restock. Please try again.";
@@ -843,6 +857,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           quantity: Number(c.quantity),
         }))
       );
+      auditLogger.logDataModification("inventory", req.params.id, getUserId(req), "INVENTORY_BUNDLE_UPDATE", true);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not update bundle components." });
@@ -883,7 +898,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         expiryDate: new Date(expiryDate),
         quantity: Number(quantity),
       });
-
+      auditLogger.logDataModification("inventory", req.params.id, getUserId(req), "INVENTORY_BATCH_CREATE", true);
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: "Could not create batch." });
@@ -960,6 +975,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
 
       const item = await storage.createInventoryItem(sanitizedBody);
       auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
+      broadcastChange(req, "inventory", parentItem.storeId, "created");
       res.status(201).json(item);
     } catch (error) {
       auditLogger.logDataModification("inventory", undefined, getUserId(req), "CREATE", false, (error as Error).message);

@@ -15,6 +15,7 @@ import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { format } from "date-fns";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
 import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { analyticsApi } from "@/services/AnalyticsApiService";
@@ -66,8 +67,8 @@ export default function ServiceProfitabilityPage() {
     to: new Date(),
   });
 
-  const startDateStr = dateRange.from ? dateRange.from.toISOString().split("T")[0] : undefined;
-  const endDateStr = dateRange.to ? dateRange.to.toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
+  const startDateStr = dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : undefined;
+  const endDateStr = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
 
   const { data: report, isLoading } = useQuery<ServiceProfitabilityReport>({
     queryKey: ["service-profitability-report", currentStore?.id, startDateStr, endDateStr],

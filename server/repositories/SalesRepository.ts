@@ -883,7 +883,9 @@ export class SalesRepository {
         const sortedCheckouts = [...receiptCheckouts].sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
-        const primaryCheckoutId = (sortedCheckouts.find(c => !c.isAddendum) ?? sortedCheckouts[0]).id;
+        const primaryCheckout = sortedCheckouts.find(c => !c.isAddendum) ?? sortedCheckouts[0];
+        const primaryCheckoutId = primaryCheckout.id;
+        const originalSaleDate = new Date(primaryCheckout.createdAt);
 
         // 2. Fetch and validate inventory (with row lock)
         const [inv] = await tx.select().from(inventory)
@@ -931,7 +933,7 @@ export class SalesRepository {
           paymentStatus: "completed",
           isAddendum: true,
           addendumReason: data.reason,
-          createdAt: new Date(),
+          createdAt: originalSaleDate,
         }).returning();
 
         newCheckoutId = newCheckout.id;
@@ -943,7 +945,7 @@ export class SalesRepository {
           inventoryId: data.inventoryId,
           checkoutId: newCheckout.id,
           amount: totalCharged,
-          transactionDate: new Date(),
+          transactionDate: originalSaleDate,
         });
 
         // 8. Decrement inventory only for products

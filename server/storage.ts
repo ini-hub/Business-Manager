@@ -109,6 +109,8 @@ import {
   inventoryBatches,
   quotes,
   storeCreditTransactions,
+  auditLogs,
+  type AuditLog,
   type Product,
   type InsertProduct,
 } from "@shared/schema";
@@ -180,7 +182,8 @@ export interface IStorage {
   // Users & Auth
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(userData: { email: string; password: string; businessId: string; role?: UserRole; isVerified?: boolean }): Promise<User>;
+  getUserByPhone(phone: string): Promise<User | undefined>;
+  createUser(userData: { email: string; password: string; businessId: string; name?: string; phone?: string; role?: UserRole; isVerified?: boolean }): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
@@ -501,6 +504,7 @@ export interface IStorage {
   getTopCustomers(storeId: string): Promise<any[]>;
 
   // Platform & Organisations
+  getUserByPhone(phone: string): Promise<User | undefined>;
   getUserByIdentifier(emailOrPhone: string): Promise<User | undefined>;
   getUserByActivationCode(code: string): Promise<User | undefined>;
   getOrganisationsByUserId(userId: string): Promise<any[]>;
@@ -572,6 +576,10 @@ export class DatabaseStorage implements IStorage {
     return this.userRepo.getUserByEmail(email);
   }
 
+  async getUserByPhone(phone: string): Promise<User | undefined> {
+    return this.userRepo.getUserByPhone(phone);
+  }
+
   async getUserByIdentifier(emailOrPhone: string): Promise<User | undefined> {
     return this.userRepo.getUserByIdentifier(emailOrPhone);
   }
@@ -626,6 +634,8 @@ export class DatabaseStorage implements IStorage {
     email: string;
     password: string;
     businessId: string;
+    name?: string;
+    phone?: string;
     role?: UserRole;
     isVerified?: boolean;
     activationCode?: string;
@@ -1497,6 +1507,47 @@ export class DatabaseStorage implements IStorage {
 
   async notifyManagers(storeId: string, type: string, message: string): Promise<void> {
     return this.notificationRepo.notifyManagers(storeId, type, message);
+  }
+
+  async getAuditLogs(businessId: string, filters?: {
+    action?: string;
+    resource?: string;
+    resourceId?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+  }): Promise<(AuditLog & { userName: string | null; userEmail: string | null })[]> {
+    const conditions: any[] = [];
+
+    // Scope to users in this business
+    const businessUsers = await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.businessId, businessId));
+
+    if (businessUsers.length === 0) return [];
+    const userIds = businessUsers.map(u => u.id);
+    const userMap = new Map(businessUsers.map(u => [u.id, { name: u.name, email: u.email }]));
+
+    conditions.push(inArray(auditLogs.userId, userIds));
+    if (filters?.action) conditions.push(eq(auditLogs.action, filters.action));
+    if (filters?.resource) conditions.push(eq(auditLogs.resource, filters.resource));
+    if (filters?.resourceId) conditions.push(eq(auditLogs.resourceId, filters.resourceId));
+    if (filters?.startDate) conditions.push(gte(auditLogs.timestamp, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(auditLogs.timestamp, filters.endDate));
+
+    const rows = await db
+      .select()
+      .from(auditLogs)
+      .where(and(...conditions))
+      .orderBy(desc(auditLogs.timestamp))
+      .limit(filters?.limit ?? 500);
+
+    return rows.map(row => ({
+      ...row,
+      userName: row.userId ? (userMap.get(row.userId)?.name ?? null) : null,
+      userEmail: row.userId ? (userMap.get(row.userId)?.email ?? null) : null,
+    }));
   }
 
 }

@@ -78,7 +78,7 @@ export default function Dashboard() {
     },
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
@@ -118,7 +118,7 @@ export default function Dashboard() {
     },
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
   });
 
   const { data: topCustomers = [] } = useQuery<any[]>({
@@ -157,7 +157,7 @@ export default function Dashboard() {
     },
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
   });
 
   const storeCurrency = currentStore?.currency || "NGN";

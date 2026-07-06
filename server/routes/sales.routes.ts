@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -456,10 +456,12 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       }
 
       auditLogger.logDataModification("checkout", result.checkoutIds?.[0], getUserId(req), "CHECKOUT", true);
-      
+
       // Auto-recalculate open payroll periods covering today's checkout date
       const todayStr = new Date().toISOString().split("T")[0];
       triggerAutoRecalculate(data.storeId, todayStr).catch(console.error);
+
+      broadcastChange(req, "sales", data.storeId, "created");
 
       res.status(201).json({
         success: true,

@@ -95,7 +95,7 @@ export default function Transactions() {
       return json.data as TransactionWithRelations[];
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-    refetchInterval: 60000,
+    refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
   });
 
   // Query to fetch historical shift drawer sessions

@@ -56,51 +56,8 @@ export function NotificationSheet() {
   const { data: notifications = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/notifications"],
     enabled: !!user,
-    refetchInterval: 60000, // Reduced polling interval to 1 min as fallback since WebSocket is primary
+    refetchInterval: 60000, // 1-min fallback poll; live updates come via the shared WS in useRealtimeSync
   });
-
-  useEffect(() => {
-    if (!user) return;
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/notifications`;
-    
-    let ws: globalThis.WebSocket | null = null;
-    let reconnectTimeout: any;
-
-    function connect() {
-      ws = new WebSocket(wsUrl);
-
-      ws.onmessage = (event) => {
-        try {
-          // Refresh notifications list instantly
-          queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-          // Play notification chime sound instantly
-          playNotificationSound();
-        } catch (err) {
-          console.error("Failed to process WebSocket notification message:", err);
-        }
-      };
-
-      ws.onclose = () => {
-        reconnectTimeout = setTimeout(connect, 5000);
-      };
-
-      ws.onerror = () => {
-        ws?.close();
-      };
-    }
-
-    connect();
-
-    return () => {
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
-      clearTimeout(reconnectTimeout);
-    };
-  }, [user, queryClient]);
 
   const prevCountRef = useRef<number | null>(null);
 

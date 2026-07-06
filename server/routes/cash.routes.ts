@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -91,6 +91,8 @@ export function registerCashRoutes(app: Express, { isAuthenticated, requireRole,
         openingFloat: Number(openingFloat),
         notes,
       });
+      auditLogger.log({ action: "CASH_REGISTER_OPEN", resource: "cash_register", resourceId: session.id, userId, ip: getClientIp(req), status: "success", details: { storeId, openingFloat } });
+      broadcastChange(req, "cash", storeId, "opened");
       res.status(201).json(session);
     } catch (error) {
       const err = error as Error;
@@ -122,6 +124,8 @@ export function registerCashRoutes(app: Express, { isAuthenticated, requireRole,
         droppedByUserId: userId,
         notes,
       });
+      auditLogger.log({ action: "CASH_DROP", resource: "cash_register", resourceId: sessionId, userId, ip: getClientIp(req), status: "success", details: { sessionId, amount } });
+      broadcastChange(req, "cash", session.storeId, "drop");
       res.status(201).json(drop);
     } catch (error) {
       const err = error as Error;
@@ -167,6 +171,8 @@ export function registerCashRoutes(app: Express, { isAuthenticated, requireRole,
         actualCash: Number(actualCash),
         notes,
       });
+      auditLogger.log({ action: "CASH_REGISTER_CLOSE", resource: "cash_register", resourceId: sessionId, userId, ip: getClientIp(req), status: "success", details: { sessionId, actualCash } });
+      broadcastChange(req, "cash", session.storeId, "closed");
       res.json(closed);
     } catch (error) {
       const err = error as Error;

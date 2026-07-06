@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -195,8 +195,9 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
       const userId = (req as any).user?.id;
       const record = await storage.upsertAttendanceRecord({ storeId, staffId, date, status, notes, markedByUserId: userId });
-      
+
       triggerAutoRecalculate(storeId, date).catch(console.error);
+      broadcastChange(req, "attendance", storeId, "updated");
 
       res.status(200).json(record);
     } catch (error) {
@@ -215,8 +216,9 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
       const userId = (req as any).user?.id;
       const records = await storage.bulkMarkAttendance(storeId, date, status, staffIds, userId);
-      
+
       triggerAutoRecalculate(storeId, date).catch(console.error);
+      broadcastChange(req, "attendance", storeId, "updated");
 
       res.json(records);
     } catch (error) {

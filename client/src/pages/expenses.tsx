@@ -128,8 +128,8 @@ export default function ExpensesPage() {
           stores.map(async (s) => {
             try {
               const params = new URLSearchParams({ storeId: s.id });
-              if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
-              if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
+              if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
+              if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
               const res = await fetch(`/api/expenses?${params.toString()}`);
               if (!res.ok) return [];
               const list = await res.json() as ExpenseWithCategory[];
@@ -142,8 +142,8 @@ export default function ExpensesPage() {
         return responses.flat().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
       const params = new URLSearchParams({ storeId: currentStore!.id });
-      if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
-      if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
+      if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
+      if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
       const res = await apiRequest("GET", `/api/expenses?${params.toString()}`);
       return res.json();
     },

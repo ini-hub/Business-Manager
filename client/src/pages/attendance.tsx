@@ -57,7 +57,7 @@ function StatusBadge({ status, isActive }: { status: AttendanceStatus; isActive?
       );
     } else {
       return (
-        <Badge variant="outline" className="gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 border">
+        <Badge variant="outline" className="gap-1 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950 border-violet-200 dark:border-violet-800 border">
           <CheckCircle2 className="h-3 w-3" />
           Present (Passive)
         </Badge>
@@ -167,6 +167,7 @@ export default function AttendancePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance", currentStore?.id] });
+      queryClient.refetchQueries({ queryKey: ["/api/attendance", currentStore?.id] });
     },
     onError: () => toast({ title: "Couldn't save attendance", variant: "destructive" }),
   });
@@ -184,6 +185,7 @@ export default function AttendancePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance", currentStore?.id] });
+      queryClient.refetchQueries({ queryKey: ["/api/attendance", currentStore?.id] });
       toast({ title: `Marked all staff as ${bulkStatus.replace("_", " ")} for ${format(currentDate, "MMM d")}` });
     },
     onError: () => toast({ title: "Couldn't bulk mark attendance", variant: "destructive" }),
@@ -364,12 +366,13 @@ export default function AttendancePage() {
                     {s.name}
                     <span className="font-mono text-xs text-muted-foreground">{s.staffNumber}</span>
                   </CardTitle>
-                  <div className="flex gap-2.5 text-xs font-medium">
+                  <div className="flex flex-wrap gap-2.5 text-xs font-medium">
                     <span className="text-emerald-600 dark:text-emerald-400">Active: {summary.active}</span>
-                    <span className="text-amber-600 dark:text-amber-400">Passive: {summary.passive}</span>
+                    <span className="text-violet-600 dark:text-violet-400">Passive: {summary.passive}</span>
                     <span className="text-red-600 dark:text-red-400">Absent: {summary.absent}</span>
-                    <span className="text-slate-500">Off: {summary.offDay}</span>
-                    <span className="text-amber-700">Holiday: {summary.holiday}</span>
+                    <span className="text-slate-500 dark:text-slate-400">Off: {summary.offDay}</span>
+                    <span className="text-amber-700 dark:text-amber-400">Holiday: {summary.holiday}</span>
+                    <span className="text-blue-600 dark:text-blue-400">Leave: {summary.leave}</span>
                   </div>
                 </div>
               </CardHeader>
@@ -399,9 +402,9 @@ export default function AttendancePage() {
                           titleStr = "Present (Active)";
                           dotClass = "bg-emerald-500";
                         } else {
-                          bgClass = "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400";
+                          bgClass = "bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-400";
                           titleStr = "Present (Passive)";
-                          dotClass = "bg-amber-500";
+                          dotClass = "bg-violet-500";
                         }
                       } else {
                         bgClass = `${STATUS_CONFIG[status].bg} ${STATUS_CONFIG[status].color}`;
@@ -435,7 +438,7 @@ export default function AttendancePage() {
                   })}
                 </div>
                 {canEdit && (
-                  <p className="text-xs text-muted-foreground mt-2 text-center">Click a date to cycle: Present → Absent → Off-Day → Holiday</p>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">Click a date to cycle: Present → Absent → Off-Day → Holiday → Leave</p>
                 )}
               </CardContent>
             </Card>
@@ -456,16 +459,17 @@ export default function AttendancePage() {
                 <tr className="border-b">
                   <th className="text-left py-2 pr-4 font-medium">Staff Member</th>
                   <th className="text-center py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400">Active</th>
-                  <th className="text-center py-2 px-3 font-medium text-amber-700 dark:text-amber-400">Passive</th>
+                  <th className="text-center py-2 px-3 font-medium text-violet-700 dark:text-violet-400">Passive</th>
                   <th className="text-center py-2 px-3 font-medium text-red-700 dark:text-red-400">Absent</th>
                   <th className="text-center py-2 px-3 font-medium text-slate-600 dark:text-slate-400">Off-Day</th>
                   <th className="text-center py-2 px-3 font-medium text-amber-700 dark:text-amber-400">Holiday</th>
+                  <th className="text-center py-2 px-3 font-medium text-blue-700 dark:text-blue-400">Leave</th>
                   <th className="text-left py-2 pl-4 font-medium">Discrete Summary String</th>
                 </tr>
               </thead>
               <tbody>
                 {activeStaff.map(s => {
-                  const { active, passive, absent, offDay, holiday } = getSummary(s.id);
+                  const { active, passive, absent, offDay, holiday, leave } = getSummary(s.id);
                   return (
                     <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="py-2.5 pr-4 whitespace-nowrap">
@@ -480,12 +484,13 @@ export default function AttendancePage() {
                         </div>
                       </td>
                       <td className="text-center py-2.5 px-3 font-mono text-emerald-700 dark:text-emerald-400 font-semibold">{active}</td>
-                      <td className="text-center py-2.5 px-3 font-mono text-amber-700 dark:text-amber-400 font-semibold">{passive}</td>
+                      <td className="text-center py-2.5 px-3 font-mono text-violet-700 dark:text-violet-400 font-semibold">{passive}</td>
                       <td className="text-center py-2.5 px-3 font-mono text-red-700 dark:text-red-400 font-semibold">{absent}</td>
                       <td className="text-center py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">{offDay}</td>
                       <td className="text-center py-2.5 px-3 font-mono text-amber-700 dark:text-amber-400">{holiday}</td>
+                      <td className="text-center py-2.5 px-3 font-mono text-blue-700 dark:text-blue-400">{leave}</td>
                       <td className="py-2.5 pl-4 font-mono text-xs text-muted-foreground whitespace-nowrap">
-                        Active: {active} | Passive: {passive} | Absent: {absent} | Off: {offDay} | Holiday: {holiday}
+                        Active: {active} | Passive: {passive} | Absent: {absent} | Off: {offDay} | Holiday: {holiday} | Leave: {leave}
                       </td>
                     </tr>
                   );
@@ -514,7 +519,7 @@ export default function AttendancePage() {
           <CheckCircle2 className="h-3 w-3" />
           Present (Active)
         </div>
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800">
           <CheckCircle2 className="h-3 w-3" />
           Present (Passive)
         </div>
@@ -529,6 +534,10 @@ export default function AttendancePage() {
         <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
           <Umbrella className="h-3 w-3" />
           Holiday
+        </div>
+        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
+          <BookOpen className="h-3 w-3" />
+          Leave
         </div>
         {!canEdit && (
           <span className="text-xs text-muted-foreground italic ml-2 self-center">View only – only managers/owners can mark attendance</span>
@@ -554,9 +563,9 @@ export default function AttendancePage() {
       </div>
 
       {/* View content */}
-      {view === "daily" && <DailyView />}
-      {view === "monthly" && <MonthlyView />}
-      {(view === "sixmonth" || view === "yearly") && <SummaryView />}
+      {view === "daily" && DailyView()}
+      {view === "monthly" && MonthlyView()}
+      {(view === "sixmonth" || view === "yearly") && SummaryView()}
     </div>
   );
 }

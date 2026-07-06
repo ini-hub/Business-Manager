@@ -23,8 +23,20 @@ export class AuthController extends BaseController {
   private async updateProfile(req: Request, res: Response): Promise<Response> {
     try {
       const userId = (req as any).user.id;
-      const { name, profilePhotoUrl } = req.body;
-      const updated = await storage.updateUser(userId, { name, profilePhotoUrl });
+      const { name, profilePhotoUrl, phone } = req.body;
+
+      if (phone) {
+        const existing = await storage.getUserByPhone(phone);
+        if (existing && existing.id !== userId) {
+          return this.badRequest(res, "This phone number is already linked to another account.");
+        }
+      }
+
+      const updated = await storage.updateUser(userId, {
+        name,
+        profilePhotoUrl,
+        phone: phone || null,
+      });
       return this.ok(res, updated);
     } catch (error) {
       return this.error(res, "Could not update profile.");

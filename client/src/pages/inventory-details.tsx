@@ -5,7 +5,7 @@ import { useRoute, useLocation } from "wouter";
 import {
   ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock,
   Edit, Infinity, Info, AlertTriangle, Archive, Plus, Trash2, Layers, Wrench, BarChart2,
-  ShoppingBag, Tag, DollarSign, Pencil
+  ShoppingBag, Tag, DollarSign, Pencil, ShieldCheck, Eye
 } from "lucide-react";
 import {
   Dialog,
@@ -44,10 +44,12 @@ import {
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStore } from "@/lib/store-context";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { inventoryApi } from "@/services/InventoryApiService";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { format } from "date-fns";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
 import { cn } from "@/lib/utils";
@@ -77,8 +79,10 @@ export default function InventoryDetails() {
   const [, setLocation] = useLocation();
   const [match, params] = useRoute("/inventory/:id");
   const { currentStore } = useStore();
+  const { user } = useAuth();
   const { toast } = useToast();
   const inventoryId = params?.id;
+  const [selectedActivityLog, setSelectedActivityLog] = useState<any | null>(null);
 
   const { data: inventory, isLoading: itemLoading } = useQuery<any>({
     queryKey: ["inventory-detail", inventoryId],
@@ -88,6 +92,17 @@ export default function InventoryDetails() {
       return res.json();
     },
     enabled: !!inventoryId,
+  });
+
+  const canViewActivity = user?.role === "owner" || user?.role === "manager";
+
+  const { data: activityData, isLoading: activityLoading } = useQuery<{ logs: any[] }>({
+    queryKey: ["/api/audit-logs", "inventory", inventoryId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/audit-logs?resourceId=${inventoryId}`);
+      return res.json();
+    },
+    enabled: !!inventoryId && canViewActivity,
   });
 
   // Every item is now a product group; "simple" = exactly one variant
@@ -294,9 +309,9 @@ export default function InventoryDetails() {
   if (period !== "all") {
     const d = new Date();
     d.setDate(d.getDate() - parseInt(period));
-    startDate = d.toISOString().split("T")[0];
+    startDate = format(d, "yyyy-MM-dd");
   }
-  const endDate = new Date().toISOString().split("T")[0];
+  const endDate = format(new Date(), "yyyy-MM-dd");
 
   const { data: sustainingCostsData, isLoading: sustainingCostsLoading } = useQuery({
     queryKey: ["sustaining-costs", activeVariantId, period],
@@ -715,6 +730,7 @@ export default function InventoryDetails() {
             ...(isBundle && !!activeVariantId ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
             { value: "variants", label: "Variants" },
             ...(inventory.type === "product" && !isBundle && !!activeVariantId ? [{ value: "expiry-batches", label: "Expiry Batches" }] : []),
+            ...(canViewActivity ? [{ value: "activity", label: "Activity" }] : []),
           ]}
           variant="default"
         />
@@ -1348,7 +1364,176 @@ export default function InventoryDetails() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ACTIVITY TAB */}
+        {canViewActivity && (
+          <TabsContent value="activity" className="mt-0">
+            <Card className="border-primary/10">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  Activity History
+                </CardTitle>
+                <CardDescription>Every recorded change made to this inventory item.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {activityLoading ? (
+                  <div className="p-4 space-y-3">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="flex gap-4">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-4 w-28" />
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 flex-1" />
+                      </div>
+                    ))}
+                  </div>
+                ) : !activityData?.logs?.length ? (
+                  <div className="flex flex-col items-center justify-center py-14 text-center gap-2 text-muted-foreground">
+                    <ShieldCheck className="h-8 w-8 opacity-30" />
+                    <p className="text-sm font-medium">No activity recorded yet.</p>
+                    <p className="text-xs">Actions on this item will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-xs text-muted-foreground">
+                          <th className="text-left px-4 py-3 font-medium">Time</th>
+                          <th className="text-left px-4 py-3 font-medium">User</th>
+                          <th className="text-left px-4 py-3 font-medium">Action</th>
+                          <th className="text-left px-4 py-3 font-medium">Summary</th>
+                          <th className="px-4 py-3" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activityData.logs.map((log: any) => {
+                          const badgeClass = (() => {
+                            if (/DELETE|ARCHIVE/.test(log.action)) return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+                            if (/CREATE|RESTOCK|IMPORT/.test(log.action)) return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+                            if (/UPDATE|BUNDLE/.test(log.action)) return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+                            return "bg-muted text-muted-foreground";
+                          })();
+
+                          const actionLabel = log.action
+                            .replace("INVENTORY_", "")
+                            .replace("CREATE_", "")
+                            .replace(/_/g, " ");
+
+                          const summary = (() => {
+                            const d = log.details;
+                            if (!d) return null;
+                            switch (log.action) {
+                              case "CREATE_RESTOCK":
+                                return [
+                                  d.quantityAdded || d.quantity ? `+${d.quantityAdded ?? d.quantity} units` : null,
+                                  d.unitCost ? `₦${Number(d.unitCost).toLocaleString()}/unit` : null,
+                                  d.strategy ? d.strategy.toUpperCase() : null,
+                                ].filter(Boolean).join(" · ");
+                              case "INVENTORY_UPDATE":
+                                return d.fields?.length ? `Changed: ${d.fields.join(", ")}` : "Item updated";
+                              case "INVENTORY_BATCH_CREATE":
+                                return [
+                                  d.batchNumber ? `Batch #${d.batchNumber}` : null,
+                                  d.expiryDate ? `Exp ${d.expiryDate}` : null,
+                                  d.quantity ? `${d.quantity} units` : null,
+                                ].filter(Boolean).join(" · ");
+                              case "INVENTORY_ARCHIVE": return "Item archived";
+                              case "INVENTORY_DELETE": return "Item deleted";
+                              case "INVENTORY_BUNDLE_UPDATE": return "Bundle components updated";
+                              case "INVENTORY_BULK_UPDATE": return "Bulk update applied";
+                              case "INVENTORY_BULK_IMPORT": return "Bulk import";
+                              case "CREATE": return d.quantity ? `Added · ${d.quantity} units` : "Added to inventory";
+                              default: return null;
+                            }
+                          })();
+
+                          return (
+                            <tr key={log.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                              <td className="px-4 py-3 text-xs text-muted-foreground font-mono whitespace-nowrap">
+                                {new Date(log.timestamp).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-xs leading-tight">{log.userName || "—"}</p>
+                                {log.userEmail && (
+                                  <p className="text-[10px] text-muted-foreground leading-tight">{log.userEmail}</p>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
+                                  {actionLabel}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {summary || "—"}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => setSelectedActivityLog(log)}
+                                  title="View details"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* Activity log detail dialog */}
+      {selectedActivityLog && (
+        <Dialog open onOpenChange={(open) => { if (!open) setSelectedActivityLog(null); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Activity Detail</DialogTitle>
+              <DialogDescription>
+                {new Date(selectedActivityLog.timestamp).toLocaleString()}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  ["User", selectedActivityLog.userName || "—"],
+                  ["Email", selectedActivityLog.userEmail || "—"],
+                  ["Action", selectedActivityLog.action],
+                  ["Status", selectedActivityLog.status],
+                  ["IP", selectedActivityLog.ip || "—"],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="font-medium text-xs">{value}</p>
+                  </div>
+                ))}
+              </div>
+              {selectedActivityLog.details && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Payload</p>
+                  <pre className="bg-muted rounded p-3 text-[11px] overflow-auto max-h-48 whitespace-pre-wrap">
+                    {JSON.stringify(selectedActivityLog.details, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {selectedActivityLog.errorMessage && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Error</p>
+                  <p className="text-xs text-destructive">{selectedActivityLog.errorMessage}</p>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Variant delete / archive dialog */}
       {deletingVariant && (

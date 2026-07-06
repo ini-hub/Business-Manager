@@ -81,6 +81,7 @@ export default function Login() {
   });
 
   const createPasswordFormSchema = z.object({
+    fullName: z.string().min(1, "Your name is required").transform(s => s.trim()),
     password: actPasswordSchema,
     confirmPassword: z.string().min(1, "Confirm password is required"),
   }).refine((data) => data.password === data.confirmPassword, {
@@ -105,7 +106,7 @@ export default function Login() {
 
   const createPassForm = useForm({
     resolver: zodResolver(createPasswordFormSchema),
-    defaultValues: { password: "", confirmPassword: "" },
+    defaultValues: { fullName: "", password: "", confirmPassword: "" },
   });
 
   const createPasswordValue = createPassForm.watch("password") || "";
@@ -264,10 +265,11 @@ export default function Login() {
 
   // Set Activated Password
   const setPasswordMutation = useMutation({
-    mutationFn: async (password: string) => {
+    mutationFn: async ({ password, name }: { password: string; name: string }) => {
       const response = await apiRequest("POST", "/api/auth/set-activated-password", {
         emailOrPhone: identifier,
         password,
+        name,
       });
       return response.json();
     },
@@ -398,7 +400,7 @@ export default function Login() {
       });
       return;
     }
-    setPasswordMutation.mutate(data.password);
+    setPasswordMutation.mutate({ password: data.password, name: data.fullName });
   };
 
   const handleVerifyOtpSubmit = (e: React.FormEvent) => {
@@ -691,6 +693,25 @@ export default function Login() {
           {step === "create_password" && (
             <Form {...createPassForm}>
               <form onSubmit={createPassForm.handleSubmit(onCreatePasswordSubmit)} className="space-y-4">
+                <FormField
+                  control={createPassForm.control}
+                  name="fullName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Your Full Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g. Amaka Johnson"
+                          autoComplete="name"
+                          data-testid="input-full-name"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={createPassForm.control}
                   name="password"

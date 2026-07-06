@@ -24,6 +24,7 @@ import {
   Percent,
   Building2,
   Coins,
+  ShieldCheck,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -176,6 +177,12 @@ const reportsItems: MenuItem[] = [
     title: "Payroll",
     url: "/payroll",
     icon: DollarSign,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Activity Log",
+    url: "/reports/audit-logs",
+    icon: ShieldCheck,
     allowedRoles: ["owner", "manager"],
   },
 ];
@@ -336,7 +343,9 @@ export function AppSidebar() {
         {visibleReportsItems.length > 0 && (
           <SidebarGroup className="mt-4">
             <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Reports
+              <Link href="/reports" onClick={handleLinkClick} className="hover:text-foreground transition-colors">
+                Reports
+              </Link>
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>

@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
@@ -279,6 +279,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated, requireR
       }
 
       auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE", true);
+      broadcastChange(req, "customer", customer.storeId, "created");
       res.status(201).json(customer);
     } catch (error) {
       auditLogger.logDataModification("customer", undefined, getUserId(req), "CREATE", false, (error as Error).message);
@@ -369,6 +370,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated, requireR
         return res.status(404).json({ error: "This customer no longer exists. It may have been deleted." });
       }
       auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", true);
+      broadcastChange(req, "customer", customer.storeId, "updated");
       res.json(updatedCustomer);
     } catch (error) {
       auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", false, (error as Error).message);
@@ -396,6 +398,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated, requireR
       if (!archived) {
         return res.status(500).json({ error: "We couldn't archive this customer. Please try again." });
       }
+      broadcastChange(req, "customer", customer.storeId, "deleted");
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't archive this customer. Please try again." });

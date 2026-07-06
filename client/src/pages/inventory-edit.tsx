@@ -3,11 +3,10 @@ import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronLeft, AlertCircle, AlertTriangle } from "lucide-react";
+import { ChevronLeft, AlertCircle, AlertTriangle, Package, Wrench, Tag, BarChart2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,19 +19,13 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { apiRequest } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useQuery as useSettingsQuery } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 import { z } from "zod";
 
 const editFormSchema = z.object({
@@ -72,13 +65,11 @@ export default function InventoryEditPage() {
   const { data: item, isLoading } = useQuery<any>({
     queryKey: ["inventory-detail", id],
     queryFn: async () => {
-      // First try to fetch as a product group
       const prodRes = await fetch(`/api/products/${id}`);
       if (prodRes.ok) {
         const prod = await prodRes.json();
         return { isProductGroup: true, ...prod };
       }
-      // If product not found, try to fetch as a variant (inventory item)
       const invRes = await fetch(`/api/inventory/${id}`);
       if (invRes.ok) {
         const inv = await invRes.json();
@@ -162,7 +153,6 @@ export default function InventoryEditPage() {
   const updateMutation = useMutation({
     mutationFn: async (data: EditFormValues) => {
       if (item.isProductGroup) {
-        // 1. Update Product metadata
         const prodRes = await apiRequest("PATCH", `/api/products/${id}`, {
           name: data.name,
           category: data.category || null,
@@ -174,8 +164,6 @@ export default function InventoryEditPage() {
           const err = await prodRes.json().catch(() => ({}));
           throw new Error((err as any).error || "Failed to update product details");
         }
-
-        // 2. If it's a simple product, update its variant
         if (isSimpleProduct && primaryVariant) {
           const invRes = await apiRequest("PATCH", `/api/inventory/${primaryVariant.id}`, {
             name: data.name,
@@ -197,7 +185,6 @@ export default function InventoryEditPage() {
           }
         }
       } else {
-        // Update variant details directly
         const invRes = await apiRequest("PATCH", `/api/inventory/${id}`, {
           name: data.name,
           costPrice: data.costPrice,
@@ -235,7 +222,12 @@ export default function InventoryEditPage() {
   const watchType = form.watch("type");
   const watchCost = form.watch("costPrice") ?? 0;
   const watchSelling = form.watch("sellingPrice") ?? 0;
+  const watchFractional = form.watch("allowFractional");
+  const watchUnit = form.watch("unit");
+  const watchOverride = form.watch("commissionSplitOverride");
   const hasZeroMargin = watchCost > 0 && watchSelling === watchCost;
+  const profit = watchSelling - watchCost;
+  const margin = watchSelling > 0 ? (profit / watchSelling) * 100 : 0;
 
   const handleFormSubmit = (data: EditFormValues) => {
     if (showVariantFields && data.sellingPrice !== undefined && data.costPrice !== undefined) {
@@ -248,7 +240,7 @@ export default function InventoryEditPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-lg mx-auto">
+    <div className="space-y-4 max-w-lg mx-auto">
       <PageHeader
         title="Edit Item"
         description={item?.name}
@@ -259,16 +251,25 @@ export default function InventoryEditPage() {
           </Button>
         }
       />
-      <Card>
-        <CardContent className="pt-6">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-5">
+
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4">
+
+          {/* ── Card A: Basics ─────────────────────────────────── */}
+          <Card>
+            <CardContent className="pt-6 space-y-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Tag className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-semibold text-foreground">Basics</span>
+              </div>
+
+              {/* Item Name */}
               <FormField
                 control={form.control}
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Item Name</FormLabel>
+                    <FormLabel>Item Name <span className="text-destructive">*</span></FormLabel>
                     <FormControl>
                       <Input {...field} autoFocus />
                     </FormControl>
@@ -277,6 +278,7 @@ export default function InventoryEditPage() {
                 )}
               />
 
+              {/* Category + Brand — product groups only */}
               {item?.isProductGroup && (
                 <>
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -287,7 +289,7 @@ export default function InventoryEditPage() {
                         <FormItem>
                           <FormLabel>Category</FormLabel>
                           <FormControl>
-                            <Input {...field} value={field.value || ""} />
+                            <Input {...field} value={field.value || ""} placeholder="e.g. Bakery" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -300,7 +302,7 @@ export default function InventoryEditPage() {
                         <FormItem>
                           <FormLabel>Brand</FormLabel>
                           <FormControl>
-                            <Input {...field} value={field.value || ""} />
+                            <Input {...field} value={field.value || ""} placeholder="e.g. Local Bakery" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -315,7 +317,12 @@ export default function InventoryEditPage() {
                       <FormItem>
                         <FormLabel>Description</FormLabel>
                         <FormControl>
-                          <Textarea {...field} value={field.value || ""} rows={3} placeholder="Add product catalog notes here..." />
+                          <Textarea
+                            {...field}
+                            value={field.value || ""}
+                            rows={3}
+                            placeholder="Add product catalog notes here…"
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -324,311 +331,409 @@ export default function InventoryEditPage() {
                 </>
               )}
 
+              {/* Type button-grid — editable when showVariantFields */}
               {showVariantFields && (
-                <>
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Type</FormLabel>
+                      <FormControl>
+                        <div className="grid grid-cols-2 gap-3">
+                          {(["product", "service"] as const).map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => field.onChange(t)}
+                              className={cn(
+                                "flex flex-col gap-1.5 rounded-lg border p-4 text-left transition-all",
+                                field.value === t
+                                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                                  : "hover:border-muted-foreground/40 hover:bg-muted/20"
+                              )}
+                            >
+                              {t === "product" ? (
+                                <Package
+                                  className={cn(
+                                    "h-4 w-4",
+                                    field.value === t ? "text-primary" : "text-muted-foreground"
+                                  )}
+                                />
+                              ) : (
+                                <Wrench
+                                  className={cn(
+                                    "h-4 w-4",
+                                    field.value === t ? "text-primary" : "text-muted-foreground"
+                                  )}
+                                />
+                              )}
+                              <span className="font-semibold text-sm capitalize">{t}</span>
+                              <span className="text-xs text-muted-foreground leading-tight">
+                                {t === "product"
+                                  ? "Physical item with tracked stock"
+                                  : "Non-physical, unlimited supply"}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Card B: Pricing ────────────────────────────────── */}
+          {showVariantFields && (
+            <Card>
+              <CardContent className="pt-6 space-y-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart2 className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Pricing</span>
+                </div>
+
+                {/* SKU + Barcode */}
+                <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
-                    name="type"
+                    name="sku"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Type</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="product">Product</SelectItem>
-                            <SelectItem value="service">Service</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <FormLabel>SKU Code</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="e.g. SKU-12345" />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                  <FormField
+                    control={form.control}
+                    name="barcode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Barcode</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="e.g. 0123456789" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="sku"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>SKU Code</FormLabel>
-                          <FormControl>
-                            <Input {...field} value={field.value || ""} placeholder="e.g. SKU-12345" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="barcode"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Barcode</FormLabel>
-                          <FormControl>
-                            <Input {...field} value={field.value || ""} placeholder="e.g. 0123456789" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                {/* Cost + Selling Price */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="costPrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Cost Price ({sym})</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            {...field}
+                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="sellingPrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Selling Price ({sym})</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            {...field}
+                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="costPrice"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Cost Price ({sym})</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              {...field}
-                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="sellingPrice"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Selling Price ({sym})</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              {...field}
-                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  {watchType === "product" && (
-                    <>
-                      {/* Fractional selling toggle */}
-                      <FormField
-                        control={form.control}
-                        name="allowFractional"
-                        render={({ field }) => (
-                          <FormItem className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
-                            <div className="space-y-0.5">
-                              <FormLabel className="text-sm font-medium">Sell by fraction</FormLabel>
-                              <FormDescription className="text-xs">
-                                Allow selling partial quantities (e.g. 0.5 kg, 1.25 litres)
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
+                {/* Profit / margin preview */}
+                {(watchCost > 0 || watchSelling > 0) && (
+                  <div className="rounded-lg bg-muted/30 border px-4 py-3 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <BarChart2 className="h-3.5 w-3.5" />
+                      Profit per sale
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={cn(
+                          "font-semibold font-mono",
+                          profit > 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : profit < 0
+                            ? "text-destructive"
+                            : "text-muted-foreground"
                         )}
-                      />
+                      >
+                        {sym}{profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      {watchSelling > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          ({margin.toFixed(1)}% margin)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                      {form.watch("allowFractional") && (
-                        <FormField
-                          control={form.control}
-                          name="unit"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Unit of Measure</FormLabel>
-                              <FormControl>
-                                <Input
-                                  {...field}
-                                  value={field.value || ""}
-                                  placeholder="e.g. kg, litre, metre, g"
-                                />
-                              </FormControl>
-                              <FormDescription className="text-xs">
-                                Shown next to quantity on receipts and in the cart.
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                {/* Selling < cost alert */}
+                {watchSelling < watchCost && watchCost > 0 && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>Selling price cannot be less than cost price.</AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Zero margin warning */}
+                {hasZeroMargin && (
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-medium">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>Zero margin — you will break even on every sale.</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Card C: Stock ──────────────────────────────────── */}
+          {showVariantFields && watchType === "product" && (
+            <Card>
+              <CardContent className="pt-6 space-y-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Stock</span>
+                </div>
+
+                {/* Fractional selling toggle */}
+                <FormField
+                  control={form.control}
+                  name="allowFractional"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-sm font-medium">Sell by fraction</FormLabel>
+                        <FormDescription className="text-xs">
+                          Allow selling partial quantities (e.g. 0.5 kg, 1.25 litres)
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {/* Unit of measure — conditional */}
+                {watchFractional && (
+                  <FormField
+                    control={form.control}
+                    name="unit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Unit of Measure</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value || ""}
+                            placeholder="e.g. kg, litre, metre, g"
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Shown next to quantity on receipts and in the cart.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {/* Quantity in stock */}
+                <FormField
+                  control={form.control}
+                  name="quantity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Quantity in Stock{watchFractional && watchUnit ? ` (${watchUnit})` : ""}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step={watchFractional ? "0.01" : "1"}
+                          min="0"
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(
+                              watchFractional
+                                ? parseFloat(e.target.value) || 0
+                                : parseInt(e.target.value) || 0
+                            )
+                          }
                         />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Low-stock alert / reorder point */}
+                <FormField
+                  control={form.control}
+                  name="reorderPoint"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Low-Stock Alert{watchUnit ? ` (${watchUnit})` : ""}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step={watchFractional ? "0.01" : "1"}
+                          min="0"
+                          placeholder="Default (global setting)"
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : watchFractional
+                                ? parseFloat(e.target.value)
+                                : parseInt(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Alert when stock drops to this level. Leave blank to use the store's global threshold.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Decimal stock guard warning */}
+                {!watchFractional &&
+                  (item?.quantity ?? primaryVariant?.quantity ?? 0) % 1 !== 0 && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-amber-800 dark:text-amber-300 text-xs">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Current stock is{" "}
+                      <strong>{item?.quantity ?? primaryVariant?.quantity}</strong>
+                      {(item?.unit || primaryVariant?.unit) ? ` ${item?.unit || primaryVariant?.unit}` : ""} — a fractional value. Disabling fraction sales won't change the stock number, but the POS will prevent selling in fractions.
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Card D: Commission Split ───────────────────────── */}
+          {showVariantFields && watchType === "service" && (
+            <Card>
+              <CardContent className="pt-6 space-y-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Wrench className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Commission Split</span>
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="commissionSplitOverride"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-sm font-medium">Override Commission Split</FormLabel>
+                        <FormDescription className="text-xs">
+                          Use a custom split for this service
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {watchOverride && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="commissionSplitBusinessShare"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Business Share (%)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                              placeholder="80"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
                       )}
-
-                      <FormField
-                        control={form.control}
-                        name="quantity"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
-                              Quantity in Stock{form.watch("allowFractional") && form.watch("unit") ? ` (${form.watch("unit")})` : ""}
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                step={form.watch("allowFractional") ? "0.01" : "1"}
-                                min="0"
-                                {...field}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    form.watch("allowFractional")
-                                      ? parseFloat(e.target.value) || 0
-                                      : parseInt(e.target.value) || 0
-                                  )
-                                }
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      {/* Reorder point — per-item low-stock threshold */}
-                      <FormField
-                        control={form.control}
-                        name="reorderPoint"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
-                              Low-Stock Alert{form.watch("unit") ? ` (${form.watch("unit")})` : ""}
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                step={form.watch("allowFractional") ? "0.01" : "1"}
-                                min="0"
-                                placeholder={`Default (global setting)`}
-                                value={field.value ?? ""}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    e.target.value === "" ? null :
-                                    form.watch("allowFractional")
-                                      ? parseFloat(e.target.value)
-                                      : parseInt(e.target.value)
-                                  )
-                                }
-                              />
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              Alert when stock drops to this level. Leave blank to use the store's global threshold.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {/* Guard: warn when turning off fractional with decimal stock */}
-                      {!form.watch("allowFractional") &&
-                        (item?.quantity ?? primaryVariant?.quantity ?? 0) % 1 !== 0 && (
-                        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-amber-800 dark:text-amber-300 text-xs">
-                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                          <span>
-                            Current stock is{" "}
-                            <strong>{item?.quantity ?? primaryVariant?.quantity}</strong>
-                            {(item?.unit || primaryVariant?.unit) ? ` ${item?.unit || primaryVariant?.unit}` : ""} — a fractional value. Disabling fraction sales won't change the stock number, but the POS will prevent selling in fractions.
-                          </span>
-                        </div>
+                    />
+                    <FormField
+                      control={form.control}
+                      name="commissionSplitStaffShare"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">Staff Share (%)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                              placeholder="20"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
                       )}
-                    </>
-                  )}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
-                  {watchType === "service" && (
-                    <div className="border rounded-lg p-4 bg-muted/10 space-y-4">
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitOverride"
-                        render={({ field }) => (
-                          <FormItem className="flex items-center justify-between rounded-lg border p-3 bg-background">
-                            <div className="space-y-0.5">
-                              <FormLabel className="text-sm font-semibold">Override Commission Split</FormLabel>
-                              <FormDescription className="text-xs">
-                                Custom split for this service
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch checked={field.value} onCheckedChange={field.onChange} />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      {form.watch("commissionSplitOverride") && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <FormField
-                            control={form.control}
-                            name="commissionSplitBusinessShare"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">Business Share (%)</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="number"
-                                    {...field}
-                                    onChange={(e) => field.onChange(Number(e.target.value))}
-                                    placeholder="80"
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name="commissionSplitStaffShare"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">Staff Share (%)</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="number"
-                                    {...field}
-                                    onChange={(e) => field.onChange(Number(e.target.value))}
-                                    placeholder="20"
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
+          {/* ── Footer ─────────────────────────────────────────── */}
+          <div className="flex items-center justify-between pt-2 pb-6">
+            <Button type="button" variant="ghost" onClick={() => setLocation(`/inventory/${id}`)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                updateMutation.isPending ||
+                (showVariantFields && watchSelling < watchCost && watchCost > 0)
+              }
+            >
+              {updateMutation.isPending ? "Saving…" : "Update Item"}
+            </Button>
+          </div>
 
-                  {watchSelling < watchCost && watchCost > 0 && (
-                    <Alert variant="destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>Selling price cannot be less than cost price.</AlertDescription>
-                    </Alert>
-                  )}
-                  {hasZeroMargin && (
-                    <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-medium">
-                      <AlertTriangle className="h-4 w-4 shrink-0" />
-                      <span>Zero margin — you will break even on every sale.</span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              <Separator />
-              <div className="flex items-center justify-between">
-                <Button type="button" variant="ghost" onClick={() => setLocation(`/inventory/${id}`)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={updateMutation.isPending || (showVariantFields && watchSelling < watchCost && watchCost > 0)}
-                >
-                  {updateMutation.isPending ? "Saving…" : "Update Item"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
+        </form>
+      </Form>
     </div>
   );
 }

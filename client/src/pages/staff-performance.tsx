@@ -86,8 +86,8 @@ export default function StaffPerformancePage() {
     ],
     queryFn: async () => {
       const params = new URLSearchParams({ storeId: currentStore!.id });
-      if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
-      if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
+      if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
+      if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
       const res = await fetch(`/api/reports/staff-performance?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch performance data");
       return res.json();
@@ -114,8 +114,8 @@ export default function StaffPerformancePage() {
     ],
     queryFn: async () => {
       const params = new URLSearchParams({ storeId: currentStore!.id });
-      if (dateRange?.from) params.append("startDate", dateRange.from.toISOString().split('T')[0]);
-      if (dateRange?.to) params.append("endDate", dateRange.to.toISOString().split('T')[0]);
+      if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
+      if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
       const res = await fetch(`/api/reports/staff-performance/${drawerStaff!.id}/breakdown?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch breakdown");
       return res.json();
