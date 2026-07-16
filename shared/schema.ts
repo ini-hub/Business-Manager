@@ -724,6 +724,10 @@ export type TransactionWithRelations = Transaction & {
     quantity?: number;
     returnedQuantity?: number;
     refundedAmount?: number;
+    // Union of every distinct staff id (lead + assisting) across all line items
+    // of a merged multi-service receipt. See groupTransactions() in
+    // server/routes/transaction.routes.ts.
+    serviceStaffIds?: string[];
   };
   store: Store;
 };

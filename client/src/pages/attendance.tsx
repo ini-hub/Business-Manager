@@ -139,10 +139,14 @@ export default function AttendancePage() {
     for (const tx of transactions) {
       if ((tx.inventory?.type === "service" || tx.inventory?.type === "mixed") && tx.checkout) {
         const dateStr = new Date(tx.transactionDate as unknown as string).toISOString().split("T")[0];
-        
-        if (tx.checkout.leadStaffId) s.add(`${tx.checkout.leadStaffId}:${dateStr}`);
-        if (tx.checkout.assistingStaff1Id) s.add(`${tx.checkout.assistingStaff1Id}:${dateStr}`);
-        if (tx.checkout.assistingStaff2Id) s.add(`${tx.checkout.assistingStaff2Id}:${dateStr}`);
+
+        // For multi-service receipts, serviceStaffIds carries every distinct staff
+        // member across all line items (a single leadStaffId/assistingStaffXId pair
+        // can only represent one service's staff and would drop the others).
+        const staffIds = tx.checkout.serviceStaffIds?.length
+          ? tx.checkout.serviceStaffIds
+          : [tx.checkout.leadStaffId, tx.checkout.assistingStaff1Id, tx.checkout.assistingStaff2Id].filter(Boolean);
+        for (const staffId of staffIds) s.add(`${staffId}:${dateStr}`);
       }
     }
     return s;

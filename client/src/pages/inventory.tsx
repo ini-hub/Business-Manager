@@ -6,7 +6,8 @@ import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number };
 type AuditPerson = { name?: string; email?: string };
 type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, CheckSquare } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, CheckSquare, Settings2 } from "lucide-react";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,12 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { InventoryExportDialog } from "@/components/inventory-export-dialog";
+import {
+  buildInventoryExportRows,
+  DEFAULT_EXPORT_COLUMN_KEYS,
+  INVENTORY_EXPORT_COLUMNS,
+} from "@/lib/inventory-export";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useMultiStoreQuery } from "@/hooks/useMultiStoreQuery";
@@ -63,6 +70,7 @@ export default function InventoryPage() {
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [bulkDeleteResult, setBulkDeleteResult] = useState<{ archived: string[]; deleted: string[]; failed: string[] } | null>(null);
   const [conductedByStaffId, setConductedByStaffId] = useState("");
   const [auditNotes, setAuditNotes] = useState("");
@@ -91,7 +99,7 @@ export default function InventoryPage() {
 
   const { data: archivedList = [], isLoading: isLoadingArchived } = useMultiStoreQuery<ProductWithVariants>(
     "/api/products/archived",
-    { enabled: filterType === "archived", staleTime: STALE_TIMES.reference }
+    { enabled: filterType === "archived" || isExportDialogOpen, staleTime: STALE_TIMES.reference }
   );
 
   const { data: settingsData } = useQuery<Settings>({
@@ -600,13 +608,26 @@ export default function InventoryPage() {
     },
   ];
 
-  const exportColumns = [
-    { key: "name", header: "Item Name" },
-    { key: "type", header: "Type" },
-    { key: "costPrice", header: "Cost Price" },
-    { key: "sellingPrice", header: "Selling Price" },
-    { key: "quantity", header: "Stock" },
-  ];
+  const isMultiStoreView = currentStore?.id === "all";
+
+  const quickExportColumns = INVENTORY_EXPORT_COLUMNS.filter(
+    (col) => DEFAULT_EXPORT_COLUMN_KEYS.has(col.key) && !col.variantOnly && (!col.multiStoreOnly || isMultiStoreView)
+  ).map((col) => ({ key: col.key, header: col.header }));
+
+  const quickExportData = buildInventoryExportRows(filteredInventory, null, {
+    granularity: "item",
+    lowStockThreshold,
+    formatCurrency,
+    isMultiStoreView,
+  });
+
+  const currentViewProducts = filterType === "archived" ? archivedList : filteredInventory;
+  const currentViewLabel =
+    filterType === "archived" ? "Archived"
+    : filterType === "low-stock" ? "Low Stock"
+    : filterType === "product" ? "Products"
+    : filterType === "service" ? "Services"
+    : "All";
 
   if (!currentStore) {
     return (
@@ -639,12 +660,35 @@ export default function InventoryPage() {
               <>
                 <BulkOperations
                   entityType="inventory"
-                  data={filteredInventory as unknown as Record<string, unknown>[]}
-                  columns={exportColumns}
+                  data={quickExportData as unknown as Record<string, unknown>[]}
+                  columns={quickExportColumns}
                   isLoading={isLoading}
                   storeId={currentStore.id}
                   pdfTitle="Inventory Report"
                   showImportOption={user?.role !== "staff"}
+                  extraExportActions={
+                    <DropdownMenuItem
+                      onClick={() => setIsExportDialogOpen(true)}
+                      data-testid="button-customize-export"
+                    >
+                      <Settings2 className="mr-2 h-4 w-4" />
+                      Customize Export…
+                    </DropdownMenuItem>
+                  }
+                />
+                <InventoryExportDialog
+                  open={isExportDialogOpen}
+                  onOpenChange={setIsExportDialogOpen}
+                  activeProducts={inventoryList}
+                  currentViewProducts={currentViewProducts}
+                  archivedProducts={archivedList}
+                  isLoadingArchived={isLoadingArchived}
+                  selectedIds={selectedIds}
+                  currentViewLabel={currentViewLabel}
+                  isMultiStoreView={isMultiStoreView}
+                  lowStockThreshold={lowStockThreshold}
+                  formatCurrency={formatCurrency}
+                  storeLabel={currentStore.name}
                 />
                 <Button onClick={openCreateForm} data-testid="button-add-item">
                   <Plus className="mr-2 h-4 w-4" />

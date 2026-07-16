@@ -45,6 +45,16 @@ function groupTransactions(txs: any[]): any[] {
     const leadStaffId = group.find((t: any) => t.checkout?.leadStaffId)?.checkout?.leadStaffId ?? firstTx.checkout?.leadStaffId ?? null;
     const assistingStaff1Id = group.find((t: any) => t.checkout?.assistingStaff1Id)?.checkout?.assistingStaff1Id ?? firstTx.checkout?.assistingStaff1Id ?? null;
     const assistingStaff2Id = group.find((t: any) => t.checkout?.assistingStaff2Id)?.checkout?.assistingStaff2Id ?? firstTx.checkout?.assistingStaff2Id ?? null;
+    // Union of every distinct staff id across ALL line items in the group, not just
+    // the representative one above — a receipt with multiple services can have a
+    // different lead staff per service, and each of them must count as active.
+    const serviceStaffIds = Array.from(new Set(
+      group.flatMap((t: any) => [
+        t.checkout?.leadStaffId,
+        t.checkout?.assistingStaff1Id,
+        t.checkout?.assistingStaff2Id,
+      ]).filter(Boolean)
+    ));
     result.push({
       ...firstTx,
       amount: totalAmount,
@@ -54,6 +64,7 @@ function groupTransactions(txs: any[]): any[] {
         leadStaffId,
         assistingStaff1Id,
         assistingStaff2Id,
+        serviceStaffIds,
         totalPrice: totalTotalPrice,
         subtotal: totalSubtotal,
         discountAmount: totalDiscountAmount,

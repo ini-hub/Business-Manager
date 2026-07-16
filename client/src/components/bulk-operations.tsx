@@ -31,6 +31,7 @@ interface BulkOperationsProps {
   storeId?: string;
   pdfTitle?: string;
   showImportOption?: boolean;
+  extraExportActions?: React.ReactNode;
 }
 
 interface ImportResult {
@@ -80,6 +81,7 @@ export function BulkOperations({
   storeId,
   pdfTitle,
   showImportOption = true,
+  extraExportActions,
 }: BulkOperationsProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -302,6 +304,7 @@ export function BulkOperations({
             <Download className="mr-2 h-4 w-4" />
             Export PDF
           </DropdownMenuItem>
+          {extraExportActions}
           {showImportOption && (
             <DropdownMenuItem onClick={handleDownloadTemplate} data-testid={`button-template-${entityType}`}>
               <FileText className="mr-2 h-4 w-4" />

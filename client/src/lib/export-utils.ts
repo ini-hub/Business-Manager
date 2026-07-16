@@ -28,9 +28,10 @@ export function exportToPDF<T extends Record<string, unknown>>(
   data: T[],
   columns: { key: string; header: string }[],
   title: string,
-  filename: string
+  filename: string,
+  options?: { orientation?: "portrait" | "landscape" }
 ) {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ orientation: options?.orientation ?? "portrait" });
 
   doc.setFontSize(16);
   doc.text(title, 14, 15);
@@ -47,13 +48,15 @@ export function exportToPDF<T extends Record<string, unknown>>(
     })
   );
 
+  const isDense = columns.length > 10;
+
   autoTable(doc, {
     head: [headers],
     body: rows,
     startY: 28,
     styles: {
-      fontSize: 8,
-      cellPadding: 2,
+      fontSize: isDense ? 7 : 8,
+      cellPadding: isDense ? 1.5 : 2,
     },
     headStyles: {
       fillColor: [41, 128, 185],
