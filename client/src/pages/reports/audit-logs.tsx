@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ShieldCheck,
   Search,
@@ -9,8 +9,9 @@ import {
   X,
   CheckCircle2,
   XCircle,
+  EyeOff,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -32,17 +33,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/page-header";
+import { DataTable } from "@/components/data-table";
+import { ExportToolbar } from "@/components/export-toolbar";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
 const ACTION_GROUPS: Record<string, string[]> = {
   "Sales & Payments": ["CHECKOUT", "PAYMENT", "TRANSACTION_VOID", "PAYMENT_UPDATE", "TRANSACTION_ADDENDUM"],
   "Inventory": ["INVENTORY_UPDATE", "INVENTORY_ARCHIVE", "INVENTORY_DELETE", "INVENTORY_BULK_IMPORT", "INVENTORY_BULK_UPDATE", "INVENTORY_BUNDLE_UPDATE", "INVENTORY_BATCH_CREATE", "CREATE", "CREATE_RESTOCK"],
-  "Payroll": ["PAYROLL_PERIOD_CREATE", "PAYROLL_PERIOD_CALCULATE", "PAYROLL_PERIOD_APPROVE", "PAYROLL_PERIOD_MARK_PAID", "PAYROLL_PERIOD_DELETE", "PAYROLL_DEDUCTION_CREATE", "PAYROLL_DEDUCTION_DELETE", "PAYROLL_DISBURSEMENT_CREATE", "SALARY_ADVANCE_CREATE", "SALARY_ADVANCE_RECOVER", "SALARY_ADVANCE_DELETE", "PAYSLIP_REGISTER"],
+  "Payroll": ["PAYROLL_PERIOD_CREATE", "PAYROLL_PERIOD_CALCULATE", "PAYROLL_PERIOD_APPROVE", "PAYROLL_PERIOD_MARK_PAID", "PAYROLL_PERIOD_DELETE", "PAYROLL_DEDUCTION_CREATE", "PAYROLL_DEDUCTION_DELETE", "PAYROLL_DISBURSEMENT_CREATE", "SALARY_ADVANCE_CREATE", "SALARY_ADVANCE_APPROVE", "SALARY_ADVANCE_REJECT", "SALARY_ADVANCE_RECOVER", "SALARY_ADVANCE_DELETE", "PAYSLIP_REGISTER"],
   "Expenses": ["EXPENSE_CREATE", "EXPENSE_UPDATE", "EXPENSE_DELETE", "EXPENSE_CATEGORY_CREATE", "EXPENSE_CATEGORY_UPDATE", "EXPENSE_CATEGORY_DELETE"],
   "Cash Register": ["CASH_REGISTER_OPEN", "CASH_DROP", "CASH_REGISTER_CLOSE"],
   "Vendors & Procurement": ["VENDOR_CREATE", "VENDOR_UPDATE", "VENDOR_ARCHIVE", "VENDOR_RESTORE", "VENDOR_DELETE", "VENDOR_BILL_CREATE", "VENDOR_BILL_UPDATE", "VENDOR_BILL_DELETE", "PURCHASE_ORDER_CREATE", "PURCHASE_ORDER_STATUS_UPDATE", "PURCHASE_ORDER_RECEIVE", "PURCHASE_ORDER_DELETE", "STOCK_AUDIT_CREATE", "STOCK_AUDIT_APPROVE", "STOCK_TRANSFER_CREATE", "STOCK_TRANSFER_STATUS_UPDATE", "STOCK_TRANSFER_DELETE", "QUOTE_CREATE", "QUOTE_STATUS_UPDATE", "QUOTE_DELETE", "TAX_RATE_CREATE", "TAX_RATE_UPDATE", "TAX_RATE_DELETE"],
   "Auth": ["AUTH_ATTEMPT", "LOGIN", "SIGNUP", "PASSWORD_RESET"],
   "Settings": ["SETTINGS_UPDATE"],
-  "Staff & Customers": ["CREATE", "UPDATE", "DELETE"],
+  "Staff & Customers": ["CREATE", "UPDATE", "DELETE", "ARCHIVE", "RESTORE", "PERMANENT_DELETE", "STAFF_TRANSFER"],
 };
 
 const RESOURCE_OPTIONS = [
@@ -52,14 +61,25 @@ const RESOURCE_OPTIONS = [
   "quote", "tax_rate", "settings", "customer", "staff", "promotions", "custom_roles",
 ];
 
+// audit_log_batches kinds, shown when a row's batchId groups it with a bulk/import action.
+const BATCH_KIND_LABELS: Record<string, string> = {
+  bulk_delete: "Bulk delete",
+  bulk_archive: "Bulk archive",
+  bulk_restore: "Bulk restore",
+  bulk_update: "Bulk update",
+  csv_import_staff: "CSV import (staff)",
+  csv_import_expense: "CSV import (expenses)",
+  csv_import_vendor: "CSV import (vendors)",
+};
+
 function actionBadgeStyle(action: string) {
-  if (action.includes("DELETE") || action.includes("VOID") || action.includes("ARCHIVE")) {
+  if (action.includes("DELETE") || action.includes("VOID") || action.includes("ARCHIVE") || action.includes("REJECT")) {
     return "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800";
   }
-  if (action.includes("CREATE") || action.includes("OPEN") || action.includes("REGISTER")) {
+  if (action.includes("CREATE") || action.includes("OPEN") || action.includes("REGISTER") || action.includes("RESTORE")) {
     return "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800";
   }
-  if (action.includes("UPDATE") || action.includes("APPROVE") || action.includes("MARK_PAID") || action.includes("RECOVER")) {
+  if (action.includes("UPDATE") || action.includes("APPROVE") || action.includes("MARK_PAID") || action.includes("RECOVER") || action.includes("TRANSFER")) {
     return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800";
   }
   return "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700";
@@ -74,12 +94,18 @@ function formatResource(resource: string) {
 }
 
 export default function AuditLogsPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const isOwner = user?.role === "owner";
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
   const [resourceFilter, setResourceFilter] = useState("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange>({ from: undefined, to: undefined });
   const [selectedLog, setSelectedLog] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+
+  const startDate = dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : "";
+  const endDate = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : "";
 
   const queryParams = useMemo(() => {
     const p: Record<string, string> = {};
@@ -89,6 +115,27 @@ export default function AuditLogsPage() {
     if (endDate) p.endDate = endDate;
     return p;
   }, [actionFilter, resourceFilter, startDate, endDate]);
+
+  const bulkRedactMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("PATCH", `/api/audit-logs/${id}/redact`, {});
+        if (!res.ok) throw new Error("redact failed");
+        return "redacted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/audit-logs"] });
+      setSelectedIds([]);
+      const redacted = counts.redacted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${redacted} log ${redacted !== 1 ? "entries" : "entry"} redacted` }
+          : { title: `${redacted} redacted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk redact failed", variant: "destructive" }),
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/audit-logs", queryParams],
@@ -117,8 +164,7 @@ export default function AuditLogsPage() {
   const clearFilters = () => {
     setActionFilter("all");
     setResourceFilter("all");
-    setStartDate("");
-    setEndDate("");
+    setDateRange({ from: undefined, to: undefined });
     setSearch("");
   };
 
@@ -130,6 +176,24 @@ export default function AuditLogsPage() {
       <PageHeader
         title="Activity Log"
         description="A full audit trail of every change made in your business."
+        actions={
+          <ExportToolbar
+            data={logs as unknown as Record<string, unknown>[]}
+            columns={[
+              { key: "timestamp", header: "Time" },
+              { key: "userName", header: "User" },
+              { key: "userEmail", header: "Email" },
+              { key: "action", header: "Action" },
+              { key: "resource", header: "Resource" },
+              { key: "resourceId", header: "Resource ID" },
+              { key: "status", header: "Status" },
+              { key: "ip", header: "IP Address" },
+            ]}
+            filename={`activity-log_${new Date().toISOString().slice(0, 10)}`}
+            title="Activity Log"
+            disabled={logs.length === 0}
+          />
+        }
       />
 
       {/* Filters */}
@@ -185,22 +249,7 @@ export default function AuditLogsPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 items-center">
-              {/* Date range */}
-              <div className="flex gap-2 items-center flex-1">
-                <Input
-                  type="date"
-                  className="w-full sm:w-auto"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-                <span className="text-muted-foreground text-sm shrink-0">to</span>
-                <Input
-                  type="date"
-                  className="w-full sm:w-auto"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
-              </div>
+              <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} defaultPreset="all" />
 
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters} className="shrink-0">
@@ -224,98 +273,131 @@ export default function AuditLogsPage() {
       )}
 
       {/* Table */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
-        </div>
-      ) : error ? (
+      {error ? (
         <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
           <AlertCircle className="h-5 w-5 shrink-0" />
           Failed to load audit logs. Please try again.
         </div>
-      ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <ShieldCheck className="h-10 w-10 text-muted-foreground/40 mb-3" />
-          <p className="font-semibold text-foreground">No matching entries</p>
-          <p className="text-sm text-muted-foreground mt-1">Try adjusting your filters.</p>
-        </div>
       ) : (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40">
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Time</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">User</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Action</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Resource</th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {logs.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap font-mono">
+          <CardContent className="pt-4 space-y-3">
+            {isOwner && (
+              <BulkSelectionActionBar
+                count={selectedIds.length}
+                unitLabel="entry"
+                onClear={() => setSelectedIds([])}
+                actions={[
+                  {
+                    key: "redact",
+                    label: "Redact Selected",
+                    pendingLabel: "Redacting…",
+                    icon: <EyeOff className="h-3.5 w-3.5" />,
+                    tone: "destructive",
+                    pending: bulkRedactMutation.isPending,
+                    onClick: () => bulkRedactMutation.mutate(selectedIds as string[]),
+                  },
+                ]}
+              />
+            )}
+            <DataTable
+              data={logs}
+              columns={[
+                {
+                  key: "timestamp",
+                  header: "Time",
+                  render: (log: any) => (
+                    <span className="text-xs text-muted-foreground whitespace-nowrap font-mono">
                       {new Date(log.timestamp).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col">
-                        <span className="font-medium leading-tight">{log.userName || "—"}</span>
-                        {log.userEmail && (
-                          <span className="text-xs text-muted-foreground">{log.userEmail}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] font-bold uppercase tracking-wide ${actionBadgeStyle(log.action)}`}
-                      >
-                        {formatAction(log.action)}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                    </span>
+                  ),
+                },
+                {
+                  key: "userName",
+                  header: "User",
+                  render: (log: any) => (
+                    <div className="flex flex-col">
+                      <span className="font-medium leading-tight">{log.userName || "—"}</span>
+                      {log.userEmail && (
+                        <span className="text-xs text-muted-foreground">{log.userEmail}</span>
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: "action",
+                  header: "Action",
+                  render: (log: any) => (
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] font-bold uppercase tracking-wide ${actionBadgeStyle(log.action)}`}
+                    >
+                      {formatAction(log.action)}
+                    </Badge>
+                  ),
+                },
+                {
+                  key: "resource",
+                  header: "Resource",
+                  render: (log: any) => (
+                    <div className="text-xs text-muted-foreground">
                       <span className="capitalize">{formatResource(log.resource)}</span>
                       {log.resourceId && (
                         <span className="block font-mono text-[10px] opacity-60 truncate max-w-[120px]">
                           {log.resourceId}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {log.status === "success" ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Success
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
-                          <XCircle className="h-3.5 w-3.5" />
-                          Failed
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {log.details || log.errorMessage ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setSelectedLog(log)}
-                        >
-                          <Eye className="h-3.5 w-3.5 mr-1" />
-                          View
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/50">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  ),
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  render: (log: any) =>
+                    log.status === "success" ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Success
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
+                        <XCircle className="h-3.5 w-3.5" />
+                        Failed
+                      </span>
+                    ),
+                },
+                {
+                  key: "details",
+                  header: "Details",
+                  render: (log: any) =>
+                    log.redactedAt ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
+                        <EyeOff className="h-3.5 w-3.5" />
+                        Redacted
+                      </span>
+                    ) : log.details || log.errorMessage ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setSelectedLog(log)}
+                      >
+                        <Eye className="h-3.5 w-3.5 mr-1" />
+                        View
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/50">—</span>
+                    ),
+                },
+              ]}
+              isLoading={isLoading}
+              emptyTitle="No matching entries"
+              emptyMessage="Try adjusting your filters."
+              emptyIcon={<ShieldCheck className="h-6 w-6" />}
+              multiselect={isOwner}
+              selectedIds={selectedIds}
+              onSelectedIdsChange={setSelectedIds}
+            />
+          </CardContent>
         </Card>
       )}
 
@@ -352,6 +434,21 @@ export default function AuditLogsPage() {
                   <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">IP Address</p>
                   <p className="font-mono">{selectedLog.ip || "—"}</p>
                 </div>
+                {selectedLog.channel && (
+                  <div>
+                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Origin</p>
+                    <p className="font-medium capitalize">
+                      {selectedLog.channel}
+                      {selectedLog.userAgent && <span className="block text-muted-foreground text-[10px] font-normal truncate">{selectedLog.userAgent}</span>}
+                    </p>
+                  </div>
+                )}
+                {selectedLog.batchId && (
+                  <div>
+                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Batch</p>
+                    <p className="font-mono text-[10px] break-all">{selectedLog.batchId}</p>
+                  </div>
+                )}
                 {selectedLog.resourceId && (
                   <div className="col-span-2">
                     <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Resource ID</p>
@@ -366,6 +463,56 @@ export default function AuditLogsPage() {
                 )}
               </div>
 
+              {Array.isArray(selectedLog.changedFields) && selectedLog.changedFields.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">
+                    What changed ({selectedLog.changedFields.length} field{selectedLog.changedFields.length !== 1 ? "s" : ""})
+                  </p>
+                  <div className="rounded-lg border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/60">
+                        <tr>
+                          <th className="text-left font-semibold px-2 py-1.5">Field</th>
+                          <th className="text-left font-semibold px-2 py-1.5">Before</th>
+                          <th className="text-left font-semibold px-2 py-1.5">After</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedLog.changedFields.map((field: string) => (
+                          <tr key={field} className="border-t">
+                            <td className="px-2 py-1.5 font-mono text-muted-foreground">{field}</td>
+                            <td className="px-2 py-1.5 font-mono text-red-600 dark:text-red-400 break-all">
+                              {JSON.stringify(selectedLog.previousValues?.[field] ?? null)}
+                            </td>
+                            <td className="px-2 py-1.5 font-mono text-emerald-600 dark:text-emerald-400 break-all">
+                              {JSON.stringify(selectedLog.newValues?.[field] ?? null)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!selectedLog.changedFields?.length && selectedLog.newValues && !selectedLog.previousValues && (
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">Created with</p>
+                  <pre className="bg-muted p-3 rounded-lg overflow-auto max-h-56 font-mono text-xs leading-relaxed">
+                    {JSON.stringify(selectedLog.newValues, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {!selectedLog.changedFields?.length && selectedLog.previousValues && !selectedLog.newValues && (
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">Record at time of removal</p>
+                  <pre className="bg-muted p-3 rounded-lg overflow-auto max-h-56 font-mono text-xs leading-relaxed">
+                    {JSON.stringify(selectedLog.previousValues, null, 2)}
+                  </pre>
+                </div>
+              )}
+
               {selectedLog.details && (
                 <div className="space-y-1.5">
                   <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">Payload</p>
@@ -379,6 +526,22 @@ export default function AuditLogsPage() {
                     )}
                   </pre>
                 </div>
+              )}
+
+              {selectedLog.resourceId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setSearch(selectedLog.resourceId);
+                    setActionFilter("all");
+                    setResourceFilter("all");
+                    setSelectedLog(null);
+                  }}
+                >
+                  View full history for this record
+                </Button>
               )}
             </div>
           )}

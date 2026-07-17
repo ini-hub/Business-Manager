@@ -22,9 +22,10 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportToCSV, exportToPDF } from "@/lib/export-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import type { BulkEntityConfig } from "@/lib/bulk-entity-configs";
 
 interface BulkOperationsProps {
-  entityType: "customers" | "staff" | "inventory";
+  entityConfig: BulkEntityConfig;
   data: Record<string, unknown>[];
   columns: { key: string; header: string }[];
   isLoading?: boolean;
@@ -32,6 +33,17 @@ interface BulkOperationsProps {
   pdfTitle?: string;
   showImportOption?: boolean;
   extraExportActions?: React.ReactNode;
+  /** When provided, "Export PDF" calls this instead of the plain flat-grid PDF renderer. */
+  onExportPDF?: () => void | Promise<void>;
+  /**
+   * The table's current search/filter-narrowed rows. When present and narrower than `data`,
+   * adds "Export current view" items alongside the normal full-dataset export — the default
+   * export always stays the full dataset so leftover search text can't silently shrink
+   * someone's export.
+   */
+  visibleData?: Record<string, unknown>[];
+  /** Mirrors `onExportPDF` but for the "current view" PDF, for pages using a custom renderer. */
+  onExportFilteredPDF?: () => void | Promise<void>;
 }
 
 interface ImportResult {
@@ -40,41 +52,8 @@ interface ImportResult {
   errors: { row: number; message: string }[];
 }
 
-const ENTITY_CONFIG = {
-  customers: {
-    label: "Customers",
-    endpoint: "/api/customers/bulk",
-    exportFilename: "customers",
-    sampleHeaders: ["name", "customerNumber", "mobileNumber", "address"],
-    sampleRow: ["John Doe", "CUST-001", "555-1234", "123 Main Street"],
-  },
-  staff: {
-    label: "Staff",
-    endpoint: "/api/staff/bulk",
-    exportFilename: "staff",
-    sampleHeaders: ["name", "staffNumber", "mobileNumber", "payPerMonth", "signedContract"],
-    sampleRow: ["Jane Smith", "STF-001", "555-5678", "3500", "true"],
-  },
-  inventory: {
-    label: "Inventory",
-    endpoint: "/api/inventory/bulk",
-    exportFilename: "inventory",
-    sampleHeaders: ["name", "type", "costPrice", "sellingPrice", "quantity", "variantOf", "variant_Size", "variant_Color", "variant_Duration"],
-    sampleRows: [
-      ["T-Shirt", "product", "5.00", "20.00", "0", "", "", "", ""],
-      ["Small / Red", "product", "5.00", "20.00", "50", "T-Shirt", "S", "Red", ""],
-      ["Large / Blue", "product", "5.00", "20.00", "30", "T-Shirt", "L", "Blue", ""],
-      ["Relaxer", "product", "3000", "12000", "84", "", "", "", ""],
-      ["Pedicure", "service", "500", "1500", "0", "", "", "", ""],
-      ["Pedicure - Basic", "service", "500", "1500", "0", "Pedicure", "", "", "30min"],
-      ["Pedicure - Premium", "service", "800", "2500", "0", "Pedicure", "", "", "60min"],
-    ],
-    sampleRow: ["T-Shirt", "product", "5.00", "20.00", "0", "", "", "", ""],
-  },
-};
-
 export function BulkOperations({
-  entityType,
+  entityConfig: config,
   data,
   columns,
   isLoading = false,
@@ -82,14 +61,15 @@ export function BulkOperations({
   pdfTitle,
   showImportOption = true,
   extraExportActions,
+  onExportPDF,
+  visibleData,
+  onExportFilteredPDF,
 }: BulkOperationsProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-
-  const config = ENTITY_CONFIG[entityType];
 
   const importMutation = useMutation({
     mutationFn: async (csvData: Record<string, string>[]) => {
@@ -99,12 +79,9 @@ export function BulkOperations({
     onSuccess: (result: ImportResult) => {
       setImportResult(result);
       setImportProgress(100);
-      if (entityType === "inventory") {
-        // Inventory page fetches from /api/products; invalidate both keys to cover all consumers
-        queryClient.invalidateQueries({ queryKey: ["/api/products", storeId] });
-        queryClient.invalidateQueries({ queryKey: ["/api/inventory", storeId] });
-      } else {
-        queryClient.invalidateQueries({ queryKey: [`/api/${entityType}`, storeId] });
+      const invalidateKeys = config.invalidateQueryKeys ?? [`/api/${config.key}`];
+      for (const key of invalidateKeys) {
+        queryClient.invalidateQueries({ queryKey: [key, storeId] });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", storeId] });
 
@@ -131,8 +108,10 @@ export function BulkOperations({
     },
   });
 
-  const handleExport = () => {
-    if (data.length === 0) {
+  const hasNarrowedView = !!visibleData && visibleData.length !== data.length;
+
+  const handleExport = (rows: Record<string, unknown>[] = data) => {
+    if (rows.length === 0) {
       toast({
         title: "Nothing to Export",
         description: `You don't have any ${config.label.toLowerCase()} yet. Add some first, then try exporting again.`,
@@ -141,15 +120,16 @@ export function BulkOperations({
       return;
     }
 
-    exportToCSV(data, columns, config.exportFilename);
+    exportToCSV(rows, columns, config.exportFilename);
     toast({
       title: "Export successful",
-      description: `${data.length} ${config.label.toLowerCase()} exported to CSV.`,
+      description: `${rows.length} ${config.label.toLowerCase()} exported to CSV.`,
     });
   };
 
-  const handleExportPDF = () => {
-    if (data.length === 0) {
+  const handleExportPDF = async (filtered = false) => {
+    const rows = filtered ? (visibleData ?? data) : data;
+    if (rows.length === 0) {
       toast({
         title: "Nothing to Export",
         description: `You don't have any ${config.label.toLowerCase()} yet. Add some first, then try exporting again.`,
@@ -158,15 +138,20 @@ export function BulkOperations({
       return;
     }
 
-    exportToPDF(data, columns, pdfTitle || `${config.label} List`, config.exportFilename);
+    const customHandler = filtered ? (onExportFilteredPDF ?? onExportPDF) : onExportPDF;
+    if (customHandler) {
+      await customHandler();
+    } else {
+      exportToPDF(rows, columns, pdfTitle || `${config.label} List`, config.exportFilename);
+    }
     toast({
       title: "Export successful",
-      description: `${data.length} ${config.label.toLowerCase()} exported to PDF.`,
+      description: `${rows.length} ${config.label.toLowerCase()} exported to PDF.`,
     });
   };
 
   const handleDownloadTemplate = () => {
-    const rows = (config as any).sampleRows ?? [config.sampleRow];
+    const rows = config.sampleRows ?? [config.sampleRow];
     const csvContent = [
       config.sampleHeaders.join(","),
       ...rows.map((r: string[]) => r.join(",")),
@@ -279,34 +264,46 @@ export function BulkOperations({
         accept=".csv"
         onChange={handleFileSelect}
         className="hidden"
-        data-testid={`input-import-${entityType}`}
+        data-testid={`input-import-${config.key}`}
       />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" disabled={isLoading} data-testid={`button-bulk-${entityType}`}>
+          <Button variant="outline" disabled={isLoading} data-testid={`button-bulk-${config.key}`}>
             <FileText className="mr-2 h-4 w-4" />
             {showImportOption ? "Bulk Operations" : "Export"}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {showImportOption && (
-            <DropdownMenuItem onClick={handleImportClick} data-testid={`button-import-${entityType}`}>
+            <DropdownMenuItem onClick={handleImportClick} data-testid={`button-import-${config.key}`}>
               <Upload className="mr-2 h-4 w-4" />
               Import CSV
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={handleExport} data-testid={`button-export-${entityType}`}>
+          <DropdownMenuItem onClick={() => handleExport()} data-testid={`button-export-${config.key}`}>
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleExportPDF} data-testid={`button-export-pdf-${entityType}`}>
+          <DropdownMenuItem onClick={() => handleExportPDF()} data-testid={`button-export-pdf-${config.key}`}>
             <Download className="mr-2 h-4 w-4" />
             Export PDF
           </DropdownMenuItem>
+          {hasNarrowedView && (
+            <>
+              <DropdownMenuItem onClick={() => handleExport(visibleData)} data-testid={`button-export-filtered-${config.key}`}>
+                <Download className="mr-2 h-4 w-4" />
+                Export current view — CSV ({visibleData!.length})
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportPDF(true)} data-testid={`button-export-pdf-filtered-${config.key}`}>
+                <Download className="mr-2 h-4 w-4" />
+                Export current view — PDF ({visibleData!.length})
+              </DropdownMenuItem>
+            </>
+          )}
           {extraExportActions}
           {showImportOption && (
-            <DropdownMenuItem onClick={handleDownloadTemplate} data-testid={`button-template-${entityType}`}>
+            <DropdownMenuItem onClick={handleDownloadTemplate} data-testid={`button-template-${config.key}`}>
               <FileText className="mr-2 h-4 w-4" />
               Download Template
             </DropdownMenuItem>

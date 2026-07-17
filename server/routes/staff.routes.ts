@@ -42,7 +42,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -60,6 +60,11 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(400).json({ error: "Please select a store first." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      // userId links a staff row to its login account; never expose it in list responses
+      const redactUserId = (list: any[]) => {
+        list.forEach(s => { delete s.userId; });
+      };
 
       const redactWages = (list: any[]) => {
         list.forEach(s => {
@@ -85,6 +90,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         if (req.user?.role === "staff") {
           redactWages(result.data);
         }
+        redactUserId(result.data);
         return res.json(result);
       }
 
@@ -92,6 +98,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (req.user?.role === "staff") {
         redactWages(staffList);
       }
+      redactUserId(staffList);
       res.json(staffList);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your staff members. Please try again." });
@@ -121,6 +128,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         staffMember.offDayRateOverride = null;
       }
 
+      delete (staffMember as any).userId;
       res.json(staffMember);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load staff information. Please try again." });
@@ -165,7 +173,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const data = insertStaffSchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
       const staffMember = await storage.createStaff(data);
-      auditLogger.logDataModification("staff", staffMember.id, getUserId(req), "CREATE", true);
+      const ctx = await getAuditContext(req, { storeId: data.storeId });
+      auditLogger.logEvent(ctx, "CREATE", "staff", staffMember.id, "success", { newValues: staffMember });
 
       // Staff invitation and activation email flow
       try {
@@ -332,6 +341,15 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!updatedStaffMember) {
         return res.status(404).json({ error: "This staff member no longer exists. They may have been removed." });
       }
+      const changedFields = Object.keys(data).filter((key) => JSON.stringify((staffMember as any)[key]) !== JSON.stringify((updatedStaffMember as any)[key]));
+      if (changedFields.length > 0) {
+        const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+        auditLogger.logEvent(ctx, "UPDATE", "staff", req.params.id, "success", {
+          previousValues: staffMember,
+          newValues: updatedStaffMember,
+          changedFields,
+        });
+      }
       broadcastChange(req, "staff", staffMember.storeId, "updated");
       res.json(updatedStaffMember);
     } catch (error) {
@@ -359,6 +377,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!archived) {
         return res.status(500).json({ error: "We couldn't archive this staff member. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "ARCHIVE", "staff", req.params.id, "success", { previousValues: staffMember, newValues: archived });
       broadcastChange(req, "staff", staffMember.storeId, "deleted");
       res.status(204).send();
     } catch (error) {
@@ -383,6 +403,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!restored) {
         return res.status(500).json({ error: "We couldn't restore this staff member. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "RESTORE", "staff", req.params.id, "success", { previousValues: staffMember, newValues: restored });
       res.json(restored);
     } catch (error) {
       res.status(500).json({ error: "We couldn't restore this staff member. Please try again." });
@@ -451,6 +473,12 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(500).json({ error: "We couldn't transfer this staff member. Please try again." });
       }
 
+      const ctx = await getAuditContext(req, { storeId: targetStoreId });
+      auditLogger.logEvent(ctx, "STAFF_TRANSFER", "staff", req.params.id, "success", {
+        previousValues: { storeId: staffMember.storeId },
+        newValues: { storeId: updated.storeId },
+        changedFields: ["storeId"],
+      });
       res.json(updated);
     } catch (error) {
       console.error("Staff transfer error:", error);
@@ -486,6 +514,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!deleted) {
         return res.status(500).json({ error: "We couldn't delete this staff member. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "PERMANENT_DELETE", "staff", req.params.id, "success", { previousValues: staffMember });
       res.status(204).send();
     } catch (error) {
       console.error("Permanent delete staff error:", error);
@@ -506,7 +536,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
-      const result = await bulkUploadService.importStaff(data, storeId);
+      const result = await bulkUploadService.importStaff(data, storeId, getUserId(req));
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "We couldn't import your staff. Please try again." });

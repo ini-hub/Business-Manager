@@ -25,6 +25,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useToast } from "@/hooks/use-toast";
+import { BulkOperations } from "@/components/bulk-operations";
+import { QUOTE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import { exportReportToPDF } from "@/lib/export-utils";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Quote, QuoteItem, Customer, Inventory } from "@shared/schema";
 
 type QuoteWithCustomer = Quote & { customer: Customer | null };
@@ -39,6 +45,9 @@ export default function QuotesPage() {
   const [activeTab, setActiveTab] = useState<string>("list");
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+
+  const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
 
   // New quote form state
   const [customerId, setCustomerId] = useState<string>("");
@@ -134,6 +143,48 @@ export default function QuotesPage() {
       setSelectedQuoteId(null);
       toast({ title: "Success", description: "Quote deleted successfully." });
     },
+  });
+
+  const bulkMarkSentMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("PATCH", `/api/quotes/${id}/status`, { status: "sent" });
+        if (!res.ok) throw new Error("update failed");
+        return "sent" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setSelectedIds([]);
+      const sent = counts.sent ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${sent} quote${sent !== 1 ? "s" : ""} marked as sent` }
+          : { title: `${sent} updated, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk update failed", variant: "destructive" }),
+  });
+
+  const bulkDeleteQuoteMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("DELETE", `/api/quotes/${id}`);
+        if (!res.ok) throw new Error("delete failed");
+        return "deleted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setSelectedIds([]);
+      const deleted = counts.deleted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${deleted} quote${deleted !== 1 ? "s" : ""} deleted` }
+          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
 
   const resetForm = () => {
@@ -283,11 +334,66 @@ export default function QuotesPage() {
   const acceptedVal = quotes.filter(q => q.status === "accepted").reduce((sum, q) => sum + q.totalPrice, 0);
   const totalVal = quotes.reduce((sum, q) => sum + q.totalPrice, 0);
 
+  const quoteExportColumns = [
+    { key: "quoteRef", header: "Proposal Ref" },
+    { key: "customer.name", header: "Customer" },
+    { key: "totalPrice", header: "Estimated Value" },
+    { key: "status", header: "Status" },
+    { key: "validUntil", header: "Expiry Date" },
+    { key: "createdAt", header: "Created" },
+  ];
+
+  const handleQuoteReportExport = () => {
+    return exportReportToPDF({
+      filename: `quotes-report_${new Date().toISOString().slice(0, 10)}`,
+      title: "Quotes & Proposals Report",
+      businessName: currentStore.name,
+      storeName: currentStore.name,
+      kpis: [
+        { label: "Total Proposal Value", value: formatCurrency(totalVal) },
+        { label: "Draft / Estimates", value: formatCurrency(draftVal) },
+        { label: "Sent (In Pipeline)", value: formatCurrency(sentVal) },
+        { label: "Accepted Proposals", value: formatCurrency(acceptedVal) },
+      ],
+      columns: [
+        { key: "quoteRef", header: "Ref" },
+        { key: "customerName", header: "Customer", format: (q: QuoteWithCustomer) => q.customer?.name || "Walk-in" },
+        { key: "totalPrice", header: "Value", align: "right" as const, format: (q: QuoteWithCustomer) => formatCurrency(q.totalPrice) },
+        { key: "status", header: "Status" },
+      ],
+      rows: quotes,
+      amountKey: "totalPrice",
+      formatAmount: formatCurrency,
+      statusKey: "status",
+      unitLabel: "quotes",
+    });
+  };
+
+  const quoteFilterConfigs: TableFilterConfig[] = [
+    { key: "status", label: "Status", type: "select" },
+    { key: "createdAt", label: "Created Date", type: "date-range" },
+    { key: "totalPrice", label: "Estimated Value", type: "range", currencySymbol: storeCurrency === "USD" ? "$" : "₦" },
+  ];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Quotes & Proposals"
         description="Draft pricing proposals, dispatch proforma receipts, and track pipeline values."
+        actions={
+          activeTab === "list" && (
+            <BulkOperations
+              entityConfig={QUOTE_BULK_CONFIG}
+              data={quotes as unknown as Record<string, unknown>[]}
+              columns={quoteExportColumns}
+              isLoading={isLoadingQuotes}
+              storeId={currentStore.id}
+              pdfTitle="Quotes Report"
+              onExportPDF={handleQuoteReportExport}
+              showImportOption={isManagerOrOwner}
+            />
+          )
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -333,15 +439,45 @@ export default function QuotesPage() {
               <CardTitle>Quotes Registry</CardTitle>
               <CardDescription>Track customer estimates, status tags, and expiry dates.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {isManagerOrOwner && (
+                <BulkSelectionActionBar
+                  count={selectedIds.length}
+                  unitLabel="quote"
+                  onClear={() => setSelectedIds([])}
+                  actions={[
+                    {
+                      key: "mark-sent",
+                      label: "Mark as Sent",
+                      pendingLabel: "Updating…",
+                      icon: <RefreshCw className="h-3.5 w-3.5" />,
+                      pending: bulkMarkSentMutation.isPending,
+                      onClick: () => bulkMarkSentMutation.mutate(selectedIds as string[]),
+                    },
+                    {
+                      key: "delete",
+                      label: "Delete Selected",
+                      pendingLabel: "Deleting…",
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      tone: "destructive",
+                      pending: bulkDeleteQuoteMutation.isPending,
+                      onClick: () => bulkDeleteQuoteMutation.mutate(selectedIds as string[]),
+                    },
+                  ]}
+                />
+              )}
               <DataTable
                 data={quotes}
                 columns={columns}
                 searchable
                 searchPlaceholder="Search quote reference..."
                 searchKeys={["quoteRef", "notes"]}
+                filterConfigs={quoteFilterConfigs}
                 isLoading={isLoadingQuotes}
                 emptyMessage="No quotes found. Open the builder to create one."
+                multiselect={isManagerOrOwner}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={setSelectedIds}
               />
             </CardContent>
           </Card>

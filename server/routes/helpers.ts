@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { broadcastDataChange } from "../websocket";
 
 export function getUserId(req: Request): string | undefined {
-  return (req as any).user?.claims?.sub;
+  return (req as any).user?.userId || (req as any).user?.id;
 }
 
 export function getClientIp(req: Request): string {
@@ -104,6 +104,71 @@ export async function verifyStoreAccess(req: any, storeId: string): Promise<bool
 
 export async function verifyRecordStoreAccess(req: any, recordStoreId: string): Promise<boolean> {
   return verifyStoreAccess(req, recordStoreId);
+}
+
+// ── Audit context ────────────────────────────────────────────────────────────
+// Built once per mutation to carry actor identity + origin into audit writes.
+// See server/audit.ts for how this feeds AuditLogEntry, and the design plan at
+// /Users/mac/.claude/plans/going-forward-let-s-treat-compressed-sunbeam.md.
+export type AuditChannel = "web" | "api" | "import" | "system" | "admin";
+
+export interface AuditContext {
+  userId?: string;
+  role?: string;
+  name?: string;
+  email?: string;
+  businessId?: string;
+  storeId?: string;
+  ip: string;
+  userAgent?: string;
+  channel: AuditChannel;
+  batchId?: string;
+}
+
+// Short-TTL cache so we don't hit `users` on every single audited write —
+// mirrors the _accessCache pattern above.
+const _userNameCache = new Map<string, { name: string | undefined; expires: number }>();
+const _USER_NAME_TTL = 5 * 60 * 1000;
+
+async function getCachedUserName(userId: string): Promise<string | undefined> {
+  const now = Date.now();
+  const cached = _userNameCache.get(userId);
+  if (cached && cached.expires > now) return cached.name;
+  const user = await storage.getUser(userId);
+  const name = user?.name ?? undefined;
+  _userNameCache.set(userId, { name, expires: now + _USER_NAME_TTL });
+  return name;
+}
+
+/**
+ * Builds the actor/origin context for an audited mutation. `storeId` should be
+ * passed by the caller when the mutation is store-scoped (it isn't derivable
+ * from the request generically). `channel`/`batchId` default to a plain web
+ * request; pass overrides for CSV imports (`channel: 'import'`), system-
+ * generated writes (`channel: 'system'`), or bulk fan-out actions (`batchId`
+ * from the `X-Batch-Id` request header set by the client).
+ */
+export async function getAuditContext(
+  req: Request,
+  overrides: Partial<Pick<AuditContext, "channel" | "storeId" | "batchId">> = {}
+): Promise<AuditContext> {
+  const user = (req as any).user;
+  const userId: string | undefined = user?.userId || user?.id;
+  const name = userId ? await getCachedUserName(userId) : undefined;
+  const headerBatchId = req.headers["x-batch-id"];
+
+  return {
+    userId,
+    role: user?.role,
+    name,
+    email: user?.email,
+    businessId: user?.businessId,
+    storeId: overrides.storeId,
+    ip: getClientIp(req),
+    userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+    channel: overrides.channel ?? "web",
+    batchId: overrides.batchId ?? (typeof headerBatchId === "string" ? headerBatchId : undefined),
+  };
 }
 
 export function broadcastChange(req: Request, resource: string, storeId?: string, action = "mutated"): void {

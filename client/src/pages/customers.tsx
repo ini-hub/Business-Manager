@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Pagination,
@@ -41,6 +41,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { CUSTOMER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -54,6 +55,8 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buildSlug } from "@/lib/slug";
 import { Link } from "wouter";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { exportReportToPDF } from "@/lib/export-utils";
 import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
 import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
@@ -82,7 +85,7 @@ const PAGE_LIMIT = 50;
 
 export default function Customers() {
   const { toast } = useToast();
-  const { currentStore, stores } = useStore();
+  const { currentStore, stores, business } = useStore();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -181,37 +184,43 @@ export default function Customers() {
   });
 
   // Calculate Customer Analytics Metrics
-  const validTxs = transactionsData.filter((tx: any) => tx.checkout && !tx.checkout.isVoided);
-  
-  const visitsMap = new Map<string, { checkoutId: string, customerId: string, date: Date, items: { name: string, type: string }[] }>();
-  validTxs.forEach((tx: any) => {
-    if (!tx.checkoutId || !tx.customerId) return;
-    const date = new Date(tx.transactionDate || tx.checkout?.createdAt);
-    if (!visitsMap.has(tx.checkoutId)) {
-      visitsMap.set(tx.checkoutId, {
-        checkoutId: tx.checkoutId,
-        customerId: tx.customerId,
-        date,
-        items: []
-      });
-    }
-    if (tx.inventory) {
-      visitsMap.get(tx.checkoutId)!.items.push({
-        name: tx.inventory.name,
-        type: tx.inventory.type
-      });
-    }
-  });
+  const validTxs = useMemo(
+    () => transactionsData.filter((tx: any) => tx.checkout && !tx.checkout.isVoided),
+    [transactionsData]
+  );
 
-  const visits = Array.from(visitsMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+  const customerVisits = useMemo(() => {
+    const visitsMap = new Map<string, { checkoutId: string, customerId: string, date: Date, items: { name: string, type: string }[] }>();
+    validTxs.forEach((tx: any) => {
+      if (!tx.checkoutId || !tx.customerId) return;
+      const date = new Date(tx.transactionDate || tx.checkout?.createdAt);
+      if (!visitsMap.has(tx.checkoutId)) {
+        visitsMap.set(tx.checkoutId, {
+          checkoutId: tx.checkoutId,
+          customerId: tx.customerId,
+          date,
+          items: []
+        });
+      }
+      if (tx.inventory) {
+        visitsMap.get(tx.checkoutId)!.items.push({
+          name: tx.inventory.name,
+          type: tx.inventory.type
+        });
+      }
+    });
 
-  const customerVisits = new Map<string, typeof visits>();
-  visits.forEach(v => {
-    if (!customerVisits.has(v.customerId)) {
-      customerVisits.set(v.customerId, []);
-    }
-    customerVisits.get(v.customerId)!.push(v);
-  });
+    const visits = Array.from(visitsMap.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const map = new Map<string, typeof visits>();
+    visits.forEach(v => {
+      if (!map.has(v.customerId)) {
+        map.set(v.customerId, []);
+      }
+      map.get(v.customerId)!.push(v);
+    });
+    return map;
+  }, [validTxs]);
 
   const totalCustomersCount = customerVisits.size;
   const returningCustomersCount = Array.from(customerVisits.values()).filter(vList => vList.length >= 2).length;
@@ -314,6 +323,30 @@ export default function Customers() {
 
   const activeCustomers = customers.filter(c => !c.isArchived);
   const archivedCustomers = customers.filter(c => c.isArchived);
+
+  // Lifetime spend per customer, deduped by checkout so a multi-item basket counts once.
+  const customerSpends = useMemo(() => {
+    const spends = new Map<string, number>();
+    const processedCheckouts = new Set<string>();
+    validTxs.forEach((tx: any) => {
+      if (!tx.customerId || !tx.checkout || !tx.checkout.id) return;
+      if (processedCheckouts.has(tx.checkout.id)) return;
+      processedCheckouts.add(tx.checkout.id);
+      const current = spends.get(tx.customerId) || 0;
+      spends.set(tx.customerId, current + (tx.checkout.totalPrice || 0));
+    });
+    return spends;
+  }, [validTxs]);
+
+  // Most recent visit date per customer, for follow-up triage.
+  const lastVisitedMap = useMemo(() => {
+    const map = new Map<string, string>();
+    customerVisits.forEach((vList, customerId) => {
+      const last = vList.at(-1);
+      if (last) map.set(customerId, last.date.toISOString());
+    });
+    return map;
+  }, [customerVisits]);
 
   const navigateToCustomerDetails = (customer: Customer) => {
     setLocation(`/customers/${buildSlug(customer.name, customer.id)}`);
@@ -464,6 +497,13 @@ export default function Customers() {
     }
   };
 
+  type CustomerRow = Customer & { totalSpend: number; lastVisited: string | null };
+
+  const formatDate = (date: string | Date | null) => {
+    if (!date) return "-";
+    return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric" }).format(new Date(date));
+  };
+
   const activeColumns = [
     ...(currentStore?.id === "all" ? [{
       key: "storeName",
@@ -506,6 +546,20 @@ export default function Customers() {
           <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0" />
           <span className="truncate">{customer.address || "-"}</span>
         </div>
+      ),
+    },
+    {
+      key: "totalSpend",
+      header: "Total Spend",
+      render: (customer: CustomerRow) => (
+        <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
+      ),
+    },
+    {
+      key: "lastVisited",
+      header: "Last Visited",
+      render: (customer: CustomerRow) => (
+        <span className="text-sm">{formatDate(customer.lastVisited)}</span>
       ),
     },
     {
@@ -582,6 +636,20 @@ export default function Customers() {
       ),
     },
     {
+      key: "totalSpend",
+      header: "Total Spend",
+      render: (customer: CustomerRow) => (
+        <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
+      ),
+    },
+    {
+      key: "lastVisited",
+      header: "Last Visited",
+      render: (customer: CustomerRow) => (
+        <span className="text-sm">{formatDate(customer.lastVisited)}</span>
+      ),
+    },
+    {
       key: "actions",
       header: "",
       className: "w-32",
@@ -625,6 +693,61 @@ export default function Customers() {
     { key: "address", header: "Address" },
   ];
 
+  const formatCurrency = (value: number) => formatCurrencyUtil(value, currentStore?.currency || "NGN");
+
+  type CustomerReportRow = {
+    name: string;
+    customerNumber: string;
+    mobileNumber: string;
+    address: string;
+    loyaltyPoints: number;
+    totalSpend: number;
+    updatedAt: Date;
+  };
+
+  // Tracks whichever tab's live search/filter result set is currently on screen, so
+  // "Export current view" can offer exactly that, separate from the always-full export.
+  const [visibleCustomerRows, setVisibleCustomerRows] = useState<Customer[]>([]);
+
+  const handleCustomersReportExport = (filtered = false) => {
+    const scoped = filtered ? visibleCustomerRows : (activeTab === "active" ? activeCustomers : archivedCustomers);
+    const pdfRows: CustomerReportRow[] = scoped.map((c) => ({
+      name: c.name,
+      customerNumber: c.customerNumber || "—",
+      mobileNumber: c.mobileNumber || "—",
+      address: c.address || "—",
+      loyaltyPoints: c.loyaltyPoints ?? 0,
+      totalSpend: customerSpends.get(c.id) || 0,
+      updatedAt: c.updatedAt,
+    }));
+
+    return exportReportToPDF<CustomerReportRow>({
+      filename: `customers-report_${activeTab}_${new Date().toISOString().slice(0, 10)}`,
+      title: `Customers Report (${activeTab === "active" ? "Active" : "Archived"})`,
+      businessName: business?.name ?? currentStore?.name ?? "Business",
+      storeName: currentStore?.name ?? "All Stores",
+      kpis: [
+        { label: "New This Month", value: String(newThisMonth), sub: `${acquisitionPercentChange >= 0 ? "+" : ""}${acquisitionPercentChange}% vs last month` },
+        { label: "Retention Rate", value: `${retentionRate}%`, sub: `${returningCustomersCount} of ${totalCustomersCount} active` },
+        { label: "Avg Days to Return", value: `${avgReturnDays} days` },
+        { label: "Top Loyalty Customer", value: topLoyaltyCustomerName, sub: `${topLoyaltyVisitCount} visits` },
+      ],
+      columns: [
+        { key: "name", header: "Name" },
+        { key: "customerNumber", header: "Customer #" },
+        { key: "mobileNumber", header: "Mobile" },
+        { key: "address", header: "Address" },
+        { key: "loyaltyPoints", header: "Loyalty Pts", align: "right" },
+        { key: "totalSpend", header: "Total Spend", align: "right", format: (r) => formatCurrency(r.totalSpend) },
+        { key: "updatedAt", header: "Last Updated", format: (r) => formatDate(r.updatedAt) },
+      ],
+      rows: pdfRows,
+      amountKey: "totalSpend",
+      formatAmount: formatCurrency,
+      unitLabel: "customers",
+    });
+  };
+
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -642,12 +765,15 @@ export default function Customers() {
         actions={
           <div className="flex items-center gap-2">
             <BulkOperations
-              entityType="customers"
+              entityConfig={CUSTOMER_BULK_CONFIG}
               data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
               columns={exportColumns}
               isLoading={isLoading}
               storeId={currentStore.id}
               pdfTitle={`Customers Report (${activeTab})`}
+              onExportPDF={() => handleCustomersReportExport()}
+              onExportFilteredPDF={() => handleCustomersReportExport(true)}
+              visibleData={visibleCustomerRows as unknown as Record<string, unknown>[]}
               showImportOption={user?.role !== "staff"}
             />
             {user?.role !== "staff" && (
@@ -673,35 +799,23 @@ export default function Customers() {
           </TabsTrigger>
         </TabsList>
         {(() => {
-          const customerSpends = (() => {
-            const spends = new Map<string, number>();
-            const processedCheckouts = new Set<string>();
-            
-            validTxs.forEach((tx: any) => {
-              if (!tx.customerId || !tx.checkout || !tx.checkout.id) return;
-              if (processedCheckouts.has(tx.checkout.id)) return;
-              processedCheckouts.add(tx.checkout.id);
-              
-              const current = spends.get(tx.customerId) || 0;
-              spends.set(tx.customerId, current + (tx.checkout.totalPrice || 0));
-            });
-            return spends;
-          })();
-
           const filterConfigs = [
             { key: "createdAt", label: "Date Added", type: "date-range" as const },
+            { key: "lastVisited", label: "Last Visited", type: "date-range" as const },
             { key: "totalSpend", label: "Total Spend", type: "range" as const, currencySymbol: currentStore?.currency === "USD" ? "$" : "₦" }
           ];
 
-          const activeTableData = activeCustomers.map((c) => ({
+          const activeTableData: CustomerRow[] = activeCustomers.map((c) => ({
             ...c,
             totalSpend: customerSpends.get(c.id) || 0,
+            lastVisited: lastVisitedMap.get(c.id) || null,
             createdAt: c.createdAt
           }));
 
-          const archivedTableData = archivedCustomers.map((c) => ({
+          const archivedTableData: CustomerRow[] = archivedCustomers.map((c) => ({
             ...c,
             totalSpend: customerSpends.get(c.id) || 0,
+            lastVisited: lastVisitedMap.get(c.id) || null,
             createdAt: c.createdAt
           }));
 
@@ -731,6 +845,7 @@ export default function Customers() {
                   emptyMessage="Add active profiles to start tracking their credit limits, transactions, and retention logs."
                   onRowClick={navigateToCustomerDetails}
                   filterConfigs={filterConfigs}
+                  onVisibleDataChange={setVisibleCustomerRows}
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
                   emptyAction={
@@ -778,6 +893,7 @@ export default function Customers() {
                   isLoading={isLoading}
                   emptyMessage="Archived or deleted customers will be filed here for compliance histories."
                   filterConfigs={filterConfigs}
+                  onVisibleDataChange={setVisibleCustomerRows}
                   emptyIcon={<Users className="h-6 w-6 opacity-40" />}
                   emptyTitle="No Archived Profiles"
                 />

@@ -27,6 +27,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { BulkOperations } from "@/components/bulk-operations";
+import { VENDOR_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import { exportReportToPDF } from "@/lib/export-utils";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Vendor, VendorBill } from "@shared/schema";
 
 type VendorWithStats = Vendor & {
@@ -46,8 +52,9 @@ const emptyForm = {
 };
 
 export default function VendorsPage() {
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
   const { user } = useAuth();
+  const isOwner = user?.role === "owner";
   const { toast } = useToast();
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
   const storeCurrency = currentStore?.currency || "NGN";
@@ -63,6 +70,9 @@ export default function VendorsPage() {
   const [billForm, setBillForm] = useState({ amount: "", dueDate: "", notes: "" });
   const [payAmount, setPayAmount] = useState("");
   const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [archivedSelectedIds, setArchivedSelectedIds] = useState<(string | number)[]>([]);
+  const [visibleVendorRows, setVisibleVendorRows] = useState<VendorWithStats[]>([]);
   const [, setLocation] = useLocation();
 
   // Fetch all vendors (active + archived) — client splits them
@@ -149,6 +159,69 @@ export default function VendorsPage() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const bulkArchiveMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id, batchId) => {
+        const res = await apiRequest("PATCH", `/api/vendors/${id}/archive`, {}, { "X-Batch-Id": batchId });
+        if (!res.ok) throw new Error("archive failed");
+        return "archived" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
+      setSelectedIds([]);
+      const archived = counts.archived ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${archived} vendor${archived !== 1 ? "s" : ""} archived` }
+          : { title: `${archived} archived, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk archive failed", variant: "destructive" }),
+  });
+
+  const bulkRestoreMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id, batchId) => {
+        const res = await apiRequest("PATCH", `/api/vendors/${id}/restore`, {}, { "X-Batch-Id": batchId });
+        if (!res.ok) throw new Error("restore failed");
+        return "restored" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
+      setArchivedSelectedIds([]);
+      const restored = counts.restored ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${restored} vendor${restored !== 1 ? "s" : ""} restored` }
+          : { title: `${restored} restored, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk restore failed", variant: "destructive" }),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id, batchId) => {
+        const res = await apiRequest("DELETE", `/api/vendors/${id}`, undefined, { "X-Batch-Id": batchId });
+        if (!res.ok) throw new Error("delete failed");
+        return "deleted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
+      setArchivedSelectedIds([]);
+      const deleted = counts.deleted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${deleted} vendor${deleted !== 1 ? "s" : ""} permanently deleted` }
+          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+  });
+
   const addBillMutation = useMutation({
     mutationFn: async () => {
       if (!billForm.amount || Number(billForm.amount) <= 0) throw new Error("Valid amount is required.");
@@ -198,6 +271,52 @@ export default function VendorsPage() {
   const totalOutstanding = vendorsWithStats.reduce((s, v) => s + (v.outstandingBalance ?? 0), 0);
   const unpaidBills = bills.filter((b) => b.status !== "paid").length;
 
+  const exportColumns = [
+    { key: "name", header: "Vendor" },
+    { key: "contactName", header: "Contact Name" },
+    { key: "phone", header: "Phone" },
+    { key: "email", header: "Email" },
+    { key: "address", header: "Address" },
+    { key: "totalBilled", header: "Total Billed" },
+    { key: "outstandingBalance", header: "Outstanding" },
+  ];
+
+  const handleVendorsReportExport = (filtered = false) => {
+    const rows = filtered
+      ? visibleVendorRows
+      : (activeTab === "active" ? vendorsWithStats : (archivedVendors as VendorWithStats[]));
+    const scopedVendorIds = filtered ? new Set(rows.map((v) => v.id)) : null;
+    const scopedBills = scopedVendorIds ? bills.filter((b) => scopedVendorIds.has(b.vendorId)) : bills;
+    return exportReportToPDF({
+      filename: `vendors-report_${activeTab}_${new Date().toISOString().slice(0, 10)}`,
+      title: `Vendors Report (${activeTab === "active" ? "Active" : "Archived"})`,
+      businessName: business?.name ?? currentStore.name,
+      storeName: currentStore.name,
+      kpis: [
+        { label: "Total Vendors", value: String(rows.length) },
+        { label: "Open Bills", value: String(scopedBills.filter((b) => b.status !== "paid").length) },
+        { label: "Total Outstanding", value: formatCurrency(rows.reduce((s, v) => s + (v.outstandingBalance ?? 0), 0)) },
+        { label: "Total Bills", value: String(scopedBills.length) },
+      ],
+      columns: [
+        { key: "name", header: "Vendor" },
+        { key: "contactName", header: "Contact" },
+        { key: "phone", header: "Phone" },
+        { key: "email", header: "Email" },
+        { key: "totalBilled", header: "Total Billed", align: "right" as const, format: (v: VendorWithStats) => formatCurrency(v.totalBilled ?? 0) },
+        { key: "outstandingBalance", header: "Outstanding", align: "right" as const, format: (v: VendorWithStats) => formatCurrency(v.outstandingBalance ?? 0) },
+      ],
+      rows,
+      amountKey: "outstandingBalance",
+      formatAmount: formatCurrency,
+      unitLabel: "vendors",
+    });
+  };
+
+  const vendorFilterConfigs: TableFilterConfig[] = [
+    { key: "outstandingBalance", label: "Outstanding Balance", type: "range", currencySymbol: storeCurrency === "USD" ? "$" : "₦" },
+  ];
+
   const vendorColumns = [
     { key: "name", header: "Vendor", render: (v: VendorWithStats) => (
       <button className="text-left" onClick={() => setSelectedVendorId(selectedVendorId === v.id ? null : v.id)}>
@@ -245,9 +364,12 @@ export default function VendorsPage() {
         <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => restoreMutation.mutate(v.id)} title="Restore vendor" disabled={restoreMutation.isPending}>
           <RotateCcw className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)} title="Permanently delete" disabled={deleteMutation.isPending}>
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        {/* Permanent delete matches the server's owner-only requireRole("owner") gate on DELETE /api/vendors/:id */}
+        {isOwner && (
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)} title="Permanently delete" disabled={deleteMutation.isPending}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
     )},
   ];
@@ -269,9 +391,25 @@ export default function VendorsPage() {
       <PageHeader
         title="Vendors"
         description="Manage your suppliers and track outstanding bills"
-        actions={isManagerOrOwner && (
-          <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />Add Vendor</Button>
-        )}
+        actions={
+          <div className="flex items-center gap-2">
+            <BulkOperations
+              entityConfig={VENDOR_BULK_CONFIG}
+              data={(activeTab === "active" ? vendorsWithStats : archivedVendors) as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              isLoading={isLoading}
+              storeId={currentStore.id}
+              pdfTitle={`Vendors Report (${activeTab})`}
+              onExportPDF={() => handleVendorsReportExport()}
+              onExportFilteredPDF={() => handleVendorsReportExport(true)}
+              visibleData={visibleVendorRows as unknown as Record<string, unknown>[]}
+              showImportOption={isManagerOrOwner}
+            />
+            {isManagerOrOwner && (
+              <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />Add Vendor</Button>
+            )}
+          </div>
+        }
       />
 
       {/* Summary cards */}
@@ -289,22 +427,76 @@ export default function VendorsPage() {
           <TabsTrigger value="archived">Archived ({archivedVendors.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="active" className="mt-4">
+        <TabsContent value="active" className="mt-4 space-y-3">
+          {isManagerOrOwner && (
+            <BulkSelectionActionBar
+              count={selectedIds.length}
+              unitLabel="vendor"
+              onClear={() => setSelectedIds([])}
+              actions={[
+                {
+                  key: "archive",
+                  label: "Archive Selected",
+                  pendingLabel: "Archiving…",
+                  icon: <Archive className="h-3.5 w-3.5" />,
+                  tone: "warning",
+                  pending: bulkArchiveMutation.isPending,
+                  onClick: () => bulkArchiveMutation.mutate(selectedIds as string[]),
+                },
+              ]}
+            />
+          )}
           <DataTable
             data={vendorsWithStats}
             columns={vendorColumns}
             searchable
             searchPlaceholder="Search vendors..."
             searchKeys={["name", "contactName", "email", "phone"]}
+            filterConfigs={vendorFilterConfigs}
             isLoading={isLoading}
             emptyTitle="No Vendors Yet"
             emptyMessage="Add your suppliers to start tracking bills and payments."
             emptyIcon={<Building2 className="h-6 w-6" />}
             emptyAction={isManagerOrOwner && <Button size="sm" className="gap-2" onClick={openCreate}><Plus className="h-4 w-4" />Add First Vendor</Button>}
+            multiselect={isManagerOrOwner}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            onVisibleDataChange={setVisibleVendorRows}
           />
         </TabsContent>
 
-        <TabsContent value="archived" className="mt-4">
+        <TabsContent value="archived" className="mt-4 space-y-3">
+          {isManagerOrOwner && (
+            <BulkSelectionActionBar
+              count={archivedSelectedIds.length}
+              unitLabel="vendor"
+              onClear={() => setArchivedSelectedIds([])}
+              actions={[
+                {
+                  key: "restore",
+                  label: "Restore Selected",
+                  pendingLabel: "Restoring…",
+                  icon: <RotateCcw className="h-3.5 w-3.5" />,
+                  pending: bulkRestoreMutation.isPending,
+                  onClick: () => bulkRestoreMutation.mutate(archivedSelectedIds as string[]),
+                },
+                // Permanent delete matches the server's owner-only requireRole("owner") gate.
+                ...(isOwner
+                  ? [
+                      {
+                        key: "delete",
+                        label: "Delete Selected",
+                        pendingLabel: "Deleting…",
+                        icon: <Trash2 className="h-3.5 w-3.5" />,
+                        tone: "destructive" as const,
+                        pending: bulkDeleteMutation.isPending,
+                        onClick: () => bulkDeleteMutation.mutate(archivedSelectedIds as string[]),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          )}
           <DataTable
             data={archivedVendors as VendorWithStats[]}
             columns={archivedVendorColumns}
@@ -315,6 +507,10 @@ export default function VendorsPage() {
             emptyTitle="No Archived Vendors"
             emptyMessage="Archived vendors appear here. Their bill history is preserved."
             emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
+            multiselect={isManagerOrOwner}
+            selectedIds={archivedSelectedIds}
+            onSelectedIdsChange={setArchivedSelectedIds}
+            onVisibleDataChange={(rows) => setVisibleVendorRows(rows as VendorWithStats[])}
           />
         </TabsContent>
       </Tabs>

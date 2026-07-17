@@ -20,9 +20,9 @@ services:
         sync: false
       - key: BUSINESS_NAME
         sync: false
-      - key: RESEND_API_KEY
+      - key: NODEMAILER_AUTH_USER
         sync: false
-      - key: EMAIL_FROM
+      - key: NODEMAILER_AUTH_PASS
         sync: false
 
   # Pings the app every 14 minutes to prevent Render free-tier spin-down

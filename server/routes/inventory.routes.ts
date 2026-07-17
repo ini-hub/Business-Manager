@@ -35,7 +35,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withInventoryId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
@@ -110,7 +110,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       }
 
       const item = await storage.createInventoryItem(data);
-      auditLogger.logDataModification("inventory", item.id, getUserId(req), "CREATE", true);
+      const ctx = await getAuditContext(req, { storeId: data.storeId });
+      auditLogger.logEvent(ctx, "CREATE", "inventory", item.id, "success", { newValues: item });
       broadcastChange(req, "inventory", data.storeId, "created");
       res.status(201).json(item);
     } catch (error) {
@@ -129,7 +130,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       if (!Array.isArray(items)) return res.status(400).json({ error: "Items must be an array." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const results = { success: 0, failed: 0, errors: [] as string[] };
+      const results = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
 
       const bulkItemSchema = z.object({
         name: z.string().transform(s => s.trim()).pipe(z.string().min(1, "Item name is required")),
@@ -139,7 +140,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         sellingPrice: z.preprocess((val) => (val === "" || val === undefined || val === null ? 0 : Number(val)), z.number().min(0).default(0)),
       });
 
-      for (const item of items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
         try {
           const data = bulkItemSchema.parse(item);
           const itemName = toTitleCase(sanitizeString(data.name));
@@ -150,7 +152,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             product = await storage.createProduct({ storeId, name: itemName, type: data.type });
           }
 
-          await storage.createInventoryItem({
+          const created = await storage.createInventoryItem({
             storeId,
             name: itemName,
             type: data.type,
@@ -160,16 +162,16 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             allowFractional: false,
             productId: product.id,
           });
+          auditLogger.logDataModification("inventory", created.id, getUserId(req), "CREATE", true);
           results.success++;
         } catch (err: any) {
           results.failed++;
           const nameLabel = item.name || "Unnamed Item";
           const errMsg = err instanceof z.ZodError ? formatZodErrors(err.errors) : err.message;
-          results.errors.push(`${nameLabel}: ${errMsg}`);
+          results.errors.push({ row: i + 2, message: `${nameLabel}: ${errMsg}` });
         }
       }
 
-      auditLogger.logDataModification("inventory", undefined, getUserId(req), "INVENTORY_BULK_IMPORT", true);
       res.json(results);
     } catch (error) {
       res.status(500).json({ error: "Bulk import failed." });
@@ -243,7 +245,15 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       if (!updatedItem) {
         return res.status(404).json({ error: "This item no longer exists. It may have been deleted." });
       }
-      auditLogger.logDataModification("inventory", req.params.id, getUserId(req), "INVENTORY_UPDATE", true);
+      const changedFields = Object.keys(data).filter((key) => JSON.stringify((item as any)[key]) !== JSON.stringify((updatedItem as any)[key]));
+      if (changedFields.length > 0) {
+        const ctx = await getAuditContext(req, { storeId: item.storeId });
+        auditLogger.logEvent(ctx, "INVENTORY_UPDATE", "inventory", req.params.id, "success", {
+          previousValues: item,
+          newValues: updatedItem,
+          changedFields,
+        });
+      }
       broadcastChange(req, "inventory", item.storeId, "updated");
       res.json(updatedItem);
     } catch (error) {
@@ -264,7 +274,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           return res.status(403).json({ error: "You don't have access to this item." });
         }
         await storage.deleteInventoryItem(id);
-        auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_ARCHIVE", true);
+        const ctx = await getAuditContext(req, { storeId: item.storeId });
+        auditLogger.logEvent(ctx, "INVENTORY_ARCHIVE", "inventory", id, "success", { previousValues: item });
         broadcastChange(req, "inventory", item.storeId, "archived");
         return res.status(204).send();
       }
@@ -274,7 +285,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         return res.status(403).json({ error: "You don't have access to this item." });
       }
       await storage.deleteProduct(id);
-      auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_ARCHIVE", true);
+      const ctx = await getAuditContext(req, { storeId: product.storeId });
+      auditLogger.logEvent(ctx, "INVENTORY_ARCHIVE", "inventory", id, "success", { previousValues: product });
       broadcastChange(req, "inventory", product.storeId, "archived");
       return res.status(204).send();
     } catch (error) {
@@ -300,7 +312,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         }
         const deleted = await storage.deleteInventoryItem(id);
         if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
-        auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_DELETE", true);
+        const ctx = await getAuditContext(req, { storeId: item.storeId });
+        auditLogger.logEvent(ctx, "INVENTORY_DELETE", "inventory", id, "success", { previousValues: item });
         broadcastChange(req, "inventory", item.storeId, "deleted");
         return res.status(204).send();
       }
@@ -323,7 +336,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       }
       const deleted = await storage.deleteProduct(id);
       if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
-      auditLogger.logDataModification("inventory", id, getUserId(req), "INVENTORY_DELETE", true);
+      const ctx = await getAuditContext(req, { storeId: product.storeId });
+      auditLogger.logEvent(ctx, "INVENTORY_DELETE", "inventory", id, "success", { previousValues: product });
       broadcastChange(req, "inventory", product.storeId, "deleted");
       return res.status(204).send();
     } catch (error) {
@@ -377,7 +391,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           parentProductIdMap.set(row.name.trim().toLowerCase(), product.id);
 
           // 1b. Create the inventory (stock) record linked to the product
-          await storage.createInventoryItem(insertInventorySchema.parse({
+          const created = await storage.createInventoryItem(insertInventorySchema.parse({
             storeId,
             name: itemName,
             type: itemType,
@@ -386,6 +400,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             quantity: itemType === "product" ? (parseInt(row.quantity) || 0) : 0,
             productId: product.id,
           }));
+          auditLogger.logDataModification("inventory", created.id, getUserId(req), "CREATE", true);
           result.success++;
         } catch (error) {
           result.failed++;
@@ -420,7 +435,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           const variantType = (parentProduct?.type ?? row.type?.toLowerCase() ?? "product") as "product" | "service";
 
           const variantName = toTitleCase(sanitizeString(row.name));
-          await storage.createInventoryItem(insertInventorySchema.parse({
+          const created = await storage.createInventoryItem(insertInventorySchema.parse({
             storeId,
             name: variantName,
             type: variantType,
@@ -431,6 +446,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             productId: parentProductId,
             variantDimensions: Object.keys(variantDimensions).length ? variantDimensions : undefined,
           }));
+          auditLogger.logDataModification("inventory", created.id, getUserId(req), "CREATE", true);
           result.success++;
         } catch (error) {
           result.failed++;
@@ -438,7 +454,6 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         }
       }
 
-      auditLogger.logDataModification("inventory", undefined, getUserId(req), "INVENTORY_BULK_UPDATE", true);
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "We couldn't import your inventory. Please try again." });

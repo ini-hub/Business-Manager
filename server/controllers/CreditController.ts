@@ -4,12 +4,14 @@ import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import { creditEntries } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { bulkUploadService } from "../services/BulkUploadService";
 
 export class CreditController extends BaseController {
   public register(router: Router): void {
     router.get("/credit/summary", isAuthenticated, this.getCreditSummary.bind(this));
     router.get("/credit/ledger", isAuthenticated, this.getCreditLedger.bind(this));
     router.post("/credit/entries", isAuthenticated, this.createCreditEntry.bind(this));
+    router.post("/credit/entries/bulk", isAuthenticated, this.bulkImportCreditEntries.bind(this));
     router.post("/credit/entries/:id/repayments", isAuthenticated, this.createRepayment.bind(this));
     router.get("/credit/entries/:id/repayments", isAuthenticated, this.getRepayments.bind(this));
     router.post("/credit/entries/:id/reminders", isAuthenticated, this.sendReminder.bind(this));
@@ -153,6 +155,23 @@ export class CreditController extends BaseController {
     } catch (e) {
       console.error("Create credit entry controller error:", e);
       return this.error(res, "Could not create credit entry. Please try again.");
+    }
+  }
+
+  private async bulkImportCreditEntries(req: Request, res: Response): Promise<Response> {
+    try {
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return this.badRequest(res, "storeId and a data array are required.");
+      }
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importCreditEntries(data, storeId, userId);
+      return this.ok(res, result);
+    } catch (e) {
+      console.error("Bulk import credit entries controller error:", e);
+      return this.error(res, "Could not import credit entries. Please try again.");
     }
   }
 

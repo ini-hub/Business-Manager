@@ -84,7 +84,11 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
   app.patch("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
     try {
-      await storage.markNotificationAsRead(req.params.id);
+      const userId = (req as any).user.id;
+      const updated = await storage.markNotificationAsRead(req.params.id, userId);
+      if (!updated) {
+        return res.status(404).json({ error: "Notification not found." });
+      }
       res.json({ success: true });
     } catch (error) {
       console.error("Error marking notification as read:", error);
@@ -255,7 +259,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
-      const results = await bulkUploadService.importExpenses(rawExpenses, storeId);
+      const results = await bulkUploadService.importExpenses(rawExpenses, storeId, getUserId(req));
       res.json(results);
     } catch (error) {
       res.status(500).json({ error: "Bulk expense import failed." });

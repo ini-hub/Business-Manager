@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BaseController } from "./BaseController";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
+import { bulkUploadService } from "../services/BulkUploadService";
 
 const bookingItemSchema = z.object({
   inventoryId: z.string().uuid("Valid inventory ID is required"),
@@ -58,8 +59,10 @@ function parseCsvQueryParam(value?: string): string[] | undefined {
 export class BookingController extends BaseController {
   public register(router: Router): void {
     router.get("/bookings", isAuthenticated, this.getBookings.bind(this));
+    router.get("/bookings/summary", isAuthenticated, this.getBookingsSummary.bind(this));
     router.get("/bookings/:id", isAuthenticated, this.getBooking.bind(this));
     router.post("/bookings", isAuthenticated, this.createBooking.bind(this));
+    router.post("/bookings/bulk", isAuthenticated, this.bulkImportBookings.bind(this));
     router.patch("/bookings/:id", isAuthenticated, this.updateBooking.bind(this));
     router.patch("/bookings/:id/status", isAuthenticated, this.updateBookingStatus.bind(this));
     router.patch("/bookings/:id/reschedule", isAuthenticated, this.rescheduleBooking.bind(this));
@@ -104,6 +107,38 @@ export class BookingController extends BaseController {
       });
     } catch (error) {
       return this.error(res, "Unable to fetch bookings. Please try again.");
+    }
+  }
+
+  private async getBookingsSummary(req: Request, res: Response): Promise<Response> {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) {
+        return this.badRequest(res, "Please provide a store ID.");
+      }
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
+
+      const groupBy = req.query.groupBy === "month" ? "month" : "day";
+      const filters = {
+        status: parseCsvQueryParam(req.query.status as string),
+        type: parseCsvQueryParam(req.query.type as string),
+        startDate: req.query.startDate as string | undefined,
+        endDate: req.query.endDate as string | undefined,
+      };
+
+      const user = (req as any).user;
+      if (user?.role === "staff") {
+        const staffId = user.staffId as string | undefined;
+        if (!staffId) {
+          return this.forbidden(res, "Staff access requires a linked staff record.");
+        }
+        Object.assign(filters, { staffId });
+      }
+
+      const summary = await storage.getBookingsSummary(storeId, groupBy, filters);
+      return this.ok(res, summary);
+    } catch (error) {
+      return this.error(res, "Unable to fetch booking summary. Please try again.");
     }
   }
 
@@ -163,6 +198,26 @@ export class BookingController extends BaseController {
         return this.badRequest(res, error.errors.map((err) => err.message).join(". "));
       }
       return this.error(res, "Unable to create booking. Please try again. " + String(error) + (error instanceof Error ? " - " + error.message : ""));
+    }
+  }
+
+  private async bulkImportBookings(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!userHasManagerAccess(req)) {
+        return this.forbidden(res, "Only managers and owners can import bookings.");
+      }
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return this.badRequest(res, "storeId and a data array are required.");
+      }
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importBookings(data, storeId, userId);
+      return this.ok(res, result);
+    } catch (error) {
+      console.error("Bulk import bookings controller error:", error);
+      return this.error(res, "Could not import bookings. Please try again.");
     }
   }
 

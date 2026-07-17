@@ -38,7 +38,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withExpenseId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
@@ -208,7 +208,13 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
       const userId = (req as any).user?.id;
       const updated = await storage.updatePayrollPeriodStatus(req.params.id, "approved", userId);
-      auditLogger.log({ action: "PAYROLL_PERIOD_APPROVE", resource: "payroll_period", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id } });
+      if (!updated) return res.status(404).json({ error: "Payroll period not found." });
+      const ctx = await getAuditContext(req, { storeId: period.storeId });
+      auditLogger.logEvent(ctx, "PAYROLL_PERIOD_APPROVE", "payroll_period", req.params.id, "success", {
+        previousValues: { status: period.status },
+        newValues: { status: updated.status, approvedByUserId: updated.approvedByUserId, approvedAt: updated.approvedAt },
+        changedFields: ["status", "approvedByUserId", "approvedAt"],
+      });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not approve payroll period." });
@@ -421,9 +427,49 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const userId = (req as any).user?.id;
       const advance = await storage.createSalaryAdvance({ storeId, staffId, amount: Number(amount), date, notes: notes || null, givenByUserId: userId });
-      auditLogger.log({ action: "SALARY_ADVANCE_CREATE", resource: "salary_advance", resourceId: advance.id, userId, ip: getClientIp(req), status: "success", details: { storeId, staffId, amount, date } });
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "SALARY_ADVANCE_CREATE", "salary_advance", advance.id, "success", { newValues: advance });
       res.status(201).json(advance);
     } catch (e) { res.status(500).json({ error: "Could not create salary advance." }); }
+  });
+
+  // Approve a pending advance — approver identity is kept distinct from the
+  // requester (givenByUserId) so the audit trail shows both actors.
+  app.post("/api/payroll/advances/:id/approve", requireManagerOrOwner, async (req, res) => {
+    try {
+      const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
+      if (!adv) return res.status(404).json({ error: "Advance not found." });
+      if (!(await checkStoreAccess(adv.storeId, req, res))) return;
+      if (adv.status !== "pending") return res.status(400).json({ error: `Advance is already ${adv.status}.` });
+      const userId = (req as any).user?.id;
+      const advance = await storage.updateSalaryAdvanceStatus(req.params.id, "approved", userId);
+      const ctx = await getAuditContext(req, { storeId: adv.storeId });
+      auditLogger.logEvent(ctx, "SALARY_ADVANCE_APPROVE", "salary_advance", req.params.id, "success", {
+        previousValues: { status: adv.status },
+        newValues: { status: advance.status, approvedByUserId: advance.approvedByUserId, approvedAt: advance.approvedAt },
+        changedFields: ["status", "approvedByUserId", "approvedAt"],
+      });
+      res.json(advance);
+    } catch (e) { res.status(500).json({ error: "Could not approve advance." }); }
+  });
+
+  app.post("/api/payroll/advances/:id/reject", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
+      if (!adv) return res.status(404).json({ error: "Advance not found." });
+      if (!(await checkStoreAccess(adv.storeId, req, res))) return;
+      if (adv.status !== "pending") return res.status(400).json({ error: `Advance is already ${adv.status}.` });
+      const userId = (req as any).user?.id;
+      const advance = await storage.updateSalaryAdvanceStatus(req.params.id, "rejected", userId, reason);
+      const ctx = await getAuditContext(req, { storeId: adv.storeId });
+      auditLogger.logEvent(ctx, "SALARY_ADVANCE_REJECT", "salary_advance", req.params.id, "success", {
+        previousValues: { status: adv.status },
+        newValues: { status: advance.status, approvedByUserId: advance.approvedByUserId, rejectionReason: advance.rejectionReason },
+        changedFields: ["status", "approvedByUserId", "rejectionReason"],
+      });
+      res.json(advance);
+    } catch (e) { res.status(500).json({ error: "Could not reject advance." }); }
   });
 
   app.post("/api/payroll/advances/:id/recover", requireManagerOrOwner, async (req, res) => {
@@ -433,9 +479,14 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
       if (!adv) return res.status(404).json({ error: "Advance not found." });
       if (!(await checkStoreAccess(adv.storeId, req, res))) return;
-      const userId = (req as any).user?.id;
+      if (adv.status !== "approved") return res.status(400).json({ error: "Only approved advances can be recovered." });
       const advance = await storage.markAdvanceRecovered(req.params.id, periodId);
-      auditLogger.log({ action: "SALARY_ADVANCE_RECOVER", resource: "salary_advance", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { advanceId: req.params.id, periodId } });
+      const ctx = await getAuditContext(req, { storeId: adv.storeId });
+      auditLogger.logEvent(ctx, "SALARY_ADVANCE_RECOVER", "salary_advance", req.params.id, "success", {
+        previousValues: { isRecovered: adv.isRecovered, recoveredPeriodId: adv.recoveredPeriodId },
+        newValues: { isRecovered: advance.isRecovered, recoveredPeriodId: advance.recoveredPeriodId },
+        changedFields: ["isRecovered", "recoveredPeriodId"],
+      });
       res.json(advance);
     } catch (e) { res.status(500).json({ error: "Could not mark advance as recovered." }); }
   });
@@ -445,9 +496,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
       if (!adv) return res.status(404).json({ error: "Advance not found." });
       if (!(await checkStoreAccess(adv.storeId, req, res))) return;
-      const userId = (req as any).user?.id;
       await storage.deleteSalaryAdvance(req.params.id);
-      auditLogger.log({ action: "SALARY_ADVANCE_DELETE", resource: "salary_advance", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { advanceId: req.params.id } });
+      const ctx = await getAuditContext(req, { storeId: adv.storeId });
+      auditLogger.logEvent(ctx, "SALARY_ADVANCE_DELETE", "salary_advance", req.params.id, "success", { previousValues: adv });
       res.status(204).end();
     } catch (e) { res.status(500).json({ error: "Could not delete advance." }); }
   });
@@ -614,7 +665,6 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         : undefined;
       const allocationDriver: string | undefined = req.body.allocationDriver ?? undefined;
 
-      const userId = (req as any).user?.id;
       const expense = await storage.createExpense({
         ...data,
         inventoryId: data.inventoryId === "none" ? null : (data.inventoryId || null),
@@ -623,7 +673,8 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         linkedProductIds,
         allocationDriver,
       });
-      auditLogger.log({ action: "EXPENSE_CREATE", resource: "expense", resourceId: expense.id, userId, ip: getClientIp(req), status: "success", details: { storeId: data.storeId, categoryId: data.categoryId, amount: data.amount, title: data.title } });
+      const ctx = await getAuditContext(req, { storeId: data.storeId });
+      auditLogger.logEvent(ctx, "EXPENSE_CREATE", "expense", expense.id, "success", { newValues: expense });
       broadcastChange(req, "expense", data.storeId, "created");
       res.status(201).json(expense);
     } catch (error) {
@@ -674,7 +725,6 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         : undefined;
       const allocationDriver: string | undefined = req.body.allocationDriver ?? undefined;
 
-      const userId = (req as any).user?.id;
       const expense = await storage.updateExpense(req.params.id, {
         ...data,
         inventoryId: data.inventoryId === "none" ? null : (data.inventoryId || undefined),
@@ -682,7 +732,15 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         linkedProductIds,
         allocationDriver,
       });
-      auditLogger.log({ action: "EXPENSE_UPDATE", resource: "expense", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { expenseId: req.params.id } });
+      const changedFields = Object.keys(data).filter((key) => JSON.stringify((existing as any)[key]) !== JSON.stringify((expense as any)[key]));
+      if (changedFields.length > 0) {
+        const ctx = await getAuditContext(req, { storeId: existing.storeId });
+        auditLogger.logEvent(ctx, "EXPENSE_UPDATE", "expense", req.params.id, "success", {
+          previousValues: existing,
+          newValues: expense,
+          changedFields,
+        });
+      }
       broadcastChange(req, "expense", existing.storeId, "updated");
       res.json(expense);
     } catch (error) {
@@ -695,9 +753,10 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
 
   app.delete("/api/expenses/:id", withExpenseId, requireRole("owner"), async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
+      const [existing] = await db.select().from(expenses).where(eq(expenses.id, req.params.id));
       await storage.deleteExpense(req.params.id);
-      auditLogger.log({ action: "EXPENSE_DELETE", resource: "expense", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { expenseId: req.params.id } });
+      const ctx = await getAuditContext(req, { storeId: existing?.storeId });
+      auditLogger.logEvent(ctx, "EXPENSE_DELETE", "expense", req.params.id, "success", { previousValues: existing });
       broadcastChange(req, "expense", undefined, "deleted");
       res.status(204).end();
     } catch (error) {

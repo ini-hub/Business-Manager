@@ -3,19 +3,19 @@ import { db } from "../db";
 import { pendingEmails } from "@shared/schema";
 import { eq, and, lte } from "drizzle-orm";
 
-const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
-const EMAIL_FROM = (process.env.EMAIL_FROM || "").trim();
+const GMAIL_USER = (process.env.NODEMAILER_AUTH_USER || "").trim();
+// Google App Passwords are shown as "xxxx xxxx xxxx xxxx" — strip whitespace
+// so a copy-paste from the Google settings page still authenticates.
+const GMAIL_APP_PASSWORD = (process.env.NODEMAILER_AUTH_PASS || "").replace(/\s+/g, "");
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
 
-if (!RESEND_API_KEY || !EMAIL_FROM) {
-  console.warn("[EmailQueue] WARNING: RESEND_API_KEY or EMAIL_FROM is not set. Emails will not be sent.");
+if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+  console.warn("[EmailQueue] WARNING: NODEMAILER_AUTH_USER or NODEMAILER_AUTH_PASS is not set. Emails will not be sent.");
 }
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.resend.com",
-  port: 465,
-  secure: true,
-  auth: { user: "resend", pass: RESEND_API_KEY },
+  service: "gmail",
+  auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
 });
 
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
@@ -24,7 +24,7 @@ const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 let flushing = false;
 
 async function flush(): Promise<void> {
-  if (flushing || !RESEND_API_KEY || !EMAIL_FROM) return;
+  if (flushing || !GMAIL_USER || !GMAIL_APP_PASSWORD) return;
   flushing = true;
 
   try {
@@ -36,7 +36,7 @@ async function flush(): Promise<void> {
     for (const item of due) {
       try {
         await transporter.sendMail({
-          from: `"${BUSINESS_NAME}" <${EMAIL_FROM}>`,
+          from: `"${BUSINESS_NAME}" <${GMAIL_USER}>`,
           to: item.to,
           subject: item.subject,
           html: item.html,

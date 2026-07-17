@@ -11,6 +11,8 @@ import {
 } from "@shared/schema";
 import { eq, and, or, inArray, gte, lte, lt, isNull, count, desc, sql } from "drizzle-orm";
 import type { PaginationOptions, PaginatedResult } from "../storage";
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 
 export class BookingRepository {
   async getBookings(storeId: string): Promise<Booking[]> {
@@ -85,6 +87,61 @@ export class BookingRepository {
       data,
       pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
     };
+  }
+
+  async getBookingsSummary(
+    storeId: string,
+    groupBy: "day" | "month",
+    filters: {
+      status?: string[];
+      type?: string[];
+      staffId?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}
+  ): Promise<{ buckets: Array<{ bucket: string; count: number; revenue: number }>; total: { count: number; revenue: number } }> {
+    const tz = await getStoreTimezone(storeId);
+    const conditions: any[] = [eq(bookings.storeId, storeId)];
+
+    if (filters.status?.length) {
+      conditions.push(inArray(bookings.status, filters.status));
+    }
+    if (filters.type?.length) {
+      conditions.push(inArray(bookings.type, filters.type));
+    }
+    if (filters.staffId) {
+      const staffId = filters.staffId;
+      conditions.push(or(eq(bookings.leadStaffId, staffId), eq(bookings.assistingStaffId, staffId)));
+    }
+    if (filters.startDate) conditions.push(gte(bookings.scheduledAt, toUtcStart(filters.startDate, tz)));
+    if (filters.endDate)   conditions.push(lte(bookings.scheduledAt, toUtcEnd(filters.endDate,   tz)));
+
+    const rows = await db
+      .select({ scheduledAt: bookings.scheduledAt, totalPrice: bookings.totalPrice })
+      .from(bookings)
+      .where(and(...conditions));
+
+    const bucketMap = new Map<string, { count: number; revenue: number }>();
+    let totalCount = 0;
+    let totalRevenue = 0;
+
+    for (const row of rows) {
+      const zoned = toZonedTime(row.scheduledAt, tz);
+      const key = format(zoned, groupBy === "month" ? "yyyy-MM" : "yyyy-MM-dd");
+      const revenue = Number(row.totalPrice ?? 0);
+      const bucket = bucketMap.get(key) ?? { count: 0, revenue: 0 };
+      bucket.count += 1;
+      bucket.revenue += revenue;
+      bucketMap.set(key, bucket);
+      totalCount += 1;
+      totalRevenue += revenue;
+    }
+
+    const buckets = Array.from(bucketMap.entries())
+      .map(([bucket, v]) => ({ bucket, count: v.count, revenue: v.revenue }))
+      .sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+    return { buckets, total: { count: totalCount, revenue: totalRevenue } };
   }
 
   async getBooking(id: string): Promise<Booking | undefined> {

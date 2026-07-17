@@ -6,8 +6,8 @@ export class NotificationService {
     return await storage.getNotifications(userId);
   }
 
-  public async markAsRead(id: string): Promise<void> {
-    await storage.markNotificationAsRead(id);
+  public async markAsRead(id: string, userId: string): Promise<boolean> {
+    return await storage.markNotificationAsRead(id, userId);
   }
 
   public async markAllAsRead(userId: string): Promise<void> {

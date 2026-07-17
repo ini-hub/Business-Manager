@@ -34,7 +34,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withVendorId, withVendorBillId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
@@ -69,7 +69,6 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const userId = (req as any).user?.id;
       const result = await storage.vendorRepo.createVendor({
         storeId,
         name,
@@ -79,11 +78,30 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         address,
         notes,
       });
-      auditLogger.log({ action: "VENDOR_CREATE", resource: "vendor", resourceId: result.id, userId, ip: getClientIp(req), status: "success", details: { storeId, name } });
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "VENDOR_CREATE", "vendor", result.id, "success", { newValues: result });
       broadcastChange(req, "vendor", storeId, "created");
       res.status(201).json(result);
     } catch (error) {
       res.status(500).json({ error: "Could not create vendor." });
+    }
+  });
+
+  // Bulk import vendors
+  app.post("/api/vendors/bulk", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return res.status(400).json({ error: "storeId and a data array are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importVendors(data, storeId, userId);
+      broadcastChange(req, "vendor", storeId, "created");
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not import vendors." });
     }
   });
 
@@ -207,7 +225,6 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const { name, contactName, email, phone, address, notes } = req.body;
       if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
 
-      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.updateVendor(req.params.id, {
         name,
         contactName,
@@ -216,7 +233,15 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         address,
         notes,
       });
-      auditLogger.log({ action: "VENDOR_UPDATE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id, name } });
+      const changedFields = Object.keys(req.body).filter((key) => key in vendor && JSON.stringify((vendor as any)[key]) !== JSON.stringify((updated as any)[key]));
+      if (changedFields.length > 0) {
+        const ctx = await getAuditContext(req, { storeId: vendor.storeId });
+        auditLogger.logEvent(ctx, "VENDOR_UPDATE", "vendor", req.params.id, "success", {
+          previousValues: vendor,
+          newValues: updated,
+          changedFields,
+        });
+      }
       broadcastChange(req, "vendor", vendor.storeId, "updated");
       res.json(updated);
     } catch (error) {
@@ -230,9 +255,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.archiveVendor(req.params.id);
-      auditLogger.log({ action: "VENDOR_ARCHIVE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id } });
+      const ctx = await getAuditContext(req, { storeId: vendor.storeId });
+      auditLogger.logEvent(ctx, "VENDOR_ARCHIVE", "vendor", req.params.id, "success", { previousValues: vendor, newValues: updated });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not archive vendor." });
@@ -245,9 +270,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-      const userId = (req as any).user?.id;
       const updated = await storage.vendorRepo.restoreVendor(req.params.id);
-      auditLogger.log({ action: "VENDOR_RESTORE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id } });
+      const ctx = await getAuditContext(req, { storeId: vendor.storeId });
+      auditLogger.logEvent(ctx, "VENDOR_RESTORE", "vendor", req.params.id, "success", { previousValues: vendor, newValues: updated });
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not restore vendor." });
@@ -267,9 +292,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         return res.status(409).json({ error: conflict });
       }
 
-      const userId = (req as any).user?.id;
       await storage.vendorRepo.deleteVendor(req.params.id);
-      auditLogger.log({ action: "VENDOR_DELETE", resource: "vendor", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { vendorId: req.params.id } });
+      const ctx = await getAuditContext(req, { storeId: vendor.storeId });
+      auditLogger.logEvent(ctx, "VENDOR_DELETE", "vendor", req.params.id, "success", { previousValues: vendor });
       broadcastChange(req, "vendor", vendor.storeId, "deleted");
       res.status(204).end();
     } catch (error) {
@@ -435,6 +460,24 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
+  // Bulk import quotes (grouped CSV rows: rows sharing a quoteRef become one quote)
+  app.post("/api/quotes/bulk", isAuthenticated, async (req, res) => {
+    try {
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return res.status(400).json({ error: "storeId and a data array are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importQuotes(data, storeId, userId);
+      broadcastChange(req, "quote", storeId, "created");
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not import quotes." });
+    }
+  });
+
   // Update quote status
   app.patch("/api/quotes/:id/status", isAuthenticated, async (req, res) => {
     try {
@@ -525,6 +568,24 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message || "Could not create purchase order." });
+    }
+  });
+
+  // Bulk import purchase orders (grouped CSV rows: rows sharing a poRef become one PO)
+  app.post("/api/purchase-orders/bulk", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return res.status(400).json({ error: "storeId and a data array are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importPurchaseOrders(data, storeId, userId);
+      broadcastChange(req, "purchase-order", storeId, "created");
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not import purchase orders." });
     }
   });
 
@@ -656,6 +717,25 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
+  // Bulk import stock transfers (grouped CSV rows: rows sharing a transferRef become one transfer)
+  app.post("/api/stock-transfers/bulk", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return res.status(400).json({ error: "storeId and a data array are required." });
+      }
+      // fromStoreId is always the caller's authorized storeId — never trust a CSV column for it.
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importStockTransfers(data, storeId, userId);
+      broadcastChange(req, "stock-transfer", storeId, "created");
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not import stock transfers." });
+    }
+  });
+
   // Update status (approvals / completion)
   app.patch("/api/stock-transfers/:id/status", requireManagerOrOwner, async (req, res) => {
     try {
@@ -744,6 +824,23 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       res.status(201).json(created);
     } catch (error) {
       res.status(500).json({ error: "Could not create tax rate." });
+    }
+  });
+
+  // Bulk import tax rates
+  app.post("/api/tax-rates/bulk", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { data, storeId } = req.body;
+      if (!storeId || !Array.isArray(data)) {
+        return res.status(400).json({ error: "storeId and a data array are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await bulkUploadService.importTaxRates(data, storeId, userId);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not import tax rates." });
     }
   });
 

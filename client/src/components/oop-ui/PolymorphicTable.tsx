@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Table,
   TableBody,
@@ -100,6 +100,11 @@ export interface PolymorphicTableProps<T> {
   emptyIcon?: React.ReactNode;
   emptyAction?: React.ReactNode;
   emptyTitle?: string;
+
+  // Fires whenever the live search/filter/sort result set changes (the full matched set,
+  // not just the current page) — lets a parent page offer "export what I'm currently
+  // looking at" alongside its normal full-dataset export.
+  onVisibleDataChange?: (rows: T[]) => void;
 }
 
 interface DropdownFilterProps {
@@ -407,6 +412,8 @@ export function PolymorphicTable<T extends { id: string | number }>({
   emptyIcon,
   emptyAction,
   emptyTitle = "No Records Available",
+
+  onVisibleDataChange,
 }: PolymorphicTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -462,7 +469,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   const hasActiveFilters = Object.keys(activeFilters).length > 0;
 
   // Filter & Search Logic
-  const filteredData = data.filter((item) => {
+  const filteredData = useMemo(() => data.filter((item) => {
     // 1. Global Search
     if (searchable && searchTerm && searchKeys.length > 0) {
       const matchesGlobal = searchKeys.some((keyPath) => {
@@ -491,10 +498,10 @@ export function PolymorphicTable<T extends { id: string | number }>({
       if (type === "select") {
         const selectedOptions = filterValue as string[];
         if (selectedOptions.length > 0) {
-          const mappedItemVal = config.valueMapper 
+          const mappedItemVal = config.valueMapper
             ? config.valueMapper(itemValue)
             : (itemValue !== undefined && itemValue !== null ? String(itemValue) : "");
-            
+
           const matches = selectedOptions.some(
             (opt) => opt.toLowerCase() === mappedItemVal.toLowerCase()
           );
@@ -523,9 +530,9 @@ export function PolymorphicTable<T extends { id: string | number }>({
     }
 
     return true;
-  });
+  }), [data, searchable, searchTerm, searchKeys, filterConfigs, activeFilters]);
 
-  const sortedData = [...filteredData].sort((a, b) => {
+  const sortedData = useMemo(() => [...filteredData].sort((a, b) => {
     if (!sortColumn || !sortDirection) return 0;
 
     let valA = getNestedValue(a, sortColumn);
@@ -547,7 +554,24 @@ export function PolymorphicTable<T extends { id: string | number }>({
     const strA = String(valA);
     const strB = String(valB);
     return sortDirection === "asc" ? strA.localeCompare(strB) : strB.localeCompare(strA);
-  });
+  }), [filteredData, sortColumn, sortDirection]);
+
+  // `sortedData` gets a new array/row identity on every render whenever a caller passes
+  // inline `filterConfigs`/`searchKeys` literals or rebuilds `data` via `.map(...)` in the
+  // render body (most do) — reference equality alone can't detect "nothing really changed"
+  // in that case. Compare by value instead, so `onVisibleDataChange` (and any setState it
+  // drives in the parent) only fires when the actual visible rows change, not on every
+  // render — otherwise that setState would re-trigger this same render path forever.
+  const lastEmittedSignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onVisibleDataChange) return;
+    const signature = JSON.stringify(sortedData);
+    if (signature !== lastEmittedSignatureRef.current) {
+      lastEmittedSignatureRef.current = signature;
+      onVisibleDataChange(sortedData);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedData]);
 
   const totalPages = Math.ceil(sortedData.length / pageSizeState);
   const startIndex = (currentPage - 1) * pageSizeState;

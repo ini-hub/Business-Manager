@@ -1,10 +1,60 @@
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, sql, or } from "drizzle-orm";
+import { eq, and, gte, lte, gt, sql, or, inArray } from "drizzle-orm";
 import { checkouts, orders, creditEntries, repayments } from "@shared/schema";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 
 export class AnalyticsService {
+  /**
+   * Total realized loss on credit entries written off in the given date range,
+   * net of any repayments received before write-off. Batches the repayment
+   * lookup across all written-off entries instead of querying per-entry.
+   */
+  private async getWrittenOffBadDebtTotal(
+    storeId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<number> {
+    const tz = await getStoreTimezone(storeId);
+    const writtenOffEntries = await db
+      .select({
+        id: creditEntries.id,
+        amountOwed: creditEntries.amountOwed,
+        amountPaidUpfront: creditEntries.amountPaidUpfront,
+      })
+      .from(creditEntries)
+      .where(
+        and(
+          eq(creditEntries.storeId, storeId),
+          eq(creditEntries.status, "written_off"),
+          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz)) : sql`true`,
+          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz)) : sql`true`
+        )
+      );
+
+    if (writtenOffEntries.length === 0) return 0;
+
+    const entryIds = writtenOffEntries.map((e) => e.id);
+    const repaymentTotals = await db
+      .select({
+        creditEntryId: repayments.creditEntryId,
+        total: sql<number>`sum(${repayments.amountReceived})`,
+      })
+      .from(repayments)
+      .where(inArray(repayments.creditEntryId, entryIds))
+      .groupBy(repayments.creditEntryId);
+
+    const repaidByEntry = new Map(
+      repaymentTotals.map((r) => [r.creditEntryId, parseFloat(String(r.total || 0))])
+    );
+
+    return writtenOffEntries.reduce((total, entry) => {
+      const repaid = repaidByEntry.get(entry.id) || 0;
+      const originalOwed = entry.amountOwed - entry.amountPaidUpfront;
+      return total + Math.max(0, originalOwed - repaid);
+    }, 0);
+  }
+
   /**
    * Computes P&L summary metrics
    */
@@ -27,51 +77,7 @@ export class AnalyticsService {
 
     const expenseList = await storage.getExpenses(storeId, startDate, endDate, "general");
 
-    const tz = await getStoreTimezone(storeId);
-    const [badDebtRow] = await db
-      .select({
-        total: sql<number>`sum(${creditEntries.outstandingBalance})`,
-      })
-      .from(creditEntries)
-      .where(
-        and(
-          eq(creditEntries.storeId, storeId),
-          eq(creditEntries.status, "written_off"),
-          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz)) : sql`true`,
-          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz)) : sql`true`
-        )
-      );
-
-    const writtenOffEntries = await db
-      .select({
-        id: creditEntries.id,
-        amountOwed: creditEntries.amountOwed,
-        amountPaidUpfront: creditEntries.amountPaidUpfront,
-      })
-      .from(creditEntries)
-      .where(
-        and(
-          eq(creditEntries.storeId, storeId),
-          eq(creditEntries.status, "written_off"),
-          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz)) : sql`true`,
-          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz)) : sql`true`
-        )
-      );
-
-    let totalBadDebt = 0;
-    for (const entry of writtenOffEntries) {
-      const [repaymentsSum] = await db
-        .select({
-          total: sql<number>`sum(${repayments.amountReceived})`,
-        })
-        .from(repayments)
-        .where(eq(repayments.creditEntryId, entry.id));
-      
-      const repaid = parseFloat(String(repaymentsSum?.total || 0));
-      const originalOwed = entry.amountOwed - entry.amountPaidUpfront;
-      const loss = Math.max(0, originalOwed - repaid);
-      totalBadDebt += loss;
-    }
+    const totalBadDebt = await this.getWrittenOffBadDebtTotal(storeId, startDate, endDate);
 
     let totalOperationalExpenses = totalBadDebt;
     const expensesByCategory: Record<string, number> = {};
@@ -250,37 +256,7 @@ export class AnalyticsService {
     // 5. General overheads (unlinked expenses) grouped by category
     const unlinkedExpenses = await storage.getExpenses(storeId, startDate, endDate, "general");
 
-    const tz3 = await getStoreTimezone(storeId);
-    const profitWrittenOffEntries = await db
-      .select({
-        id: creditEntries.id,
-        amountOwed: creditEntries.amountOwed,
-        amountPaidUpfront: creditEntries.amountPaidUpfront,
-      })
-      .from(creditEntries)
-      .where(
-        and(
-          eq(creditEntries.storeId, storeId),
-          eq(creditEntries.status, "written_off"),
-          startDate ? gte(creditEntries.updatedAt, toUtcStart(startDate, tz3)) : sql`true`,
-          endDate ? lte(creditEntries.updatedAt, toUtcEnd(endDate, tz3)) : sql`true`
-        )
-      );
-
-    let totalBadDebtProfit = 0;
-    for (const entry of profitWrittenOffEntries) {
-      const [repaymentsSum] = await db
-        .select({
-          total: sql<number>`sum(${repayments.amountReceived})`,
-        })
-        .from(repayments)
-        .where(eq(repayments.creditEntryId, entry.id));
-      
-      const repaid = parseFloat(String(repaymentsSum?.total || 0));
-      const originalOwed = entry.amountOwed - entry.amountPaidUpfront;
-      const loss = Math.max(0, originalOwed - repaid);
-      totalBadDebtProfit += loss;
-    }
+    const totalBadDebtProfit = await this.getWrittenOffBadDebtTotal(storeId, startDate, endDate);
 
     const overheadsByCategory: Record<string, number> = {};
 

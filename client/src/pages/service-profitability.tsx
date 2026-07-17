@@ -19,6 +19,8 @@ import { format } from "date-fns";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
 import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { analyticsApi } from "@/services/AnalyticsApiService";
+import { ExportToolbar } from "@/components/export-toolbar";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
 interface SustainingBreakdownEntry {
   title: string;
@@ -199,6 +201,22 @@ export default function ServiceProfitabilityPage() {
     },
   ];
 
+  const exportColumns = [
+    { key: "name", header: "Item / Service" },
+    { key: "type", header: "Type" },
+    { key: "totalRevenue", header: "Revenue" },
+    { key: "totalCogs", header: "COGS" },
+    { key: "totalSustainingCosts", header: "Sustaining Costs" },
+    { key: "netProfit", header: "Net Profit" },
+    { key: "netProfitMargin", header: "Margin %" },
+    { key: "status", header: "Status" },
+  ];
+
+  const profitabilityFilterConfigs: TableFilterConfig[] = [
+    { key: "type", label: "Type", type: "select" },
+    { key: "status", label: "Status", type: "select" },
+  ];
+
   return (
     <PageContainer
       title="Service & Product Profitability"
@@ -206,12 +224,42 @@ export default function ServiceProfitabilityPage() {
       storeRequired
       currentStore={currentStore}
       actions={
-        <DateRangeFilter
-          dateRange={dateRange}
-          onDateRangeChange={setDateRange}
-          defaultPreset="30days"
-          timezone={currentStore?.timezone}
-        />
+        <div className="flex items-center gap-2">
+          <DateRangeFilter
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
+            defaultPreset="30days"
+            timezone={currentStore?.timezone}
+          />
+          <ExportToolbar
+            data={(report?.items ?? []) as unknown as Record<string, unknown>[]}
+            columns={exportColumns}
+            filename={`service-product-profitability_${startDateStr}_${endDateStr}`}
+            title="Service & Product Profitability Report"
+            disabled={isLoading}
+            pdfReport={{
+              businessName: currentStore?.name ?? "Business",
+              storeName: currentStore?.name ?? "All Stores",
+              kpis: [
+                { label: "Total Revenue", value: formatCurrency(report?.totalRevenue ?? 0) },
+                { label: "Total COGS", value: formatCurrency(report?.totalCogs ?? 0) },
+                { label: "Sustaining Costs", value: formatCurrency(report?.totalSustainingCosts ?? 0) },
+                { label: "Net Profit", value: formatCurrency(report?.netProfit ?? 0), sub: `Margin: ${(report?.netProfitMargin ?? 0).toFixed(1)}%` },
+              ],
+              columns: [
+                { key: "name", header: "Item" },
+                { key: "type", header: "Type" },
+                { key: "totalRevenue", header: "Revenue", align: "right" as const, format: (i: Record<string, unknown>) => formatCurrency(i.totalRevenue as number) },
+                { key: "netProfit", header: "Net Profit", align: "right" as const, format: (i: Record<string, unknown>) => formatCurrency(i.netProfit as number) },
+              ],
+              rows: (report?.items ?? []) as unknown as Record<string, unknown>[],
+              amountKey: "netProfit",
+              formatAmount: formatCurrency,
+              statusKey: "status",
+              unitLabel: "items",
+            }}
+          />
+        </div>
       }
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -266,6 +314,7 @@ export default function ServiceProfitabilityPage() {
             searchable
             searchPlaceholder="Search services or products..."
             searchKeys={["name"]}
+            filterConfigs={profitabilityFilterConfigs}
             isLoading={isLoading}
             emptyMessage="No inventory items found."
           />

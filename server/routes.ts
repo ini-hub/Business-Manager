@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, generateToken, verifyToken } from "./auth";
+import { setupAuth, isAuthenticated, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken } from "./auth";
 import { setupAdminAuth } from "./auth-admin";
 import { adminRouter } from "./routes-admin";
 import {
@@ -147,7 +147,7 @@ export async function registerRoutes(
   app.get("/api/debug/email-queue", async (_req, res) => {
     const { getQueueStats } = await import("./services/EmailQueue");
     const stats = await getQueueStats();
-    res.json({ ...stats, resend_key_set: !!process.env.RESEND_API_KEY, email_from_set: !!process.env.EMAIL_FROM });
+    res.json({ ...stats, gmail_user_set: !!process.env.NODEMAILER_AUTH_USER, gmail_app_password_set: !!process.env.NODEMAILER_AUTH_PASS });
   });
 
   // Public: OG social share image — no auth required
@@ -618,7 +618,7 @@ export async function registerRoutes(
         return res.json({
           requiresOrganisationSelection: true,
           organisations: orgList,
-          userId: user.id,
+          orgSelectToken: generateOrgSelectToken(user.id),
         });
       }
 
@@ -672,10 +672,16 @@ export async function registerRoutes(
   // Organisation select endpoint for multiple workspaces
   app.post("/api/auth/organisation/select", async (req: Request, res: Response) => {
     try {
-      const { userId, organisationId, stayLoggedIn } = req.body;
-      if (!userId || !organisationId) {
-        return res.status(400).json({ error: "User ID and Organisation ID are required." });
+      const { orgSelectToken, organisationId, stayLoggedIn } = req.body;
+      if (!orgSelectToken || !organisationId) {
+        return res.status(400).json({ error: "Organisation selection session and Organisation ID are required." });
       }
+
+      const decoded = verifyOrgSelectToken(orgSelectToken);
+      if (!decoded) {
+        return res.status(401).json({ error: "Organisation selection session expired. Please log in again." });
+      }
+      const userId = decoded.userId;
 
       const user = await storage.getUser(userId);
       if (!user) {

@@ -90,6 +90,7 @@ export default function PayrollPage() {
 
   const [periodsPage, setPeriodsPage] = useState(1);
   const [entriesPage, setEntriesPage] = useState(1);
+  const [visiblePayrollEntries, setVisiblePayrollEntries] = useState<(PayrollEntryWithStaff & { staffName: string; netPay: number })[]>([]);
 
   const storeCurrency = currentStore?.currency || "NGN";
   const fmt = (v: number) => formatCurrencyUtil(v, storeCurrency);
@@ -235,11 +236,12 @@ export default function PayrollPage() {
 
   const grandTotal = entries.reduce((sum, e) => sum + (e.netPay || 0), 0);
 
-  const exportCSV = () => {
-    if (!entries.length || !selectedPeriod) return;
+  const exportCSV = (sourceEntries: PayrollEntryWithStaff[] = entries) => {
+    if (!sourceEntries.length || !selectedPeriod) return;
+    const scopedTotal = sourceEntries.reduce((sum, e) => sum + (e.netPay || 0), 0);
     const rows = [
       ["Staff", "Active Days", "Passive Days", "Total Transport", "Gross Commission", "Net Pay"],
-      ...entries.map(e => [
+      ...sourceEntries.map(e => [
         e.staff.name,
         e.activeDays || 0,
         e.passiveDays || 0,
@@ -247,7 +249,7 @@ export default function PayrollPage() {
         (e.grossCommission || 0).toFixed(2),
         (e.netPay || 0).toFixed(2),
       ]),
-      ["TOTAL", "", "", "", "", grandTotal.toFixed(2)],
+      ["TOTAL", "", "", "", "", scopedTotal.toFixed(2)],
     ];
     const csv = rows.map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -305,7 +307,7 @@ export default function PayrollPage() {
         const earliest = coverageGaps.reduce((min, g) => g.earliest_date < min ? g.earliest_date : min, coverageGaps[0].earliest_date);
         const latest   = coverageGaps.reduce((max, g) => g.latest_date   > max ? g.latest_date   : max, coverageGaps[0].latest_date);
         const totalServices = coverageGaps.reduce((s, g) => s + Number(g.service_count), 0);
-        const staffNames = [...new Set(coverageGaps.map(g => g.staff_name).filter(Boolean))].join(", ");
+        const staffNames = Array.from(new Set(coverageGaps.map(g => g.staff_name).filter(Boolean))).join(", ");
         return (
           <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-700">
             <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
@@ -499,9 +501,15 @@ export default function PayrollPage() {
                     </Button>
                   )}
                   {entries.length > 0 && (
-                    <Button size="sm" variant="ghost" onClick={exportCSV}>
+                    <Button size="sm" variant="ghost" onClick={() => exportCSV()}>
                       <Download className="mr-2 h-4 w-4" />
                       Export CSV
+                    </Button>
+                  )}
+                  {entries.length > 0 && visiblePayrollEntries.length !== entries.length && (
+                    <Button size="sm" variant="ghost" onClick={() => exportCSV(visiblePayrollEntries)}>
+                      <Download className="mr-2 h-4 w-4" />
+                      Export current view ({visiblePayrollEntries.length})
                     </Button>
                   )}
                 </CardFooter>
@@ -633,6 +641,7 @@ export default function PayrollPage() {
                           emptyMessage="No staff computed for this period."
                           filterConfigs={filterConfigs}
                           pageSize={5}
+                          onVisibleDataChange={setVisiblePayrollEntries}
                         />
                       </CardContent>
                       <Separator />

@@ -50,6 +50,12 @@ import {
 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
 import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
+import { BulkOperations } from "@/components/bulk-operations";
+import { CREDIT_SALES_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import { exportReportToPDF } from "@/lib/export-utils";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
 
 export default function CreditSalesPage() {
@@ -73,6 +79,9 @@ export default function CreditSalesPage() {
   const [writeOffReason, setWriteOffReason] = useState("");
 
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [isBulkWriteOff, setIsBulkWriteOff] = useState(false);
+  const isOwner = user?.role === "owner";
 
   // Queries
   const storeId = currentStore?.id;
@@ -276,8 +285,19 @@ export default function CreditSalesPage() {
     };
   });
 
-  const filterConfigs = [
-    { key: "statusLabel", label: "Status", type: "select" as const },
+  const filterConfigs: TableFilterConfig[] = [
+    { key: "statusLabel", label: "Status", type: "select" },
+    { key: "dueDate", label: "Due Date", type: "date-range" },
+    { key: "outstandingBalance", label: "Outstanding Balance", type: "range", currencySymbol: "₦" },
+  ];
+
+  const exportColumns = [
+    { key: "customerName", header: "Customer" },
+    { key: "customerMobile", header: "Phone" },
+    { key: "amountOwed", header: "Amount Owed" },
+    { key: "outstandingBalance", header: "Outstanding" },
+    { key: "dueDate", header: "Due Date" },
+    { key: "statusLabel", header: "Status" },
   ];
 
   // Mutations
@@ -355,6 +375,79 @@ export default function CreditSalesPage() {
     },
   });
 
+  const bulkSendReminderMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("POST", `/api/credit/entries/${id}/reminders`, { channel: "whatsapp" });
+        if (!res.ok) throw new Error("reminder failed");
+        return "sent" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/credit/ledger", storeId] });
+      setSelectedIds([]);
+      const sent = counts.sent ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${sent} reminder${sent !== 1 ? "s" : ""} sent` }
+          : { title: `${sent} sent, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk reminder failed", variant: "destructive" }),
+  });
+
+  const bulkWriteOffMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("POST", `/api/credit/entries/${id}/write-off`, { reason: writeOffReason });
+        if (!res.ok) throw new Error("write-off failed");
+        return "written_off" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/credit/summary", storeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit/ledger", storeId] });
+      setSelectedIds([]);
+      setWriteOffOpen(false);
+      setIsBulkWriteOff(false);
+      setWriteOffReason("");
+      const written = counts.written_off ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${written} debt${written !== 1 ? "s" : ""} written off` }
+          : { title: `${written} written off, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk write-off failed", variant: "destructive" }),
+  });
+
+  const handleCreditReportExport = () => {
+    const totalOutstanding = tableData.reduce((sum: number, e: any) => sum + (e.outstandingBalance || 0), 0);
+    const overdueCount = tableData.filter((e: any) => e.status === "overdue").length;
+    return exportReportToPDF({
+      filename: `credit-sales-report_${new Date().toISOString().slice(0, 10)}`,
+      title: "Credit Sales Report",
+      businessName: currentStore?.name ?? "Business",
+      storeName: currentStore?.name ?? "All Stores",
+      kpis: [
+        { label: "Total Outstanding", value: `₦${totalOutstanding.toLocaleString()}` },
+        { label: "Overdue Entries", value: String(overdueCount) },
+        { label: "Total Entries", value: String(tableData.length) },
+      ],
+      columns: [
+        { key: "customerName", header: "Customer" },
+        { key: "amountOwed", header: "Amount Owed", align: "right" as const, format: (e: any) => `₦${e.amountOwed.toLocaleString()}` },
+        { key: "outstandingBalance", header: "Outstanding", align: "right" as const, format: (e: any) => `₦${e.outstandingBalance.toLocaleString()}` },
+        { key: "statusLabel", header: "Status" },
+      ],
+      rows: tableData,
+      amountKey: "outstandingBalance",
+      formatAmount: (v: number) => `₦${v.toLocaleString()}`,
+      statusKey: "status",
+      unitLabel: "credit entries",
+    });
+  };
+
   const generatePreview = (entry: any, channel: "whatsapp" | "sms") => {
     if (!entry) return "";
     const isOverdue = entry.status === "overdue" || (entry.dueDate && new Date(entry.dueDate) < new Date());
@@ -400,6 +493,18 @@ export default function CreditSalesPage() {
       <PageHeader
         title="Credit Sales Ledger"
         description="Digital ledger for tracking customer credits, partial repayments, and pidgin notifications"
+        actions={
+          <BulkOperations
+            entityConfig={CREDIT_SALES_BULK_CONFIG}
+            data={tableData as unknown as Record<string, unknown>[]}
+            columns={exportColumns}
+            isLoading={isLedgerLoading}
+            storeId={storeId}
+            pdfTitle="Credit Sales Report"
+            onExportPDF={handleCreditReportExport}
+            showImportOption={user?.role !== "staff"}
+          />
+        }
       />
 
       {/* Summary Metrics Cards */}
@@ -492,7 +597,35 @@ export default function CreditSalesPage() {
             <RefreshCw className="h-4 w-4" />
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {user?.role !== "staff" && (
+            <BulkSelectionActionBar
+              count={selectedIds.length}
+              unitLabel="entry"
+              onClear={() => setSelectedIds([])}
+              actions={[
+                {
+                  key: "remind",
+                  label: "Send Reminder",
+                  pendingLabel: "Sending…",
+                  icon: <Send className="h-3.5 w-3.5" />,
+                  pending: bulkSendReminderMutation.isPending,
+                  onClick: () => bulkSendReminderMutation.mutate(selectedIds as string[]),
+                },
+                ...(isOwner
+                  ? [
+                      {
+                        key: "write-off",
+                        label: "Write Off Selected",
+                        icon: <XCircle className="h-3.5 w-3.5" />,
+                        tone: "destructive" as const,
+                        onClick: () => { setIsBulkWriteOff(true); setWriteOffReason(""); setWriteOffOpen(true); },
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          )}
           <DataTable
             data={tableData}
             columns={columns}
@@ -502,6 +635,9 @@ export default function CreditSalesPage() {
             isLoading={isLedgerLoading}
             emptyMessage="No credit records found."
             filterConfigs={filterConfigs}
+            multiselect={user?.role !== "staff"}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
           />
         </CardContent>
       </Card>
@@ -660,7 +796,9 @@ export default function CreditSalesPage() {
               Authorize Debt Write-Off
             </DialogTitle>
             <DialogDescription>
-              Write off {selectedEntry?.customer.name}'s balance of ₦{selectedEntry?.outstandingBalance.toLocaleString()} as unrecoverable operational bad debt expense.
+              {isBulkWriteOff
+                ? `Write off ${selectedIds.length} selected entries as unrecoverable operational bad debt expense.`
+                : `Write off ${selectedEntry?.customer.name}'s balance of ₦${selectedEntry?.outstandingBalance.toLocaleString()} as unrecoverable operational bad debt expense.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -690,13 +828,16 @@ export default function CreditSalesPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setWriteOffOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => { setWriteOffOpen(false); setIsBulkWriteOff(false); }}>Cancel</Button>
             <Button
               variant="destructive"
-              disabled={writeOffMutation.isPending || !writeOffReason || !writeOffReason.trim()}
-              onClick={() => writeOffMutation.mutate()}
+              disabled={
+                (isBulkWriteOff ? bulkWriteOffMutation.isPending : writeOffMutation.isPending) ||
+                !writeOffReason || !writeOffReason.trim()
+              }
+              onClick={() => isBulkWriteOff ? bulkWriteOffMutation.mutate(selectedIds as string[]) : writeOffMutation.mutate()}
             >
-              {writeOffMutation.isPending ? "Authorizing..." : "Confirm Write-Off"}
+              {(isBulkWriteOff ? bulkWriteOffMutation.isPending : writeOffMutation.isPending) ? "Authorizing..." : "Confirm Write-Off"}
             </Button>
           </DialogFooter>
         </DialogContent>

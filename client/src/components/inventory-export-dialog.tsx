@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { exportToCSV, exportToPDF } from "@/lib/export-utils";
+import { exportToCSV, exportToPDF, exportReportToPDF, type ReportColumn } from "@/lib/export-utils";
 import {
   buildExportColumnConfig,
   buildInventoryExportRows,
@@ -27,6 +27,7 @@ import {
   type ExportableProduct,
   type ExportGranularity,
   type ExportScope,
+  type InventoryExportRow,
 } from "@/lib/inventory-export";
 
 interface InventoryExportDialogProps {
@@ -42,6 +43,7 @@ interface InventoryExportDialogProps {
   lowStockThreshold: number;
   formatCurrency: (value: number) => string;
   storeLabel: string;
+  businessName: string;
 }
 
 export function InventoryExportDialog({
@@ -57,6 +59,7 @@ export function InventoryExportDialog({
   lowStockThreshold,
   formatCurrency,
   storeLabel,
+  businessName,
 }: InventoryExportDialogProps) {
   const { toast } = useToast();
   const [scope, setScope] = useState<ExportScope>("all");
@@ -126,14 +129,44 @@ export function InventoryExportDialog({
     setSelectedColumnKeys(new Set(DEFAULT_EXPORT_COLUMN_KEYS));
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (rows.length === 0 || columnConfig.length === 0) return;
     const filename = `inventory_${storeLabel}_${new Date().toISOString().slice(0, 10)}`.replace(/\s+/g, "_");
 
     if (format === "csv") {
       exportToCSV(rows, columnConfig, filename);
     } else {
-      exportToPDF(rows, columnConfig, "Inventory Report", filename, { orientation });
+      // Grouping/subtotals only make sense when the user's own column selection includes
+      // Category (to group by) and a genuine value column (to sum) — both are unchecked
+      // by default, so most customized exports render as a flat report (masthead/footer
+      // only). Below a handful of rows a subtotal/grand-total is just noise, so skip it too.
+      const valueColumnKey: "stockValueRetail" | "stockValueCost" | null = effectiveColumnKeys.has("stockValueRetail")
+        ? "stockValueRetail"
+        : effectiveColumnKeys.has("stockValueCost")
+        ? "stockValueCost"
+        : null;
+      const canGroup = effectiveColumnKeys.has("category") && valueColumnKey !== null && rows.length >= 3;
+      const rawValueKey = valueColumnKey === "stockValueRetail" ? "stockValueRetailRaw" : "stockValueCostRaw";
+
+      const reportColumns: ReportColumn<InventoryExportRow>[] = columnConfig.map((col) => {
+        if (canGroup && col.key === valueColumnKey) {
+          return { key: rawValueKey, header: col.header, align: "right", format: (row) => String(row[col.key]) };
+        }
+        return { key: col.key, header: col.header, format: (row) => String(row[col.key] ?? "—") };
+      });
+
+      await exportReportToPDF<InventoryExportRow>({
+        filename,
+        title: "Inventory Report",
+        businessName,
+        storeName: storeLabel,
+        columns: reportColumns,
+        rows,
+        formatAmount: formatCurrency,
+        unitLabel: granularity === "variant" ? "variants" : "items",
+        ...(canGroup ? { amountKey: rawValueKey, groupBy: (row: InventoryExportRow) => String(row.category) } : {}),
+        orientation,
+      });
     }
 
     toast({

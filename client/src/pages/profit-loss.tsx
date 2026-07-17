@@ -9,6 +9,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { ExportToolbar } from "@/components/export-toolbar";
+import { exportFinancialStatementToPDF, type StatementLine } from "@/lib/export-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
@@ -50,13 +51,26 @@ export default function ProfitLossPage() {
   });
 
   const { data: profitLossData = [], isLoading: isLoadingPL } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss", currentStore?.id, business?.id],
+    queryKey: [
+      "/api/profit-loss",
+      currentStore?.id,
+      business?.id,
+      dateRange?.from?.toISOString(),
+      dateRange?.to?.toISOString()
+    ],
     queryFn: async () => {
+      const fromParam = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : undefined;
+      const toParam = dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : undefined;
+      const dateQuery = new URLSearchParams();
+      if (fromParam) dateQuery.append("startDate", fromParam);
+      if (toParam) dateQuery.append("endDate", toParam);
+      const dateSuffix = dateQuery.toString() ? `&${dateQuery.toString()}` : "";
+
       if (currentStore?.id === "all" && business?.id && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/profit-loss?storeId=${s.id}`);
+              const res = await fetch(`/api/profit-loss?storeId=${s.id}${dateSuffix}`);
               if (!res.ok) return [];
               return await res.json() as ProfitLossWithInventory[];
             } catch {
@@ -80,7 +94,7 @@ export default function ProfitLossPage() {
         }
         return Array.from(mergedMap.values());
       }
-      const res = await fetch(`/api/profit-loss?storeId=${currentStore?.id}`);
+      const res = await fetch(`/api/profit-loss?storeId=${currentStore?.id}${dateSuffix}`);
       if (!res.ok) throw new Error("Failed to load profit/loss details");
       return res.json();
     },
@@ -297,7 +311,7 @@ export default function ProfitLossPage() {
     { key: "margin", header: "Profit Margin %" },
   ];
 
-  const exportData = profitLossData.map((pl) => ({
+  const buildPLExportData = (data: ProfitLossWithInventory[]) => data.map((pl) => ({
     inventory: pl.inventory,
     totalQuantitySold: pl.totalQuantitySold,
     quantityRemaining: pl.inventory?.type === "service" ? "N/A" : pl.quantityRemaining,
@@ -306,14 +320,129 @@ export default function ProfitLossPage() {
     margin: pl.totalRevenue > 0 ? ((pl.totalGrossProfit / pl.totalRevenue) * 100).toFixed(1) : "0.0",
   }));
 
+  const exportData = buildPLExportData(profitLossData);
+
+  // The breakdown table lives on a non-default tab ("breakdown"), which Radix unmounts
+  // when inactive — so its onVisibleDataChange never fires until that tab is visited.
+  // Defaulting to `null` (rather than `[]`) lets us fall back to the full unfiltered set
+  // until then, instead of showing a misleadingly-empty "current view".
+  const [rawVisibleProfitLossRows, setRawVisibleProfitLossRows] = useState<ProfitLossWithInventory[] | null>(null);
+  const visibleProfitLossRows = rawVisibleProfitLossRows ?? profitLossData;
+  const visibleExportData = buildPLExportData(visibleProfitLossRows);
+
   const opProfit = summary?.operatingProfit ?? 0;
+
+  const marginTone = (pct: number): "success" | "warning" | "critical" => (pct >= 20 ? "success" : pct >= 0 ? "warning" : "critical");
+
+  type PLReportRow = {
+    itemName: string;
+    itemType: string;
+    qtySold: number;
+    qtyRemaining: number | string;
+    unitCost: number;
+    sellingPrice: number;
+    totalRevenue: number;
+    totalGrossProfit: number;
+    marginPct: number;
+  };
+
+  // Sorted by type so groupBy produces contiguous Product/Service sections.
+  const buildPLPdfRows = (data: ProfitLossWithInventory[]): PLReportRow[] => [...data]
+    .map((pl) => ({
+      itemName: pl.inventory?.name ?? "Unknown",
+      itemType: pl.inventory?.type ?? "unknown",
+      qtySold: parseFloat(Number(pl.totalQuantitySold).toFixed(2)),
+      qtyRemaining: pl.inventory?.type === "service" ? "N/A" : parseFloat(Number(pl.quantityRemaining).toFixed(2)),
+      unitCost: pl.inventory?.costPrice ?? 0,
+      sellingPrice: pl.inventory?.sellingPrice ?? 0,
+      totalRevenue: pl.totalRevenue,
+      totalGrossProfit: pl.totalGrossProfit,
+      marginPct: pl.totalRevenue > 0 ? (pl.totalGrossProfit / pl.totalRevenue) * 100 : 0,
+    }))
+    .sort((a, b) => a.itemType.localeCompare(b.itemType));
+
+  const pdfRows: PLReportRow[] = buildPLPdfRows(profitLossData);
+  const visiblePdfRows: PLReportRow[] = buildPLPdfRows(visibleProfitLossRows);
+
+  const scheduleColumns = [
+    { key: "itemName", header: "Item" },
+    { key: "itemType", header: "Type", format: (r: PLReportRow) => r.itemType.charAt(0).toUpperCase() + r.itemType.slice(1) },
+    { key: "qtySold", header: "Qty Sold", align: "right" as const },
+    { key: "qtyRemaining", header: "Qty Remaining", align: "right" as const },
+    { key: "unitCost", header: "Unit Cost", align: "right" as const, format: (r: PLReportRow) => formatCurrency(r.unitCost) },
+    { key: "sellingPrice", header: "Selling Price", align: "right" as const, format: (r: PLReportRow) => formatCurrency(r.sellingPrice) },
+    { key: "totalRevenue", header: "Revenue", align: "right" as const, format: (r: PLReportRow) => formatCurrency(r.totalRevenue) },
+    { key: "totalGrossProfit", header: "Profit", align: "right" as const, format: (r: PLReportRow) => formatCurrency(r.totalGrossProfit) },
+    { key: "marginPct", header: "Margin %", align: "right" as const, format: (r: PLReportRow) => `${r.marginPct.toFixed(1)}%` },
+  ];
+  const scheduleGroupBy = (r: PLReportRow) => r.itemType.charAt(0).toUpperCase() + r.itemType.slice(1);
+  const scheduleGetStatus = (r: PLReportRow) => ({ label: `${r.marginPct.toFixed(1)}%`, tone: marginTone(r.marginPct) });
+
+  const periodLabel = dateRange?.from
+    ? (format(dateRange.to, "yyyy-MM-dd") === format(dateRange.from, "yyyy-MM-dd")
+      ? format(dateRange.from, "d MMM yyyy")
+      : `${format(dateRange.from, "d MMM")} – ${format(dateRange.to, "d MMM yyyy")}`)
+    : "All time";
+
+  // Waterfall lines for the Income Statement export — sourced from `summary`, which is
+  // already date-scoped server-side, so this is unaffected by the "current view" toggle
+  // below (that only narrows the supporting schedule table beneath it).
+  const buildStatementLines = (s: any): StatementLine[] => {
+    if (!s) return [];
+    const lines: StatementLine[] = [
+      { kind: "section", label: "Revenue" },
+      { kind: "line", label: "Service Revenue", amount: s.serviceRevenue ?? 0, indent: 1 },
+      { kind: "line", label: "Product Sales", amount: s.productRevenue ?? 0, indent: 1 },
+      { kind: "subtotal", label: "Gross Revenue", amount: s.grossRevenue ?? 0, indent: 1 },
+      { kind: "line", label: "Less: Returns & Refunds", amount: -(s.returnedRevenue ?? 0), indent: 1 },
+      { kind: "total", label: "Net Revenue", amount: s.totalRevenue ?? 0 },
+      { kind: "total", label: "Cost of Goods Sold", amount: -(s.costOfGoodsSold ?? 0) },
+      { kind: "total", label: "Gross Profit", amount: s.grossProfit ?? 0 },
+    ];
+
+    if (isOwner) {
+      lines.push({ kind: "section", label: "Operating Expenses" });
+      lines.push({ kind: "line", label: "Discounts Given", amount: -(s.discountsGiven ?? 0), indent: 1 });
+      lines.push({ kind: "line", label: "Operational Expenses", indent: 1 });
+      (s.expensesGrouped ?? []).forEach((eg: any) => {
+        lines.push({ kind: "line", label: eg.category, amount: -(eg.amount ?? 0), indent: 2 });
+      });
+      lines.push({ kind: "line", label: "Payroll Expenses", amount: -(s.totalPayrollExpenses ?? 0), indent: 1 });
+      lines.push({ kind: "subtotal", label: "Total Expenses", amount: -(s.totalExpenses ?? 0), indent: 1 });
+      lines.push({ kind: "total", label: "Operating Profit (Net Income)", amount: s.operatingProfit ?? 0 });
+    }
+
+    return lines;
+  };
+
+  const handleIncomeStatementExport = (filtered = false) => {
+    return exportFinancialStatementToPDF({
+      filename: `profit-loss-statement-${format(new Date(), "yyyy-MM-dd")}`,
+      title: "Profit & Loss Statement",
+      businessName: business?.name ?? currentStore?.name ?? "Business",
+      storeName: currentStore?.name ?? "All Stores",
+      periodLabel,
+      formatAmount: formatCurrency,
+      lines: buildStatementLines(summary),
+      schedule: {
+        heading: "Supporting Schedule — Item-by-Item Breakdown",
+        columns: scheduleColumns,
+        rows: filtered ? visiblePdfRows : pdfRows,
+        amountKey: "totalGrossProfit",
+        unitLabel: "items",
+        groupBy: scheduleGroupBy,
+        statusKey: "marginPct",
+        getStatus: scheduleGetStatus,
+      },
+    });
+  };
 
   const plTabItems: TabItem[] = [
     { value: "income", label: "Income Statement" },
     { value: "cashflow", label: "Cash Flow Statement", visible: isOwner || user?.role === "manager" },
     { value: "expenses", label: "Expense Details", visible: isOwner },
     { value: "discounts", label: "Discounts Report", visible: isOwner },
-    { value: "breakdown", label: "Item-by-Item Breakdown (All Time)" },
+    { value: "breakdown", label: `Item-by-Item Breakdown (${periodLabel})` },
   ];
 
   return (
@@ -339,6 +468,9 @@ export default function ProfitLossPage() {
             filename={`profit-loss-${format(new Date(), "yyyy-MM-dd")}`}
             title="Profit & Loss Detail"
             disabled={isLoading}
+            visibleData={visibleExportData as unknown as Record<string, unknown>[]}
+            onExportPDF={() => handleIncomeStatementExport()}
+            onExportFilteredPDF={() => handleIncomeStatementExport(true)}
           />
         </div>
       }
@@ -770,7 +902,7 @@ export default function ProfitLossPage() {
         <TabsContent value="breakdown" className="space-y-6 mt-0 border-none p-0">
           <Card>
             <CardHeader>
-              <CardTitle>Item-by-Item Breakdown (All Time)</CardTitle>
+              <CardTitle>Item-by-Item Breakdown ({periodLabel})</CardTitle>
               <CardDescription>Historical gross profit per inventory item</CardDescription>
             </CardHeader>
             <CardContent>
@@ -784,6 +916,7 @@ export default function ProfitLossPage() {
                 emptyTitle="No P&L Data"
                 emptyMessage="No historical data yet. Complete sales to see per-item profit and loss breakdowns."
                 emptyIcon={<BarChart3 className="h-6 w-6" />}
+                onVisibleDataChange={setRawVisibleProfitLossRows}
               />
             </CardContent>
           </Card>

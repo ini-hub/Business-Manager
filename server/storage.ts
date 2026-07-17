@@ -295,6 +295,13 @@ export interface IStorage {
     endDate?: string;
     search?: string;
   }): Promise<PaginatedResult<Booking>>;
+  getBookingsSummary(storeId: string, groupBy: "day" | "month", filters?: {
+    status?: string[];
+    type?: string[];
+    staffId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ buckets: Array<{ bucket: string; count: number; revenue: number }>; total: { count: number; revenue: number } }>;
   getBooking(id: string): Promise<Booking | undefined>;
   getBookingItems(bookingId: string): Promise<BookingItem[]>;
   createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking>;
@@ -498,7 +505,7 @@ export interface IStorage {
   searchTransactions(storeId: string, query: string): Promise<any[]>;
 
   getNotifications(userId: string): Promise<Notification[]>;
-  markNotificationAsRead(id: string): Promise<void>;
+  markNotificationAsRead(id: string, userId: string): Promise<boolean>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
   createNotification(data: InsertNotification): Promise<Notification>;
   getTopCustomers(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
@@ -1005,6 +1012,16 @@ export class DatabaseStorage implements IStorage {
     return this.bookingRepo.getBookingsPaginated(storeId, options, filters);
   }
 
+  async getBookingsSummary(storeId: string, groupBy: "day" | "month", filters?: {
+    status?: string[];
+    type?: string[];
+    staffId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ buckets: Array<{ bucket: string; count: number; revenue: number }>; total: { count: number; revenue: number } }> {
+    return this.bookingRepo.getBookingsSummary(storeId, groupBy, filters);
+  }
+
   async getBooking(id: string): Promise<Booking | undefined> {
     return this.bookingRepo.getBooking(id);
   }
@@ -1329,6 +1346,24 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  async updateSalaryAdvanceStatus(
+    advanceId: string,
+    status: "approved" | "rejected",
+    approvedByUserId: string | undefined,
+    rejectionReason?: string
+  ): Promise<SalaryAdvance> {
+    const [row] = await db.update(salaryAdvances)
+      .set({
+        status,
+        approvedByUserId,
+        approvedAt: new Date(),
+        rejectionReason: status === "rejected" ? (rejectionReason || null) : null,
+      })
+      .where(eq(salaryAdvances.id, advanceId))
+      .returning();
+    return row;
+  }
+
   async deleteSalaryAdvance(id: string): Promise<void> {
     await db.delete(salaryAdvances).where(eq(salaryAdvances.id, id));
   }
@@ -1492,8 +1527,8 @@ export class DatabaseStorage implements IStorage {
     return this.notificationRepo.getNotifications(userId);
   }
 
-  async markNotificationAsRead(id: string): Promise<void> {
-    return this.notificationRepo.markNotificationAsRead(id);
+  async markNotificationAsRead(id: string, userId: string): Promise<boolean> {
+    return this.notificationRepo.markNotificationAsRead(id, userId);
   }
 
   async markAllNotificationsAsRead(userId: string): Promise<void> {
@@ -1551,6 +1586,27 @@ export class DatabaseStorage implements IStorage {
       userName: row.userId ? (userMap.get(row.userId)?.name ?? null) : null,
       userEmail: row.userId ? (userMap.get(row.userId)?.email ?? null) : null,
     }));
+  }
+
+  /**
+   * Redacts a log's sensitive payload in place. This is the only mutation the DB's
+   * append-only trigger on audit_logs permits — the row (timestamp/action/actor) is
+   * preserved for the compliance trail, only the detail payload is scrubbed.
+   */
+  async redactAuditLog(id: string, userId: string): Promise<AuditLog | undefined> {
+    const [updated] = await db
+      .update(auditLogs)
+      .set({
+        details: { redacted: true },
+        previousValues: null,
+        newValues: null,
+        errorMessage: null,
+        redactedAt: new Date(),
+        redactedByUserId: userId,
+      })
+      .where(eq(auditLogs.id, id))
+      .returning();
+    return updated;
   }
 
 }

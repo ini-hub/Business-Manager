@@ -48,4 +48,18 @@ export function registerAuditLogRoutes(
       res.status(500).json({ error: "Could not fetch audit logs." });
     }
   });
+
+  // Redacts a log entry's sensitive payload. This is the only mutation the DB's append-only
+  // trigger on audit_logs permits — the row itself is never deleted.
+  app.patch("/api/audit-logs/:id/redact", requireRole("owner"), async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      const updated = await storage.redactAuditLog(req.params.id, userId);
+      if (!updated) return res.status(404).json({ error: "Log entry not found." });
+      res.json(updated);
+    } catch (error) {
+      console.error("PATCH /api/audit-logs/:id/redact error:", error);
+      res.status(500).json({ error: "Could not redact log entry." });
+    }
+  });
 }

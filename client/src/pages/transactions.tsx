@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay, format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import {
   Pagination,
@@ -29,7 +29,7 @@ import { AlertCircle, Clock } from "lucide-react";
 const PAGE_LIMIT = 50;
 
 export default function Transactions() {
-  const { currentStore, stores } = useStore();
+  const { currentStore, stores, business } = useStore();
   const [, setLocation] = useLocation();
 
   // Resolve Pending inline dialog state
@@ -511,6 +511,84 @@ export default function Transactions() {
     }));
   }, [filteredTransactions]);
 
+  type TxRow = (typeof tableData)[number];
+
+  const statusTone = (status: string): "success" | "warning" | "critical" | "neutral" => {
+    if (status === "Void") return "critical";
+    if (status === "Returned" || status === "Partially Returned" || status === "Pending") return "warning";
+    if (status === "Paid") return "success";
+    return "neutral";
+  };
+
+  // Sorted chronologically so the PDF report's day-by-day grouping/subtotals come out contiguous.
+  const transactionPdfRows = useMemo(
+    () => [...tableData].sort((a, b) => new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime()),
+    [tableData]
+  );
+
+  const periodLabel = useMemo(() => {
+    if (!dateRange.from) return undefined;
+    if (!dateRange.to || startOfDay(dateRange.to).getTime() === startOfDay(dateRange.from).getTime()) {
+      return format(dateRange.from, "d MMM yyyy");
+    }
+    return `${format(dateRange.from, "d MMM")} – ${format(dateRange.to, "d MMM yyyy")}`;
+  }, [dateRange]);
+
+  const pdfReport = {
+    businessName: business?.name ?? currentStore?.name ?? "Business",
+    storeName: currentStore?.name ?? "All Stores",
+    periodLabel,
+    kpis: [
+      { label: "Net Collected", value: formatCurrency(actualRevenueNet) },
+      {
+        label: "Gross Revenue",
+        value: formatCurrency(totalAmount),
+        sub: totalRefunded > 0 ? `-${formatCurrency(totalRefunded)} refunded` : undefined,
+        subTone: totalRefunded > 0 ? ("critical" as const) : undefined,
+      },
+      { label: "Receipts", value: String(nonVoidedCount) },
+      { label: "Avg Transaction", value: formatCurrency(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0) },
+    ],
+    columns: [
+      { key: "transactionDate", header: "Date", format: (row: TxRow) => format(new Date(row.transactionDate), "d MMM") },
+      { key: "receiptNumber", header: "Receipt" },
+      { key: "customerName", header: "Customer" },
+      { key: "inventoryName", header: "Item" },
+      { key: "staffName", header: "Staff" },
+      { key: "paymentMethod", header: "Payment", format: (row: TxRow) => row.paymentMethod.charAt(0).toUpperCase() + row.paymentMethod.slice(1) },
+      { key: "status", header: "Status" },
+      { key: "amount", header: "Amount", align: "right" as const, format: (row: TxRow) => formatCurrency(row.amount) },
+    ],
+    rows: transactionPdfRows,
+    amountKey: "amount",
+    formatAmount: formatCurrency,
+    unitLabel: "receipts",
+    groupBy: (row: TxRow) => format(new Date(row.transactionDate), "d MMM yyyy"),
+    statusKey: "status",
+    getStatus: (row: TxRow) => ({ label: row.status, tone: statusTone(row.status) }),
+    isVoided: (row: TxRow) => !!row.checkout?.isVoided,
+    getRefundedAmount: (row: TxRow) => row.checkout?.refundedAmount ?? 0,
+  };
+
+  // Tracks the ledger's live search/filter result set so "Export current view" can offer
+  // exactly what's currently on screen, separate from the always-full default export.
+  const [visibleTxRows, setVisibleTxRows] = useState<TxRow[]>([]);
+  const visiblePdfReport = {
+    ...pdfReport,
+    rows: [...visibleTxRows].sort((a, b) => new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime()),
+  };
+  // Same shape as exportData above, just sourced from the narrowed rows.
+  const visibleExportData = visibleTxRows.map((tx) => ({
+    id: tx.id,
+    transactionDate: new Date(tx.transactionDate).toLocaleString(),
+    customer: tx.customer,
+    inventory: tx.inventory,
+    checkout: {
+      ...tx.checkout,
+      isVoided: tx.checkout?.isVoided ? "Yes" : "No"
+    },
+  }));
+
   const filterConfigs = [
     { key: "status", label: "Status", type: "select" as const },
     { 
@@ -628,6 +706,9 @@ export default function Transactions() {
                   filename="transactions"
                   title="Transaction Report"
                   disabled={isLoading}
+                  pdfReport={pdfReport}
+                  visibleData={visibleExportData as unknown as Record<string, unknown>[]}
+                  visiblePdfReport={visiblePdfReport}
                 />
               </div>
             </CardHeader>
@@ -644,6 +725,7 @@ export default function Transactions() {
                 emptyIcon={<ShoppingBag className="h-6 w-6" />}
                 onRowClick={(tx) => setLocation("/transactions/" + tx.id)}
                 filterConfigs={filterConfigs}
+                onVisibleDataChange={setVisibleTxRows}
               />
               {currentStore?.id !== "all" && totalPages > 1 && (
                 <Pagination className="mt-4">

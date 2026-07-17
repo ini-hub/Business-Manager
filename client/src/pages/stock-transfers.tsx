@@ -23,6 +23,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { BulkOperations } from "@/components/bulk-operations";
+import { STOCK_TRANSFER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { StockTransfer, StockTransferItem, Inventory, Store } from "@shared/schema";
 
 type TransferWithStores = StockTransfer & { fromStore: Store; toStore: Store };
@@ -40,6 +45,9 @@ export default function StockTransfersPage() {
   const [activeTab, setActiveTab] = useState<string>("list");
   const [selectedTransferId, setSelectedTransferId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+
+  const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
 
   // New transfer form state
   const [toStoreId, setToStoreId] = useState<string>("");
@@ -142,6 +150,49 @@ export default function StockTransfersPage() {
     onError: (error) => {
       toast({ title: "Fulfillment Failed", description: error.message || "Could not complete transfer.", variant: "destructive" });
     },
+  });
+
+  // Bulk cancel (pending transfers only — the server rejects transitions that aren't valid)
+  const bulkCancelMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("PATCH", `/api/stock-transfers/${id}/status`, { status: "cancelled" });
+        if (!res.ok) throw new Error("cancel failed");
+        return "cancelled" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      setSelectedIds([]);
+      const cancelled = counts.cancelled ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${cancelled} transfer${cancelled !== 1 ? "s" : ""} cancelled` }
+          : { title: `${cancelled} cancelled, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk cancel failed", variant: "destructive" }),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("DELETE", `/api/stock-transfers/${id}`);
+        if (!res.ok) throw new Error("delete failed");
+        return "deleted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      setSelectedIds([]);
+      const deleted = counts.deleted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${deleted} transfer${deleted !== 1 ? "s" : ""} deleted` }
+          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
 
   const resetForm = () => {
@@ -261,11 +312,42 @@ export default function StockTransfersPage() {
   const incomingCount = transfers.filter(t => t.toStoreId === currentStore.id).length;
   const pendingCount = transfers.filter(t => t.status === "pending").length;
 
+  const transfersWithDirection = transfers.map(t => ({
+    ...t,
+    direction: t.fromStoreId === currentStore.id ? "outgoing" : "incoming",
+  }));
+
+  const transferFilterConfigs: TableFilterConfig[] = [
+    { key: "status", label: "Status", type: "select" },
+    { key: "direction", label: "Direction", type: "select" },
+    { key: "createdAt", label: "Transfer Date", type: "date-range" },
+  ];
+
+  const exportColumns = [
+    { key: "direction", header: "Direction" },
+    { key: "fromStore.name", header: "Origin Branch" },
+    { key: "toStore.name", header: "Destination Branch" },
+    { key: "status", header: "Status" },
+    { key: "createdAt", header: "Transfer Date" },
+    { key: "notes", header: "Notes" },
+  ];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Stock Transfers"
         description="Shift inventory dynamically across different branch stores, balancing regional demand with atomic logs."
+        actions={
+          <BulkOperations
+            entityConfig={STOCK_TRANSFER_BULK_CONFIG}
+            data={transfersWithDirection as unknown as Record<string, unknown>[]}
+            columns={exportColumns}
+            isLoading={isLoadingTransfers}
+            storeId={currentStore.id}
+            pdfTitle="Stock Transfers Report"
+            showImportOption={isManagerOrOwner}
+          />
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -305,15 +387,46 @@ export default function StockTransfersPage() {
               <CardTitle>Cross-Store Shipment Registry</CardTitle>
               <CardDescription>Monitor outstanding transfer requests, origins, and arrival logs.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {isManagerOrOwner && (
+                <BulkSelectionActionBar
+                  count={selectedIds.length}
+                  unitLabel="transfer"
+                  onClear={() => setSelectedIds([])}
+                  actions={[
+                    {
+                      key: "cancel",
+                      label: "Cancel Selected",
+                      pendingLabel: "Cancelling…",
+                      icon: <XCircle className="h-3.5 w-3.5" />,
+                      tone: "warning",
+                      pending: bulkCancelMutation.isPending,
+                      onClick: () => bulkCancelMutation.mutate(selectedIds as string[]),
+                    },
+                    {
+                      key: "delete",
+                      label: "Delete Selected",
+                      pendingLabel: "Deleting…",
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      tone: "destructive",
+                      pending: bulkDeleteMutation.isPending,
+                      onClick: () => bulkDeleteMutation.mutate(selectedIds as string[]),
+                    },
+                  ]}
+                />
+              )}
               <DataTable
-                data={transfers}
+                data={transfersWithDirection}
                 columns={columns}
                 searchable
                 searchPlaceholder="Search notes..."
                 searchKeys={["notes"]}
+                filterConfigs={transferFilterConfigs}
                 isLoading={isLoadingTransfers}
                 emptyMessage="No stock transfers recorded. Draft one to relocate stock."
+                multiselect={isManagerOrOwner}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={setSelectedIds}
               />
             </CardContent>
           </Card>

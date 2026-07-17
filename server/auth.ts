@@ -31,6 +31,22 @@ export function verifyToken(token: string): JWTPayload | undefined {
   }
 }
 
+// Short-lived token proving the caller just completed password auth as `userId`,
+// so the org-select step never has to trust a client-supplied userId.
+export function generateOrgSelectToken(userId: string): string {
+  return jwt.sign({ userId, action: "org_select" }, JWT_SECRET_VALUE, { expiresIn: "10m" });
+}
+
+export function verifyOrgSelectToken(token: string): { userId: string } | undefined {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
+    if (decoded?.action !== "org_select" || !decoded.userId) return undefined;
+    return { userId: decoded.userId };
+  } catch (error) {
+    return undefined;
+  }
+}
+
 export function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
   if (!cookieHeader) return list;

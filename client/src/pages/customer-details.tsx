@@ -387,6 +387,15 @@ export default function CustomerDetails() {
                 </p>
               </div>
             )}
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                Last Updated
+              </p>
+              <p className="text-sm" data-testid="text-customer-updated-at">
+                {formatDate(customer.updatedAt)}
+              </p>
+            </div>
             <div className="pt-2">
               <Badge variant={customer.isArchived ? "secondary" : "default"}>
                 {customer.isArchived ? "Archived" : "Active"}

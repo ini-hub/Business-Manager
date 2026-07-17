@@ -89,16 +89,17 @@ export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
       })
       .returning();
 
-    for (const item of data.items) {
-      const variance = item.physicalQuantity - item.systemQuantity;
-      await db.insert(stockAuditItems).values({
-        auditId: audit.id,
-        inventoryId: item.inventoryId,
-        systemQuantity: item.systemQuantity,
-        physicalQuantity: item.physicalQuantity,
-        variance,
-        reason: item.reason,
-      });
+    if (data.items.length > 0) {
+      await db.insert(stockAuditItems).values(
+        data.items.map((item) => ({
+          auditId: audit.id,
+          inventoryId: item.inventoryId,
+          systemQuantity: item.systemQuantity,
+          physicalQuantity: item.physicalQuantity,
+          variance: item.physicalQuantity - item.systemQuantity,
+          reason: item.reason,
+        }))
+      );
     }
 
     return audit;
@@ -113,14 +114,18 @@ export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
       throw new Error("bad_request:Stock audit is already approved.");
     }
 
-    // Update physical inventory counts in the database based on the audited quantities
-    for (const item of auditDetails.items) {
-      await db
-        .update(inventory)
-        .set({
-          quantity: item.physicalQuantity,
-        })
-        .where(eq(inventory.id, item.inventoryId));
+    // Update physical inventory counts in one batched statement instead of one UPDATE per item
+    if (auditDetails.items.length > 0) {
+      const valueRows = sql.join(
+        auditDetails.items.map((item) => sql`(${item.inventoryId}::varchar, ${item.physicalQuantity}::numeric)`),
+        sql`, `
+      );
+      await db.execute(sql`
+        UPDATE inventory AS inv
+        SET quantity = v.quantity
+        FROM (VALUES ${valueRows}) AS v(id, quantity)
+        WHERE inv.id = v.id
+      `);
     }
 
     const [updated] = await db

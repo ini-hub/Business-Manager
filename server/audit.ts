@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { auditLogs } from "@shared/schema";
+import type { AuditContext } from "./routes/helpers";
 
 interface AuditLogEntry {
   timestamp: string;
@@ -11,6 +12,19 @@ interface AuditLogEntry {
   details?: Record<string, unknown>;
   status: "success" | "failure";
   errorMessage?: string;
+
+  // Actor identity, scoping, diff, origin, correlation — see AuditContext.
+  actorRole?: string;
+  actorName?: string;
+  actorEmail?: string;
+  businessId?: string;
+  storeId?: string;
+  previousValues?: Record<string, unknown>;
+  newValues?: Record<string, unknown>;
+  changedFields?: string[];
+  userAgent?: string;
+  channel?: string;
+  batchId?: string;
 }
 
 class AuditLogger {
@@ -50,8 +64,62 @@ class AuditLogger {
       status: entry.status,
       errorMessage: entry.errorMessage,
       details: entry.details as any,
+      actorRole: entry.actorRole,
+      actorName: entry.actorName,
+      actorEmail: entry.actorEmail,
+      businessId: entry.businessId,
+      storeId: entry.storeId,
+      previousValues: entry.previousValues as any,
+      newValues: entry.newValues as any,
+      changedFields: entry.changedFields,
+      userAgent: entry.userAgent,
+      channel: entry.channel ?? "web",
+      batchId: entry.batchId,
     }).catch((err) => {
       console.error("[AuditLogger] DB write failed:", err);
+    });
+  }
+
+  /**
+   * Preferred entry point for domain-specific, non-CRUD transitions (approvals,
+   * recoveries, security events) — takes an AuditContext built via
+   * getAuditContext() so actor/origin/scoping are always populated consistently
+   * with the generic *WithAudit() repository capture path.
+   */
+  logEvent(
+    ctx: AuditContext,
+    action: string,
+    resource: string,
+    resourceId: string | undefined,
+    status: "success" | "failure",
+    opts: {
+      previousValues?: Record<string, unknown>;
+      newValues?: Record<string, unknown>;
+      changedFields?: string[];
+      details?: Record<string, unknown>;
+      errorMessage?: string;
+    } = {}
+  ): void {
+    this.log({
+      action,
+      resource,
+      resourceId,
+      userId: ctx.userId,
+      ip: ctx.ip,
+      status,
+      errorMessage: opts.errorMessage,
+      details: opts.details,
+      actorRole: ctx.role,
+      actorName: ctx.name,
+      actorEmail: ctx.email,
+      businessId: ctx.businessId,
+      storeId: ctx.storeId,
+      previousValues: opts.previousValues,
+      newValues: opts.newValues,
+      changedFields: opts.changedFields,
+      userAgent: ctx.userAgent,
+      channel: ctx.channel,
+      batchId: ctx.batchId,
     });
   }
 

@@ -169,9 +169,9 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       );
     }
 
-    // Auto-compute overdue status updates on the fly for returned list
+    // Auto-compute overdue status for the returned list
     const now = new Date();
-    const finalResult = [];
+    const overdueIds: string[] = [];
     for (const item of mapped) {
       if (
         (item.status === "owing" || item.status === "partial") &&
@@ -179,28 +179,38 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
         new Date(item.dueDate) < now
       ) {
         item.status = "overdue";
-        // Update database status flag out-of-band to reflect actual state
-        await db
-          .update(creditEntries)
-          .set({ status: "overdue" })
-          .where(eq(creditEntries.id, item.id));
+        overdueIds.push(item.id);
       }
-
-      const [repaymentsSum] = await db
-        .select({
-          total: sql<number>`sum(${repayments.amountReceived})`,
-        })
-        .from(repayments)
-        .where(eq(repayments.creditEntryId, item.id));
-
-      const repaid = parseFloat(String(repaymentsSum?.total || 0));
-      finalResult.push({
-        ...item,
-        totalRepayments: repaid,
-      });
     }
 
-    return finalResult;
+    if (overdueIds.length > 0) {
+      // Persist the computed status out-of-band, batched in one statement — don't block this read on it.
+      db.update(creditEntries)
+        .set({ status: "overdue" })
+        .where(inArray(creditEntries.id, overdueIds))
+        .catch((err) => console.error("Failed to persist overdue credit status:", err));
+    }
+
+    const entryIds = mapped.map((item) => item.id);
+    const repaymentTotals = entryIds.length > 0
+      ? await db
+          .select({
+            creditEntryId: repayments.creditEntryId,
+            total: sql<number>`sum(${repayments.amountReceived})`,
+          })
+          .from(repayments)
+          .where(inArray(repayments.creditEntryId, entryIds))
+          .groupBy(repayments.creditEntryId)
+      : [];
+
+    const repaidByEntry = new Map(
+      repaymentTotals.map((r) => [r.creditEntryId, parseFloat(String(r.total || 0))])
+    );
+
+    return mapped.map((item) => ({
+      ...item,
+      totalRepayments: repaidByEntry.get(item.id) || 0,
+    }));
   }
 
   async createCreditEntry(data: InsertCreditEntry): Promise<CreditEntry> {

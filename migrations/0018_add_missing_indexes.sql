@@ -1,0 +1,12 @@
+CREATE INDEX IF NOT EXISTS idx_credit_entries_store ON credit_entries (store_id);
+CREATE INDEX IF NOT EXISTS idx_repayments_credit_entry ON repayments (credit_entry_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_store ON vendors (store_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_bills_store ON vendor_bills (store_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_bills_vendor ON vendor_bills (vendor_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_store ON quotes (store_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_store ON purchase_orders (store_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders (vendor_id);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_from_store ON stock_transfers (from_store_id);
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_to_store ON stock_transfers (to_store_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (user_id);
+CREATE INDEX IF NOT EXISTS idx_cash_register_sessions_store_status ON cash_register_sessions (store_id, status);

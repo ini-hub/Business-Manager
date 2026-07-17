@@ -27,11 +27,15 @@ export interface InventoryExportRow {
   stockStatus: string;
   stockValueCost: string;
   stockValueRetail: string;
+  /** Raw numeric stock value (cost basis), 0 for services — for report subtotal math, not display. */
+  stockValueCostRaw: number;
+  /** Raw numeric stock value (retail basis), 0 for services — for report subtotal math, not display. */
+  stockValueRetailRaw: number;
   variantCount: string;
   status: string;
   createdAt: string;
   updatedAt: string;
-  [key: string]: string;
+  [key: string]: string | number;
 }
 
 export interface BuildExportRowsOptions {
@@ -162,6 +166,8 @@ function buildVariantRow(
     stockStatus: isService ? "Service" : computeStockStatus(variant.quantity, variant.reorderPoint, options.lowStockThreshold),
     stockValueCost: isService ? "—" : options.formatCurrency(variant.costPrice * variant.quantity),
     stockValueRetail: isService ? "—" : options.formatCurrency(variant.sellingPrice * variant.quantity),
+    stockValueCostRaw: isService ? 0 : variant.costPrice * variant.quantity,
+    stockValueRetailRaw: isService ? 0 : variant.sellingPrice * variant.quantity,
     variantCount: "",
     status,
     createdAt: formatDate(product.createdAt),
@@ -200,6 +206,8 @@ function buildItemRow(
       stockStatus: isService ? "Service" : "Out of Stock",
       stockValueCost: "—",
       stockValueRetail: "—",
+      stockValueCostRaw: 0,
+      stockValueRetailRaw: 0,
       variantCount: "0",
       status,
       createdAt,
@@ -254,6 +262,8 @@ function buildItemRow(
     stockStatus,
     stockValueCost: isService ? "—" : options.formatCurrency(totalCostValue),
     stockValueRetail: isService ? "—" : options.formatCurrency(totalRetailValue),
+    stockValueCostRaw: isService ? 0 : totalCostValue,
+    stockValueRetailRaw: isService ? 0 : totalRetailValue,
     variantCount: String(variants.length),
     status,
     createdAt,

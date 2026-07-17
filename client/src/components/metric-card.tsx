@@ -14,6 +14,8 @@ interface MetricCardProps {
   isLoading?: boolean;
   className?: string;
   href?: string;
+  onClick?: () => void;
+  active?: boolean;
 }
 
 export function MetricCard({
@@ -26,6 +28,8 @@ export function MetricCard({
   isLoading = false,
   className,
   href,
+  onClick,
+  active,
 }: MetricCardProps) {
   const content = (
     <>
@@ -89,6 +93,29 @@ export function MetricCard({
           {content}
         </Card>
       </Link>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <Card
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+        className={cn(
+          className,
+          "hover:border-primary/50 hover:shadow-md transition-all cursor-pointer text-left",
+          active && "border-primary ring-1 ring-primary/50 shadow-md"
+        )}
+      >
+        {content}
+      </Card>
     );
   }
 

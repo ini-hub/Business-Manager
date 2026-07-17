@@ -184,6 +184,7 @@ export class CustomerRepository {
     if (customerData.mobileNumber !== undefined) {
       updateData.mobileNumber = customerData.mobileNumber ? normalizePhoneNumber(customerData.mobileNumber) : null;
     }
+    updateData.updatedAt = new Date();
 
     const [updated] = await db.update(customers).set(updateData).where(eq(customers.id, id)).returning();
     if (updated) {
@@ -196,19 +197,19 @@ export class CustomerRepository {
 
   async deleteCustomer(id: string): Promise<boolean> {
     const result = await db.update(customers)
-      .set({ isArchived: true })
+      .set({ isArchived: true, updatedAt: new Date() })
       .where(eq(customers.id, id))
       .returning();
     return result.length > 0;
   }
 
   async archiveCustomer(id: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ isArchived: true }).where(eq(customers.id, id)).returning();
+    const [updated] = await db.update(customers).set({ isArchived: true, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
     return updated;
   }
 
   async restoreCustomer(id: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ isArchived: false }).where(eq(customers.id, id)).returning();
+    const [updated] = await db.update(customers).set({ isArchived: false, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
     return updated;
   }
 
@@ -233,8 +234,8 @@ export class CustomerRepository {
 
   async dismissDuplicate(targetId: string, duplicateId: string): Promise<void> {
     await db.transaction(async (tx) => {
-      await tx.update(customers).set({ isConfirmedDistinct: true }).where(eq(customers.id, targetId));
-      await tx.update(customers).set({ isConfirmedDistinct: true }).where(eq(customers.id, duplicateId));
+      await tx.update(customers).set({ isConfirmedDistinct: true, updatedAt: new Date() }).where(eq(customers.id, targetId));
+      await tx.update(customers).set({ isConfirmedDistinct: true, updatedAt: new Date() }).where(eq(customers.id, duplicateId));
     });
   }
 
@@ -257,6 +258,7 @@ export class CustomerRepository {
           updateData.birthday = birthday ? new Date(birthday) : null;
         }
       }
+      updateData.updatedAt = new Date();
 
       const [updatedTarget] = await tx
         .update(customers)
@@ -269,7 +271,7 @@ export class CustomerRepository {
       await tx.update(creditEntries).set({ customerId: targetId }).where(eq(creditEntries.customerId, duplicateId));
       await tx.update(quotes).set({ customerId: targetId }).where(eq(quotes.customerId, duplicateId));
 
-      await tx.update(customers).set({ isArchived: true, mergedIntoId: targetId }).where(eq(customers.id, duplicateId));
+      await tx.update(customers).set({ isArchived: true, mergedIntoId: targetId, updatedAt: new Date() }).where(eq(customers.id, duplicateId));
 
       return updatedTarget;
     });
@@ -365,7 +367,7 @@ export class CustomerRepository {
       if (existing) {
         if (!existing.globalCustomerId && sourceCustomer.globalCustomerId) {
           await db.update(customers)
-            .set({ globalCustomerId: sourceCustomer.globalCustomerId })
+            .set({ globalCustomerId: sourceCustomer.globalCustomerId, updatedAt: new Date() })
             .where(eq(customers.id, existing.id));
           existing.globalCustomerId = sourceCustomer.globalCustomerId;
         }
@@ -397,12 +399,12 @@ export class CustomerRepository {
   }
 
   async linkStaffToCustomer(customerId: string, staffId: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ staffId }).where(eq(customers.id, customerId)).returning();
+    const [updated] = await db.update(customers).set({ staffId, updatedAt: new Date() }).where(eq(customers.id, customerId)).returning();
     return updated;
   }
 
   async unlinkStaffFromCustomer(customerId: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ staffId: null }).where(eq(customers.id, customerId)).returning();
+    const [updated] = await db.update(customers).set({ staffId: null, updatedAt: new Date() }).where(eq(customers.id, customerId)).returning();
     return updated;
   }
 

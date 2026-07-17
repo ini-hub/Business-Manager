@@ -30,6 +30,10 @@ export interface DataTableProps<T> {
   emptyIcon?: React.ReactNode;
   emptyAction?: React.ReactNode;
   emptyTitle?: string;
+
+  // Fires with the live search/filter/sort result set — lets a page offer "export what
+  // I'm currently looking at" alongside its normal full-dataset export.
+  onVisibleDataChange?: (rows: T[]) => void;
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -49,6 +53,7 @@ export function DataTable<T extends { id: string | number }>({
   emptyIcon,
   emptyAction,
   emptyTitle,
+  onVisibleDataChange,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -76,6 +81,7 @@ export function DataTable<T extends { id: string | number }>({
       emptyIcon={emptyIcon}
       emptyAction={emptyAction}
       emptyTitle={emptyTitle}
+      onVisibleDataChange={onVisibleDataChange}
     />
   );
 }

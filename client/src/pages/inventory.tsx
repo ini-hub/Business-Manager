@@ -6,7 +6,7 @@ import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number };
 type AuditPerson = { name?: string; email?: string };
 type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, CheckSquare, Settings2 } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
@@ -35,12 +35,16 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { INVENTORY_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
 import { InventoryExportDialog } from "@/components/inventory-export-dialog";
 import {
   buildInventoryExportRows,
   DEFAULT_EXPORT_COLUMN_KEYS,
   INVENTORY_EXPORT_COLUMNS,
 } from "@/lib/inventory-export";
+import { exportReportToPDF, type ReportStatusTone } from "@/lib/export-utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useMultiStoreQuery } from "@/hooks/useMultiStoreQuery";
@@ -57,7 +61,7 @@ type FilterType = "all" | "product" | "service" | "low-stock" | "audits" | "arch
 
 export default function InventoryPage() {
   const { toast } = useToast();
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -254,76 +258,63 @@ export default function InventoryPage() {
   });
 
   const bulkArchiveMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const results = await Promise.allSettled(
-        ids.map((id) => apiRequest("POST", `/api/inventory/${id}/archive`))
-      );
-      const archived = ids.filter((_, i) => results[i].status === "fulfilled");
-      const failed = ids.filter((_, i) => results[i].status === "rejected");
-      return { archived, failed };
-    },
-    onSuccess: ({ archived, failed }) => {
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id, batchId) => {
+        await apiRequest("POST", `/api/inventory/${id}/archive`, undefined, { "X-Batch-Id": batchId });
+        return "archived" as const;
+      }),
+    onSuccess: ({ counts }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       setSelectedIds([]);
-      if (failed.length === 0) {
-        toast({ title: `${archived.length} item${archived.length !== 1 ? "s" : ""} archived` });
+      const archived = counts.archived ?? 0;
+      const failed = counts.failed ?? 0;
+      if (failed === 0) {
+        toast({ title: `${archived} item${archived !== 1 ? "s" : ""} archived` });
       } else {
-        toast({
-          title: `${archived.length} archived, ${failed.length} failed`,
-          variant: "destructive",
-        });
+        toast({ title: `${archived} archived, ${failed} failed`, variant: "destructive" });
       }
     },
     onError: () => toast({ title: "Bulk archive failed", variant: "destructive" }),
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const deleted: string[] = [];
-      const archived: string[] = [];
-      const failed: string[] = [];
-      await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const res = await apiRequest("DELETE", `/api/inventory/${id}`);
-            if (res.ok) {
-              deleted.push(id);
-            } else {
-              const body = await res.json().catch(() => ({}));
-              const msg: string = body?.error ?? "";
-              if (res.status === 400 && (msg.includes("sales") || msg.includes("history"))) {
-                // Has sales history — archive instead
-                const archiveRes = await apiRequest("POST", `/api/inventory/${id}/archive`);
-                if (archiveRes.ok) archived.push(id);
-                else failed.push(id);
-              } else {
-                failed.push(id);
-              }
-            }
-          } catch {
-            failed.push(id);
-          }
-        })
-      );
-      return { deleted, archived, failed };
-    },
-    onSuccess: (result) => {
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id, batchId) => {
+        const res = await apiRequest("DELETE", `/api/inventory/${id}`, undefined, { "X-Batch-Id": batchId });
+        if (res.ok) return "deleted" as const;
+        const body = await res.json().catch(() => ({}));
+        const msg: string = body?.error ?? "";
+        if (res.status === 400 && (msg.includes("sales") || msg.includes("history"))) {
+          // Has sales history — archive instead
+          const archiveRes = await apiRequest("POST", `/api/inventory/${id}/archive`, undefined, { "X-Batch-Id": batchId });
+          if (archiveRes.ok) return "archived" as const;
+        }
+        throw new Error(msg || "delete failed");
+      }),
+    onSuccess: ({ counts, byOutcome }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       setSelectedIds([]);
-      setBulkDeleteResult(result);
+      setBulkDeleteResult({
+        deleted: byOutcome.deleted ?? [],
+        archived: byOutcome.archived ?? [],
+        failed: byOutcome.failed ?? [],
+      });
       setIsBulkDeleteOpen(false);
-      const total = result.deleted.length + result.archived.length;
+      const deleted = counts.deleted ?? 0;
+      const archived = counts.archived ?? 0;
+      const failed = counts.failed ?? 0;
+      const total = deleted + archived;
       const parts: string[] = [];
-      if (result.deleted.length) parts.push(`${result.deleted.length} deleted`);
-      if (result.archived.length) parts.push(`${result.archived.length} archived (had sales history)`);
-      if (result.failed.length) parts.push(`${result.failed.length} failed`);
+      if (deleted) parts.push(`${deleted} deleted`);
+      if (archived) parts.push(`${archived} archived (had sales history)`);
+      if (failed) parts.push(`${failed} failed`);
       toast({
         title: total > 0 ? `Done — ${parts.join(", ")}` : "Nothing could be removed",
-        variant: result.failed.length > 0 && total === 0 ? "destructive" : "default",
+        variant: failed > 0 && total === 0 ? "destructive" : "default",
       });
     },
     onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
@@ -391,6 +382,109 @@ export default function InventoryPage() {
     return acc + retail;
   }, 0);
   const projectedGrossMargin = totalRetailValue > 0 ? ((totalRetailValue - totalCostValue) / totalRetailValue) * 100 : 0;
+
+  const stockStatusTone = (status: string): ReportStatusTone => {
+    if (status === "Out of Stock") return "critical";
+    if (status === "Low Stock") return "warning";
+    if (status === "In Stock") return "success";
+    return "neutral";
+  };
+
+  // One row per item, aggregated across variants the same way the on-screen columns/getStockBadge
+  // do — grouped by category so the PDF report can insert a subtotal after each category.
+  // Pulled out as a plain function (not a hook) so it can be reused for both the full,
+  // tab-scoped list and whatever subset is currently visible after search/filtering.
+  const buildInventoryReportRows = (products: any[]) => {
+    const rows = products.map((item: any) => {
+      const isService = item.type === "service";
+      const variants = item.variants ?? [];
+      const totalQty = isService ? 0 : variants.reduce((s: number, v: any) => s + v.quantity, 0);
+      const costs = variants.map((v: any) => v.costPrice);
+      const prices = variants.map((v: any) => v.sellingPrice);
+      const minCost = costs.length ? Math.min(...costs) : 0;
+      const maxCost = costs.length ? Math.max(...costs) : 0;
+      const minPrice = prices.length ? Math.min(...prices) : 0;
+      const maxPrice = prices.length ? Math.max(...prices) : 0;
+      const stockValueRetail = isService ? 0 : variants.reduce((s: number, v: any) => s + v.sellingPrice * v.quantity, 0);
+      const itemThreshold = variants[0]?.reorderPoint ?? item.reorderPoint;
+      const threshold = itemThreshold != null ? itemThreshold : lowStockThreshold;
+      const stockStatus = isService
+        ? "Service"
+        : totalQty === 0
+        ? "Out of Stock"
+        : totalQty <= threshold
+        ? "Low Stock"
+        : "In Stock";
+
+      return {
+        name: item.name as string,
+        category: (item.category as string) || "Uncategorized",
+        type: isService ? "Service" : "Product",
+        costLabel: costs.length === 0 ? "—" : minCost === maxCost ? formatCurrency(minCost) : `${formatCurrency(minCost)}–${formatCurrency(maxCost)}`,
+        priceLabel: prices.length === 0 ? "—" : minPrice === maxPrice ? formatCurrency(minPrice) : `${formatCurrency(minPrice)}–${formatCurrency(maxPrice)}`,
+        quantityLabel: isService ? "—" : String(totalQty),
+        stockStatus,
+        stockValueRetail,
+      };
+    });
+    return rows.sort((a, b) => a.category.localeCompare(b.category));
+  };
+
+  const inventoryReportRows = useMemo(
+    () => buildInventoryReportRows(filteredInventory),
+    [filteredInventory, lowStockThreshold, formatCurrency]
+  );
+
+  // Tracks the on-screen list's live search/filter result set (main tab only) so "Export
+  // current view" can offer exactly what's currently shown, separate from the full export.
+  const [visibleProducts, setVisibleProducts] = useState<ProductWithVariants[]>([]);
+  const visibleInventoryReportRows = useMemo(
+    () => buildInventoryReportRows(visibleProducts),
+    [visibleProducts, lowStockThreshold, formatCurrency]
+  );
+
+  type InventoryReportRow = (typeof inventoryReportRows)[number];
+
+  const inventoryPdfColumns: { key: string; header: string; align?: "left" | "right"; format?: (row: InventoryReportRow) => string }[] = [
+    { key: "name", header: "Item" },
+    { key: "category", header: "Category" },
+    { key: "type", header: "Type" },
+    { key: "costLabel", header: "Cost" },
+    { key: "priceLabel", header: "Price" },
+    { key: "quantityLabel", header: "Stock", align: "right" },
+    { key: "stockStatus", header: "Status" },
+    { key: "stockValueRetail", header: "Value", align: "right", format: (row) => formatCurrency(row.stockValueRetail) },
+  ];
+
+  const handleInventoryReportExport = (filtered = false) => {
+    const rows = filtered ? visibleInventoryReportRows : inventoryReportRows;
+    return exportReportToPDF({
+      filename: `inventory-report_${(currentStore?.name ?? "store").replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}`,
+      title: "Inventory Report",
+      businessName: business?.name ?? currentStore?.name ?? "Business",
+      storeName: currentStore?.name ?? "All Stores",
+      kpis: [
+        { label: "Cost Value", value: formatCurrency(totalCostValue) },
+        { label: "Retail Value", value: formatCurrency(totalRetailValue) },
+        { label: "Gross Margin", value: `${projectedGrossMargin.toFixed(1)}%` },
+        {
+          label: "Low Stock Items",
+          value: String(lowStockCount),
+          sub: lowStockCount > 0 ? "Needs restock" : undefined,
+          subTone: lowStockCount > 0 ? ("warning" as const) : undefined,
+        },
+      ],
+      columns: inventoryPdfColumns,
+      rows,
+      amountKey: "stockValueRetail",
+      formatAmount: formatCurrency,
+      unitLabel: "items",
+      groupBy: (row) => row.category,
+      statusKey: "stockStatus",
+      getStatus: (row) => ({ label: row.stockStatus, tone: stockStatusTone(row.stockStatus) }),
+      orientation: "landscape",
+    });
+  };
 
   const openEditForm = (item: any) => setLocation(`/inventory/${buildSlug(item.name, item.id)}/edit`);
 
@@ -620,6 +714,13 @@ export default function InventoryPage() {
     formatCurrency,
     isMultiStoreView,
   });
+  // Same shape as quickExportData, sourced from whatever's currently visible after search.
+  const visibleQuickExportData = buildInventoryExportRows(visibleProducts, null, {
+    granularity: "item",
+    lowStockThreshold,
+    formatCurrency,
+    isMultiStoreView,
+  });
 
   const currentViewProducts = filterType === "archived" ? archivedList : filteredInventory;
   const currentViewLabel =
@@ -659,12 +760,15 @@ export default function InventoryPage() {
             ) : (
               <>
                 <BulkOperations
-                  entityType="inventory"
+                  entityConfig={INVENTORY_BULK_CONFIG}
                   data={quickExportData as unknown as Record<string, unknown>[]}
                   columns={quickExportColumns}
                   isLoading={isLoading}
                   storeId={currentStore.id}
                   pdfTitle="Inventory Report"
+                  onExportPDF={() => handleInventoryReportExport()}
+                  onExportFilteredPDF={() => handleInventoryReportExport(true)}
+                  visibleData={visibleQuickExportData as unknown as Record<string, unknown>[]}
                   showImportOption={user?.role !== "staff"}
                   extraExportActions={
                     <DropdownMenuItem
@@ -689,6 +793,7 @@ export default function InventoryPage() {
                   lowStockThreshold={lowStockThreshold}
                   formatCurrency={formatCurrency}
                   storeLabel={currentStore.name}
+                  businessName={business?.name ?? currentStore.name}
                 />
                 <Button onClick={openCreateForm} data-testid="button-add-item">
                   <Plus className="mr-2 h-4 w-4" />
@@ -1031,42 +1136,29 @@ export default function InventoryPage() {
           return (
             <>
               {/* Bulk action bar */}
-              {selectedIds.length > 0 && user?.role !== "staff" && (
-                <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 gap-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <CheckSquare className="h-4 w-4 text-primary" />
-                    <span>{selectedIds.length} item{selectedIds.length !== 1 ? "s" : ""} selected</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedIds([])}
-                      className="h-7 text-xs"
-                    >
-                      Clear
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-                      disabled={bulkArchiveMutation.isPending}
-                      onClick={() => bulkArchiveMutation.mutate(selectedIds as string[])}
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                      {bulkArchiveMutation.isPending ? "Archiving…" : "Archive Selected"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="h-7 text-xs gap-1.5"
-                      onClick={() => setIsBulkDeleteOpen(true)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete Selected
-                    </Button>
-                  </div>
-                </div>
+              {user?.role !== "staff" && (
+                <BulkSelectionActionBar
+                  count={selectedIds.length}
+                  onClear={() => setSelectedIds([])}
+                  actions={[
+                    {
+                      key: "archive",
+                      label: "Archive Selected",
+                      pendingLabel: "Archiving…",
+                      icon: <Archive className="h-3.5 w-3.5" />,
+                      tone: "warning",
+                      pending: bulkArchiveMutation.isPending,
+                      onClick: () => bulkArchiveMutation.mutate(selectedIds as string[]),
+                    },
+                    {
+                      key: "delete",
+                      label: "Delete Selected",
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      tone: "destructive",
+                      onClick: () => setIsBulkDeleteOpen(true),
+                    },
+                  ]}
+                />
               )}
             <DataTable
               data={tableData}
@@ -1081,6 +1173,7 @@ export default function InventoryPage() {
               selectedIds={selectedIds}
               onSelectedIdsChange={setSelectedIds}
               filterConfigs={filterConfigs}
+              onVisibleDataChange={setVisibleProducts}
               emptyIcon={<Package className="h-6 w-6" />}
               emptyTitle="No Inventory Items"
               emptyAction={

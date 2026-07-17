@@ -149,6 +149,7 @@ export const customers = pgTable("customers", {
   mergedIntoId: varchar("merged_into_id"), // Links to target profile if merged
   staffId: varchar("staff_id"), // Links to staff record if this customer is a staff member
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
   index("idx_customers_store").on(table.storeId),
@@ -166,7 +167,7 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
   }),
 }));
 
-export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, isArchived: true }).extend({
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, isArchived: true, updatedAt: true }).extend({
   name: trimmedString(1, "Customer name is required"),
   customerNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
@@ -1028,7 +1029,9 @@ export const creditEntries = pgTable("credit_entries", {
   writeOffReason: text("write_off_reason"), // Bad Debt, Customer Unreachable, Goodwill, Error Correction, Other
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_credit_entries_store").on(table.storeId),
+]);
 
 export const repayments = pgTable("repayments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1038,7 +1041,9 @@ export const repayments = pgTable("repayments", {
   notes: text("notes"),
   recordedByStaffId: varchar("recorded_by_staff_id").references(() => staff.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_repayments_credit_entry").on(table.creditEntryId),
+]);
 
 export const reminderLogs = pgTable("reminder_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1387,7 +1392,9 @@ export const notifications = pgTable("notifications", {
   isRead: boolean("is_read").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   archivedAt: timestamp("archived_at"),
-});
+}, (table) => [
+  index("idx_notifications_user").on(table.userId),
+]);
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   user: one(users, {
@@ -1579,7 +1586,9 @@ export const cashRegisterSessions = pgTable("cash_register_sessions", {
   actualCash: numeric("actual_cash", { precision: 12, scale: 2 }).$type<number>(),
   difference: numeric("difference", { precision: 12, scale: 2 }).$type<number>(),
   notes: text("notes"),
-});
+}, (table) => [
+  index("idx_cash_register_sessions_store_status").on(table.storeId, table.status),
+]);
 
 export const cashDrops = pgTable("cash_drops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1623,7 +1632,9 @@ export const vendors = pgTable("vendors", {
   notes: text("notes"),
   isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_vendors_store").on(table.storeId),
+]);
 
 export const vendorBills = pgTable("vendor_bills", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1637,7 +1648,10 @@ export const vendorBills = pgTable("vendor_bills", {
   notes: text("notes"),
   linkedRestockEventId: varchar("linked_restock_event_id").references(() => inventoryRestockEvents.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_vendor_bills_store").on(table.storeId),
+  index("idx_vendor_bills_vendor").on(table.vendorId),
+]);
 
 export const vendorRelations = relations(vendors, ({ many }) => ({
   bills: many(vendorBills),
@@ -1728,7 +1742,9 @@ export const quotes = pgTable("quotes", {
   validUntil: timestamp("valid_until"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_quotes_store").on(table.storeId),
+]);
 
 export const quoteItems = pgTable("quote_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1773,7 +1789,10 @@ export const purchaseOrders = pgTable("purchase_orders", {
   expectedDelivery: timestamp("expected_delivery"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_purchase_orders_store").on(table.storeId),
+  index("idx_purchase_orders_vendor").on(table.vendorId),
+]);
 
 export const purchaseOrderItems = pgTable("purchase_order_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1817,7 +1836,10 @@ export const stockTransfers = pgTable("stock_transfers", {
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_stock_transfers_from_store").on(table.fromStoreId),
+  index("idx_stock_transfers_to_store").on(table.toStoreId),
+]);
 
 export const stockTransferItems = pgTable("stock_transfer_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1986,6 +2008,12 @@ export type PendingEmail = typeof pendingEmails.$inferSelect;
 export type InsertPendingEmail = typeof pendingEmails.$inferInsert;
 
 // ── Application Audit Logs ──────────────────────────────────────────────────
+// Append-only event log for every state-changing action across the app.
+// Mutation is blocked at the DB level (see migrations/0014_audit_logs_append_only.sql)
+// except for the narrow PII-redaction path guarded by redactedAt/redactedByUserId.
+export const auditLogChannelEnum = ["web", "api", "import", "system", "admin"] as const;
+export type AuditLogChannel = typeof auditLogChannelEnum[number];
+
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
@@ -1997,9 +2025,65 @@ export const auditLogs = pgTable("audit_logs", {
   status: text("status").notNull(), // 'success' | 'failure'
   errorMessage: text("error_message"),
   details: jsonb("details"),
+
+  // Actor identity, snapshotted at time of action (names/roles can change later)
+  actorRole: text("actor_role"),
+  actorName: text("actor_name"),
+  actorEmail: text("actor_email"),
+
+  // Tenant/store scoping — avoids the fragile join-through-users used before this column existed
+  businessId: text("business_id"),
+  storeId: text("store_id"),
+
+  // Before/after — full row snapshots, not a field-diff map (see design plan for rationale)
+  previousValues: jsonb("previous_values"),
+  newValues: jsonb("new_values"),
+  changedFields: text("changed_fields").array(),
+
+  // Origin / "from where"
+  userAgent: text("user_agent"),
+  channel: text("channel").notNull().default("web"), // 'web' | 'api' | 'import' | 'system' | 'admin'
+
+  // Correlation — groups bulk fan-out / CSV import rows together
+  batchId: varchar("batch_id"),
+
+  // Narrow redaction path — the ONLY mutation the append-only trigger permits
+  redactedAt: timestamp("redacted_at"),
+  redactedByUserId: text("redacted_by_user_id"),
 });
 
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+// ── Audit Log Batches ────────────────────────────────────────────────────────
+// Correlates a bulk fan-out action or CSV import into one reviewable unit.
+// Individual audit_logs rows point back here via batchId.
+export const auditLogBatchKindEnum = [
+  "bulk_delete",
+  "bulk_archive",
+  "bulk_restore",
+  "bulk_update",
+  "csv_import_staff",
+  "csv_import_expense",
+  "csv_import_vendor",
+] as const;
+export type AuditLogBatchKind = typeof auditLogBatchKindEnum[number];
+
+export const auditLogBatches = pgTable("audit_log_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessId: text("business_id").notNull(),
+  initiatedBy: text("initiated_by"),
+  kind: text("kind").notNull(), // see auditLogBatchKindEnum
+  label: text("label"), // human-readable summary, e.g. "Bulk delete: 40 inventory items"
+  totalCount: integer("total_count").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  details: jsonb("details"), // e.g. rejected-row errors from a CSV import
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type AuditLogBatch = typeof auditLogBatches.$inferSelect;
+export type InsertAuditLogBatch = typeof auditLogBatches.$inferInsert;
 
 
 // ── Payroll Deductions ──────────────────────────────────────────────────────
@@ -2049,6 +2133,9 @@ export type InsertPayrollDisbursement = typeof payrollDisbursements.$inferInsert
 
 // ── Salary Advances ─────────────────────────────────────────────────────────
 // Mid-period cash advances to staff, tracked for payroll deduction
+export const salaryAdvanceStatusEnum = ["pending", "approved", "rejected"] as const;
+export type SalaryAdvanceStatus = typeof salaryAdvanceStatusEnum[number];
+
 export const salaryAdvances = pgTable("salary_advances", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
@@ -2058,7 +2145,11 @@ export const salaryAdvances = pgTable("salary_advances", {
   notes: text("notes"),
   recoveredPeriodId: varchar("recovered_period_id").references(() => payrollPeriods.id), // Set when deducted from payroll
   isRecovered: boolean("is_recovered").notNull().default(false),
-  givenByUserId: varchar("given_by_user_id").references(() => users.id),
+  givenByUserId: varchar("given_by_user_id").references(() => users.id), // the requester
+  status: text("status").notNull().default("pending"), // 'pending' | 'approved' | 'rejected'
+  approvedByUserId: varchar("approved_by_user_id").references(() => users.id), // distinct from givenByUserId
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

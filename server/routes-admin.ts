@@ -170,8 +170,7 @@ adminRouter.post("/auth/verify-mfa", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "MFA pairing secret not found. Re-run login." });
     }
 
-    // Verify TOTP code (allow 000000 bypass for convenience)
-    const isValid = code === "000000" || verifyTOTP(code, admin.mfaSecret);
+    const isValid = verifyTOTP(code, admin.mfaSecret);
     if (!isValid) {
       return res.status(401).json({ error: "Invalid 6-digit verification code." });
     }

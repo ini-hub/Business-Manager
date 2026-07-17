@@ -35,7 +35,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -582,7 +582,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         await storage.updateCustomer(duplicateOfId, { duplicateOfId: customer.id } as any);
       }
 
-      auditLogger.logDataModification("customer", customer.id, getUserId(req), "CREATE", true);
+      const ctx = await getAuditContext(req, { storeId: data.storeId });
+      auditLogger.logEvent(ctx, "CREATE", "customer", customer.id, "success", { newValues: customer });
       res.status(201).json(customer);
     } catch (error) {
       auditLogger.logDataModification("customer", undefined, getUserId(req), "CREATE", false, (error as Error).message);
@@ -672,7 +673,15 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!updatedCustomer) {
         return res.status(404).json({ error: "This customer no longer exists. It may have been deleted." });
       }
-      auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", true);
+      const changedFields = Object.keys(data).filter((key) => JSON.stringify((customer as any)[key]) !== JSON.stringify((updatedCustomer as any)[key]));
+      if (changedFields.length > 0) {
+        const ctx = await getAuditContext(req, { storeId: customer.storeId });
+        auditLogger.logEvent(ctx, "UPDATE", "customer", req.params.id, "success", {
+          previousValues: customer,
+          newValues: updatedCustomer,
+          changedFields,
+        });
+      }
       res.json(updatedCustomer);
     } catch (error) {
       auditLogger.logDataModification("customer", req.params.id, getUserId(req), "UPDATE", false, (error as Error).message);
@@ -700,6 +709,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!archived) {
         return res.status(500).json({ error: "We couldn't archive this customer. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: customer.storeId });
+      auditLogger.logEvent(ctx, "ARCHIVE", "customer", req.params.id, "success", { previousValues: customer, newValues: archived });
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't archive this customer. Please try again." });
@@ -723,6 +734,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!restored) {
         return res.status(500).json({ error: "We couldn't restore this customer. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: customer.storeId });
+      auditLogger.logEvent(ctx, "RESTORE", "customer", req.params.id, "success", { previousValues: customer, newValues: restored });
       res.json(restored);
     } catch (error) {
       res.status(500).json({ error: "We couldn't restore this customer. Please try again." });
@@ -757,6 +770,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!deleted) {
         return res.status(500).json({ error: "We couldn't delete this customer. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: customer.storeId });
+      auditLogger.logEvent(ctx, "PERMANENT_DELETE", "customer", req.params.id, "success", { previousValues: customer });
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't delete this customer. Please try again." });
@@ -789,7 +804,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
             address: row.address,
           });
           if (parsed.storeId && !(await checkStoreAccess(parsed.storeId, req, res))) { throw new Error("Unauthorized store"); }
-          await storage.createCustomer(parsed);
+          const created = await storage.createCustomer(parsed);
+          auditLogger.logDataModification("customer", created.id, getUserId(req), "CREATE", true);
           result.success++;
         } catch (error) {
           result.failed++;

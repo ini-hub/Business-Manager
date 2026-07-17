@@ -25,6 +25,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { BulkOperations } from "@/components/bulk-operations";
+import { PURCHASE_ORDER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import { exportReportToPDF } from "@/lib/export-utils";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { PurchaseOrder, PurchaseOrderItem, Inventory, Staff } from "@shared/schema";
 
 type Vendor = { id: string; name: string; phoneNumber?: string; email?: string; companyName?: string };
@@ -44,6 +50,9 @@ export default function PurchaseOrdersPage() {
   const [selectedPOId, setSelectedPOId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+
+  const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
 
   // Vendor Bills State
   const [payAmount, setPayAmount] = useState<string>("");
@@ -331,6 +340,48 @@ export default function PurchaseOrdersPage() {
     },
   });
 
+  const bulkCancelMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("PATCH", `/api/purchase-orders/${id}/status`, { status: "cancelled" });
+        if (!res.ok) throw new Error("cancel failed");
+        return "cancelled" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      setSelectedIds([]);
+      const cancelled = counts.cancelled ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${cancelled} purchase order${cancelled !== 1 ? "s" : ""} cancelled` }
+          : { title: `${cancelled} cancelled, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk cancel failed", variant: "destructive" }),
+  });
+
+  const bulkDeletePOMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("DELETE", `/api/purchase-orders/${id}`);
+        if (!res.ok) throw new Error("delete failed");
+        return "deleted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      setSelectedIds([]);
+      const deleted = counts.deleted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${deleted} purchase order${deleted !== 1 ? "s" : ""} deleted` }
+          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+  });
+
   const resetForm = () => {
     setVendorId("");
     setPoNumber(`PO-${Date.now().toString().slice(-6)}`);
@@ -467,11 +518,67 @@ export default function PurchaseOrdersPage() {
   const orderedCount = purchaseOrders.filter(po => po.status === "ordered" || po.status === "partially_received").length;
   const fulfilledCount = purchaseOrders.filter(po => po.status === "received").length;
 
+  const poExportColumns = [
+    { key: "poNumber", header: "PO Code" },
+    { key: "vendor.name", header: "Vendor" },
+    { key: "totalAmount", header: "Total Cost" },
+    { key: "status", header: "Status" },
+    { key: "expectedDelivery", header: "Expected Delivery" },
+    { key: "createdAt", header: "Created" },
+  ];
+
+  const handlePOReportExport = () => {
+    return exportReportToPDF({
+      filename: `purchase-orders-report_${new Date().toISOString().slice(0, 10)}`,
+      title: "Purchase Orders Report",
+      businessName: currentStore.name,
+      storeName: currentStore.name,
+      kpis: [
+        { label: "Procurement Volume", value: formatCurrency(totalPOVal) },
+        { label: "Orders In Transit", value: String(orderedCount) },
+        { label: "Fulfilled Receipts", value: String(fulfilledCount) },
+        { label: "Total Orders", value: String(purchaseOrders.length) },
+      ],
+      columns: [
+        { key: "poNumber", header: "PO Code" },
+        { key: "vendorName", header: "Vendor", format: (po: POWithVendor) => po.vendor?.name || "Unknown" },
+        { key: "totalAmount", header: "Total Cost", align: "right" as const, format: (po: POWithVendor) => formatCurrency(po.totalAmount) },
+        { key: "status", header: "Status" },
+      ],
+      rows: purchaseOrders,
+      amountKey: "totalAmount",
+      formatAmount: formatCurrency,
+      statusKey: "status",
+      unitLabel: "purchase orders",
+    });
+  };
+
+  const poFilterConfigs: TableFilterConfig[] = [
+    { key: "status", label: "Status", type: "select" },
+    { key: "vendor.name", label: "Vendor", type: "select" },
+    { key: "createdAt", label: "Order Date", type: "date-range" },
+    { key: "totalAmount", label: "Amount", type: "range", currencySymbol: storeCurrency === "USD" ? "$" : "₦" },
+  ];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Purchase Orders (PO)"
         description="procure stock from external suppliers, track shipments, and automatically reconcile pricing cost bases."
+        actions={
+          activeTab === "list" && (
+            <BulkOperations
+              entityConfig={PURCHASE_ORDER_BULK_CONFIG}
+              data={purchaseOrders as unknown as Record<string, unknown>[]}
+              columns={poExportColumns}
+              isLoading={isLoadingPOs}
+              storeId={currentStore.id}
+              pdfTitle="Purchase Orders Report"
+              onExportPDF={handlePOReportExport}
+              showImportOption={isManagerOrOwner}
+            />
+          )
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -548,15 +655,46 @@ export default function PurchaseOrdersPage() {
               <CardTitle>Procurement Transit Tracker</CardTitle>
               <CardDescription>Monitor outstanding purchase orders, arrival dates, and supply logs.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {isManagerOrOwner && (
+                <BulkSelectionActionBar
+                  count={selectedIds.length}
+                  unitLabel="purchase order"
+                  onClear={() => setSelectedIds([])}
+                  actions={[
+                    {
+                      key: "cancel",
+                      label: "Cancel Selected",
+                      pendingLabel: "Cancelling…",
+                      icon: <AlertTriangle className="h-3.5 w-3.5" />,
+                      tone: "warning",
+                      pending: bulkCancelMutation.isPending,
+                      onClick: () => bulkCancelMutation.mutate(selectedIds as string[]),
+                    },
+                    {
+                      key: "delete",
+                      label: "Delete Selected",
+                      pendingLabel: "Deleting…",
+                      icon: <Trash className="h-3.5 w-3.5" />,
+                      tone: "destructive",
+                      pending: bulkDeletePOMutation.isPending,
+                      onClick: () => bulkDeletePOMutation.mutate(selectedIds as string[]),
+                    },
+                  ]}
+                />
+              )}
               <DataTable
                 data={purchaseOrders}
                 columns={columns}
                 searchable
                 searchPlaceholder="Search PO references..."
                 searchKeys={["poNumber"]}
+                filterConfigs={poFilterConfigs}
                 isLoading={isLoadingPOs}
                 emptyMessage="No procurement transactions found. Initialize a new order."
+                multiselect={isManagerOrOwner}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={setSelectedIds}
               />
             </CardContent>
           </Card>

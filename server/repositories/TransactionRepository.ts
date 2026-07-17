@@ -21,7 +21,7 @@ import {
   type InsertOrder,
   type TransactionWithRelations,
 } from "@shared/schema";
-import { eq, and, or, ilike, desc, gte, lte } from "drizzle-orm";
+import { eq, and, or, ilike, desc, gte, lte, inArray } from "drizzle-orm";
 import { serializeUser } from "../storage";
 
 export interface TransactionFilters {
@@ -256,33 +256,63 @@ export class TransactionRepository {
     );
     const primaryCheckout = sorted.find(c => !c.isAddendum) ?? sorted[0];
 
-    const items = [];
+    const rawReturnLogs = await db
+      .select()
+      .from(returnLogs)
+      .where(eq(returnLogs.checkoutId, primaryCheckout.id));
+
+    // Batch-fetch every order/inventory/staff referenced across checkouts and return logs
+    // instead of querying per-row (previously up to ~5 round trips per line item).
+    const checkoutOrderIds = matchedCheckouts.map(c => c.orderId).filter((id): id is string => !!id);
+    const returnLogOrderIds = rawReturnLogs.map(l => l.orderId).filter((id): id is string => !!id);
+    const orderIds = Array.from(new Set([...checkoutOrderIds, ...returnLogOrderIds]));
+    const ordersRows = orderIds.length ? await db.select().from(orders).where(inArray(orders.id, orderIds)) : [];
+    const ordersById = new Map(ordersRows.map(o => [o.id, o]));
+
+    const inventoryIds = Array.from(new Set(ordersRows.map(o => o.inventoryId).filter((id): id is string => !!id)));
+    const inventoryRows = inventoryIds.length ? await db.select().from(inventory).where(inArray(inventory.id, inventoryIds)) : [];
+    const inventoryById = new Map(inventoryRows.map(i => [i.id, i]));
+
+    const staffIds = new Set<string>();
     for (const ch of matchedCheckouts) {
-      const [order] = await db.select().from(orders).where(eq(orders.id, ch.orderId));
-      const [inventoryItem] = order ? await db.select().from(inventory).where(eq(inventory.id, order.inventoryId)) : [null];
-      const [leadStaffMember] = ch.leadStaffId
-        ? await db.select().from(staff).where(eq(staff.id, ch.leadStaffId))
-        : [null];
-      const [assistingStaff1Member] = ch.assistingStaff1Id
-        ? await db.select().from(staff).where(eq(staff.id, ch.assistingStaff1Id))
-        : [null];
-      const [assistingStaff2Member] = ch.assistingStaff2Id
-        ? await db.select().from(staff).where(eq(staff.id, ch.assistingStaff2Id))
-        : [null];
-      items.push({
+      if (ch.leadStaffId) staffIds.add(ch.leadStaffId);
+      if (ch.assistingStaff1Id) staffIds.add(ch.assistingStaff1Id);
+      if (ch.assistingStaff2Id) staffIds.add(ch.assistingStaff2Id);
+    }
+    for (const log of rawReturnLogs) {
+      if (log.staffId) staffIds.add(log.staffId);
+    }
+    if (primaryCheckout.staffId) staffIds.add(primaryCheckout.staffId);
+    const staffRows = staffIds.size ? await db.select().from(staff).where(inArray(staff.id, Array.from(staffIds))) : [];
+    const staffById = new Map(staffRows.map(s => [s.id, s]));
+
+    const items = matchedCheckouts.map(ch => {
+      const order = ch.orderId ? ordersById.get(ch.orderId) ?? null : null;
+      const inventoryItem = order?.inventoryId ? inventoryById.get(order.inventoryId) ?? null : null;
+      return {
         checkout: ch,
         order,
         inventory: inventoryItem,
-        leadStaff: leadStaffMember,
-        assistingStaff1: assistingStaff1Member ?? null,
-        assistingStaff2: assistingStaff2Member ?? null,
-      });
-    }
+        leadStaff: ch.leadStaffId ? staffById.get(ch.leadStaffId) ?? null : null,
+        assistingStaff1: ch.assistingStaff1Id ? staffById.get(ch.assistingStaff1Id) ?? null : null,
+        assistingStaff2: ch.assistingStaff2Id ? staffById.get(ch.assistingStaff2Id) ?? null : null,
+      };
+    });
+
+    const resolvedReturnLogs = rawReturnLogs.map(log => {
+      const order = log.orderId ? ordersById.get(log.orderId) ?? null : null;
+      const inventoryItem = order?.inventoryId ? inventoryById.get(order.inventoryId) ?? null : null;
+      return {
+        ...log,
+        inventory: inventoryItem,
+        staff: log.staffId ? staffById.get(log.staffId) ?? null : null,
+      };
+    });
 
     const [store] = await db.select().from(stores).where(eq(stores.id, primaryCheckout.storeId));
     const [business] = store ? await db.select().from(businesses).where(eq(businesses.id, store.businessId)) : [null];
     const [storeSettings] = await db.select().from(settings).where(eq(settings.storeId, primaryCheckout.storeId));
-    const [staffMember] = await db.select().from(staff).where(eq(staff.id, primaryCheckout.staffId));
+    const staffMember = primaryCheckout.staffId ? staffById.get(primaryCheckout.staffId) ?? null : null;
 
     const [tx] = await db.select().from(transactions).where(eq(transactions.checkoutId, primaryCheckout.id));
     const [customer] = tx ? await db.select().from(customers).where(eq(customers.id, tx.customerId)) : [null];
@@ -298,27 +328,6 @@ export class TransactionRepository {
       .select()
       .from(creditEntries)
       .where(eq(creditEntries.linkedTransactionId, primaryCheckout.id));
-
-    const rawReturnLogs = await db
-      .select()
-      .from(returnLogs)
-      .where(eq(returnLogs.checkoutId, primaryCheckout.id));
-
-    const resolvedReturnLogs = [];
-    for (const log of rawReturnLogs) {
-      const [order] = await db.select().from(orders).where(eq(orders.id, log.orderId));
-      const [inventoryItem] = order
-        ? await db.select().from(inventory).where(eq(inventory.id, order.inventoryId))
-        : [null];
-      const [logStaffMember] = log.staffId
-        ? await db.select().from(staff).where(eq(staff.id, log.staffId))
-        : [null];
-      resolvedReturnLogs.push({
-        ...log,
-        inventory: inventoryItem,
-        staff: logStaffMember,
-      });
-    }
 
     // Resolve receipt prefix using the shared helper (non-transactional read context)
     let resolvedPrefix = "RCP";

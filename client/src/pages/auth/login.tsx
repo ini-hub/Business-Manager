@@ -56,7 +56,7 @@ export default function Login() {
 
   // Org selection state
   const [orgs, setOrgs] = useState<{ id: string; name: string; slug: string; role: string }[]>([]);
-  const [tempUserId, setTempUserId] = useState<string | null>(null);
+  const [orgSelectToken, setOrgSelectToken] = useState<string | null>(null);
 
   // Form schemas
   const identifierSchema = z.object({
@@ -182,7 +182,7 @@ export default function Login() {
         });
       } else if (data.requiresOrganisationSelection) {
         setOrgs(data.organisations);
-        setTempUserId(data.userId);
+        setOrgSelectToken(data.orgSelectToken);
         setStep("org_select");
         toast({
           title: "Multiple Workspaces Found",
@@ -211,7 +211,7 @@ export default function Login() {
   const selectOrgMutation = useMutation({
     mutationFn: async (organisationId: string) => {
       const response = await apiRequest("POST", "/api/auth/organisation/select", {
-        userId: tempUserId,
+        orgSelectToken,
         organisationId,
         stayLoggedIn,
       });

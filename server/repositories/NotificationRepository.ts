@@ -3,10 +3,11 @@ import {
   notifications,
   users,
   stores,
+  staff,
   type Notification,
   type InsertNotification,
 } from "@shared/schema";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { broadcastNotification } from "../websocket";
 
 export class NotificationRepository {
@@ -18,10 +19,12 @@ export class NotificationRepository {
       .limit(50);
   }
 
-  async markNotificationAsRead(id: string): Promise<void> {
-    await db.update(notifications)
+  async markNotificationAsRead(id: string, userId: string): Promise<boolean> {
+    const updated = await db.update(notifications)
       .set({ isRead: true })
-      .where(eq(notifications.id, id));
+      .where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
+      .returning({ id: notifications.id });
+    return updated.length > 0;
   }
 
   async markAllNotificationsAsRead(userId: string): Promise<void> {
@@ -61,17 +64,26 @@ export class NotificationRepository {
     const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
     if (!store) return;
 
-    const managers = await db.select().from(users).where(
-      and(
-        eq(users.businessId, store.businessId),
-        or(eq(users.role, "owner"), eq(users.role, "manager"))
-      )
+    // Owners oversee the whole business, so they're notified for every store.
+    // Managers are scoped to the store they're assigned to (stores.managerStaffId),
+    // not every manager in the business.
+    const owners = await db.select({ id: users.id }).from(users).where(
+      and(eq(users.businessId, store.businessId), eq(users.role, "owner"))
     );
 
-    for (const mgr of managers) {
+    const recipientIds = new Set(owners.map((owner) => owner.id));
+
+    if (store.managerStaffId) {
+      const [manager] = await db.select({ userId: staff.userId })
+        .from(staff)
+        .where(eq(staff.id, store.managerStaffId));
+      if (manager?.userId) recipientIds.add(manager.userId);
+    }
+
+    for (const userId of Array.from(recipientIds)) {
       await this.createNotification({
         storeId,
-        userId: mgr.id,
+        userId,
         type,
         message,
       });

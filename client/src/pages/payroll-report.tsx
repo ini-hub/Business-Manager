@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { ChevronLeft, BarChart3, Download } from "lucide-react";
+import { ChevronLeft, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,8 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/currency-utils";
 import { useLocation } from "wouter";
+import { ExportToolbar } from "@/components/export-toolbar";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
 const STATUS_CONFIG = {
   pending:  { label: "Pending",  color: "text-amber-700 bg-amber-50 border-amber-200" },
@@ -34,35 +37,32 @@ export default function PayrollReportPage() {
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
+  const [visibleReport, setVisibleReport] = useState<any[]>([]);
+
   if (!currentStore) return <StoreRequiredAlert />;
 
   const totalPaid = report.filter(r => r.status === "paid").reduce((s, r) => s + r.totalNetPay, 0);
   const totalStaff = report.reduce((s, r) => s + r.staffCount, 0);
+  const visibleTotalPaid = visibleReport.filter((r) => r.status === "paid").reduce((s, r) => s + r.totalNetPay, 0);
+  const visibleTotalStaff = visibleReport.reduce((s, r) => s + r.staffCount, 0);
 
-  const exportCSV = () => {
-    const rows = [
-      ["Period", "Type", "Status", "Staff", "Commission", "Transport", "Deductions", "Net Pay", "Paid At"],
-      ...report.map(r => [
-        `${r.startDate} to ${r.endDate}`,
-        r.periodType,
-        r.status,
-        r.staffCount,
-        r.totalGrossCommission.toFixed(2),
-        r.totalTransport.toFixed(2),
-        r.totalDeductions.toFixed(2),
-        r.totalNetPay.toFixed(2),
-        r.paidAt ? format(new Date(r.paidAt), "yyyy-MM-dd") : "",
-      ]),
-    ];
-    const csv = rows.map(r => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `payroll-report-${currentStore?.name?.replace(/\s+/g, "-").toLowerCase()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportColumns = [
+    { key: "periodType", header: "Type" },
+    { key: "startDate", header: "Start Date" },
+    { key: "endDate", header: "End Date" },
+    { key: "status", header: "Status" },
+    { key: "staffCount", header: "Staff" },
+    { key: "totalGrossCommission", header: "Commission" },
+    { key: "totalTransport", header: "Transport" },
+    { key: "totalDeductions", header: "Deductions" },
+    { key: "totalNetPay", header: "Net Pay" },
+    { key: "paidAt", header: "Paid At" },
+  ];
+
+  const filterConfigs: TableFilterConfig[] = [
+    { key: "periodType", label: "Period Type", type: "select" },
+    { key: "status", label: "Status", type: "select" },
+  ];
 
   const columns = [
     {
@@ -128,10 +128,52 @@ export default function PayrollReportPage() {
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
-            <Button variant="outline" onClick={exportCSV} disabled={report.length === 0}>
-              <Download className="mr-2 h-4 w-4" />
-              Export CSV
-            </Button>
+            <ExportToolbar
+              data={report as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              filename={`payroll-report-${currentStore?.name?.replace(/\s+/g, "-").toLowerCase()}`}
+              title="Payroll Report"
+              disabled={report.length === 0}
+              pdfReport={{
+                businessName: currentStore?.name ?? "Business",
+                storeName: currentStore?.name ?? "Store",
+                kpis: [
+                  { label: "Total Periods", value: String(report.length) },
+                  { label: "Total Staff-Periods", value: String(totalStaff) },
+                  { label: "Total Paid Out", value: fmt(totalPaid) },
+                ],
+                columns: [
+                  { key: "periodType", header: "Type" },
+                  { key: "status", header: "Status" },
+                  { key: "totalNetPay", header: "Net Pay", align: "right" as const, format: (r: Record<string, unknown>) => fmt(r.totalNetPay as number) },
+                ],
+                rows: report as unknown as Record<string, unknown>[],
+                amountKey: "totalNetPay",
+                formatAmount: fmt,
+                statusKey: "status",
+                unitLabel: "periods",
+              }}
+              visibleData={visibleReport as unknown as Record<string, unknown>[]}
+              visiblePdfReport={{
+                businessName: currentStore?.name ?? "Business",
+                storeName: currentStore?.name ?? "Store",
+                kpis: [
+                  { label: "Total Periods", value: String(visibleReport.length) },
+                  { label: "Total Staff-Periods", value: String(visibleTotalStaff) },
+                  { label: "Total Paid Out", value: fmt(visibleTotalPaid) },
+                ],
+                columns: [
+                  { key: "periodType", header: "Type" },
+                  { key: "status", header: "Status" },
+                  { key: "totalNetPay", header: "Net Pay", align: "right" as const, format: (r: Record<string, unknown>) => fmt(r.totalNetPay as number) },
+                ],
+                rows: visibleReport as unknown as Record<string, unknown>[],
+                amountKey: "totalNetPay",
+                formatAmount: fmt,
+                statusKey: "status",
+                unitLabel: "periods",
+              }}
+            />
           </div>
         }
       />
@@ -166,6 +208,8 @@ export default function PayrollReportPage() {
             isLoading={isLoading}
             emptyMessage="No payroll periods found."
             searchable={false}
+            filterConfigs={filterConfigs}
+            onVisibleDataChange={setVisibleReport}
           />
         </CardContent>
         {report.length > 0 && (

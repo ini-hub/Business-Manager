@@ -16,6 +16,14 @@ import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth } from "@/hooks/useAuth";
+import { DataTable } from "@/components/data-table";
+import { BulkOperations } from "@/components/bulk-operations";
+import { TAX_RATE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
+import { ExportToolbar } from "@/components/export-toolbar";
+import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { TaxRate } from "@shared/schema";
 
 type Transaction = {
@@ -31,8 +39,11 @@ type Transaction = {
 
 export default function TaxesCompliancePage() {
   const { currentStore, stores } = useStore();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
   const storeCurrency = currentStore?.currency || "NGN";
 
   // Form State
@@ -118,6 +129,27 @@ export default function TaxesCompliancePage() {
     },
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id) => {
+        const res = await apiRequest("DELETE", `/api/tax-rates/${id}`);
+        if (!res.ok) throw new Error("delete failed");
+        return "deleted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tax-rates"] });
+      setSelectedIds([]);
+      const deleted = counts.deleted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${deleted} tax rate${deleted !== 1 ? "s" : ""} deleted` }
+          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+  });
+
   const resetForm = () => {
     setName("");
     setRate("");
@@ -200,15 +232,101 @@ export default function TaxesCompliancePage() {
     );
   }
 
+  const taxRatesWithStatus = taxRates.map(r => ({ ...r, statusLabel: r.isDefault ? "Default" : "Custom" }));
+
+  const taxRateExportColumns = [
+    { key: "name", header: "Label" },
+    { key: "rate", header: "Rate %" },
+    { key: "statusLabel", header: "Status" },
+    { key: "createdAt", header: "Configured On" },
+  ];
+
+  const taxRateFilterConfigs: TableFilterConfig[] = [
+    { key: "statusLabel", label: "Status", type: "select" },
+  ];
+
+  const taxRateColumns = [
+    {
+      key: "name",
+      header: "Label",
+      render: (rate: TaxRate) => (
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">
+            {rate.rate}%
+          </div>
+          <div>
+            <p className="font-medium text-sm flex items-center gap-2">
+              {rate.name}
+              {rate.isDefault && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">
+                  Default
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground">Configured on {new Date(rate.createdAt).toLocaleDateString()}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "isDefault",
+      header: "Default",
+      render: (rate: TaxRate) => (
+        <Switch
+          checked={rate.isDefault}
+          onCheckedChange={(checked) => setDefaultMutation.mutate({ id: rate.id, isDefault: checked })}
+          disabled={setDefaultMutation.isPending}
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (rate: TaxRate) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            if (confirm("Permanently delete this tax compliance rate?")) {
+              deleteMutation.mutate(rate.id);
+            }
+          }}
+          disabled={deleteMutation.isPending}
+          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      ),
+    },
+  ];
+
+  const auditExportColumns = [
+    { key: "month", header: "Fiscal Period" },
+    { key: "count", header: "Transactions Count" },
+    { key: "taxableSales", header: "Taxable Revenue" },
+    { key: "vatCollected", header: "VAT / Sales Tax" },
+  ];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Taxes & Compliance"
         description="Configure VAT levels, automate checkout surcharge calculations, and audit monthly tax logs."
         actions={
-          <Button onClick={() => { resetForm(); setIsOpen(true); }} className="hover-elevate shadow-md flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Add Custom Rate
-          </Button>
+          <div className="flex items-center gap-2">
+            <BulkOperations
+              entityConfig={TAX_RATE_BULK_CONFIG}
+              data={taxRatesWithStatus as unknown as Record<string, unknown>[]}
+              columns={taxRateExportColumns}
+              isLoading={isLoadingRates}
+              storeId={currentStore.id}
+              pdfTitle="Tax Rates Report"
+              showImportOption={isManagerOrOwner}
+            />
+            <Button onClick={() => { resetForm(); setIsOpen(true); }} className="hover-elevate shadow-md flex items-center gap-2">
+              <Plus className="h-4 w-4" /> Add Custom Rate
+            </Button>
+          </div>
         }
       />
 
@@ -251,90 +369,58 @@ export default function TaxesCompliancePage() {
                 Rates flagged as "Default" are auto-appended as itemized surcharges during checkout transactions.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {isLoadingRates ? (
-                <div className="flex justify-center items-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : taxRates.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-12 text-center border-2 border-dashed rounded-lg bg-card/20">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4 text-primary">
-                    <Percent className="h-6 w-6" />
-                  </div>
-                  <h4 className="text-md font-bold mb-1">No custom tax rates set</h4>
-                  <p className="text-sm text-muted-foreground max-w-sm mb-6">
-                    Configure a tax rate like VAT 7.5% to automatically calculate compliance tax breakdowns on customer receipts.
-                  </p>
-                  <Button onClick={() => setIsOpen(true)} variant="outline" size="sm">
-                    Configure First Tax Rate
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {taxRates.map((rate) => (
-                    <div
-                      key={rate.id}
-                      className="flex items-center justify-between p-4 rounded-lg border bg-gradient-to-r from-card/80 to-card/40 backdrop-blur-sm shadow-sm hover:shadow-md transition-all duration-300"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                          {rate.rate}%
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-foreground flex items-center gap-2">
-                            {rate.name}
-                            {rate.isDefault && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">
-                                Default Active
-                              </span>
-                            )}
-                          </h4>
-                          <p className="text-xs text-muted-foreground">Configured on {new Date(rate.createdAt).toLocaleDateString()}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor={`default-toggle-${rate.id}`} className="text-xs text-muted-foreground cursor-pointer">
-                            Default
-                          </Label>
-                          <Switch
-                            id={`default-toggle-${rate.id}`}
-                            checked={rate.isDefault}
-                            onCheckedChange={(checked) => setDefaultMutation.mutate({ id: rate.id, isDefault: checked })}
-                            disabled={setDefaultMutation.isPending}
-                          />
-                        </div>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            if (confirm("Permanently delete this tax compliance rate?")) {
-                              deleteMutation.mutate(rate.id);
-                            }
-                          }}
-                          disabled={deleteMutation.isPending}
-                          className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <CardContent className="space-y-3">
+              {isManagerOrOwner && (
+                <BulkSelectionActionBar
+                  count={selectedIds.length}
+                  unitLabel="tax rate"
+                  onClear={() => setSelectedIds([])}
+                  actions={[
+                    {
+                      key: "delete",
+                      label: "Delete Selected",
+                      pendingLabel: "Deleting…",
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      tone: "destructive",
+                      pending: bulkDeleteMutation.isPending,
+                      onClick: () => bulkDeleteMutation.mutate(selectedIds as string[]),
+                    },
+                  ]}
+                />
               )}
+              <DataTable
+                data={taxRatesWithStatus}
+                columns={taxRateColumns}
+                filterConfigs={taxRateFilterConfigs}
+                isLoading={isLoadingRates}
+                emptyTitle="No custom tax rates set"
+                emptyMessage="Configure a tax rate like VAT 7.5% to automatically calculate compliance tax breakdowns on customer receipts."
+                emptyIcon={<Percent className="h-6 w-6" />}
+                emptyAction={<Button onClick={() => setIsOpen(true)} variant="outline" size="sm">Configure First Tax Rate</Button>}
+                multiselect={isManagerOrOwner}
+                selectedIds={selectedIds}
+                onSelectedIdsChange={setSelectedIds}
+              />
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="audit" className="space-y-6">
           <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>Historical Compliance Audit Sheets</CardTitle>
-              <CardDescription>
-                Consolidated records of sales volume and itemized compliance taxes accrued per calendar month.
-              </CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between space-y-0">
+              <div>
+                <CardTitle>Historical Compliance Audit Sheets</CardTitle>
+                <CardDescription>
+                  Consolidated records of sales volume and itemized compliance taxes accrued per calendar month.
+                </CardDescription>
+              </div>
+              <ExportToolbar
+                data={reportsList as unknown as Record<string, unknown>[]}
+                columns={auditExportColumns}
+                filename={`vat-compliance-audit_${currentStore.name}`}
+                title="VAT / Sales Tax Compliance Audit"
+                disabled={reportsList.length === 0}
+              />
             </CardHeader>
             <CardContent>
               {isLoadingTransactions ? (

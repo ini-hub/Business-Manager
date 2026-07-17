@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { ChevronLeft, Plus, Banknote, Check, Trash2 } from "lucide-react";
+import { ChevronLeft, Plus, Banknote, Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +17,12 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/currency-utils";
 import { useLocation } from "wouter";
+import { ExportToolbar } from "@/components/export-toolbar";
+import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { runBulkFanOut } from "@/lib/bulk-actions";
 
 export default function PayrollAdvancesPage() {
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const currency = currentStore?.currency || "NGN";
@@ -30,6 +33,9 @@ export default function PayrollAdvancesPage() {
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [rejectTarget, setRejectTarget] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const { data: staffList = [] } = useQuery<any[]>({
     queryKey: ["/api/staff", currentStore?.id],
@@ -70,6 +76,45 @@ export default function PayrollAdvancesPage() {
     onSuccess: () => { refetch(); toast({ title: "Advance deleted" }); },
   });
 
+  const approveMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("POST", `/api/payroll/advances/${id}/approve`),
+    onSuccess: () => { refetch(); toast({ title: "Advance approved" }); },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) =>
+      apiRequest("POST", `/api/payroll/advances/${id}/reject`, { reason }),
+    onSuccess: () => {
+      refetch();
+      setRejectTarget(null);
+      setRejectReason("");
+      toast({ title: "Advance rejected" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) =>
+      runBulkFanOut(ids, async (id, batchId) => {
+        const res = await apiRequest("DELETE", `/api/payroll/advances/${id}`, undefined, { "X-Batch-Id": batchId });
+        if (!res.ok) throw new Error("delete failed");
+        return "deleted" as const;
+      }),
+    onSuccess: ({ counts }) => {
+      refetch();
+      setSelectedIds([]);
+      const deleted = counts.deleted ?? 0;
+      const failed = counts.failed ?? 0;
+      toast(
+        failed === 0
+          ? { title: `${deleted} advance${deleted !== 1 ? "s" : ""} deleted` }
+          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
+      );
+    },
+    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+  });
+
   if (!currentStore) return <StoreRequiredAlert />;
   if (currentStore.id === "all") return (
     <div className="space-y-6">
@@ -78,6 +123,63 @@ export default function PayrollAdvancesPage() {
   );
 
   const totalPending = advances.filter((a: any) => !a.isRecovered).reduce((s: number, a: any) => s + Number(a.amount), 0);
+  const recoveredIds = new Set(advances.filter((a: any) => a.isRecovered).map((a: any) => a.id));
+
+  const enrichedAdvances = advances.map((a: any) => ({ ...a, staffName: staffList.find((s) => s.id === a.staffId)?.name || a.staffId }));
+
+  const exportColumns = [
+    { key: "staffName", header: "Staff" },
+    { key: "amount", header: "Amount" },
+    { key: "date", header: "Date" },
+    { key: "notes", header: "Notes" },
+    { key: "status", header: "Status" },
+  ];
+
+  type AdvanceReportRow = { staffName: string; amount: number; date: string; notes: string; status: string };
+  const buildAdvancePdfRows = (rows: any[]): AdvanceReportRow[] => rows.map((a: any) => ({
+    staffName: a.staffName ?? staffList.find((s) => s.id === a.staffId)?.name ?? a.staffId,
+    amount: Number(a.amount),
+    date: format(parseISO(a.date), "MMM d, yyyy"),
+    notes: a.notes || "—",
+    status: a.isRecovered ? "Recovered" : "Pending",
+  }));
+
+  const [visibleAdvanceRows, setVisibleAdvanceRows] = useState<any[]>([]);
+  const pdfRows: AdvanceReportRow[] = buildAdvancePdfRows(enrichedAdvances);
+  const visiblePdfRows: AdvanceReportRow[] = buildAdvancePdfRows(visibleAdvanceRows);
+
+  const pdfReport = {
+    businessName: business?.name ?? currentStore.name,
+    storeName: currentStore.name,
+    kpis: [
+      { label: "Pending Recoverable", value: fmt(totalPending) },
+      { label: "Total Advances", value: String(advances.length) },
+      { label: "Recovered", value: String(advances.filter((a: any) => a.isRecovered).length) },
+    ],
+    columns: [
+      { key: "staffName", header: "Staff" },
+      { key: "date", header: "Date" },
+      { key: "notes", header: "Notes" },
+      { key: "status", header: "Status" },
+      { key: "amount", header: "Amount", align: "right" as const, format: (r: AdvanceReportRow) => fmt(r.amount) },
+    ],
+    rows: pdfRows,
+    amountKey: "amount",
+    formatAmount: fmt,
+    unitLabel: "advances",
+    statusKey: "status",
+    getStatus: (r: AdvanceReportRow) => ({ label: r.status, tone: r.status === "Recovered" ? ("success" as const) : ("warning" as const) }),
+  };
+
+  const visiblePdfReport = {
+    ...pdfReport,
+    kpis: [
+      { label: "Pending Recoverable", value: fmt(visibleAdvanceRows.filter((a: any) => !a.isRecovered).reduce((s: number, a: any) => s + Number(a.amount), 0)) },
+      { label: "Total Advances", value: String(visibleAdvanceRows.length) },
+      { label: "Recovered", value: String(visibleAdvanceRows.filter((a: any) => a.isRecovered).length) },
+    ],
+    rows: visiblePdfRows,
+  };
 
   const columns = [
     {
@@ -103,19 +205,39 @@ export default function PayrollAdvancesPage() {
     {
       key: "status",
       header: "Status",
-      render: (a: any) => a.isRecovered
-        ? <Badge variant="outline" className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 gap-1"><Check className="h-3 w-3" /> Recovered</Badge>
-        : <Badge variant="outline" className="text-amber-700 bg-amber-50 dark:bg-amber-950 border-amber-200">Pending</Badge>,
+      render: (a: any) => {
+        if (a.isRecovered) return <Badge variant="outline" className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 gap-1"><Check className="h-3 w-3" /> Recovered</Badge>;
+        if (a.status === "rejected") return <Badge variant="outline" className="text-red-700 bg-red-50 dark:bg-red-950 border-red-200">Rejected</Badge>;
+        if (a.status === "approved") return <Badge variant="outline" className="text-blue-700 bg-blue-50 dark:bg-blue-950 border-blue-200">Approved</Badge>;
+        return <Badge variant="outline" className="text-amber-700 bg-amber-50 dark:bg-amber-950 border-amber-200">Pending Approval</Badge>;
+      },
     },
     {
       key: "actions",
       header: "",
-      render: (a: any) => !a.isRecovered ? (
-        <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
-          onClick={() => deleteMutation.mutate(a.id)}>
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      ) : null,
+      render: (a: any) => (
+        <div className="flex items-center gap-1">
+          {a.status === "pending" && (
+            <>
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-emerald-700 hover:text-emerald-700"
+                disabled={approveMutation.isPending}
+                onClick={() => approveMutation.mutate(a.id)}>
+                <Check className="h-3 w-3" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
+                onClick={() => { setRejectTarget(a); setRejectReason(""); }}>
+                <X className="h-3 w-3" />
+              </Button>
+            </>
+          )}
+          {!a.isRecovered && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
+              onClick={() => deleteMutation.mutate(a.id)}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -130,6 +252,15 @@ export default function PayrollAdvancesPage() {
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back to Payroll
             </Button>
+            <ExportToolbar
+              data={enrichedAdvances as unknown as Record<string, unknown>[]}
+              columns={exportColumns}
+              filename={`salary-advances-${new Date().toISOString().slice(0, 10)}`}
+              title="Salary Advances Report"
+              pdfReport={pdfReport}
+              visibleData={visibleAdvanceRows as unknown as Record<string, unknown>[]}
+              visiblePdfReport={visiblePdfReport}
+            />
             <Button onClick={() => setShowCreate(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Record Advance
@@ -154,14 +285,36 @@ export default function PayrollAdvancesPage() {
 
       <Card>
         <CardHeader><CardTitle className="text-base">All Advances</CardTitle></CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <BulkSelectionActionBar
+            count={selectedIds.length}
+            unitLabel="advance"
+            onClear={() => setSelectedIds([])}
+            actions={[
+              {
+                key: "delete",
+                label: "Delete Selected",
+                pendingLabel: "Deleting…",
+                icon: <Trash2 className="h-3.5 w-3.5" />,
+                tone: "destructive",
+                pending: bulkDeleteMutation.isPending,
+                onClick: () => bulkDeleteMutation.mutate(selectedIds as string[]),
+              },
+            ]}
+          />
           <DataTable
-            data={advances.map((a: any) => ({ ...a, staffName: staffList.find(s => s.id === a.staffId)?.name || a.staffId }))}
+            data={enrichedAdvances}
             columns={columns}
             searchable
             searchKeys={["staffName", "notes"]}
             searchPlaceholder="Search by staff or notes..."
             emptyMessage="No salary advances recorded."
+            multiselect
+            selectedIds={selectedIds}
+            // Recovered advances have no manual delete path (mirrors the per-row action
+            // column, which only shows a delete button for non-recovered advances).
+            onSelectedIdsChange={(ids) => setSelectedIds(ids.filter((id) => !recoveredIds.has(String(id))))}
+            onVisibleDataChange={setVisibleAdvanceRows}
           />
         </CardContent>
       </Card>
@@ -199,6 +352,28 @@ export default function PayrollAdvancesPage() {
               <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
               <Button disabled={!staffId || !amount || createMutation.isPending} onClick={() => createMutation.mutate()}>
                 Record Advance
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectTarget} onOpenChange={(open) => { if (!open) setRejectTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject Salary Advance</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Reason (optional)</Label>
+              <Input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Why is this being rejected?" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRejectTarget(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={rejectMutation.isPending}
+                onClick={() => rejectTarget && rejectMutation.mutate({ id: rejectTarget.id, reason: rejectReason })}
+              >
+                Reject Advance
               </Button>
             </div>
           </div>

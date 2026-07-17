@@ -27,6 +27,7 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
+import { STAFF_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
@@ -39,11 +40,12 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { exportReportToPDF } from "@/lib/export-utils";
 
 export default function StaffPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { currentStore, stores } = useStore();
+  const { currentStore, stores, business } = useStore();
   const { user } = useAuth();
   const userRole = user?.role || "staff";
   const isOwner = userRole === "owner";
@@ -430,7 +432,7 @@ export default function StaffPage() {
     },
   ];
 
-  const exportColumns = isOwner 
+  const exportColumns = isOwner
     ? [
         { key: "name", header: "Name" },
         { key: "email", header: "Email" },
@@ -447,6 +449,79 @@ export default function StaffPage() {
         { key: "staffNumber", header: "Staff Number" },
         { key: "mobileNumber", header: "Mobile Number" },
       ];
+
+  const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  type StaffReportRow = {
+    name: string;
+    email: string;
+    role: string;
+    staffNumber: string;
+    mobileNumber: string;
+    payLabel: string;
+    paymentMethod: string;
+    status: string;
+  };
+
+  // Tracks whichever tab's live search/filter result set is currently on screen, so
+  // "Export current view" can offer exactly that, separate from the always-full export.
+  const [visibleStaffRows, setVisibleStaffRows] = useState<(Staff & { status: string })[]>([]);
+
+  const handleStaffReportExport = (filtered = false) => {
+    const scoped = filtered ? visibleStaffRows : (activeTab === "active" ? activeStaff : archivedStaff);
+    const rows: StaffReportRow[] = scoped.map((s) => ({
+      name: s.name,
+      email: s.email || "—",
+      role: s.role,
+      staffNumber: s.staffNumber || "—",
+      mobileNumber: s.mobileNumber || "—",
+      payLabel: s.overridePaymentMethod ? formatCurrency(s.payPerMonth) : "Store default",
+      paymentMethod: s.overridePaymentMethod ? capitalize(s.paymentMethod) : "Store default",
+      status: activeTab === "active" ? (s.signedContract ? "Active" : "Pending") : "Deactivated",
+    }));
+    const sorted = isOwner ? [...rows].sort((a, b) => a.role.localeCompare(b.role)) : rows;
+
+    return exportReportToPDF<StaffReportRow>({
+      filename: `staff-report_${activeTab}_${new Date().toISOString().slice(0, 10)}`,
+      title: `Staff Report (${activeTab === "active" ? "Active" : "Archived"})`,
+      businessName: business?.name ?? currentStore?.name ?? "Business",
+      storeName: currentStore?.name ?? "All Stores",
+      kpis: isOwner
+        ? [
+            { label: "Total Staff", value: String(rows.length) },
+            { label: "Signed", value: String(rows.filter((r) => r.status === "Active").length) },
+            { label: "Pending", value: String(rows.filter((r) => r.status === "Pending").length) },
+            { label: "Managers", value: String(rows.filter((r) => r.role === "manager").length) },
+          ]
+        : undefined,
+      columns: isOwner
+        ? [
+            { key: "name", header: "Name" },
+            { key: "email", header: "Email" },
+            { key: "role", header: "Role", format: (r: StaffReportRow) => capitalize(r.role) },
+            { key: "staffNumber", header: "Staff #" },
+            { key: "mobileNumber", header: "Mobile" },
+            { key: "payLabel", header: "Pay/Month" },
+            { key: "status", header: "Status" },
+          ]
+        : [
+            { key: "name", header: "Name" },
+            { key: "email", header: "Email" },
+            { key: "staffNumber", header: "Staff #" },
+            { key: "mobileNumber", header: "Mobile" },
+          ],
+      rows: sorted,
+      unitLabel: "staff",
+      groupBy: isOwner ? (r: StaffReportRow) => capitalize(r.role || "Unassigned") : undefined,
+      statusKey: isOwner ? "status" : undefined,
+      getStatus: isOwner
+        ? (r: StaffReportRow) => ({
+            label: r.status,
+            tone: r.status === "Active" ? ("success" as const) : r.status === "Pending" ? ("warning" as const) : ("neutral" as const),
+          })
+        : undefined,
+    });
+  };
 
   if (!currentStore) {
     return (
@@ -465,13 +540,16 @@ export default function StaffPage() {
         actions={
           <div className="flex items-center gap-2">
             <BulkOperations
-              entityType="staff"
+              entityConfig={STAFF_BULK_CONFIG}
               data={(activeTab === "active" ? activeStaff : archivedStaff) as unknown as Record<string, unknown>[]}
               columns={exportColumns}
               isLoading={isLoading}
               storeId={currentStore.id}
               pdfTitle={`Staff Report (${activeTab})`}
-              showImportOption={isOwner}
+              onExportPDF={() => handleStaffReportExport()}
+              onExportFilteredPDF={() => handleStaffReportExport(true)}
+              visibleData={visibleStaffRows as unknown as Record<string, unknown>[]}
+              showImportOption={userRole !== "staff"}
             />
             {isOwner && (
               <Link href="/staff/new">
@@ -530,6 +608,7 @@ export default function StaffPage() {
                     </Link>
                   }
                   filterConfigs={filterConfigs}
+                  onVisibleDataChange={setVisibleStaffRows}
                 />
               </TabsContent>
               <TabsContent value="archived" className="mt-4">
@@ -544,6 +623,7 @@ export default function StaffPage() {
                   emptyMessage="Archived staff members will appear here. Their history is preserved for payroll and audit records."
                   emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
                   filterConfigs={filterConfigs}
+                  onVisibleDataChange={setVisibleStaffRows}
                 />
               </TabsContent>
             </>

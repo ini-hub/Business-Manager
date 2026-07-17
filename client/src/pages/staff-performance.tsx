@@ -58,7 +58,7 @@ const CustomTooltip = ({ active, payload, label, selectedMetric, formatCurrency 
 };
 
 export default function StaffPerformancePage() {
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
   const storeCurrency = currentStore?.currency || "NGN";
 
   const [dateRange, setDateRange] = useState<DateRange>(() => {
@@ -238,6 +238,87 @@ export default function StaffPerformancePage() {
     { key: "absentDays", header: "Days Absent" },
   ];
 
+  type PerfReportRow = {
+    name: string;
+    role: string;
+    servicesCount: number;
+    productsCount: number;
+    totalRevenue: number;
+    presentDays: number;
+    absentDays: number;
+    performanceLabel: string;
+  };
+
+  const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  // Sorted by role so groupBy produces contiguous sections.
+  const buildPerfPdfRows = (data: any[]): PerfReportRow[] =>
+    [...data]
+      .map((r: any) => {
+        const avgDaily = (r.totalRevenue || 0) / (r.presentDays || 1);
+        return {
+          name: r.name,
+          role: r.role,
+          servicesCount: r.servicesCount || 0,
+          productsCount: r.productsCount || 0,
+          totalRevenue: r.totalRevenue || 0,
+          presentDays: r.presentDays || 0,
+          absentDays: r.absentDays || 0,
+          performanceLabel: avgDaily > 5000 ? "Above Avg" : "Below Avg",
+        };
+      })
+      .sort((a, b) => a.role.localeCompare(b.role));
+
+  const buildPerfPdfKpis = (rows: PerfReportRow[]) => [
+    { label: "Total Revenue", value: formatCurrency(rows.reduce((s, r) => s + r.totalRevenue, 0)) },
+    { label: "Staff Count", value: String(rows.length) },
+    { label: "Services Performed", value: String(rows.reduce((s, r) => s + r.servicesCount, 0)) },
+    { label: "Products Sold", value: String(rows.reduce((s, r) => s + r.productsCount, 0)) },
+  ];
+
+  const pdfRows: PerfReportRow[] = buildPerfPdfRows(performanceData);
+  const pdfKpis = buildPerfPdfKpis(pdfRows);
+
+  const [visiblePerformanceRows, setVisiblePerformanceRows] = useState<any[]>([]);
+  const visiblePdfRows: PerfReportRow[] = buildPerfPdfRows(visiblePerformanceRows);
+  const visiblePdfKpis = buildPerfPdfKpis(visiblePdfRows);
+
+  const periodLabel = dateRange.from
+    ? (!dateRange.to || format(dateRange.to, "yyyy-MM-dd") === format(dateRange.from, "yyyy-MM-dd")
+      ? format(dateRange.from, "d MMM yyyy")
+      : `${format(dateRange.from, "d MMM")} – ${format(dateRange.to, "d MMM yyyy")}`)
+    : undefined;
+
+  const pdfReport = {
+    businessName: business?.name ?? currentStore?.name ?? "Business",
+    storeName: currentStore?.name ?? "All Stores",
+    periodLabel,
+    kpis: pdfKpis,
+    columns: [
+      { key: "name", header: "Staff Name" },
+      { key: "role", header: "Role", format: (r: PerfReportRow) => capitalize(r.role) },
+      { key: "servicesCount", header: "Services", align: "right" as const },
+      { key: "productsCount", header: "Products", align: "right" as const },
+      { key: "totalRevenue", header: "Revenue Share", align: "right" as const, format: (r: PerfReportRow) => formatCurrency(r.totalRevenue) },
+      { key: "performanceLabel", header: "Performance" },
+      { key: "presentDays", header: "Present Days", align: "right" as const },
+      { key: "absentDays", header: "Absent Days", align: "right" as const },
+    ],
+    rows: pdfRows,
+    amountKey: "totalRevenue",
+    formatAmount: formatCurrency,
+    unitLabel: "staff",
+    groupBy: (r: PerfReportRow) => capitalize(r.role),
+    statusKey: "performanceLabel",
+    getStatus: (r: PerfReportRow) => ({ label: r.performanceLabel, tone: r.performanceLabel === "Above Avg" ? ("success" as const) : ("warning" as const) }),
+  };
+
+  const visiblePdfReport = {
+    ...pdfReport,
+    kpis: visiblePdfKpis,
+    rows: visiblePdfRows,
+  };
+
   const metricTabItems: TabItem[] = [
     { value: "revenue", label: "Revenue" },
     { value: "services", label: "Services" },
@@ -265,6 +346,9 @@ export default function StaffPerformancePage() {
               filename={`staff-performance-${format(new Date(), "yyyy-MM-dd")}`}
               title="Staff Performance Report"
               disabled={isLoading}
+              pdfReport={pdfReport}
+              visibleData={visiblePerformanceRows}
+              visiblePdfReport={visiblePdfReport}
             />
           </div>
         }
@@ -294,6 +378,7 @@ export default function StaffPerformancePage() {
                 searchKeys={["name", "role"]}
                 isLoading={isLoading}
                 emptyMessage="No data available for the selected period."
+                onVisibleDataChange={setVisiblePerformanceRows}
               />
             </CardContent>
           </Card>
