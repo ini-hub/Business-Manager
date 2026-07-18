@@ -42,10 +42,20 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// Session timezone must be UTC to match the OID 1114 parser above, which
+// assumes naive "timestamp without time zone" values are already UTC.
+// Without this, a server/DB running in a non-UTC zone (e.g. Africa/Lagos)
+// stores local wall-clock time in those columns, so appending "Z" on read
+// shifts every timestamp by the zone offset (queued emails looked "not due"
+// for an extra hour, delaying sends past OTP/reset-code expiry). Set via
+// the libpq startup option so it applies before any query can run on the
+// connection (a post-connect `SET TIME ZONE` query would race with it).
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: parseInt(process.env.DB_POOL_MAX || "20"),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
+  options: "-c timezone=UTC",
 });
+
 export const db = drizzle(pool, { schema });
