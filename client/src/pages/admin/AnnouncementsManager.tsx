@@ -11,6 +11,7 @@ import {
   Layers,
   CheckCircle,
   Eye,
+  Trash2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -83,6 +84,27 @@ export default function AnnouncementsManager() {
       toast({
         title: "Dispatch Failed",
         description: err?.message || "Failed to create announcement.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete Announcement Mutation
+  const deleteBannerMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/announcements/${id}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Announcement Retired",
+        description: "The banner has been removed and will no longer display.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/announcements"] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Retire Failed",
+        description: err?.message || "Failed to retire announcement.",
         variant: "destructive",
       });
     },
@@ -232,17 +254,30 @@ export default function AnnouncementsManager() {
                 return (
                   <Card key={ann.id} className="bg-slate-900/40 border-slate-800/80 rounded-3xl overflow-hidden hover:border-slate-700/80 transition-all duration-300 shadow-xl flex flex-col md:flex-row items-stretch">
                     <div className="p-6 flex-1 space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline" className={`border-none text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md ${badgeColor}`}>
-                          {ann.type}
-                        </Badge>
-                        <Badge variant="outline" className="border-slate-800 bg-slate-950/60 text-slate-400 text-[9px] py-0.5 px-2 rounded-md font-semibold">
-                          Scope: {ann.target === "specific_org" ? `Org (${ann.targetOrgId})` : ann.target}
-                        </Badge>
-                        {ann.dismissible && (
-                          <Badge variant="outline" className="border-none bg-slate-850 text-slate-500 text-[9px] py-0.5 px-2 rounded-md">
-                            Dismissible
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className={`border-none text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md ${badgeColor}`}>
+                            {ann.type}
                           </Badge>
+                          <Badge variant="outline" className="border-slate-800 bg-slate-950/60 text-slate-400 text-[9px] py-0.5 px-2 rounded-md font-semibold">
+                            Scope: {ann.target === "specific_org" ? `Org (${ann.targetOrgId})` : ann.target}
+                          </Badge>
+                          {ann.dismissible && (
+                            <Badge variant="outline" className="border-none bg-slate-850 text-slate-500 text-[9px] py-0.5 px-2 rounded-md">
+                              Dismissible
+                            </Badge>
+                          )}
+                        </div>
+                        {canManage && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-slate-800 text-rose-400 hover:bg-rose-950/40 rounded-lg p-2 h-auto"
+                            onClick={() => deleteBannerMutation.mutate(ann.id)}
+                            disabled={deleteBannerMutation.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                       </div>
 
@@ -365,20 +400,28 @@ export default function AnnouncementsManager() {
 
           <div className="space-y-4 my-4">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Announcement Title</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Announcement Title</Label>
+                <span className="text-[9px] text-slate-500">{bannerTitle.length}/80</span>
+              </div>
               <Input
                 placeholder="e.g. Scheduled Network Operations"
                 className="bg-slate-950 border-slate-800 text-white rounded-xl"
+                maxLength={80}
                 value={bannerTitle}
                 onChange={(e) => setBannerTitle(e.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Banner Alert Message</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Banner Alert Message</Label>
+                <span className="text-[9px] text-slate-500">{bannerMessage.length}/150</span>
+              </div>
               <Textarea
                 placeholder="Alert text content visible to users..."
                 className="bg-slate-950 border-slate-800 text-white rounded-xl min-h-[70px] text-xs"
+                maxLength={150}
                 value={bannerMessage}
                 onChange={(e) => setBannerMessage(e.target.value)}
               />
@@ -410,8 +453,6 @@ export default function AnnouncementsManager() {
                     <SelectItem value="all">All Businesses</SelectItem>
                     <SelectItem value="trial">Trial Accounts</SelectItem>
                     <SelectItem value="growth">Growth Accounts</SelectItem>
-                    <SelectItem value="scale">Scale Accounts</SelectItem>
-                    <SelectItem value="enterprise">Enterprise Accounts</SelectItem>
                     <SelectItem value="specific_org">Specific Organisation ID</SelectItem>
                   </SelectContent>
                 </Select>
@@ -472,7 +513,13 @@ export default function AnnouncementsManager() {
             <Button
               className="rounded-xl bg-violet-500 hover:bg-violet-600 text-white font-bold"
               onClick={handleBannerSubmit}
-              disabled={createBannerMutation.isPending}
+              disabled={
+                createBannerMutation.isPending ||
+                !bannerTitle.trim() ||
+                !bannerMessage.trim() ||
+                bannerTitle.length > 80 ||
+                bannerMessage.length > 150
+              }
             >
               Broadcast Alert
             </Button>

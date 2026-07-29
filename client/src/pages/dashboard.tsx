@@ -13,6 +13,7 @@ import { appendReturnTo } from "@/lib/return-to";
 import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
+import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
@@ -200,6 +201,8 @@ export default function Dashboard() {
           </div>
         }
       />
+
+      <GettingStartedChecklist />
 
       <MetricGrid>
         <MetricCard

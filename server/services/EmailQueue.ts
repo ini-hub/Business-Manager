@@ -21,6 +21,23 @@ const transporter = nodemailer.createTransport({
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
 const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 
+// HTML-only emails (no text/plain part) are a strong spam signal to Gmail's
+// filters — derive a plain-text fallback so every message is multipart.
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<(br|\/p|\/div|\/h[1-6])\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 let flushing = false;
 
 async function flush(): Promise<void> {
@@ -40,6 +57,8 @@ async function flush(): Promise<void> {
           to: item.to,
           subject: item.subject,
           html: item.html,
+          text: htmlToText(item.html),
+          replyTo: item.replyTo || undefined,
         });
         console.log(`[EmailQueue] Sent to ${item.to} (attempt ${item.attempts + 1})`);
         await db.update(pendingEmails).set({ status: "sent", attempts: item.attempts + 1 }).where(eq(pendingEmails.id, item.id));
@@ -72,11 +91,12 @@ export function flushOnStartup(): void {
   flush().catch(() => undefined);
 }
 
-export function sendEmail(payload: { to: string; subject: string; html: string }): void {
+export function sendEmail(payload: { to: string; subject: string; html: string; replyTo?: string }): void {
   db.insert(pendingEmails).values({
     to: payload.to,
     subject: payload.subject,
     html: payload.html,
+    replyTo: payload.replyTo,
   }).then(() => {
     flush().catch(() => undefined);
   }).catch((err) => {

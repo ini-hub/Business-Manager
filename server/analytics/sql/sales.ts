@@ -19,7 +19,7 @@
  */
 
 import { sql, type SQL } from "drizzle-orm";
-import { LOYALTY_POINT_VALUE_NGN } from "@shared/analytics/constants";
+import { DEFAULT_LOYALTY_POINT_VALUE } from "@shared/analytics/constants";
 import type { CubeSql } from "./types";
 
 /**
@@ -163,6 +163,7 @@ export const salesReceiptsCube: CubeSql = {
       ORDER BY c0.store_id, c0.receipt_number, c0.created_at
     ) r
     JOIN stores s ON s.id = r.store_id
+    LEFT JOIN settings st ON st.store_id = r.store_id
   `,
 
   tenantColumn: sql`r.store_id`,
@@ -180,7 +181,7 @@ export const salesReceiptsCube: CubeSql = {
     },
     "sales.discounts": {
       kind: "agg",
-      agg: sql`COALESCE(SUM(${money(sql`r.discount_amount`)} + r.points_redeemed * ${LOYALTY_POINT_VALUE_NGN}), 0)`,
+      agg: sql`COALESCE(SUM(${money(sql`r.discount_amount`)} + r.points_redeemed * COALESCE(st.loyalty_point_value, ${DEFAULT_LOYALTY_POINT_VALUE})), 0)`,
     },
     "sales.avg_basket": {
       kind: "derived",

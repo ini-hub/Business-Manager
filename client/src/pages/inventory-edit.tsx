@@ -3,7 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronLeft, AlertCircle, AlertTriangle, Package, Wrench, Tag, BarChart2 } from "lucide-react";
+import { ChevronLeft, AlertCircle, AlertTriangle, Package, Wrench, Droplets, Tag, BarChart2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -187,6 +187,7 @@ export default function InventoryEditPage() {
       } else {
         const invRes = await apiRequest("PATCH", `/api/inventory/${id}`, {
           name: data.name,
+          type: data.type,
           costPrice: data.costPrice,
           sellingPrice: data.sellingPrice,
           quantity: data.quantity,
@@ -230,13 +231,15 @@ export default function InventoryEditPage() {
   const margin = watchSelling > 0 ? (profit / watchSelling) * 100 : 0;
 
   const handleFormSubmit = (data: EditFormValues) => {
-    if (showVariantFields && data.sellingPrice !== undefined && data.costPrice !== undefined) {
+    if (data.type !== "supply" && showVariantFields && data.sellingPrice !== undefined && data.costPrice !== undefined) {
       if (data.sellingPrice < data.costPrice) {
         form.setError("sellingPrice", { type: "manual", message: "Selling price cannot be less than cost price." });
         return;
       }
     }
-    updateMutation.mutate(data);
+    // A supply is never sold - keep it consistent with the create flow regardless
+    // of what the (hidden) selling price field was last set to.
+    updateMutation.mutate(data.type === "supply" ? { ...data, sellingPrice: 0 } : data);
   };
 
   return (
@@ -340,12 +343,16 @@ export default function InventoryEditPage() {
                     <FormItem>
                       <FormLabel>Type</FormLabel>
                       <FormControl>
-                        <div className="grid grid-cols-2 gap-3">
-                          {(["product", "service"] as const).map((t) => (
+                        <div className="grid grid-cols-3 gap-3">
+                          {(["product", "service", "supply"] as const).map((t) => (
                             <button
                               key={t}
                               type="button"
-                              onClick={() => field.onChange(t)}
+                              onClick={() => {
+                                field.onChange(t);
+                                // A supply is never sold - keep it consistent with the create flow.
+                                if (t === "supply") form.setValue("sellingPrice", 0);
+                              }}
                               className={cn(
                                 "flex flex-col gap-1.5 rounded-lg border p-4 text-left transition-all",
                                 field.value === t
@@ -353,26 +360,24 @@ export default function InventoryEditPage() {
                                   : "hover:border-muted-foreground/40 hover:bg-muted/20"
                               )}
                             >
-                              {t === "product" ? (
-                                <Package
-                                  className={cn(
-                                    "h-4 w-4",
-                                    field.value === t ? "text-primary" : "text-muted-foreground"
-                                  )}
-                                />
-                              ) : (
-                                <Wrench
-                                  className={cn(
-                                    "h-4 w-4",
-                                    field.value === t ? "text-primary" : "text-muted-foreground"
-                                  )}
-                                />
-                              )}
+                              {(() => {
+                                const Icon = t === "product" ? Package : t === "service" ? Wrench : Droplets;
+                                return (
+                                  <Icon
+                                    className={cn(
+                                      "h-4 w-4",
+                                      field.value === t ? "text-primary" : "text-muted-foreground"
+                                    )}
+                                  />
+                                );
+                              })()}
                               <span className="font-semibold text-sm capitalize">{t}</span>
                               <span className="text-xs text-muted-foreground leading-tight">
                                 {t === "product"
                                   ? "Physical item with tracked stock"
-                                  : "Non-physical, unlimited supply"}
+                                  : t === "service"
+                                  ? "Non-physical, unlimited supply"
+                                  : "Back-bar stock used up delivering services — never sold"}
                               </span>
                             </button>
                           ))}
@@ -385,6 +390,44 @@ export default function InventoryEditPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* ── Card A2: Variants — cost/selling/quantity live per-variant,
+              not here, once an item has more than one variant ─────────── */}
+          {item?.isProductGroup && !isSimpleProduct && (
+            <Card>
+              <CardContent className="pt-6 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Layers className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">
+                    Variants ({item.variants?.length ?? 0})
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This item has more than one variant, so cost price, selling price, and stock
+                  quantity are set per-variant rather than here. Open a variant from the item's
+                  detail page to edit its pricing or stock.
+                </p>
+                <div className="rounded-lg border divide-y">
+                  {(item.variants || []).map((v: any) => (
+                    <div key={v.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <span className="truncate">{v.name}</span>
+                      <span className="text-muted-foreground font-mono text-xs shrink-0">
+                        {sym}{Number(v.costPrice ?? 0).toLocaleString()} → {sym}{Number(v.sellingPrice ?? 0).toLocaleString()} · {v.quantity ?? 0} in stock
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setLocation(`/inventory/${id}`)}
+                >
+                  Manage Variant Pricing &amp; Stock
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {/* ── Card B: Pricing ────────────────────────────────── */}
           {showVariantFields && (
@@ -425,8 +468,8 @@ export default function InventoryEditPage() {
                   />
                 </div>
 
-                {/* Cost + Selling Price */}
-                <div className="grid gap-4 sm:grid-cols-2">
+                {/* Cost + Selling Price — a supply is never sold, so it has no selling price */}
+                <div className={cn("grid gap-4", watchType === "supply" ? "grid-cols-1" : "sm:grid-cols-2")}>
                   <FormField
                     control={form.control}
                     name="costPrice"
@@ -445,28 +488,40 @@ export default function InventoryEditPage() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="sellingPrice"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Selling Price ({sym})</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {watchType !== "supply" && (
+                    <FormField
+                      control={form.control}
+                      name="sellingPrice"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Selling Price ({sym})</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              {...field}
+                              onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
 
+                {watchType === "supply" && (
+                  <Alert>
+                    <Droplets className="h-4 w-4" />
+                    <AlertDescription>
+                      Supplies are never sold, so they have no selling price. The cost is charged only
+                      when a service that uses this supply is delivered.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 {/* Profit / margin preview */}
-                {(watchCost > 0 || watchSelling > 0) && (
+                {watchType !== "supply" && (watchCost > 0 || watchSelling > 0) && (
                   <div className="rounded-lg bg-muted/30 border px-4 py-3 flex items-center justify-between text-sm">
                     <span className="text-muted-foreground flex items-center gap-1.5">
                       <BarChart2 className="h-3.5 w-3.5" />
@@ -495,7 +550,7 @@ export default function InventoryEditPage() {
                 )}
 
                 {/* Selling < cost alert */}
-                {watchSelling < watchCost && watchCost > 0 && (
+                {watchType !== "supply" && watchSelling < watchCost && watchCost > 0 && (
                   <Alert variant="destructive">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>Selling price cannot be less than cost price.</AlertDescription>
@@ -503,7 +558,7 @@ export default function InventoryEditPage() {
                 )}
 
                 {/* Zero margin warning */}
-                {hasZeroMargin && (
+                {watchType !== "supply" && hasZeroMargin && (
                   <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 text-xs font-medium">
                     <AlertTriangle className="h-4 w-4 shrink-0" />
                     <span>Zero margin — you will break even on every sale.</span>
@@ -514,7 +569,7 @@ export default function InventoryEditPage() {
           )}
 
           {/* ── Card C: Stock ──────────────────────────────────── */}
-          {showVariantFields && watchType === "product" && (
+          {showVariantFields && (watchType === "product" || watchType === "supply") && (
             <Card>
               <CardContent className="pt-6 space-y-5">
                 <div className="flex items-center gap-2 mb-1">
@@ -725,7 +780,7 @@ export default function InventoryEditPage() {
               type="submit"
               disabled={
                 updateMutation.isPending ||
-                (showVariantFields && watchSelling < watchCost && watchCost > 0)
+                (watchType !== "supply" && showVariantFields && watchSelling < watchCost && watchCost > 0)
               }
             >
               {updateMutation.isPending ? "Saving…" : "Update Item"}

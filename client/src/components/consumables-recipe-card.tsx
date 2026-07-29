@@ -52,6 +52,10 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
   const { toast } = useToast();
   const [supplyId, setSupplyId] = useState("");
   const [qty, setQty] = useState("");
+  // "yield" is the default because it asks the question an owner can actually
+  // answer. Nobody has measured a pour; most people do know that a bottle lasts
+  // about a month of washes.
+  const [mode, setMode] = useState<"yield" | "rate">("yield");
 
   const { data, isLoading } = useQuery<RecipeResponse>({
     queryKey: ["consumables-recipe", inventoryId],
@@ -81,6 +85,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
       name: v.name ?? g.name,
       unit: v.unit,
       costPrice: Number(v.costPrice ?? 0),
+      costingMode: v.costingMode ?? "expensed",
     })),
   ).filter((v: any) => !!v.id);
 
@@ -89,11 +94,21 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
     queryClient.invalidateQueries({ queryKey: ["sustaining-costs", inventoryId] });
   };
 
+  // Both input modes write the same stored figure. "30 washes per bottle" is
+  // 1/30 of a bottle per wash — same arithmetic, answerable question.
+  const derivedQty = (() => {
+    const n = Number(qty);
+    if (!qty || !isFinite(n) || n <= 0) return null;
+    const perService = mode === "yield" ? 1 / n : n;
+    const rounded = Math.round(perService * 10000) / 10000;
+    return rounded >= 0.0001 ? rounded : null;
+  })();
+
   const upsert = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PUT", `/api/inventory/${inventoryId}/consumables`, {
         supplyInventoryId: supplyId,
-        quantityPerUnit: Number(qty),
+        quantityPerUnit: derivedQty,
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Could not save the recipe line.");
@@ -131,7 +146,12 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
   }
 
   const alreadyLinked = new Set(data.recipe.map((r) => r.supplyInventoryId));
-  const available = supplyVariants.filter((v: any) => !alreadyLinked.has(v.id));
+  // Only metered supplies can be metered. An expensed one was already charged on
+  // purchase, so a recipe would count it twice — the server refuses it too.
+  const available = supplyVariants.filter(
+    (v: any) => !alreadyLinked.has(v.id) && v.costingMode === "metered",
+  );
+  const selectedSupply = supplyVariants.find((v: any) => v.id === supplyId) ?? null;
 
   return (
     <Card>
@@ -203,47 +223,81 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
         )}
 
         {canEdit && (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-1.5">
-              <Label>Supply</Label>
-              <Select value={supplyId} onValueChange={setSupplyId}>
-                <SelectTrigger><SelectValue placeholder="Pick a supply…" /></SelectTrigger>
-                <SelectContent>
-                  {available.length === 0 ? (
-                    <div className="px-2 py-3 text-xs text-muted-foreground">
-                      No supplies left to add. Create one from Inventory → New item → Supply.
-                    </div>
-                  ) : available.map((v: any) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.name}{v.unit ? ` (${v.unit})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-1.5">
+                <Label>Supply</Label>
+                <Select value={supplyId} onValueChange={setSupplyId}>
+                  <SelectTrigger><SelectValue placeholder="Pick a supply…" /></SelectTrigger>
+                  <SelectContent>
+                    {available.length === 0 ? (
+                      <div className="px-2 py-3 text-xs text-muted-foreground">
+                        No metered supplies left to add. Create one from Inventory → New item →
+                        Supply, and set it to "charge as it gets used".
+                      </div>
+                    ) : available.map((v: any) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {v.name}{v.unit ? ` (${v.unit})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="w-full sm:w-52 space-y-1.5">
+                <Label>{mode === "yield" ? "Services per unit" : "Amount per service"}</Label>
+                <Input
+                  type="number"
+                  step={mode === "yield" ? "1" : "0.0001"}
+                  min={mode === "yield" ? "1" : "0.0001"}
+                  placeholder={mode === "yield" ? "e.g. 30" : "e.g. 30"}
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                />
+              </div>
+
+              <Button onClick={() => upsert.mutate()} disabled={!supplyId || !derivedQty || upsert.isPending}>
+                <Plus className="h-4 w-4 mr-1" /> Add
+              </Button>
             </div>
-            <div className="w-full sm:w-40 space-y-1.5">
-              <Label>Qty per service</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="e.g. 30"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-              />
+
+            {/* Most owners have never measured a pour, but they do know roughly how
+                many clients a bottle lasts. Asking the answerable question first. */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">I know:</span>
+              {([
+                ["yield", "roughly how many services one unit covers"],
+                ["rate", "the exact amount used per service"],
+              ] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => { setMode(k); setQty(""); }}
+                  className={`rounded-full border px-2.5 py-1 transition-colors ${
+                    mode === k
+                      ? "border-primary bg-primary/10 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <Button
-              onClick={() => upsert.mutate()}
-              disabled={!supplyId || !(Number(qty) >= 0.01) || upsert.isPending}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
+
+            {derivedQty !== null && selectedSupply && (
+              <p className="text-xs text-muted-foreground">
+                {mode === "yield"
+                  ? `≈ ${derivedQty} ${selectedSupply.unit ?? "unit"}${derivedQty === 1 ? "" : "s"} per service, costing ${formatCurrency(derivedQty * selectedSupply.costPrice)} each.`
+                  : `≈ ${Math.round(1 / derivedQty).toLocaleString()} services per ${selectedSupply.unit ?? "unit"}, costing ${formatCurrency(derivedQty * selectedSupply.costPrice)} each.`}
+              </p>
+            )}
           </div>
         )}
 
         <p className="text-xs text-muted-foreground">
-          Measure supplies in the smallest unit you buy them in (ml, g, each). Amounts below 0.01
-          are rejected because stock is tracked to two decimal places.
+          A rough figure is fine. The recipe only decides how cost is spread across the period and
+          which service wears it — a stock count settles the true total, so a wrong estimate
+          corrects itself rather than compounding.
         </p>
       </CardContent>
     </Card>

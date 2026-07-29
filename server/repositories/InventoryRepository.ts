@@ -208,12 +208,31 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
   }
 
   // --- Variants / Matrix Support ---
-  async getVariants(parentInventoryId: string): Promise<Inventory[]> {
-    return db
+  /**
+   * Finds the existing variant (if any) of `productId` with the exact same
+   * `variantDimensions` combo. Scopes duplicate detection to dimensions
+   * rather than name, since two variants can legitimately share a name
+   * pattern but never the same combo within one product.
+   */
+  async getVariantByDimensions(productId: string, variantDimensions: Record<string, string> | null | undefined): Promise<Inventory | undefined> {
+    if (!variantDimensions || Object.keys(variantDimensions).length === 0) return undefined;
+    const [item] = await db
       .select()
       .from(inventory)
-      .where(eq(inventory.parentInventoryId, parentInventoryId))
-      .orderBy(asc(inventory.name));
+      .where(and(
+        eq(inventory.productId, productId),
+        eq(inventory.isDeleted, false),
+        sql`${inventory.variantDimensions} = ${JSON.stringify(variantDimensions)}::jsonb`
+      ));
+    return item;
+  }
+
+  async countVariants(productId: string): Promise<number> {
+    const [result] = await db
+      .select({ count: count() })
+      .from(inventory)
+      .where(and(eq(inventory.productId, productId), eq(inventory.isDeleted, false)));
+    return result.count;
   }
 
   // --- Batch & Expiry FIFO Support ---

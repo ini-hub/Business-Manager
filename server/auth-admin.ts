@@ -58,8 +58,14 @@ export async function setupAdminAuth(app: Express) {
       return next();
     }
 
-    // Skip auth check for login and initialization endpoints
-    if (req.path === "/api/admin/auth/login" || req.path === "/api/admin/auth/setup-mfa" || req.path === "/api/admin/auth/verify-mfa") {
+    // Skip auth check for login, initialization, and password-recovery endpoints
+    if (
+      req.path === "/api/admin/auth/login" ||
+      req.path === "/api/admin/auth/setup-mfa" ||
+      req.path === "/api/admin/auth/verify-mfa" ||
+      req.path === "/api/admin/auth/forgot-password" ||
+      req.path === "/api/admin/auth/reset-password"
+    ) {
       return next();
     }
 

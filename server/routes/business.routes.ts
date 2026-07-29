@@ -27,6 +27,9 @@ import {
   cashDrops,
   creditEntries,
   cashRegisterSessions,
+  subscriptions,
+  announcements,
+  plans,
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
@@ -35,6 +38,8 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
+import { isTrialExpired } from "../lib/trial";
+import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
 
 export type RouteMiddlewares = {
@@ -73,7 +78,21 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       }
 
       if (activeBusinessId) {
-        const business = await storage.getBusinessById(activeBusinessId);
+        let business = await storage.getBusinessById(activeBusinessId);
+
+        // Lazy trial-expiry flip: an org only ever reaches this branch if it was
+        // created "trialing" by the signup flow, so this never touches a
+        // pre-existing organisation (they're all "active" and never "trialing").
+        if (business && isTrialExpired(business)) {
+          const [subscription] = await db
+            .select()
+            .from(subscriptions)
+            .where(eq(subscriptions.organisationId, business.id));
+          if (subscription?.status === "active") {
+            business = (await storage.updateBusiness(business.id, { status: "active" })) || business;
+          }
+        }
+
         return res.json(business || null);
       }
 
@@ -81,6 +100,58 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     } catch (error) {
       console.error("GET /api/business error:", error);
       res.status(500).json({ error: "We couldn't load business information. Please try again." });
+    }
+  });
+
+  // Business-facing counterpart to the super-admin announcements manager
+  // (server/routes-admin.ts "ANNOUNCEMENTS ENDPOINTS" section) - returns only
+  // the announcements currently in their show window and scoped to this org.
+  app.get("/api/announcements", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
+
+      let orgId = user.businessId;
+      if (!orgId) {
+        const userRecord = await storage.getUser(user.id);
+        orgId = userRecord?.businessId;
+      }
+      if (!orgId) {
+        return res.json({ announcements: [] });
+      }
+
+      const business = await storage.getBusinessById(orgId);
+      if (!business) {
+        return res.json({ announcements: [] });
+      }
+
+      const [subscription] = await db
+        .select({ planName: plans.name })
+        .from(subscriptions)
+        .innerJoin(plans, eq(subscriptions.planId, plans.id))
+        .where(eq(subscriptions.organisationId, orgId));
+      const planName = subscription?.planName?.toLowerCase();
+
+      const now = new Date();
+      const rows = await db
+        .select()
+        .from(announcements)
+        .where(and(lte(announcements.showFrom, now), gte(announcements.showUntil, now)))
+        .orderBy(desc(announcements.createdAt));
+
+      const visible = rows.filter((ann) => {
+        if (ann.target === "all") return true;
+        if (ann.target === "specific_org") return ann.targetOrgId === orgId;
+        if (ann.target === "trial") return business.status === "trialing";
+        return ann.target === planName;
+      });
+
+      res.json({ announcements: visible });
+    } catch (error) {
+      console.error("GET /api/announcements error:", error);
+      res.status(500).json({ error: "Failed to load announcements." });
     }
   });
 
@@ -113,6 +184,25 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
       res.status(500).json({ error: "We couldn't update the business information. Please try again." });
+    }
+  });
+
+  // ========== FUNNEL INSTRUMENTATION ==========
+  // Client-reported events for steps the server can't see itself (onboarding
+  // skip clicks, client-side checkout validation blocks). Fire-and-forget from
+  // the client's perspective - failures here never surface as user-facing errors.
+  app.post("/api/funnel-events", isAuthenticated, async (req, res) => {
+    try {
+      const { eventName, metadata } = z.object({
+        eventName: z.string(),
+        metadata: z.record(z.unknown()).optional(),
+      }).parse(req.body);
+
+      const businessId = (req as any).user?.businessId;
+      if (businessId) await logFunnelEvent(businessId, eventName, metadata);
+      res.status(204).end();
+    } catch {
+      res.status(204).end();
     }
   });
 

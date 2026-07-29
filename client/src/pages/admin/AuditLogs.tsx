@@ -60,6 +60,7 @@ export default function AuditLogs() {
         return "bg-violet-500/10 text-violet-400 border-violet-500/20";
       case "reset_user_password":
       case "reset_mfa":
+      case "admin_password_reset":
         return "bg-amber-500/10 text-amber-400 border-amber-500/20";
       default:
         return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
@@ -101,6 +102,7 @@ export default function AuditLogs() {
                 <SelectItem value="email_broadcast">email_broadcast</SelectItem>
                 <SelectItem value="create_super_admin">create_super_admin</SelectItem>
                 <SelectItem value="reset_mfa">reset_mfa</SelectItem>
+                <SelectItem value="admin_password_reset">admin_password_reset</SelectItem>
               </SelectContent>
             </Select>
           </div>

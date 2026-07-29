@@ -37,6 +37,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { cartesianProduct, comboKey, comboLabel } from "@/lib/variant-combos";
+import { MAX_VARIANTS_PER_PRODUCT } from "@shared/constants";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,26 +56,6 @@ interface VariantDetail {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-function cartesianProduct(attrs: Attribute[]): Record<string, string>[] {
-  const valid = attrs.filter((a) => a.name.trim() && a.values.length > 0);
-  if (valid.length === 0) return [];
-  return valid.reduce<Record<string, string>[]>((acc, attr) => {
-    if (acc.length === 0) return attr.values.map((v) => ({ [attr.name]: v }));
-    return acc.flatMap((combo) => attr.values.map((v) => ({ ...combo, [attr.name]: v })));
-  }, []);
-}
-
-function comboKey(dims: Record<string, string>): string {
-  return Object.entries(dims)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}:${v}`)
-    .join("|");
-}
-
-function comboLabel(dims: Record<string, string>): string {
-  return Object.values(dims).join(" / ");
-}
 
 const PRESET_ATTRS = ["size", "color", "flavor", "material", "style", "weight"];
 
@@ -222,7 +204,11 @@ export default function InventoryNewPage() {
     }
     // Variant attribute setup (product or service)
     if (step === 1 && hasVariants) {
-      return attributes.some((a) => a.values.length > 0) && selectedCombos.length > 0;
+      return (
+        attributes.some((a) => a.values.length > 0) &&
+        selectedCombos.length > 0 &&
+        selectedCombos.length <= MAX_VARIANTS_PER_PRODUCT
+      );
     }
     // Variant default pricing (product or service)
     if (step === 2 && hasVariants) {
@@ -956,6 +942,16 @@ export default function InventoryNewPage() {
                     <p className="text-sm text-destructive">
                       Select at least one combination to continue.
                     </p>
+                  )}
+
+                  {selectedCombos.length > MAX_VARIANTS_PER_PRODUCT && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>
+                        {selectedCombos.length} combinations selected, which is over the {MAX_VARIANTS_PER_PRODUCT}-variant limit per product.
+                        Deselect some combinations or reduce attribute values to continue.
+                      </AlertDescription>
+                    </Alert>
                   )}
                 </div>
               )}

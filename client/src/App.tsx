@@ -15,6 +15,13 @@ import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { Loader2 } from "lucide-react";
+import { isOrgLocked } from "@/lib/trial";
+import { TrialBanner } from "@/components/trial-banner";
+import { AnnouncementBanner } from "@/components/announcement-banner";
+import { Paywall } from "@/pages/paywall";
+import { AccountPaused } from "@/pages/account-paused";
+import BillingCallback from "@/pages/billing-callback";
+import type { Business } from "@shared/schema";
 
 // Eager — needed before auth resolves or tiny catch-all
 import Landing from "@/pages/landing";
@@ -26,6 +33,8 @@ import ResetPassword from "@/pages/auth/reset-password";
 import NotFound from "@/pages/not-found";
 import OnboardingWizard from "@/pages/onboarding";
 import AdminLogin from "@/pages/admin/AdminLogin";
+import AdminForgotPassword from "@/pages/admin/AdminForgotPassword";
+import AdminResetPassword from "@/pages/admin/AdminResetPassword";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineSyncManager } from "@/components/offline-sync-manager";
 import { GlobalSearch } from "@/components/global-search";
@@ -47,7 +56,6 @@ const InventoryDetails = lazy(() => import("@/pages/inventory-details"));
 const InventoryNewPage = lazy(() => import("@/pages/inventory-new"));
 const InventoryEditPage = lazy(() => import("@/pages/inventory-edit"));
 const InventoryRestockPage = lazy(() => import("@/pages/inventory-restock"));
-const InventoryVariantNewPage = lazy(() => import("@/pages/inventory-variant-new"));
 const InventoryAuditNewPage = lazy(() => import("@/pages/inventory-audit-new"));
 const NewSale = lazy(() => import("@/pages/new-sale"));
 const Transactions = lazy(() => import("@/pages/transactions"));
@@ -75,6 +83,7 @@ const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
 const StockTransfersPage = lazy(() => import("@/pages/stock-transfers"));
 const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
 const ProfilePage = lazy(() => import("@/pages/profile"));
+const HelpSupportPage = lazy(() => import("@/pages/help-support"));
 const SettingsIndexPage = lazy(() => import("@/pages/settings/index"));
 const SettingsStoresPage = lazy(() => import("@/pages/settings-stores"));
 const StoreFormPage = lazy(() => import("@/pages/store-form"));
@@ -82,6 +91,7 @@ const BusinessFormPage = lazy(() => import("@/pages/business-form"));
 const RoleFormPage = lazy(() => import("@/pages/role-form"));
 const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
 const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
+const BillingSettingsPage = lazy(() => import("@/pages/settings/billing"));
 const ReportsIndexPage = lazy(() => import("@/pages/reports/index"));
 const AuditLogsPage = lazy(() => import("@/pages/reports/audit-logs"));
 const AnalyticsExplorerPage = lazy(() => import("@/pages/analytics"));
@@ -98,11 +108,13 @@ const OnboardingPipeline = lazy(() => import("@/pages/admin/OnboardingPipeline")
 const UsersList = lazy(() => import("@/pages/admin/UsersList"));
 const TransactionsMonitor = lazy(() => import("@/pages/admin/TransactionsMonitor"));
 const RevenueAnalytics = lazy(() => import("@/pages/admin/RevenueAnalytics"));
+const BillingPayments = lazy(() => import("@/pages/admin/BillingPayments"));
 const FeatureFlags = lazy(() => import("@/pages/admin/FeatureFlags"));
 const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
 const SystemHealth = lazy(() => import("@/pages/admin/SystemHealth"));
 const AuditLogs = lazy(() => import("@/pages/admin/AuditLogs"));
 const SuperAdminAccounts = lazy(() => import("@/pages/admin/SuperAdminAccounts"));
+const SupportInbox = lazy(() => import("@/pages/admin/SupportInbox"));
 
 function PageLoader() {
   return <PageSkeleton />;
@@ -150,6 +162,8 @@ function SuperAdminRouter() {
   return (
     <Switch>
       <Route path="/super-admin/login" component={AdminLogin} />
+      <Route path="/super-admin/forgot-password" component={AdminForgotPassword} />
+      <Route path="/super-admin/reset-password" component={AdminResetPassword} />
       <Route>
         <AdminLayout>
           <Suspense fallback={<PageLoader />}>
@@ -160,7 +174,9 @@ function SuperAdminRouter() {
               <Route path="/super-admin/onboarding" component={OnboardingPipeline} />
               <Route path="/super-admin/users" component={UsersList} />
               <Route path="/super-admin/transactions" component={TransactionsMonitor} />
+              <Route path="/super-admin/support-inbox" component={SupportInbox} />
               <Route path="/super-admin/revenue" component={RevenueAnalytics} />
+              <Route path="/super-admin/billing" component={BillingPayments} />
               <Route path="/super-admin/flags" component={FeatureFlags} />
               <Route path="/super-admin/announcements" component={AnnouncementsManager} />
               <Route path="/super-admin/health" component={SystemHealth} />
@@ -227,14 +243,26 @@ function AuthenticatedLayout() {
     enabled: !!user,
   });
 
+  // Same query key store-context.tsx uses, so this doesn't add a second network
+  // request once StoreProvider mounts below - react-query dedupes/caches it.
+  const { data: business, isLoading: businessLoading } = useQuery<Business | null>({
+    queryKey: ["/api/business"],
+    enabled: !!user,
+  });
+
   const hasStores = !storesLoading && Array.isArray(stores) && stores.length > 0;
 
-  // Redirect to onboarding via useEffect
+  // Redirect to onboarding via useEffect. A locked org (suspended, or
+  // trial-expired past grace) makes /api/stores 403 rather than return an
+  // empty list, which looks identical to "brand-new org with no stores yet"
+  // from here - guard on isOrgLocked so a locked org sees the Paywall/
+  // AccountPaused screen below instead of being bounced into the
+  // create-store wizard, where store creation would just 403 again.
   useEffect(() => {
-    if (!storesLoading && !hasStores && location !== "/onboarding") {
+    if (!storesLoading && !businessLoading && !hasStores && !isOrgLocked(business) && location !== "/onboarding") {
       setLocation("/onboarding");
     }
-  }, [storesLoading, hasStores, location, setLocation]);
+  }, [storesLoading, businessLoading, hasStores, business, location, setLocation]);
 
   // Global power-user navigation keyboard shortcuts (Alt/Option modifier)
   useEffect(() => {
@@ -283,7 +311,7 @@ function AuthenticatedLayout() {
     return () => window.removeEventListener("keydown", handleNavigationShortcuts);
   }, [setLocation]);
 
-  if (storesLoading) {
+  if (storesLoading || businessLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -291,14 +319,31 @@ function AuthenticatedLayout() {
     );
   }
 
+  // Must be reachable even while the org still reads as locked - this is
+  // exactly where a checkout redirect lands right after paying, before the
+  // server-side verify call (triggered by this page) has flipped the org
+  // back to active. Checked ahead of the isOrgLocked gate below on purpose.
+  if (location === "/billing/callback") {
+    return <BillingCallback />;
+  }
+
+  // Only ever true for an org created by the trial flow (trial expired, no
+  // conversion) or one an admin has explicitly suspended - every pre-existing
+  // organisation is "active" and never hits this branch.
+  if (isOrgLocked(business)) {
+    return user?.role === "owner" ? <Paywall business={business} /> : <AccountPaused />;
+  }
+
   if (!hasStores) return null;
 
   return (
     <StoreProvider>
       <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-        <div className="flex min-h-screen w-full">
+        <div className="flex flex-col min-h-screen w-full">
+          <div className="flex flex-1 w-full min-h-0">
           <AppSidebar />
           <SidebarInset className="flex flex-col flex-1 min-w-0">
+            <AnnouncementBanner />
             <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
               <div className="flex items-center gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
@@ -315,6 +360,7 @@ function AuthenticatedLayout() {
                 <GlobalSearch />
               </div>
               <div className="flex items-center gap-2">
+                {user?.role === "owner" && <TrialBanner business={business} />}
                 <NotificationSheet />
                 <ThemeToggle />
               </div>
@@ -339,7 +385,6 @@ function AuthenticatedLayout() {
                   <Route path="/inventory/audits/new" component={InventoryAuditNewPage} />
                   <Route path="/inventory/:id/edit" component={InventoryEditPage} />
                   <Route path="/inventory/:id/restock" component={InventoryRestockPage} />
-                  <Route path="/inventory/:parentId/variants/new" component={InventoryVariantNewPage} />
                   <Route path="/inventory/:id" component={InventoryDetails} />
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
@@ -361,6 +406,7 @@ function AuthenticatedLayout() {
                   <Route path="/payroll/advances" component={PayrollAdvancesPage} />
                   <Route path="/payroll/report" component={PayrollReportPage} />
                   <Route path="/profile" component={ProfilePage} />
+                  <Route path="/help-support" component={HelpSupportPage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
                   <Route path="/settings">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsIndexPage />}
@@ -400,6 +446,9 @@ function AuthenticatedLayout() {
                   <Route path="/settings/promotions">
                     {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}
                   </Route>
+                  <Route path="/settings/billing">
+                    {user?.role !== "owner" ? <Redirect to="/settings" /> : <BillingSettingsPage />}
+                  </Route>
                   {/* Most specific first — wouter matches top-down, so
                       /analytics would otherwise swallow its own subpaths. */}
                   <Route path="/analytics/dashboards/:id">
@@ -423,6 +472,7 @@ function AuthenticatedLayout() {
               </div>
             </main>
           </SidebarInset>
+          </div>
         </div>
       </SidebarProvider>
     </StoreProvider>

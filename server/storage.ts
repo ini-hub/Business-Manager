@@ -265,6 +265,8 @@ export interface IStorage {
   getInventoryForStores(storeIds: string[], options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
   getInventoryItem(id: string): Promise<Inventory | undefined>;
   getInventoryItemByName(storeId: string, name: string, type?: string): Promise<Inventory | undefined>;
+  getVariantByDimensions(productId: string, variantDimensions: Record<string, string> | null | undefined): Promise<Inventory | undefined>;
+  countVariants(productId: string): Promise<number>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
@@ -927,6 +929,14 @@ export class DatabaseStorage implements IStorage {
 
   async getInventoryItemByName(storeId: string, name: string, type?: string): Promise<Inventory | undefined> {
     return this.inventoryRepo.getInventoryItemByName(storeId, name, type);
+  }
+
+  async getVariantByDimensions(productId: string, variantDimensions: Record<string, string> | null | undefined): Promise<Inventory | undefined> {
+    return this.inventoryRepo.getVariantByDimensions(productId, variantDimensions);
+  }
+
+  async countVariants(productId: string): Promise<number> {
+    return this.inventoryRepo.countVariants(productId);
   }
 
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {

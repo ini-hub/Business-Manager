@@ -21,6 +21,8 @@ import {
   X,
   Map,
   Coins,
+  MessageSquareWarning,
+  CreditCard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -163,6 +165,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       items: [
         { name: "Dashboard", path: "/super-admin", icon: LayoutDashboard, roles: ["super_admin", "ops_manager", "finance_admin", "support_agent"] },
         { name: "Revenue Analytics", path: "/super-admin/revenue", icon: Coins, roles: ["super_admin", "finance_admin"] },
+        { name: "Billing Payments", path: "/super-admin/billing", icon: CreditCard, roles: ["super_admin", "ops_manager", "finance_admin"] },
       ],
     },
     {
@@ -172,6 +175,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Onboarding Funnel", path: "/super-admin/onboarding", icon: Map, roles: ["super_admin", "ops_manager"] },
         { name: "Users Directory", path: "/super-admin/users", icon: Users, roles: ["super_admin", "ops_manager", "support_agent"] },
         { name: "Transactions Ledger", path: "/super-admin/transactions", icon: Receipt, roles: ["super_admin", "ops_manager", "support_agent"] },
+        { name: "Support Inbox", path: "/super-admin/support-inbox", icon: MessageSquareWarning, roles: ["super_admin", "ops_manager", "support_agent"] },
       ],
     },
     {

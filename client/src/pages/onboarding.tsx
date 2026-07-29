@@ -15,6 +15,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight } from "lucide-react";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 
+// Fire-and-forget funnel instrumentation - never blocks the wizard on failure.
+function logFunnelEvent(eventName: string, metadata?: Record<string, unknown>) {
+  apiRequest("POST", "/api/funnel-events", { eventName, metadata }).catch(() => {});
+}
+
 
 // ─── Step Schemas ──────────────────────────────────────────────────────────────
 
@@ -134,6 +139,7 @@ export default function OnboardingWizard() {
   });
 
   const finishOnboarding = async (destination: string = "/") => {
+    logFunnelEvent("onboarding_completed", { destination });
     // Refetch stores so AuthenticatedLayout sees them before we navigate
     await queryClient.refetchQueries({ queryKey: ["/api/stores"] });
     setLocation(destination);
@@ -305,7 +311,7 @@ export default function OnboardingWizard() {
                     )} />
                   </div>
                   <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => setStep(3)}>
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "staff" }); setStep(3); }}>
                       Skip for now
                     </Button>
                     <Button type="submit" className="flex-1" disabled={staffMutation.isPending}>
@@ -371,7 +377,7 @@ export default function OnboardingWizard() {
                     )} />
                   </div>
                   <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => setStep(4)}>
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "inventory" }); setStep(4); }}>
                       Skip for now
                     </Button>
                     <Button type="submit" className="flex-1" disabled={inventoryMutation.isPending}>

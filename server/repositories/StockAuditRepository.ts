@@ -13,6 +13,8 @@ import {
   type User,
 } from "@shared/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { settleSupplyVariance, localDateString } from "../services/SupplyCostingService";
+import { getStoreTimezone } from "../lib/dateUtils";
 
 export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
   constructor() {
@@ -105,7 +107,7 @@ export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
     return audit;
   }
 
-  async approveAudit(id: string, approvedByUserId: string): Promise<StockAudit> {
+  async approveAudit(id: string, approvedByUserId: string): Promise<StockAudit & { varianceTotal: number }> {
     const auditDetails = await this.getAudit(id);
     if (!auditDetails) {
       throw new Error("not_found:Stock audit not found.");
@@ -114,30 +116,79 @@ export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
       throw new Error("bad_request:Stock audit is already approved.");
     }
 
-    // Update physical inventory counts in one batched statement instead of one UPDATE per item
-    if (auditDetails.items.length > 0) {
-      const valueRows = sql.join(
-        auditDetails.items.map((item) => sql`(${item.inventoryId}::varchar, ${item.physicalQuantity}::numeric)`),
-        sql`, `
-      );
-      await db.execute(sql`
-        UPDATE inventory AS inv
-        SET quantity = v.quantity
-        FROM (VALUES ${valueRows}) AS v(id, quantity)
-        WHERE inv.id = v.id
-      `);
-    }
+    const tz = await getStoreTimezone(auditDetails.storeId);
+    const countDate = localDateString(tz);
+    let varianceTotal = 0;
 
-    const [updated] = await db
-      .update(stockAudits)
-      .set({
-        status: "approved",
-        approvedByUserId,
-        approvedAt: new Date(),
+    const updated = await db.transaction(async (tx) => {
+      // Settle metered supplies BEFORE the quantity is overwritten — the variance
+      // is the gap between what the recipes thought was left and what was counted,
+      // and the pre-count figure is only available until this update lands.
+      //
+      // This is what makes a guessed recipe rate safe: whatever the rate got wrong
+      // is caught here, so total cost over a period bounded by two counts equals
+      // exactly what was really consumed.
+      for (const item of auditDetails.items) {
+        varianceTotal += await settleSupplyVariance(tx, {
+          storeId: auditDetails.storeId,
+          item: item.inventory,
+          systemQuantity: Number(item.systemQuantity),
+          physicalQuantity: Number(item.physicalQuantity),
+          date: countDate,
+          reference: `Stock count ${id}`,
+        });
+      }
+
+      // Update physical inventory counts in one batched statement instead of one UPDATE per item
+      if (auditDetails.items.length > 0) {
+        const valueRows = sql.join(
+          auditDetails.items.map((item) => sql`(${item.inventoryId}::varchar, ${item.physicalQuantity}::numeric)`),
+          sql`, `
+        );
+        await tx.execute(sql`
+          UPDATE inventory AS inv
+          SET quantity = v.quantity
+          FROM (VALUES ${valueRows}) AS v(id, quantity)
+          WHERE inv.id = v.id
+        `);
+      }
+
+      const [row] = await tx
+        .update(stockAudits)
+        .set({
+          status: "approved",
+          approvedByUserId,
+          approvedAt: new Date(),
+        })
+        .where(eq(stockAudits.id, id))
+        .returning();
+
+      return row;
+    });
+
+    return { ...updated, varianceTotal };
+  }
+
+  /**
+   * What approving this audit would cost, without approving it. An owner should
+   * see "this count writes off ₦4,200" before committing to it.
+   */
+  async previewVariance(id: string): Promise<{ total: number; lines: { name: string; variance: number; cost: number }[] }> {
+    const auditDetails = await this.getAudit(id);
+    if (!auditDetails) return { total: 0, lines: [] };
+
+    const lines = auditDetails.items
+      .filter((item) => item.inventory.type === "supply" && item.inventory.costingMode === "metered")
+      .map((item) => {
+        const missing = Number(item.systemQuantity) - Number(item.physicalQuantity);
+        return {
+          name: item.inventory.name,
+          variance: -missing,
+          cost: Math.round((missing * Number(item.inventory.costPrice) + Number.EPSILON) * 100) / 100,
+        };
       })
-      .where(eq(stockAudits.id, id))
-      .returning();
+      .filter((l) => l.cost !== 0);
 
-    return updated;
+    return { total: lines.reduce((s, l) => s + l.cost, 0), lines };
   }
 }

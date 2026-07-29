@@ -52,7 +52,7 @@ export default function PayrollDetailPage() {
   });
 
   const { data: entry } = useQuery<any>({
-    queryKey: ["/api/payroll/periods/entries", periodId],
+    queryKey: ["/api/payroll/periods/entries", periodId, staffId],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/payroll/periods/${periodId}/entries`);
       const entries = await res.json();

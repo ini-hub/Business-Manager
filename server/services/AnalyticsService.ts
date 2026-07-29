@@ -1,9 +1,9 @@
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, sql, or, inArray } from "drizzle-orm";
-import { checkouts, orders, creditEntries, repayments, orderConsumables } from "@shared/schema";
+import { checkouts, orders, creditEntries, repayments, orderConsumables, settings } from "@shared/schema";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
-import { LOYALTY_POINT_VALUE_NGN } from "@shared/analytics/constants";
+import { DEFAULT_LOYALTY_POINT_VALUE } from "@shared/analytics/constants";
 
 export class AnalyticsService {
   /**
@@ -475,7 +475,9 @@ export class AnalyticsService {
           gt(sql`max(${checkouts.pointsRedeemed})`, 0),
         ),
       );
-    const totalDiscounts = uniqueTxDiscounts.reduce((sum, d) => sum + (Number(d.discountAmount) || 0) + ((Number(d.pointsRedeemed) || 0) * LOYALTY_POINT_VALUE_NGN), 0);
+    const [storeSettingsRow] = await db.select().from(settings).where(eq(settings.storeId, storeId));
+    const loyaltyPointValue = storeSettingsRow?.loyaltyPointValue ?? DEFAULT_LOYALTY_POINT_VALUE;
+    const totalDiscounts = uniqueTxDiscounts.reduce((sum, d) => sum + (Number(d.discountAmount) || 0) + ((Number(d.pointsRedeemed) || 0) * loyaltyPointValue), 0);
 
     // Final dynamic calculations
     const totalNetProfit = itemSummaries.reduce((sum, s) => sum + s.netProfit, 0);

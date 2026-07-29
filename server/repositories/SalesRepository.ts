@@ -32,7 +32,7 @@ import { TransactionRepository, resolveTransactionIdsForCheckouts } from "./Tran
 import { ConsumablesRepository } from "./ConsumablesRepository";
 import { expandConsumables } from "../services/ConsumablesService";
 import type { NotificationRepository } from "./NotificationRepository";
-import { LOYALTY_POINT_VALUE_NGN } from "@shared/analytics/constants";
+import { DEFAULT_LOYALTY_POINT_VALUE, DEFAULT_LOYALTY_POINTS_PER_CURRENCY } from "@shared/analytics/constants";
 
 export class SalesRepository {
   private inventoryRepo = new InventoryRepository();
@@ -150,6 +150,9 @@ export class SalesRepository {
     if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
     if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
+    const [storeSettingsRow] = await db.select().from(settings).where(eq(settings.storeId, storeId));
+    const loyaltyPointValue = storeSettingsRow?.loyaltyPointValue ?? DEFAULT_LOYALTY_POINT_VALUE;
+
     const rows = await db
       .select({
         inventoryType: inventory.type,
@@ -243,7 +246,7 @@ export class SalesRepository {
     );
 
     const processedDiscounts = uniqueTxDiscounts.map((d) => {
-      const loyaltyDiscount = (d.pointsRedeemed || 0) * LOYALTY_POINT_VALUE_NGN;
+      const loyaltyDiscount = (d.pointsRedeemed || 0) * loyaltyPointValue;
       const totalDiscountVal = (d.discountAmount || 0) + loyaltyDiscount;
       const subtotalVal = Number(d.subtotal || 0);
       const totalPct = subtotalVal > 0 ? (totalDiscountVal / subtotalVal) * 100 : 0;
@@ -587,7 +590,7 @@ export class SalesRepository {
         if (data.pointsRedeemed && data.pointsRedeemed > customer.loyaltyPoints) {
           throw new Error(`Insufficient loyalty points. Customer has only ${customer.loyaltyPoints} points.`);
         }
-        const pointsValueRate = LOYALTY_POINT_VALUE_NGN;
+        const pointsValueRate = storeSettings?.loyaltyPointValue ?? DEFAULT_LOYALTY_POINT_VALUE;
         const pointsDiscount = (data.pointsRedeemed || 0) * pointsValueRate;
 
         let totalDiscount = data.discountAmount || 0;
@@ -923,7 +926,8 @@ export class SalesRepository {
           }
         }
 
-        const pointsEarned = Math.floor(discountedSubtotal / 100);
+        const pointsPerCurrency = storeSettings?.loyaltyPointsPerCurrency ?? DEFAULT_LOYALTY_POINTS_PER_CURRENCY;
+        const pointsEarned = Math.floor(discountedSubtotal / pointsPerCurrency);
         const newPointsBalance = Math.max(0, customer.loyaltyPoints - (data.pointsRedeemed || 0) + pointsEarned);
         await tx.update(customers).set({ loyaltyPoints: newPointsBalance }).where(eq(customers.id, data.customerId));
 

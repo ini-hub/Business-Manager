@@ -169,6 +169,16 @@ export default function InventoryPage() {
     },
   });
 
+  const { data: variancePreview } = useQuery<{ total: number; lines: { name: string; variance: number; cost: number }[] }>({
+    queryKey: ["stock-audit-variance", selectedAuditId],
+    queryFn: async () => {
+      const res = await fetch(`/api/stock-audits/${selectedAuditId}/variance-preview`);
+      if (!res.ok) return { total: 0, lines: [] };
+      return res.json();
+    },
+    enabled: !!selectedAuditId && isAuditDetailOpen,
+  });
+
   const approveAuditMutation = useMutation({
     mutationFn: (auditId: string) => apiRequest("POST", `/api/stock-audits/${auditId}/approve`, {}),
     onSuccess: () => {
@@ -1394,6 +1404,31 @@ export default function InventoryPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Approving a count settles metered supplies against what was really
+                  on the shelf, so it moves money. Say how much BEFORE they commit. */}
+              {auditDetail.status === "draft" && !!variancePreview && variancePreview.total !== 0 && (
+                <Alert className="border-amber-200 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertDescription className="text-xs space-y-1.5">
+                    <p>
+                      Approving this count will{" "}
+                      {variancePreview.total > 0 ? "charge" : "credit back"}{" "}
+                      <strong>{formatCurrency(Math.abs(variancePreview.total))}</strong>{" "}
+                      {variancePreview.total > 0 ? "to" : "from"} Direct Supplies — the difference between
+                      what your recipes assumed and what is actually on the shelf.
+                    </p>
+                    <ul className="space-y-0.5">
+                      {variancePreview.lines.map((l: any, i: number) => (
+                        <li key={i} className="flex justify-between gap-3">
+                          <span className="text-muted-foreground truncate">{l.name}</span>
+                          <span className="font-mono shrink-0">{formatCurrency(l.cost)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <div className="flex justify-end gap-2 border-t border-muted/30 pt-4">
                 <Button variant="outline" onClick={() => setIsAuditDetailOpen(false)}>

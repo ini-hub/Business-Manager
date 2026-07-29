@@ -17,6 +17,8 @@ import {
   type RestockEvent,
 } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { postSupplyPurchaseExpense, localDateString } from "../services/SupplyCostingService";
+import { getStoreTimezone } from "../lib/dateUtils";
 
 export class PurchaseOrderRepository extends BaseRepository<typeof purchaseOrders> {
   constructor() {
@@ -185,6 +187,17 @@ export class PurchaseOrderRepository extends BaseRepository<typeof purchaseOrder
         if (!firstRestockEventId) {
           firstRestockEventId = restockEvent.id;
         }
+
+        // Same rule as a direct restock: an `expensed` supply is charged to Direct
+        // Supplies on receipt rather than capitalised. See SupplyCostingService.
+        await postSupplyPurchaseExpense(tx, {
+          storeId: po.storeId,
+          item: inv,
+          quantityAdded,
+          unitCost: poItem.unitCost,
+          date: localDateString(await getStoreTimezone(po.storeId)),
+          reference: `PO #${po.poNumber}`,
+        });
 
         // 5. Update profit & loss entry
         const [existingPL] = await tx

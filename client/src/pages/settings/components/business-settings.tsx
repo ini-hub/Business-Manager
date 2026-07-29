@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Building2, Coins } from "lucide-react";
+import { Building2, Coins, Gift } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export function BusinessSettingsSection() {
@@ -57,6 +57,9 @@ export function BusinessSettingsSection() {
   const [asst1Split3, setAsst1Split3] = useState(20);
   const [asst2Split3, setAsst2Split3] = useState(20);
 
+  const [loyaltyPointsPerCurrency, setLoyaltyPointsPerCurrency] = useState(100);
+  const [loyaltyPointValue, setLoyaltyPointValue] = useState(10);
+
   useEffect(() => {
     if (settingsData) {
       setReceiptPrefix(settingsData.receiptPrefix || "RCP");
@@ -84,6 +87,9 @@ export function BusinessSettingsSection() {
       setLeadSplit3(settingsData.leadSplit3 ?? 60);
       setAsst1Split3(settingsData.asst1Split3 ?? 20);
       setAsst2Split3(settingsData.asst2Split3 ?? 20);
+
+      setLoyaltyPointsPerCurrency(settingsData.loyaltyPointsPerCurrency ?? 100);
+      setLoyaltyPointValue(settingsData.loyaltyPointValue ?? 10);
     }
   }, [settingsData]);
 
@@ -608,6 +614,65 @@ export function BusinessSettingsSection() {
           >
             {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
             Save Payroll Configuration
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Loyalty Points Program Card */}
+      <Card className="border-primary/20 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-xl font-bold">
+            <Gift className="h-6 w-6 text-primary" />
+            Loyalty Points Program
+          </CardTitle>
+          <CardDescription>Configure how customers earn and redeem loyalty points at {currentStore.name}.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="loyaltyPointsPerCurrency" className="text-sm font-semibold">Earn Rate</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">1 point per</span>
+                <Input
+                  id="loyaltyPointsPerCurrency"
+                  type="number"
+                  min={1}
+                  value={loyaltyPointsPerCurrency}
+                  onChange={(e) => setLoyaltyPointsPerCurrency(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="font-mono max-w-[120px]"
+                />
+                <span className="text-sm text-muted-foreground whitespace-nowrap">spent</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">E.g. 100 means a customer earns 1 point for every ₦100 spent.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="loyaltyPointValue" className="text-sm font-semibold">Redemption Value</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">1 point =</span>
+                <span className="text-sm font-bold text-muted-foreground">₦</span>
+                <Input
+                  id="loyaltyPointValue"
+                  type="number"
+                  min={0}
+                  value={loyaltyPointValue}
+                  onChange={(e) => setLoyaltyPointValue(Math.max(0, parseFloat(e.target.value) || 0))}
+                  className="font-mono max-w-[120px]"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">Naira value applied as a discount when a customer redeems 1 point at checkout.</p>
+            </div>
+          </div>
+        </CardContent>
+        <Separator />
+        <CardContent className="pt-6 flex justify-end">
+          <Button
+            onClick={() => updateSettingsMutation.mutate({ loyaltyPointsPerCurrency, loyaltyPointValue })}
+            disabled={updateSettingsMutation.isPending}
+            className="gap-2"
+          >
+            {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
+            Save Loyalty Settings
           </Button>
         </CardContent>
       </Card>

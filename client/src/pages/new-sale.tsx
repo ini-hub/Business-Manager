@@ -61,6 +61,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
+import { isOrgTrialing } from "@/lib/trial";
+import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { Link } from "wouter";
@@ -96,8 +98,13 @@ import type { CartItem } from "./new-sale/types";
 export default function NewSale() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
   const [, setLocation] = useLocation();
+  const { data: storeSettings } = useQuery<any>({
+    queryKey: ["/api/settings", currentStore?.id],
+    enabled: !!currentStore?.id,
+  });
+  const loyaltyPointValue = storeSettings?.loyaltyPointValue ?? 10;
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastOnlineAt, setLastOnlineAt] = useState<number | null>(navigator.onLine ? Date.now() : null);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -256,6 +263,68 @@ export default function NewSale() {
       });
     },
   });
+
+  // Trial-only: auto-provision a real walk-in customer + default staff record and
+  // pre-select them, so a first-time trial user isn't blocked on manually creating
+  // either before their first sale. Selectors stay editable. No-op for any org that
+  // isn't currently trialing (i.e. every org that existed before this shipped).
+  const trialDefaultsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sales/trial-defaults", { storeId: currentStore?.id });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to set up trial defaults");
+      return res.json() as Promise<{ customerId: string; staffId: string }>;
+    },
+    onSuccess: (data) => {
+      setSelectedCustomer(data.customerId);
+      setSelectedStaff(data.staffId);
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+    },
+  });
+
+  useEffect(() => {
+    if (
+      isOrgTrialing(business) &&
+      currentStore?.id &&
+      currentStore.id !== "all" &&
+      !selectedCustomer &&
+      !selectedStaff &&
+      !user?.staffId &&
+      trialDefaultsMutation.isIdle
+    ) {
+      trialDefaultsMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [business?.status, currentStore?.id, user?.staffId]);
+
+  // Staff members with a linked profile default to (and, unless they're a
+  // manager/owner, are locked to) their own name — see conversation with
+  // product on 2026-07-29 about cross-attributing sales to a coworker.
+  const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
+  const staffLocked = !isManagerOrOwner && !!user?.staffId;
+
+  useEffect(() => {
+    if (user?.staffId && !selectedStaff) {
+      setSelectedStaff(user.staffId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.staffId]);
+
+  // Trial-only: skip the manual "open register" prompt on the first sale of the
+  // day - auto-open with a zero float instead. Non-trial orgs keep today's
+  // behavior exactly (the blocking dialog in handleCheckoutClick below).
+  useEffect(() => {
+    if (
+      isOrgTrialing(business) &&
+      currentStore?.id &&
+      currentStore.id !== "all" &&
+      activeSession === null &&
+      openRegisterMutation.isIdle
+    ) {
+      openRegisterMutation.mutate({ openingFloat: 0, notes: "Auto-opened during free trial" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [business?.status, currentStore?.id, activeSession]);
 
   // Mutation to record a cash drop
   const recordCashDropMutation = useMutation({
@@ -865,10 +934,10 @@ export default function NewSale() {
   const customerStoreCredit = currentCustomer?.storeCreditBalance || 0;
   const subtotalBeforePoints = Math.max(0, finalCartTotal - discountAmount);
 
-  // 1 loyalty point = ₦10 discount. Max discount cannot exceed the subtotal before tax.
-  const maxPointsToRedeem = Math.min(customerPoints, Math.floor(subtotalBeforePoints / 10));
+  // Max discount cannot exceed the subtotal before tax.
+  const maxPointsToRedeem = Math.min(customerPoints, Math.floor(subtotalBeforePoints / loyaltyPointValue));
   const pointsToRedeem = redeemPoints ? maxPointsToRedeem : 0;
-  const loyaltyDiscount = pointsToRedeem * 10;
+  const loyaltyDiscount = pointsToRedeem * loyaltyPointValue;
 
   const subtotalAfterPoints = Math.max(0, subtotalBeforePoints - loyaltyDiscount);
   const taxTotal = subtotalAfterPoints * (taxRatePercent / 100);
@@ -903,9 +972,9 @@ export default function NewSale() {
       const freshCustomerPoints = freshCustomer?.loyaltyPoints || 0;
       const freshCustomerStoreCredit = freshCustomer?.storeCreditBalance || 0;
       const freshSubtotalBeforePoints = Math.max(0, freshFinalTotal - (discountAmount || 0));
-      const freshMaxPointsToRedeem = Math.min(freshCustomerPoints, Math.floor(freshSubtotalBeforePoints / 10));
+      const freshMaxPointsToRedeem = Math.min(freshCustomerPoints, Math.floor(freshSubtotalBeforePoints / loyaltyPointValue));
       const freshPointsToRedeem = redeemPoints ? freshMaxPointsToRedeem : 0;
-      const freshLoyaltyDiscount = freshPointsToRedeem * 10;
+      const freshLoyaltyDiscount = freshPointsToRedeem * loyaltyPointValue;
 
       const freshSubtotalAfterPoints = Math.max(0, freshSubtotalBeforePoints - freshLoyaltyDiscount);
       const freshTaxTotal = freshSubtotalAfterPoints * (taxRatePercent / 100);
@@ -1090,6 +1159,10 @@ export default function NewSale() {
 
     const validationError = validateCheckout();
     if (validationError) {
+      apiRequest("POST", "/api/funnel-events", {
+        eventName: "checkout_blocked",
+        metadata: { reason: validationError },
+      }).catch(() => {});
       toast({
         title: "Missing Requirements",
         description: validationError,
@@ -1146,6 +1219,7 @@ export default function NewSale() {
           </span>
         </div>
       )}
+      <GettingStartedChecklist />
       <PageHeader
         title="New Sale"
         description={`Create a new sales transaction for ${currentStore.name}`}
@@ -1513,7 +1587,7 @@ export default function NewSale() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Points Value:</span>
                       <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                        {formatCurrency(customerPoints * 10)}
+                        {formatCurrency(customerPoints * loyaltyPointValue)}
                       </span>
                     </div>
                     {redeemPoints && (
@@ -1787,6 +1861,14 @@ export default function NewSale() {
                   <UserCog className="h-3 w-3" />
                   Staff Member
                 </Label>
+                {staffLocked ? (
+                  <div
+                    className="flex h-9 w-full items-center gap-2 rounded-md border bg-muted px-3 text-sm text-muted-foreground"
+                    data-testid="select-staff"
+                  >
+                    {staffList.find((s) => s.id === selectedStaff)?.name || "You"}
+                  </div>
+                ) : (
                 <Popover open={staffOpen} onOpenChange={setStaffOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -1835,6 +1917,7 @@ export default function NewSale() {
                     </Command>
                   </PopoverContent>
                 </Popover>
+                )}
               </div>
               <Separator className="my-4" />
               

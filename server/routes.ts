@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken } from "./auth";
+import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken } from "./auth";
 import { setupAdminAuth } from "./auth-admin";
 import { adminRouter } from "./routes-admin";
 import {
@@ -54,6 +54,8 @@ import { db } from "./db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
 import { auditLogger } from "./audit";
+import { computeTrialEndsAt } from "./lib/trial";
+import { logFunnelEvent } from "./lib/funnel";
 import { bulkUploadService } from "./services/BulkUploadService";
 import { analyticsService } from "./services/AnalyticsService";
 import { initWebSocketServer, broadcastDataChange } from "./websocket";
@@ -75,6 +77,8 @@ import { registerPayrollRoutes } from "./routes/payroll.routes";
 import { registerReportsRoutes } from "./routes/reports.routes";
 import { registerVendorRoutes } from "./routes/vendor.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
+import { registerBillingRoutes } from "./routes/billing.routes";
+import { registerSupportRoutes } from "./routes/support.routes";
 import { registerCashRoutes } from "./routes/cash.routes";
 import { registerAuditLogRoutes } from "./routes/audit-logs.routes";
 import { registerAnalyticsRoutes } from "./routes/analytics.routes";
@@ -156,6 +160,10 @@ export async function registerRoutes(
 
   // Public: OG social share image — no auth required
   app.get("/og-image.png", serveOgImage);
+
+  // Blocks API access for suspended/trial-expired orgs, not just the SPA
+  // shell's paywall screen — see server/auth.ts for the exempt paths.
+  app.use("/api", enforceOrgAccess);
 
   // Initialize dynamic OOP Router Registry
   const registry = new RouterRegistry([
@@ -321,11 +329,13 @@ export async function registerRoutes(
       // Hash password
       const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
 
-      // Create organisation
+      // Create organisation - starts a free trial immediately, no card required
       const organisation = await storage.createOrganisation({
         name: data.businessName,
         slug: data.businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         receiptPrefix: data.businessName.substring(0, 3).toUpperCase(),
+        status: "trialing",
+        trialEndsAt: computeTrialEndsAt(),
       });
 
       // Generate a 6-digit OTP code for email verification
@@ -369,6 +379,7 @@ export async function registerRoutes(
       );
 
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "signup_pending_otp");
+      logFunnelEvent(organisation.id, "signup_completed");
 
       res.status(201).json({
         status: "email_verification_required",
@@ -1385,6 +1396,7 @@ export async function registerRoutes(
               activeRole = member.role;
             }
           }
+          const ownStaffRecord = await storage.getStaffByUserId(user.id);
           auditLogger.logAuthAttempt(user.id, getClientIp(req), true);
           return res.json({
             ...user,
@@ -1393,6 +1405,7 @@ export async function registerRoutes(
             role: activeRole,
             businessId: orgId,
             business,
+            staffId: ownStaffRecord?.id ?? null,
             password: undefined,
             passwordHash: undefined,
             otpCode: undefined,
@@ -1505,6 +1518,8 @@ export async function registerRoutes(
   registerReportsRoutes(app, routeMiddlewares);
   registerVendorRoutes(app, routeMiddlewares);
   registerPaymentRoutes(app, routeMiddlewares);
+  registerBillingRoutes(app, routeMiddlewares);
+  registerSupportRoutes(app, routeMiddlewares);
   registerCashRoutes(app, routeMiddlewares);
   registerAuditLogRoutes(app, routeMiddlewares);
 

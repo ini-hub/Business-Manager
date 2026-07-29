@@ -360,6 +360,18 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
+  // What approving this count would charge to Direct Supplies, without approving it.
+  app.get("/api/stock-audits/:id/variance-preview", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const audit = await storage.stockAuditRepo.findById(req.params.id);
+      if (!audit) return res.status(404).json({ error: "Stock audit not found." });
+      if (!(await checkStoreAccess(audit.storeId, req, res))) return;
+      res.json(await storage.stockAuditRepo.previewVariance(req.params.id));
+    } catch {
+      res.status(500).json({ error: "Could not preview the count's cost impact." });
+    }
+  });
+
   // Approve Stock Audit
   app.post("/api/stock-audits/:id/approve", requireRole("owner", "manager"), async (req: any, res) => {
     try {
@@ -373,6 +385,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const approved = await storage.stockAuditRepo.approveAudit(req.params.id, userId);
       auditLogger.log({ action: "STOCK_AUDIT_APPROVE", resource: "stock_audit", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { auditId: req.params.id } });
       broadcastChange(req, "inventory", audit.storeId, "audited");
+      // A count can move money now — settling metered supplies against what was
+      // actually on the shelf — so the expense ledger needs refreshing too.
+      if (approved.varianceTotal !== 0) broadcastChange(req, "expense", audit.storeId, "created");
       res.json(approved);
     } catch (error) {
       const err = error as Error;

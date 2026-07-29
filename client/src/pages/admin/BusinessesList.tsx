@@ -297,6 +297,8 @@ export default function BusinessesList() {
                           className={`border-none font-bold uppercase tracking-wider text-[10px] ${
                             org.status === "active"
                               ? "bg-emerald-500/10 text-emerald-400"
+                              : org.status === "trialing"
+                              ? "bg-amber-500/10 text-amber-400"
                               : "bg-rose-500/10 text-rose-400"
                           }`}
                         >

@@ -5,12 +5,13 @@
  */
 
 /**
- * Naira value of one loyalty point when a redemption is expressed as a discount.
- *
- * Hard-coded as a bare `* 10` in SalesRepository (twice) and AnalyticsService today.
- * Those call sites should import this instead so the Explorer and the P&L can never drift.
+ * Fallback loyalty-program rates, used only when a store's `settings` row is
+ * missing (should not happen — the column has a DB-level NOT NULL default of
+ * the same values). The real, per-store-configurable rates live on
+ * `settings.loyaltyPointValue` / `settings.loyaltyPointsPerCurrency`.
  */
-export const LOYALTY_POINT_VALUE_NGN = 10;
+export const DEFAULT_LOYALTY_POINT_VALUE = 10;
+export const DEFAULT_LOYALTY_POINTS_PER_CURRENCY = 100;
 
 /** Nominal length of each grain in days, used only to bound bucket counts before compiling. */
 export const GRAIN_DAYS: Record<string, number> = {

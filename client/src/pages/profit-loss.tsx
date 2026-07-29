@@ -678,12 +678,12 @@ export default function ProfitLossPage() {
                       <span className="font-mono">{formatCurrency(summary.directSuppliesFromRecipes)}</span>
                     </div>
                   )}
-                  {(summary?.directSuppliesFromExpenses ?? 0) > 0 && (
-                    <div className="flex justify-between items-center text-xs pl-4 text-muted-foreground">
-                      <span>from supply expenses</span>
-                      <span className="font-mono">{formatCurrency(summary.directSuppliesFromExpenses)}</span>
+                  {(summary?.directSuppliesGrouped ?? []).map((g: any, i: number) => (
+                    <div key={i} className="flex justify-between items-center text-xs pl-4 text-muted-foreground">
+                      <span>{g.category}</span>
+                      <span className="font-mono">{formatCurrency(g.amount)}</span>
                     </div>
-                  )}
+                  ))}
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-muted-foreground">Operational Expenses</span>
                     <span className="font-mono">− {formatCurrency(summary?.totalOperationalExpenses ?? 0)}</span>

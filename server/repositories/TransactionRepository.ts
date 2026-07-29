@@ -343,7 +343,7 @@ export class TransactionRepository {
     return {
       business: business ? { name: business.name } : null,
       store: store ? { name: store.name, currency: store.currency, phone: store.phone, address: store.address } : null,
-      settings: storeSettings ? { receiptPrefix: resolvedPrefix, receiptThankYouMessage: storeSettings.receiptThankYouMessage } : null,
+      settings: storeSettings ? { receiptPrefix: resolvedPrefix, receiptThankYouMessage: storeSettings.receiptThankYouMessage, loyaltyPointValue: storeSettings.loyaltyPointValue } : null,
       checkout: { ...primaryCheckout, voidedByUser },
       order: items[0]?.order || null,
       inventory: items[0]?.inventory || null,

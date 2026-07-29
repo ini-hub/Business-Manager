@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import type { Plan } from "@shared/schema";
 import {
   Store,
   Users,
@@ -105,6 +107,42 @@ function Testimonial({ quote, name, role }: { quote: string; name: string; role:
   );
 }
 
+function PricingCard({ plan, highlighted }: { plan: Plan; highlighted?: boolean }) {
+  const features = Array.isArray(plan.features) ? (plan.features as string[]) : [];
+  return (
+    <div
+      className={`rounded-2xl border p-6 flex flex-col gap-5 ${
+        highlighted
+          ? "border-[#1169C7]/50 bg-[#1169C7]/[0.08]"
+          : "border-white/[0.08] bg-white/[0.04]"
+      }`}
+    >
+      <div>
+        <h3 className="font-bold text-white">{plan.name}</h3>
+        <div className="mt-2 flex items-baseline gap-1">
+          <span className="text-3xl font-black text-white">
+            {plan.currency} {Number(plan.priceMonthly).toLocaleString()}
+          </span>
+          <span className="text-xs text-white/45">/mo</span>
+        </div>
+      </div>
+      <ul className="space-y-2 flex-1">
+        {features.map((feature, i) => (
+          <li key={i} className="flex items-center gap-2 text-xs text-white/60">
+            <CheckCircle2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+            {feature}
+          </li>
+        ))}
+      </ul>
+      <Link href="/auth/signup">
+        <Button className="w-full bg-[#1169C7] hover:bg-[#1a7ae0] text-white font-bold border-0">
+          Start free trial
+        </Button>
+      </Link>
+    </div>
+  );
+}
+
 function Step({ n, title, desc }: { n: string; title: string; desc: string }) {
   return (
     <div className="flex gap-5 items-start">
@@ -122,6 +160,7 @@ function Step({ n, title, desc }: { n: string; title: string; desc: string }) {
 export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false);
   const statsSection = useInView(0.3);
+  const { data: plans = [] } = useQuery<Plan[]>({ queryKey: ["/api/billing/plans"] });
 
   return (
     // The outer background matches the app's dark mode hue (210°) so auth/app feel continuous
@@ -489,6 +528,34 @@ export default function Landing() {
               role="Fashion & Accessories · Kano, Nigeria"
             />
           </div>
+        </div>
+      </section>
+
+      {/* ── Pricing ──────────────────────────────────────────────────────── */}
+      <section id="pricing" className="py-20 relative z-10">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#1169C7]/30 bg-[#1169C7]/10 px-3 py-1 text-xs font-semibold text-blue-400 mb-4">
+              Simple pricing
+            </div>
+            <h2 className="text-4xl sm:text-5xl font-black mb-3">
+              Start free.{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4d9fff] to-[#1169C7]">
+                Upgrade when ready.
+              </span>
+            </h2>
+            <p className="text-white/45 max-w-lg mx-auto text-sm">
+              Every plan starts with a 14-day free trial — full access, no card required.
+            </p>
+          </div>
+
+          {plans.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2 max-w-2xl mx-auto">
+              {plans.map((plan, i) => (
+                <PricingCard key={plan.id} plan={plan} highlighted={i === plans.length - 1} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

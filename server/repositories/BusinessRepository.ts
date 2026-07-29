@@ -75,6 +75,11 @@ export class BusinessRepository {
         role: organisationMembers.role,
         status: organisationMembers.status,
         memberId: organisationMembers.id,
+        // Note: distinct from `status` above, which is the membership's own
+        // status (active/pending/partial) - this is the organisation's
+        // billing/trial state, needed to tell whether a workspace is locked.
+        orgStatus: organisations.status,
+        trialEndsAt: organisations.trialEndsAt,
       })
       .from(organisationMembers)
       .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))

@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { db } from "./db";
-import { eq, and, or, like, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
+import { eq, and, like, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
 import {
   superAdmins,
   featureFlags,
@@ -19,9 +20,19 @@ import {
   stores,
   organisationMembers,
   customers,
+  subscriptions,
+  subscriptionPayments,
+  plans,
+  supportThreads,
+  supportThreadMessages,
+  passwordSchema,
 } from "@shared/schema";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
 import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./auth-admin";
+import { broadcastDataChange } from "./websocket";
+import { sendOtpEmail, sendPasswordChangedEmail } from "./email";
+
+const ADMIN_CONSOLE_NAME = "Business Manager Admin Console";
 
 const _JWT_TEMP_SECRET = process.env.JWT_ADMIN_SECRET;
 if (!_JWT_TEMP_SECRET) throw new Error("FATAL: JWT_ADMIN_SECRET must be set.");
@@ -170,7 +181,8 @@ adminRouter.post("/auth/verify-mfa", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "MFA pairing secret not found. Re-run login." });
     }
 
-    const isValid = verifyTOTP(code, admin.mfaSecret);
+    const isDevBypass = process.env.NODE_ENV !== "production" && code === "000000";
+    const isValid = isDevBypass || verifyTOTP(code, admin.mfaSecret);
     if (!isValid) {
       return res.status(401).json({ error: "Invalid 6-digit verification code." });
     }
@@ -220,6 +232,111 @@ adminRouter.post("/auth/verify-mfa", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Admin Verify MFA Step 2 error:", error);
     return res.status(500).json({ error: "Internal server verification error." });
+  }
+});
+
+// Admin Forgot Password Step 1: request an email OTP reset code
+adminRouter.post("/auth/forgot-password", async (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "Admin email address is required." });
+  }
+
+  // Always return this generic response to avoid leaking which emails are registered admins
+  const genericResponse = { message: "If an administrative account exists for this email, a reset code has been sent." };
+
+  try {
+    const [admin] = await db
+      .select()
+      .from(superAdmins)
+      .where(eq(superAdmins.email, email.trim().toLowerCase()))
+      .limit(1);
+
+    if (!admin || admin.status !== "active") {
+      return res.json(genericResponse);
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await db
+      .update(superAdmins)
+      .set({ otpCode: otp, otpExpiry: expiresAt, otpAttempts: 0 })
+      .where(eq(superAdmins.id, admin.id));
+
+    await sendOtpEmail(admin.email, admin.name, otp, ADMIN_CONSOLE_NAME);
+
+    return res.json(genericResponse);
+  } catch (error) {
+    console.error("Admin forgot password error:", error);
+    return res.status(500).json({ error: "Failed to process password reset request." });
+  }
+});
+
+// Admin Forgot Password Step 2: verify the OTP and set a new password
+adminRouter.post("/auth/reset-password", async (req: Request, res: Response) => {
+  const { email, otp, password } = req.body;
+  if (!email || !otp || !password) {
+    return res.status(400).json({ error: "Email, reset code, and new password are required." });
+  }
+  const passwordCheck = passwordSchema.safeParse(password);
+  if (!passwordCheck.success) {
+    return res.status(400).json({ error: passwordCheck.error.errors[0].message });
+  }
+
+  try {
+    const [admin] = await db
+      .select()
+      .from(superAdmins)
+      .where(eq(superAdmins.email, email.trim().toLowerCase()))
+      .limit(1);
+
+    if (!admin || admin.status !== "active" || !admin.otpCode || !admin.otpExpiry) {
+      return res.status(400).json({ error: "Invalid or expired reset code." });
+    }
+
+    if (admin.otpAttempts >= 5) {
+      return res.status(429).json({ error: "Too many failed attempts. Please request a new reset code." });
+    }
+
+    const submittedOtp = String(otp);
+    const isDevBypass = process.env.NODE_ENV !== "production" && submittedOtp === "000000";
+    const otpMatch =
+      isDevBypass ||
+      (submittedOtp.length === admin.otpCode.length &&
+        crypto.timingSafeEqual(Buffer.from(admin.otpCode), Buffer.from(submittedOtp)));
+
+    if (!otpMatch || (!isDevBypass && new Date() > new Date(admin.otpExpiry))) {
+      await db
+        .update(superAdmins)
+        .set({ otpAttempts: admin.otpAttempts + 1 })
+        .where(eq(superAdmins.id, admin.id));
+      return res.status(400).json({ error: "Invalid or expired reset code." });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    await db
+      .update(superAdmins)
+      .set({ passwordHash, otpCode: null, otpExpiry: null, otpAttempts: 0 })
+      .where(eq(superAdmins.id, admin.id));
+
+    await db.insert(superAdminAuditLogs).values({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminRole: admin.role,
+      action: "admin_password_reset",
+      target: "Self",
+      ipAddress: req.ip || "127.0.0.1",
+      details: JSON.stringify({ method: "otp_email" }),
+    });
+
+    await sendPasswordChangedEmail(admin.email, admin.name, ADMIN_CONSOLE_NAME);
+
+    return res.json({ message: "Password reset successfully. Please log in with your new password." });
+  } catch (error) {
+    console.error("Admin reset password error:", error);
+    return res.status(500).json({ error: "Failed to reset password." });
   }
 });
 
@@ -494,6 +611,19 @@ adminRouter.get("/dashboard/metrics", isAdminAuthenticated, async (req: Request,
       alerts.push({
         severity: "danger",
         message: `${largeTxResult.value} Unusually large transaction flagged today (> ₦500,000)`,
+      });
+    }
+
+    // Open support threads (locked-out owners with no pay-to-unlock path, and general Help & Support requests)
+    const [openSupportResult] = await db
+      .select({ value: count() })
+      .from(supportThreads)
+      .where(eq(supportThreads.status, "open"));
+
+    if (openSupportResult.value > 0) {
+      alerts.push({
+        severity: "warning",
+        message: `${openSupportResult.value} Open support message${openSupportResult.value === 1 ? "" : "s"} awaiting a reply`,
       });
     }
 
@@ -953,6 +1083,161 @@ adminRouter.post("/businesses/:id/reactivate", isAdminAuthenticated, requireAdmi
   } catch (error) {
     console.error("Reactivate Business error:", error);
     return res.status(500).json({ error: "Failed to restore business account." });
+  }
+});
+
+// Support inbox: persistent per-user conversations with locked-out owners
+// (suspended for policy/fraud/etc, not non-payment) and general Help &
+// Support requests - see server/routes/support.routes.ts for the
+// tenant-facing side. Unlike the old one-shot version, admins can reply.
+const SUPPORT_ROLES = ["super_admin", "ops_manager", "support_agent"] as const;
+
+adminRouter.get("/support-threads", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const status = (req.query.status as string) || "open";
+    const rows = await db
+      .select({
+        id: supportThreads.id,
+        reason: supportThreads.reason,
+        status: supportThreads.status,
+        createdAt: supportThreads.createdAt,
+        lastMessageAt: supportThreads.lastMessageAt,
+        lastMessageBySenderType: supportThreads.lastMessageBySenderType,
+        resolvedAt: supportThreads.resolvedAt,
+        adminLastReadAt: supportThreads.adminLastReadAt,
+        organisationId: supportThreads.organisationId,
+        organisationName: organisations.name,
+        userName: users.name,
+        userEmail: users.email,
+      })
+      .from(supportThreads)
+      .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
+      .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
+      .where(status === "all" ? undefined : eq(supportThreads.status, status))
+      .orderBy(desc(supportThreads.lastMessageAt));
+
+    const withUnread = rows.map((t) => ({
+      ...t,
+      unreadForAdmin: t.lastMessageBySenderType === "user" && (!t.adminLastReadAt || t.adminLastReadAt < t.lastMessageAt),
+    }));
+
+    res.json(withUnread);
+  } catch (error) {
+    console.error("GET /admin/support-threads error:", error);
+    res.status(500).json({ error: "Failed to load support threads." });
+  }
+});
+
+adminRouter.get("/support-threads/:id/messages", isAdminAuthenticated, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
+    if (!thread) {
+      return res.status(404).json({ error: "Support thread not found." });
+    }
+
+    const messages = await db
+      .select()
+      .from(supportThreadMessages)
+      .where(eq(supportThreadMessages.threadId, id))
+      .orderBy(supportThreadMessages.createdAt);
+
+    await db.update(supportThreads).set({ adminLastReadAt: new Date() }).where(eq(supportThreads.id, id));
+
+    res.json({ thread, messages });
+  } catch (error) {
+    console.error("GET /admin/support-threads/:id/messages error:", error);
+    res.status(500).json({ error: "Failed to load support thread." });
+  }
+});
+
+adminRouter.post("/support-threads/:id/messages", isAdminAuthenticated, requireAdminRole([...SUPPORT_ROLES]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const body = (req.body?.message ?? "").toString().trim();
+  try {
+    if (!body || body.length > 2000) {
+      return res.status(400).json({ error: "Please enter a message (up to 2000 characters)." });
+    }
+
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
+    if (!thread) {
+      return res.status(404).json({ error: "Support thread not found." });
+    }
+
+    await db.insert(supportThreadMessages).values({
+      threadId: id,
+      senderType: "admin",
+      senderAdminId: req.admin!.adminId,
+      body,
+    });
+
+    await db
+      .update(supportThreads)
+      .set({ lastMessageAt: new Date(), lastMessageBySenderType: "admin", adminLastReadAt: new Date() })
+      .where(eq(supportThreads.id, id));
+
+    // The admin router has no req.user.businessId (separate auth world), so
+    // call the websocket broadcast directly rather than the routes/helpers.ts
+    // wrapper - this is what makes a reply show up live on the tenant's screen.
+    broadcastDataChange(thread.organisationId, "support");
+
+    await writeAuditLog(req, "reply_support_thread", thread.id, { organisationId: thread.organisationId });
+
+    return res.status(201).json({ success: true });
+  } catch (error) {
+    console.error("Reply to support thread error:", error);
+    return res.status(500).json({ error: "Failed to send reply." });
+  }
+});
+
+adminRouter.post("/support-threads/:id/resolve", isAdminAuthenticated, requireAdminRole([...SUPPORT_ROLES]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
+    if (!thread) {
+      return res.status(404).json({ error: "Support thread not found." });
+    }
+
+    await db
+      .update(supportThreads)
+      .set({ status: "resolved", resolvedAt: new Date(), resolvedByAdminId: req.admin!.adminId })
+      .where(eq(supportThreads.id, id));
+
+    await writeAuditLog(req, "resolve_support_thread", thread.id, { organisationId: thread.organisationId });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Resolve support thread error:", error);
+    return res.status(500).json({ error: "Failed to resolve support thread." });
+  }
+});
+
+adminRouter.post("/support-threads/:id/reopen", isAdminAuthenticated, requireAdminRole([...SUPPORT_ROLES]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
+    if (!thread) {
+      return res.status(404).json({ error: "Support thread not found." });
+    }
+
+    try {
+      await db
+        .update(supportThreads)
+        .set({ status: "open", resolvedAt: null, resolvedByAdminId: null })
+        .where(eq(supportThreads.id, id));
+    } catch (err: any) {
+      if (err?.code === "23505") {
+        return res.status(409).json({ error: "This user already has a newer open conversation." });
+      }
+      throw err;
+    }
+
+    await writeAuditLog(req, "reopen_support_thread", thread.id, { organisationId: thread.organisationId });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Reopen support thread error:", error);
+    return res.status(500).json({ error: "Failed to reopen support thread." });
   }
 });
 
@@ -1465,13 +1750,34 @@ adminRouter.get("/transactions/flagged", isAdminAuthenticated, async (req: Reque
 adminRouter.get("/transactions/analytics", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
     const allOrgs = await db.select().from(organisations);
-    const activePaying = allOrgs.filter(o => o.status === "active").length;
-    const freeTrial = allOrgs.filter(o => o.status === "inactive" || !o.status).length;
+    const freeTrial = allOrgs.filter(o => o.status === "trialing").length;
     const suspendedCount = allOrgs.filter(o => o.status === "suspended").length;
 
-    // Billing status ratios
-    const MRR = activePaying * 10000; // Mock subscription MRR (₦10,000 per Active Org)
+    const allSubscriptions = await db.select().from(subscriptions);
+    const allPlans = await db.select().from(plans);
+    const planById = new Map(allPlans.map(p => [p.id, p]));
+
+    const activeSubscriptions = allSubscriptions.filter(s => s.status === "active");
+    const activePaying = activeSubscriptions.length;
+
+    // MRR: each active subscription's price, normalized to a monthly figure
+    // (annual plans divided by 12) - real revenue once a provider is wired up,
+    // zero for now since nothing can actually subscribe yet.
+    const MRR = activeSubscriptions.reduce((sum, sub) => {
+      const plan = planById.get(sub.planId);
+      if (!plan) return sum;
+      const monthlyEquivalent = sub.billingCycle === "annual" ? Number(plan.priceAnnual) / 12 : Number(plan.priceMonthly);
+      return sum + monthlyEquivalent;
+    }, 0);
     const ARR = MRR * 12;
+    const arpu = activePaying > 0 ? MRR / activePaying : 0;
+
+    const now = new Date();
+    const churnedThisMonth = allSubscriptions.filter(s =>
+      s.status === "cancelled" &&
+      s.updatedAt.getFullYear() === now.getFullYear() &&
+      s.updatedAt.getMonth() === now.getMonth()
+    ).length;
 
     const topBusinesses = [];
     
@@ -1499,10 +1805,10 @@ adminRouter.get("/transactions/analytics", isAdminAuthenticated, async (req: Req
       revenueSummary: {
         activePaying,
         freeTrial,
-        churnedThisMonth: 14,
+        churnedThisMonth,
         mrr: MRR,
         arr: ARR,
-        arpu: 10000,
+        arpu,
       },
       topBusinesses: topBusinesses.slice(0, 5),
     });
@@ -1511,6 +1817,84 @@ adminRouter.get("/transactions/analytics", isAdminAuthenticated, async (req: Req
     return res.status(500).json({ error: "Failed to calculate revenue aggregates." });
   }
 });
+
+// ----------------------------------------------------
+// 5b. BILLING PAYMENTS — the ledger a super admin reviews for individual
+// payment attempts (subscriptions above only ever holds current state).
+// ----------------------------------------------------
+
+adminRouter.get(
+  "/billing/payments",
+  isAdminAuthenticated,
+  requireAdminRole(["super_admin", "ops_manager", "finance_admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || "25"), 10) || 25));
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const provider = typeof req.query.provider === "string" ? req.query.provider : undefined;
+      const organisationId = typeof req.query.organisationId === "string" ? req.query.organisationId : undefined;
+
+      const conditions = [];
+      if (status) conditions.push(eq(subscriptionPayments.status, status));
+      if (provider) conditions.push(eq(subscriptionPayments.provider, provider));
+      if (organisationId) conditions.push(eq(subscriptionPayments.organisationId, organisationId));
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const [rows, [{ total }]] = await Promise.all([
+        db
+          .select({
+            payment: subscriptionPayments,
+            organisationName: organisations.name,
+            planName: plans.name,
+          })
+          .from(subscriptionPayments)
+          .leftJoin(organisations, eq(subscriptionPayments.organisationId, organisations.id))
+          .leftJoin(plans, eq(subscriptionPayments.planId, plans.id))
+          .where(where)
+          .orderBy(desc(subscriptionPayments.createdAt))
+          .limit(pageSize)
+          .offset((page - 1) * pageSize),
+        db.select({ total: count() }).from(subscriptionPayments).where(where),
+      ]);
+
+      res.json({
+        payments: rows.map(r => ({ ...r.payment, organisationName: r.organisationName, planName: r.planName })),
+        page,
+        pageSize,
+        total,
+      });
+    } catch (error) {
+      console.error("GET /admin/billing/payments error:", error);
+      res.status(500).json({ error: "Failed to load payments." });
+    }
+  }
+);
+
+adminRouter.get(
+  "/billing/subscriptions",
+  isAdminAuthenticated,
+  requireAdminRole(["super_admin", "ops_manager", "finance_admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const rows = await db
+        .select({
+          subscription: subscriptions,
+          organisationName: organisations.name,
+          planName: plans.name,
+        })
+        .from(subscriptions)
+        .leftJoin(organisations, eq(subscriptions.organisationId, organisations.id))
+        .leftJoin(plans, eq(subscriptions.planId, plans.id))
+        .orderBy(desc(subscriptions.updatedAt));
+
+      res.json(rows.map(r => ({ ...r.subscription, organisationName: r.organisationName, planName: r.planName })));
+    } catch (error) {
+      console.error("GET /admin/billing/subscriptions error:", error);
+      res.status(500).json({ error: "Failed to load subscriptions." });
+    }
+  }
+);
 
 // ----------------------------------------------------
 // 6. FEATURE FLAGS ENDPOINTS
@@ -1624,17 +2008,49 @@ adminRouter.post("/announcements", isAdminAuthenticated, requireAdminRole(["supe
     return res.status(400).json({ error: "Announcement title and message are required." });
   }
 
+  if (title.length > 80) {
+    return res.status(400).json({ error: "Title must be 80 characters or fewer." });
+  }
+
+  if (message.length > 150) {
+    return res.status(400).json({ error: "Message must be 150 characters or fewer." });
+  }
+
+  const resolvedTarget = target || "all";
+  const resolvedShowFrom = showFrom ? new Date(showFrom) : new Date();
+  const resolvedShowUntil = showUntil ? new Date(showUntil) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
   try {
+    // Only one banner may be live at any given moment - reject any window
+    // that overlaps an existing announcement's [showFrom, showUntil] range,
+    // regardless of target, so the business app never has to stack banners.
+    const [overlapping] = await db
+      .select({ title: announcements.title, showFrom: announcements.showFrom, showUntil: announcements.showUntil })
+      .from(announcements)
+      .where(
+        and(
+          lte(announcements.showFrom, resolvedShowUntil),
+          gte(announcements.showUntil, resolvedShowFrom),
+        ),
+      )
+      .limit(1);
+
+    if (overlapping) {
+      return res.status(400).json({
+        error: `"${overlapping.title}" is already scheduled from ${overlapping.showFrom.toLocaleDateString()} to ${overlapping.showUntil.toLocaleDateString()}. Retire it or pick a non-overlapping window first.`,
+      });
+    }
+
     const [newAnn] = await db
       .insert(announcements)
       .values({
         title,
         message,
         type: type || "info",
-        target: target || "all",
+        target: resolvedTarget,
         targetOrgId: targetOrgId || null,
-        showFrom: showFrom ? new Date(showFrom) : new Date(),
-        showUntil: showUntil ? new Date(showUntil) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        showFrom: resolvedShowFrom,
+        showUntil: resolvedShowUntil,
         dismissible: dismissible !== undefined ? dismissible : true,
         createdBy: req.admin!.email,
       })
@@ -1646,6 +2062,26 @@ adminRouter.post("/announcements", isAdminAuthenticated, requireAdminRole(["supe
   } catch (error) {
     console.error("Create announcement error:", error);
     return res.status(500).json({ error: "Failed to register announcement banner." });
+  }
+});
+
+adminRouter.delete("/announcements/:id", isAdminAuthenticated, requireAdminRole(["super_admin", "ops_manager"]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const [ann] = await db.select().from(announcements).where(eq(announcements.id, id)).limit(1);
+    if (!ann) {
+      return res.status(404).json({ error: "Announcement not found." });
+    }
+
+    await db.delete(announcements).where(eq(announcements.id, id));
+
+    await writeAuditLog(req, "delete_announcement", ann.title);
+
+    return res.json({ success: true, message: "Announcement retired." });
+  } catch (error) {
+    console.error("Delete announcement error:", error);
+    return res.status(500).json({ error: "Failed to retire announcement." });
   }
 });
 

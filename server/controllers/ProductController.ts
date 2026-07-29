@@ -3,9 +3,11 @@ import { BaseController } from "./BaseController";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import { insertProductSchema, insertInventorySchema } from "@shared/schema";
+import { MAX_VARIANTS_PER_PRODUCT } from "@shared/constants";
 import { z } from "zod";
 import { withProductId } from "../utils/slug-resolver";
 import { toTitleCase, sanitizeString } from "../sanitize";
+import { broadcastChange } from "../routes/helpers";
 
 export class ProductController extends BaseController {
   public register(router: Router): void {
@@ -123,6 +125,7 @@ export class ProductController extends BaseController {
       }
 
       const product = await storage.createProduct(data);
+      broadcastChange(req, "inventory", product.storeId, "created");
       return this.created(res, product);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -159,6 +162,21 @@ export class ProductController extends BaseController {
       }
 
       const updated = await storage.updateProduct(req.params.id, data);
+
+      // Variant names are stored as independent "<product name> - <suffix>" strings
+      // (see add-variants-sheet.tsx), not derived from the product name at render time.
+      // Rename the prefix on existing variants so they don't keep the old product name.
+      if (data.name && data.name !== product.name) {
+        const oldPrefix = `${product.name} - `;
+        for (const variant of product.variants || []) {
+          if (variant.name.startsWith(oldPrefix)) {
+            const suffix = variant.name.slice(oldPrefix.length);
+            await storage.updateInventoryItem(variant.id, { name: `${data.name} - ${suffix}` });
+          }
+        }
+      }
+
+      broadcastChange(req, "inventory", product.storeId, "updated");
       return this.ok(res, updated);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -200,6 +218,7 @@ export class ProductController extends BaseController {
       }
 
       await storage.deleteProduct(req.params.id);
+      broadcastChange(req, "inventory", product.storeId, "archived");
       return res.sendStatus(204);
     } catch (error: any) {
       return this.error(res, "We couldn't delete the product. Please try again.");
@@ -229,6 +248,7 @@ export class ProductController extends BaseController {
         return this.forbidden(res, "You don't have access to this item.");
       }
       await storage.restoreProduct(req.params.id);
+      broadcastChange(req, "inventory", product.storeId, "restored");
       return this.ok(res, { success: true });
     } catch {
       return this.error(res, "We couldn't restore this item. Please try again.");
@@ -259,6 +279,7 @@ export class ProductController extends BaseController {
       }
 
       await storage.hardDeleteProduct(req.params.id);
+      broadcastChange(req, "inventory", product.storeId, "deleted");
       return res.sendStatus(204);
     } catch (error: any) {
       console.error("[permanentDeleteProduct]", error);
@@ -296,7 +317,18 @@ export class ProductController extends BaseController {
         return this.conflict(res, `Variant name "${data.name}" already exists.`);
       }
 
+      const existingCombo = await storage.getVariantByDimensions(product.id, data.variantDimensions as Record<string, string> | null | undefined);
+      if (existingCombo) {
+        return this.conflict(res, `A variant with this exact combination already exists: "${existingCombo.name}".`);
+      }
+
+      const variantCount = await storage.countVariants(product.id);
+      if (variantCount >= MAX_VARIANTS_PER_PRODUCT) {
+        return this.conflict(res, `This product already has the maximum of ${MAX_VARIANTS_PER_PRODUCT} variants.`);
+      }
+
       const variant = await storage.createInventoryItem(data);
+      broadcastChange(req, "inventory", product.storeId, "created");
       return this.created(res, variant);
     } catch (error: any) {
       if (error instanceof z.ZodError) {

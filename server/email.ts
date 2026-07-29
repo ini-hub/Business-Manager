@@ -8,10 +8,54 @@ interface EmailPayload {
   to: string;
   subject: string;
   html: string;
+  replyTo?: string;
 }
 
 export function sendEmail(payload: EmailPayload): void {
   queueEmail(payload);
+}
+
+const SUPPORT_INBOX_EMAIL = process.env.SUPPORT_INBOX_EMAIL || "bolujoexcellent@gmail.com";
+
+/**
+ * The one-shot "email us" path on the Help & Support page - unlike the
+ * in-app chat (support_threads), there's no reply-ingestion, so this is
+ * genuinely fire-and-forget: replyTo is set to the sender's own address so a
+ * human agent can just hit reply in their own inbox.
+ */
+export function sendSupportRequestEmail(
+  fromUserName: string,
+  fromUserEmail: string,
+  businessName: string,
+  message: string,
+  subject?: string
+): void {
+  const safeName = escapeHtml(fromUserName);
+  const safeEmail = escapeHtml(fromUserEmail);
+  const safeBusiness = escapeHtml(businessName);
+  const safeMessage = escapeHtml(message).replace(/\n/g, "<br/>");
+
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #4f46e5; margin-bottom: 20px;">Support request from ${safeBusiness}</h2>
+      <p><strong>From:</strong> ${safeName} (${safeEmail})</p>
+      <p><strong>Business:</strong> ${safeBusiness}</p>
+      <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0;">
+        ${safeMessage}
+      </div>
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+      <p style="color: #9ca3af; font-size: 12px;">Reply directly to this email to respond to ${safeName}.</p>
+    </div>
+  `;
+
+  const headerSafeName = fromUserName.replace(/[\r\n"<>]/g, "").trim();
+
+  sendEmail({
+    to: SUPPORT_INBOX_EMAIL,
+    subject: `Support request from ${businessName} — ${subject?.trim() || "General inquiry"}`,
+    html,
+    replyTo: headerSafeName ? `"${headerSafeName}" <${fromUserEmail}>` : fromUserEmail,
+  });
 }
 
 export async function sendActivationEmail(
@@ -141,6 +185,55 @@ export async function sendPasswordChangedEmail(
   sendEmail({
     to,
     subject: `Your password was changed — ${businessName}`,
+    html,
+  });
+}
+
+const TRIAL_REMINDER_COPY: Record<"3_days" | "2_days" | "today", { subject: string; headline: string; urgency: string }> = {
+  "3_days": {
+    subject: "Your free trial ends in 3 days",
+    headline: "3 days left on your free trial",
+    urgency: "Your trial ends in 3 days. Subscribe now to keep every feature working without interruption.",
+  },
+  "2_days": {
+    subject: "Your free trial ends in 2 days",
+    headline: "2 days left on your free trial",
+    urgency: "Your trial ends in 2 days. Subscribe now to avoid losing access.",
+  },
+  "today": {
+    subject: "Your free trial ends today",
+    headline: "Your free trial ends today",
+    urgency: "Your trial ends today. Once it does, the app locks until you subscribe — pick a plan now to keep things running.",
+  },
+};
+
+export async function sendTrialReminderEmail(
+  to: string,
+  name: string,
+  businessName: string,
+  stage: "3_days" | "2_days" | "today"
+): Promise<void> {
+  const safeName = escapeHtml(name);
+  const safeBusiness = escapeHtml(businessName);
+  const copy = TRIAL_REMINDER_COPY[stage];
+  const billingLink = `${APP_URL}/settings/billing`;
+
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #d97706; margin-bottom: 20px;">${copy.headline}</h2>
+      <p>Hi <strong>${safeName}</strong>,</p>
+      <p>${copy.urgency}</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${billingLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Subscribe Now</a>
+      </div>
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
+    </div>
+  `;
+
+  sendEmail({
+    to,
+    subject: copy.subject,
     html,
   });
 }

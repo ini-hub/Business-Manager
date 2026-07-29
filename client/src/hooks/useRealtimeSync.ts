@@ -3,11 +3,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "./useAuth";
 import { playNotificationSound } from "@/components/notification-sheet";
 
-// Maps a server-broadcast resource name → all React Query base keys that should be invalidated.
-// React Query does prefix matching, so invalidating "/api/inventory" also invalidates
-// ["/api/inventory", storeId], ["/api/inventory", storeId, "..."], etc.
+// Maps a server-broadcast resource name → React Query base key prefixes that should be invalidated.
+// Matching is done by string-prefix on the first queryKey element (see predicate below), not
+// React Query's own array-element equality matching, since our query keys nest sub-paths like
+// ["/api/payroll/periods/entries", periodId] under a resource's base path ("/api/payroll").
 const RESOURCE_KEYS: Record<string, string[]> = {
-  inventory:        ["/api/inventory", "/api/products", "/api/dashboard/stats"],
+  // "inventory-detail" isn't an /api/... path — it's the client-side cache key
+  // (see inventory-details.tsx / inventory-edit.tsx) used for a single item's detail
+  // view. It has to be listed explicitly here or realtime broadcasts can never
+  // invalidate an open detail page (only the list views would refresh).
+  inventory:        ["/api/inventory", "/api/products", "/api/dashboard/stats", "inventory-detail"],
   sales:            ["/api/transactions", "/api/dashboard/stats", "/api/profit-loss"],
   expense:          ["/api/expenses", "/api/dashboard/stats", "/api/profit-loss"],
   "expense-category": ["/api/expense-categories"],
@@ -16,14 +21,15 @@ const RESOURCE_KEYS: Record<string, string[]> = {
   attendance:       ["/api/attendance"],
   vendor:           ["/api/vendors"],
   "vendor-bill":    ["/api/vendors"],
-  "stock-audit":    ["/api/stock-audits", "/api/inventory", "/api/products"],
+  "stock-audit":    ["/api/stock-audits", "/api/inventory", "/api/products", "inventory-detail"],
   "purchase-order": ["/api/purchase-orders"],
-  "stock-transfer": ["/api/stock-transfers", "/api/inventory", "/api/products"],
+  "stock-transfer": ["/api/stock-transfers", "/api/inventory", "/api/products", "inventory-detail"],
   quote:            ["/api/quotes"],
   cash:             ["/api/cash-register", "/api/dashboard/stats"],
   payroll:          ["/api/payroll"],
   credit:           ["/api/credit"],
   booking:          ["/api/bookings"],
+  support:          ["/api/support/thread", "/api/support/threads"],
 };
 
 export function useRealtimeSync(): void {
@@ -52,10 +58,15 @@ export function useRealtimeSync(): void {
             queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
             playNotificationSound();
           } else if (msg.__msgType === "data_change") {
-            const keys = RESOURCE_KEYS[msg.resource as string] ?? [];
-            keys.forEach((key) => {
-              queryClient.invalidateQueries({ queryKey: [key] });
-            });
+            const prefixes = RESOURCE_KEYS[msg.resource as string] ?? [];
+            if (prefixes.length > 0) {
+              queryClient.invalidateQueries({
+                predicate: (query) => {
+                  const firstKey = query.queryKey[0];
+                  return typeof firstKey === "string" && prefixes.some((p) => firstKey.startsWith(p));
+                },
+              });
+            }
           }
         } catch {
           // ignore unparseable messages

@@ -6,7 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 interface ReceiptPayload {
   business: { name: string } | null;
   store: { name: string; currency: string; phone?: string | null; address?: string | null } | null;
-  settings: { receiptPrefix: string; receiptThankYouMessage?: string | null } | null;
+  settings: { receiptPrefix: string; receiptThankYouMessage?: string | null; loyaltyPointValue?: number } | null;
     checkout: {
       id: string;
       receiptNumber: string;
@@ -95,18 +95,19 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
   const totalChargedSum = items.reduce((sum, item) => sum + (item.checkout?.totalCharged ?? 0), 0);
   const bookingDepositAmount = checkout?.bookingDepositAmount ?? 0;
   const balanceCollectedTodaySum = Math.max(0, totalChargedSum - bookingDepositAmount);
+  const loyaltyPointValue = settings?.loyaltyPointValue ?? 10;
   let pointsRedeemed = checkout?.pointsRedeemed ?? 0;
-  let loyaltyDiscount = pointsRedeemed * 10;
+  let loyaltyDiscount = pointsRedeemed * loyaltyPointValue;
 
   // Fallback deduction formula for historical transactions that completed before the schema upgrade
   if (pointsRedeemed === 0) {
     const taxTotalSum = items.reduce((sum, item) => sum + (item.checkout?.taxTotal ?? 0), 0);
     const calculatedPointsDiscount = subtotal - discountAmount + taxTotalSum - totalChargedSum;
     if (calculatedPointsDiscount > 0.01) {
-      const deducedPoints = Math.round(calculatedPointsDiscount / 10);
+      const deducedPoints = Math.round(calculatedPointsDiscount / loyaltyPointValue);
       if (deducedPoints > 0) {
         pointsRedeemed = deducedPoints;
-        loyaltyDiscount = deducedPoints * 10;
+        loyaltyDiscount = deducedPoints * loyaltyPointValue;
       }
     }
   }

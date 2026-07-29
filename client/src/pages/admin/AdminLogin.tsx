@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -159,6 +159,11 @@ export default function AdminLogin() {
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
                 />
+                <div className="text-right">
+                  <Link href="/super-admin/forgot-password" className="text-xs text-slate-400 hover:text-emerald-400 transition-colors">
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
 
               <Button

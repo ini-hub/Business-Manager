@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, real, timestamp, unique, index, jsonb, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, real, timestamp, unique, index, uniqueIndex, jsonb, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -26,12 +26,16 @@ export const organisations = pgTable("organisations", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   commissionSplitBusinessShare: integer("commission_split_business_share").notNull().default(80),
   commissionSplitStaffShare: integer("commission_split_staff_share").notNull().default(20),
-  status: text("status").notNull().default("active"), // 'active', 'inactive', 'suspended'
+  status: text("status").notNull().default("active"), // 'active', 'trialing', 'inactive', 'suspended'
   suspensionReason: text("suspension_reason"), // 'policy_violation', 'non_payment', 'fraudulent_activity', 'owner_request', 'inactivity', 'other'
   suspensionNote: text("suspension_note"),
   suspendedAt: timestamp("suspended_at"),
   deletedAt: timestamp("deleted_at"), // Soft-delete 30-day grace period
   deletionReason: text("deletion_reason"),
+  trialEndsAt: timestamp("trial_ends_at"), // null for orgs created before trials existed (grandfathered, never gated)
+  activatedAt: timestamp("activated_at"), // set once, on the org's first-ever completed sale
+  defaultWalkInCustomerId: varchar("default_walk_in_customer_id"), // cached id of the auto-provisioned trial walk-in customer
+  defaultTrialStaffId: varchar("default_trial_staff_id"), // cached id of the auto-provisioned trial default staff record
 });
 
 export const organisationsRelations = relations(organisations, ({ many }) => ({
@@ -59,6 +63,159 @@ export const insertOrganisationSchema = createInsertSchema(organisations).omit({
   businessUrl: z.string().optional(),
 });
 export const insertBusinessSchema = insertOrganisationSchema;
+
+// Subscription plans offered to organisations (platform billing, not tenant-facing payments)
+export const plans = pgTable("plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  priceMonthly: numeric("price_monthly", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  priceAnnual: numeric("price_annual", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  features: jsonb("features").notNull().default(sql`'[]'::jsonb`),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type Plan = typeof plans.$inferSelect;
+export type InsertPlan = typeof plans.$inferInsert;
+
+// One subscription per organisation: the source of truth for billing state.
+// organisations.status is kept in sync with this for fast gate checks elsewhere.
+export const subscriptions = pgTable("subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organisationId: varchar("organisation_id").notNull().references(() => organisations.id).unique(),
+  planId: varchar("plan_id").notNull().references(() => plans.id),
+  status: text("status").notNull().default("trialing"), // 'trialing', 'active', 'past_due', 'cancelled'
+  billingCycle: text("billing_cycle").notNull().default("monthly"), // 'monthly', 'annual'
+  currentPeriodStart: timestamp("current_period_start").notNull().defaultNow(),
+  currentPeriodEnd: timestamp("current_period_end").notNull(),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  provider: text("provider"), // 'stripe', 'paystack', 'flutterwave' - null until first real charge
+  providerCustomerId: text("provider_customer_id"),
+  providerSubscriptionId: text("provider_subscription_id"),
+  // Paystack's reusable authorization_code from the first successful charge, used to
+  // auto-charge renewals via /transaction/charge_authorization without the owner
+  // re-entering their card. Null until the first successful payment.
+  providerAuthorizationCode: text("provider_authorization_code"),
+  // Claim timestamp for the lazy renewal check in server/lib/billing.ts - set right
+  // before attempting a renewal charge so concurrent requests can't double-charge.
+  renewalAttemptedAt: timestamp("renewal_attempted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_subscriptions_status").on(table.status),
+]);
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = typeof subscriptions.$inferInsert;
+
+// One row per payment attempt against a subscription (initial checkout or automatic
+// renewal charge) - the audit ledger super admins review. `subscriptions` only ever
+// holds current state, so this is the only place payment history actually lives.
+export const subscriptionPayments = pgTable("subscription_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organisationId: varchar("organisation_id").notNull().references(() => organisations.id),
+  planId: varchar("plan_id").notNull().references(() => plans.id),
+  subscriptionId: varchar("subscription_id").references(() => subscriptions.id),
+  provider: text("provider").notNull(), // 'paystack' for now; 'stripe'/'flutterwave' once wired
+  kind: text("kind").notNull().default("initial"), // 'initial', 'renewal'
+  reference: text("reference").notNull().unique(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  currency: text("currency").notNull(),
+  billingCycle: text("billing_cycle").notNull(),
+  status: text("status").notNull().default("pending"), // 'pending', 'success', 'failed'
+  providerResponse: jsonb("provider_response"),
+  initiatedByUserId: varchar("initiated_by_user_id").references(() => users.id), // null for system-initiated renewal charges
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  verifiedAt: timestamp("verified_at"),
+}, (table) => [
+  index("idx_subscription_payments_org").on(table.organisationId),
+  index("idx_subscription_payments_status").on(table.status),
+]);
+
+export const subscriptionPaymentsRelations = relations(subscriptionPayments, ({ one }) => ({
+  organisation: one(organisations, { fields: [subscriptionPayments.organisationId], references: [organisations.id] }),
+  plan: one(plans, { fields: [subscriptionPayments.planId], references: [plans.id] }),
+  subscription: one(subscriptions, { fields: [subscriptionPayments.subscriptionId], references: [subscriptions.id] }),
+}));
+
+export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
+export type InsertSubscriptionPayment = typeof subscriptionPayments.$inferInsert;
+
+// Lightweight funnel instrumentation: signup -> onboarding -> checkout events, per organisation.
+// Purely additive/write-only from the app's perspective - nothing reads these yet except future analytics.
+export const funnelEvents = pgTable("funnel_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organisationId: varchar("organisation_id").notNull().references(() => organisations.id),
+  eventName: text("event_name").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_funnel_events_org_event").on(table.organisationId, table.eventName),
+]);
+
+export type FunnelEvent = typeof funnelEvents.$inferSelect;
+export type InsertFunnelEvent = typeof funnelEvents.$inferInsert;
+
+// A persistent, per-user conversation with "Support" - used both by a
+// locked-out owner (suspended for a reason other than non-payment, or a
+// trial-expired org with no subscription) and generally from the Help &
+// Support page. One open thread per user at a time, enforced by the partial
+// unique index below: sending a message either continues the existing open
+// thread or starts a fresh one - the client never tracks thread ids itself.
+export const supportThreads = pgTable("support_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organisationId: varchar("organisation_id").notNull().references(() => organisations.id),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  reason: text("reason").notNull().default("general"), // 'general', or a snapshot of business.suspensionReason / 'trial_expired' when started from the paywall
+  status: text("status").notNull().default("open"), // 'open', 'resolved'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastMessageAt: timestamp("last_message_at").notNull().defaultNow(),
+  lastMessageBySenderType: text("last_message_by_sender_type").notNull().default("user"), // 'user', 'admin'
+  resolvedAt: timestamp("resolved_at"),
+  resolvedByAdminId: varchar("resolved_by_admin_id").references(() => superAdmins.id),
+  userLastReadAt: timestamp("user_last_read_at").notNull().defaultNow(),
+  adminLastReadAt: timestamp("admin_last_read_at"),
+}, (table) => [
+  index("idx_support_threads_status").on(table.status),
+  index("idx_support_threads_org").on(table.organisationId),
+  uniqueIndex("uq_support_threads_one_open_per_user").on(table.createdByUserId).where(sql`status = 'open'`),
+]);
+
+export const supportThreadsRelations = relations(supportThreads, ({ one, many }) => ({
+  organisation: one(organisations, { fields: [supportThreads.organisationId], references: [organisations.id] }),
+  createdBy: one(users, { fields: [supportThreads.createdByUserId], references: [users.id] }),
+  messages: many(supportThreadMessages),
+}));
+
+export const insertSupportThreadSchema = createInsertSchema(supportThreads)
+  .omit({ id: true, createdAt: true, lastMessageAt: true, lastMessageBySenderType: true, status: true, resolvedAt: true, resolvedByAdminId: true, userLastReadAt: true, adminLastReadAt: true });
+export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
+export type SupportThread = typeof supportThreads.$inferSelect;
+
+export const supportThreadMessages = pgTable("support_thread_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull().references(() => supportThreads.id),
+  senderType: text("sender_type").notNull(), // 'user', 'admin'
+  senderUserId: varchar("sender_user_id").references(() => users.id),
+  senderAdminId: varchar("sender_admin_id").references(() => superAdmins.id),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_support_thread_messages_thread").on(table.threadId, table.createdAt),
+]);
+
+export const supportThreadMessagesRelations = relations(supportThreadMessages, ({ one }) => ({
+  thread: one(supportThreads, { fields: [supportThreadMessages.threadId], references: [supportThreads.id] }),
+}));
+
+export const insertSupportThreadMessageSchema = createInsertSchema(supportThreadMessages)
+  .omit({ id: true, createdAt: true, threadId: true, senderType: true, senderUserId: true, senderAdminId: true })
+  .extend({
+    body: z.string().trim().min(1, "Please enter a message.").max(2000, "Message is too long."),
+  });
+export type InsertSupportThreadMessage = z.infer<typeof insertSupportThreadMessageSchema>;
+export type SupportThreadMessage = typeof supportThreadMessages.$inferSelect;
 
 // Stores table - individual store locations
 export const stores = pgTable("stores", {
@@ -294,8 +451,16 @@ export const inventory = pgTable("inventory", {
   // carrying both a cost price and a recipe would count its consumables twice.
   costPrice: numeric("cost_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0), // always 0 for supplies — they are never sold
+  // Supplies only. 'expensed' charges the purchase straight to Direct Supplies and
+  // never meters it per service — the honest default when nobody knows the rate.
+  // 'metered' capitalises the purchase and releases cost via a recipe, with a
+  // periodic stock count settling whatever the estimate got wrong.
+  costingMode: text("costing_mode").notNull().default("expensed"),
 
-  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(0), // Supports fractional quantities (e.g. 1.5 kg)
+  // 4dp because a supply recipe can legitimately be a few ten-thousandths of a
+  // unit (a bottle covering 300 services is 0.0033 per service). At 2dp that
+  // deduction rounded to zero and stock never moved.
+  quantity: numeric("quantity", { precision: 14, scale: 4 }).$type<number>().notNull().default(0), // Supports fractional quantities (e.g. 1.5 kg)
   allowFractional: boolean("allow_fractional").notNull().default(false), // When true, quantity can be a decimal
   unit: text("unit"), // Optional unit label shown in UI and on receipts (e.g. 'kg', 'litre', 'm')
   reorderPoint: numeric("reorder_point", { precision: 12, scale: 2 }).$type<number>(), // Per-item low-stock threshold (null = use global setting)
@@ -303,7 +468,6 @@ export const inventory = pgTable("inventory", {
   commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
   commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),
   isBundle: boolean("is_bundle").default(false).notNull(),
-  parentInventoryId: varchar("parent_inventory_id"), // Self-referencing foreign key later
   productId: varchar("product_id").notNull().references(() => products.id),
   sku: text("sku"),
   barcode: text("barcode"),
@@ -997,6 +1161,9 @@ export const settings = pgTable("settings", {
   asst1Split3: integer("asst1_split_3").notNull().default(20),
   asst2Split3: integer("asst2_split_3").notNull().default(20),
   fixedBaseAmount: numeric("fixed_base_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(30000),
+  // Loyalty Points program
+  loyaltyPointsPerCurrency: integer("loyalty_points_per_currency").notNull().default(100), // 1 point earned per this much spent
+  loyaltyPointValue: numeric("loyalty_point_value", { precision: 12, scale: 2 }).$type<number>().notNull().default(10), // value of 1 point on redemption, in the store's currency
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -1016,6 +1183,7 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true
   holidayDayRate: z.number().optional(),
   offDayRate: z.number().optional(),
   fixedBaseAmount: z.number().optional(),
+  loyaltyPointValue: z.number().optional(),
 });
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Settings = typeof settings.$inferSelect;
@@ -1117,6 +1285,19 @@ export type Repayment = typeof repayments.$inferSelect;
 export const insertReminderLogSchema = createInsertSchema(reminderLogs).omit({ id: true, createdAt: true });
 export type InsertReminderLog = z.infer<typeof insertReminderLogSchema>;
 export type ReminderLog = typeof reminderLogs.$inferSelect;
+
+// Dedupe log for TrialReminderService - one row per (organisation, stage) sent.
+export const trialReminderLogs = pgTable("trial_reminder_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organisationId: varchar("organisation_id").notNull().references(() => organisations.id),
+  stage: text("stage").notNull(), // '3_days' | '2_days' | 'today'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  unique("uq_trial_reminder_logs_org_stage").on(table.organisationId, table.stage),
+]);
+
+export type InsertTrialReminderLog = typeof trialReminderLogs.$inferInsert;
+export type TrialReminderLog = typeof trialReminderLogs.$inferSelect;
 
 // ========== PAYROLL TABLES ==========
 
@@ -1704,9 +1885,9 @@ export const stockAuditItems = pgTable("stock_audit_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   auditId: varchar("audit_id").notNull().references(() => stockAudits.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  systemQuantity: numeric("system_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  physicalQuantity: numeric("physical_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  variance: numeric("variance", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  systemQuantity: numeric("system_quantity", { precision: 14, scale: 4 }).$type<number>().notNull(),
+  physicalQuantity: numeric("physical_quantity", { precision: 14, scale: 4 }).$type<number>().notNull(),
+  variance: numeric("variance", { precision: 14, scale: 4 }).$type<number>().notNull(),
   reason: text("reason"),
 });
 
@@ -1777,7 +1958,7 @@ export const serviceConsumablesRelations = relations(serviceConsumables, ({ one 
 export const insertServiceConsumableSchema = createInsertSchema(serviceConsumables)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
-    quantityPerUnit: z.coerce.number().min(0.01, "Quantity per unit must be at least 0.01."),
+    quantityPerUnit: z.coerce.number().min(0.0001, "Quantity per unit must be at least 0.0001."),
   });
 export type ServiceConsumable = typeof serviceConsumables.$inferSelect;
 export type InsertServiceConsumable = z.infer<typeof insertServiceConsumableSchema>;
@@ -2010,6 +2191,9 @@ export const superAdmins = pgTable("super_admins", {
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   role: text("role").notNull().default("ops_manager"), // 'super_admin', 'ops_manager', 'support_agent', 'finance_admin'
   status: text("status").notNull().default("active"), // 'active', 'suspended'
+  otpCode: text("otp_code"),
+  otpExpiry: timestamp("otp_expiry"),
+  otpAttempts: integer("otp_attempts").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at"),
 });
@@ -2059,7 +2243,12 @@ export const announcementsRelations = relations(announcements, ({ one }) => ({
   targetOrg: one(organisations, { fields: [announcements.targetOrgId], references: [organisations.id] }),
 }));
 
-export const insertAnnouncementSchema = createInsertSchema(announcements).omit({ id: true, createdAt: true });
+export const insertAnnouncementSchema = createInsertSchema(announcements)
+  .omit({ id: true, createdAt: true })
+  .extend({
+    title: z.string().min(1).max(80),
+    message: z.string().min(1).max(150),
+  });
 export type InsertAnnouncement = z.infer<typeof insertAnnouncementSchema>;
 export type Announcement = typeof announcements.$inferSelect;
 
@@ -2090,6 +2279,7 @@ export const pendingEmails = pgTable("pending_emails", {
   to: text("to").notNull(),
   subject: text("subject").notNull(),
   html: text("html").notNull(),
+  replyTo: text("reply_to"), // set so a human can just hit reply (e.g. support-request emails reply-to the tenant)
   attempts: integer("attempts").notNull().default(0),
   nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
   status: text("status").notNull().default("pending"), // 'pending' | 'sent' | 'failed'

@@ -13,6 +13,8 @@ import {
 } from "@shared/schema";
 import { eq, and, count, desc } from "drizzle-orm";
 import type { PaginationOptions, PaginatedResult } from "../storage";
+import { postSupplyPurchaseExpense, localDateString } from "../services/SupplyCostingService";
+import { getStoreTimezone } from "../lib/dateUtils";
 
 export class RestockRepository {
   async getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null; user: User | null })[]> {
@@ -151,6 +153,24 @@ export class RestockRepository {
           .set({ quantityRemaining: newQuantity })
           .where(eq(profitLoss.id, existingPL.id));
       }
+
+      // An `expensed` supply is charged to Direct Supplies the moment it is
+      // bought, because nobody is going to meter it per service. A `metered` one
+      // capitalises here exactly as products do and is released by its recipe —
+      // doing both would count the same naira twice.
+      //
+      // Inside the transaction on purpose: if this insert fails, the restock that
+      // caused it must roll back too, or a cost that should have been expensed is
+      // silently capitalised instead.
+      const tz = await getStoreTimezone(data.storeId);
+      await postSupplyPurchaseExpense(tx, {
+        storeId: data.storeId,
+        item: currentInventory,
+        quantityAdded: data.quantityAdded,
+        unitCost: data.unitCost,
+        date: localDateString(tz),
+        reference: `restock of ${currentInventory.name}`,
+      });
 
       return { restockEvent, updatedInventory };
     });

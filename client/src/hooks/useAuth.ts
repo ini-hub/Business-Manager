@@ -2,8 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
 
+// The API layers a `staffId` onto the raw user record: the caller's own linked
+// staff profile (from the `staff.userId` back-reference), or null if they're a
+// shared/unlinked login with no profile to default or lock to.
+type AuthUser = User & { staffId?: string | null };
+
 export function useAuth() {
-  const { data: user, isLoading } = useQuery<User>({
+  const { data: user, isLoading } = useQuery<AuthUser>({
     queryKey: ["/api/auth/user"],
     retry: false,
     refetchOnWindowFocus: false, // Prevent frequent polling when refocusing browser tab

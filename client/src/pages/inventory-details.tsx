@@ -51,6 +51,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { inventoryApi } from "@/services/InventoryApiService";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { ConsumablesRecipeCard } from "@/components/consumables-recipe-card";
+import { SupplyCostingCard } from "@/components/supply-costing-card";
 import { format } from "date-fns";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
@@ -540,7 +541,7 @@ export default function InventoryDetails() {
   const costPrice = isSimpleProduct ? (primaryVariant?.costPrice ?? 0) : 0;
   const sellingPrice = isSimpleProduct ? (primaryVariant?.sellingPrice ?? 0) : 0;
   const profit = sellingPrice - costPrice;
-  const profitMargin = costPrice > 0 ? (profit / sellingPrice) * 100 : 0;
+  const profitMargin = sellingPrice > 0 ? (profit / sellingPrice) * 100 : 0;
 
   const totalQuantity = variantsList.reduce((sum: number, v: any) => sum + (v.quantity || 0), 0);
   const totalCostValue = variantsList.reduce((sum: number, v: any) => sum + ((v.costPrice || 0) * (v.quantity || 0)), 0);
@@ -549,6 +550,7 @@ export default function InventoryDetails() {
 
   const stockStatus = getStockStatus(inventory);
   const isService = inventory.type === "service";
+  const isSupply = inventory.type === "supply";
   const isBundle = primaryVariant?.isBundle;
 
   return (
@@ -671,6 +673,8 @@ export default function InventoryDetails() {
               </p>
               {!isSimpleProduct
                 ? <p className="text-xs sm:text-sm text-muted-foreground">See variants matrix</p>
+                : isSupply
+                ? <p className="text-xs sm:text-sm text-muted-foreground">Never sold — no margin</p>
                 : (
                   <div>
                     <p
@@ -679,7 +683,7 @@ export default function InventoryDetails() {
                     >
                       {formatCurrency(profit)}
                     </p>
-                    {costPrice > 0 && (
+                    {sellingPrice > 0 && (
                       <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{profitMargin.toFixed(1)}% margin</p>
                     )}
                   </div>
@@ -730,6 +734,7 @@ export default function InventoryDetails() {
             ...(inventory.type === "product" && !!activeVariantId ? [{ value: "restock-history", label: "Restock History" }] : []),
             ...(!!activeVariantId ? [{ value: "sustaining-costs", label: "Profitability" }] : []),
             ...(isService && !!activeVariantId ? [{ value: "consumables", label: "Consumables" }] : []),
+            ...(isSupply && !!activeVariantId ? [{ value: "costing", label: "Costing" }] : []),
             ...(isBundle && !!activeVariantId ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
             { value: "variants", label: "Variants" },
             ...(inventory.type === "product" && !isBundle && !!activeVariantId ? [{ value: "expiry-batches", label: "Expiry Batches" }] : []),
@@ -886,6 +891,21 @@ export default function InventoryDetails() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* SUPPLY COSTING TAB */}
+        {isSupply && !!activeVariantId && (
+          <TabsContent value="costing" className="space-y-4 mt-0">
+            <SupplyCostingCard
+              inventoryId={activeVariantId}
+              costingMode={(primaryVariant as any)?.costingMode ?? "expensed"}
+              quantity={Number(primaryVariant?.quantity ?? 0)}
+              costPrice={Number(primaryVariant?.costPrice ?? 0)}
+              unit={primaryVariant?.unit}
+              formatCurrency={formatCurrency}
+              canEdit={user?.role === "owner" || user?.role === "manager"}
+            />
+          </TabsContent>
+        )}
 
         {/* CONSUMABLES RECIPE TAB */}
         {isService && !!activeVariantId && (

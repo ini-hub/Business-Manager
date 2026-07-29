@@ -35,6 +35,8 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { isOrgTrialing } from "../lib/trial";
+import { logFunnelEvent } from "../lib/funnel";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -396,6 +398,70 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       res.status(500).json({ error: "We couldn't load revenue data. Please try again." });
     }
   });
+  // ========== TRIAL CHECKOUT DEFAULTS ==========
+  // Auto-provisions (idempotently) a real walk-in customer and a real default staff
+  // record for organisations still inside their free trial, so a first-time trial
+  // user can complete a sale without manually creating either first. Every sale
+  // still carries genuine customerId/staffId - checkout validation is unchanged.
+  // Organisations that aren't trialing (which is every org that existed before this
+  // feature shipped) get a 403 here and see no change in behavior anywhere else.
+  app.post("/api/sales/trial-defaults", isAuthenticated, async (req, res) => {
+    try {
+      const { storeId } = z.object({ storeId: z.string() }).parse(req.body);
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const business = businessId ? await storage.getBusinessById(businessId) : undefined;
+      if (!business || !isOrgTrialing(business)) {
+        return res.status(403).json({ error: "Trial defaults are only available during an active trial." });
+      }
+
+      let customerId = business.defaultWalkInCustomerId;
+      if (customerId) {
+        const [existing] = await db.select().from(customers).where(eq(customers.id, customerId));
+        if (!existing || existing.storeId !== storeId) customerId = null;
+      }
+      if (!customerId) {
+        const customer = await storage.createCustomer({
+          storeId,
+          name: "Walk-in Customer",
+          customerNumber: "",
+          address: "",
+        } as any);
+        customerId = customer.id;
+        await storage.updateBusiness(business.id, { defaultWalkInCustomerId: customerId });
+      }
+
+      let staffId = business.defaultTrialStaffId;
+      if (staffId) {
+        const [existing] = await db.select().from(staff).where(eq(staff.id, staffId));
+        if (!existing || existing.storeId !== storeId) staffId = null;
+      }
+      if (!staffId) {
+        const fullUser = await storage.getUser(user.id);
+        const staffMember = await storage.createStaff({
+          storeId,
+          userId: user.id,
+          name: fullUser?.name || "Owner",
+          email: fullUser?.email || `owner-${user.id}@trial.local`,
+          mobileNumber: fullUser?.phone || "0000000000",
+          payPerMonth: 0,
+        } as any);
+        staffId = staffMember.id;
+        await storage.updateBusiness(business.id, { defaultTrialStaffId: staffId });
+      }
+
+      res.json({ customerId, staffId });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      console.error("POST /api/sales/trial-defaults error:", error);
+      res.status(500).json({ error: "We couldn't set up your trial defaults. Please try again." });
+    }
+  });
+
   // ========== SALES CHECKOUT ==========
   const checkoutSchema = z.object({
     storeId: z.string(),
@@ -436,6 +502,15 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       const data = checkoutSchema.parse(req.body);
 
       if (!(await checkStoreAccess(data.storeId, req, res))) return;
+
+      // Staff with a linked profile can only ring up sales under their own name;
+      // shared/unlinked staff logins fall back to the old free-pick behavior.
+      if ((req as any).user?.role === "staff") {
+        const ownStaffRecord = await storage.getStaffByUserId(getUserId(req)!);
+        if (ownStaffRecord && ownStaffRecord.id !== data.staffId) {
+          return res.status(403).json({ error: "You can only check out sales under your own staff profile." });
+        }
+      }
 
       if (data.paymentMethod === "flutterwave" && data.splitPayments && data.splitPayments.length > 0) {
         return res.status(400).json({ error: "Flutterwave cannot be combined with split payments. Choose either Flutterwave OR split payment." });
@@ -482,6 +557,18 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       }
 
       auditLogger.logDataModification("checkout", result.checkoutIds?.[0], getUserId(req), "CHECKOUT", true);
+
+      // First-ever completed sale for this org - the activation signal that
+      // future mid-trial nudges key off, independent of billing status.
+      const businessId = (req as any).user?.businessId;
+      if (businessId) {
+        logFunnelEvent(businessId, "checkout_completed", { storeId: data.storeId });
+        storage.getBusinessById(businessId).then((business) => {
+          if (business && !business.activatedAt) {
+            storage.updateBusiness(businessId, { activatedAt: new Date() }).catch(console.error);
+          }
+        }).catch(console.error);
+      }
 
       // Auto-recalculate open payroll periods covering today's checkout date
       const todayStr = new Date().toISOString().split("T")[0];

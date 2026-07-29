@@ -419,10 +419,10 @@ export function AppSidebar() {
               asChild
               className="gap-3 text-muted-foreground hover:text-foreground hover:bg-muted/50 w-full"
             >
-              <a href="mailto:support@ini-hub.com?subject=Business%20Manager%20Help%20Request" className="flex items-center gap-3 px-2 py-1.5 w-full">
+              <Link href="/help-support" className="flex items-center gap-3 px-2 py-1.5 w-full" onClick={handleLinkClick}>
                 <LifeBuoy className="h-4 w-4 text-primary shrink-0 animate-pulse" />
                 <span className="text-xs font-semibold">Help & Support</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem className="mt-1">

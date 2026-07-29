@@ -8,6 +8,7 @@ import path from "path";
 import { csrfMiddleware } from "./csrf";
 import { startBookingReminderService } from "./services/BookingReminderService";
 import { startCreditReminderService } from "./services/CreditReminderService";
+import { startTrialReminderService } from "./services/TrialReminderService";
 import { runMigrations } from "./migrate";
 
 // Manually load .env file if DATABASE_URL is not already in env
@@ -143,6 +144,7 @@ app.use((req, res, next) => {
 
   startBookingReminderService();
   startCreditReminderService();
+  startTrialReminderService();
 
   // Flush any emails that queued while the server was down (e.g. Render free-tier spin-down)
   const { flushOnStartup } = await import("./services/EmailQueue");

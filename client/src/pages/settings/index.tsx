@@ -6,6 +6,7 @@ import {
   Percent,
   ShieldCheck,
   ChevronRight,
+  CreditCard,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -45,6 +46,13 @@ const SETTINGS_SECTIONS = [
     description: "Create custom staff roles with specific module access.",
     icon: ShieldCheck,
     href: "/settings/roles/new",
+    roles: ["owner"],
+  },
+  {
+    title: "Billing",
+    description: "View your trial status, manage your plan, and update payment details.",
+    icon: CreditCard,
+    href: "/settings/billing",
     roles: ["owner"],
   },
 ];

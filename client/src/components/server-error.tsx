@@ -47,7 +47,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
       `Local Time: ${new Date().toISOString()}\n\n` +
       `Please help me resolve this issue.`
     );
-    window.location.href = `mailto:support@ini-hub.com?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:bolujoexcellent@gmail.com?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -120,7 +120,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
             <div className="space-y-0.5">
               <p className="text-xs font-bold">Need Direct Assistance?</p>
               <p className="text-[11px] text-muted-foreground">
-                Email support at <span className="font-semibold text-foreground">support@ini-hub.com</span> or report the issue below.
+                Email support at <span className="font-semibold text-foreground">bolujoexcellent@gmail.com</span> or report the issue below.
               </p>
             </div>
           </div>

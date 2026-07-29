@@ -52,7 +52,11 @@ export function csrfMiddleware(req: Request, res: Response, next: NextFunction) 
   }
 
   // 2. Exempt external or auth initialization routes
-  if (EXEMPT_ROUTES.has(req.path) || req.path.startsWith("/api/webhooks")) {
+  if (
+    EXEMPT_ROUTES.has(req.path) ||
+    req.path.startsWith("/api/webhooks") ||
+    req.path.startsWith("/api/billing/webhook")
+  ) {
     return next();
   }
 

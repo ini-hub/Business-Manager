@@ -128,7 +128,10 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
         if (body.borrowBookReminderLanguage !== undefined) sanitized.borrowBookReminderLanguage = sanitizeString(body.borrowBookReminderLanguage);
         if (body.whatsappGatewayConfigured !== undefined) sanitized.whatsappGatewayConfigured = sanitizeBoolean(body.whatsappGatewayConfigured);
         if (body.smsGatewayConfigured !== undefined) sanitized.smsGatewayConfigured = sanitizeBoolean(body.smsGatewayConfigured);
-        
+
+        if (body.loyaltyPointsPerCurrency !== undefined) sanitized.loyaltyPointsPerCurrency = Math.max(1, Math.round(sanitizeNumber(body.loyaltyPointsPerCurrency)));
+        if (body.loyaltyPointValue !== undefined) sanitized.loyaltyPointValue = Math.max(0, sanitizeNumber(body.loyaltyPointValue));
+
         return sanitized;
       };
 

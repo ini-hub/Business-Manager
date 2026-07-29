@@ -5,6 +5,9 @@ import { sanitizeNumber } from "../sanitize";
 import { auditLogger } from "../audit";
 import { getUserId, verifyRecordStoreAccess, broadcastChange } from "./helpers";
 import { withInventoryId } from "../utils/slug-resolver";
+import { db } from "../db";
+import { getStoreTimezone } from "../lib/dateUtils";
+import { switchCostingMode, localDateString } from "../services/SupplyCostingService";
 
 const consumablesRepo = new ConsumablesRepository();
 
@@ -103,6 +106,105 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: "Could not remove the recipe line." });
+    }
+  });
+
+  // What the last stock count says this supply's rates SHOULD be.
+  app.get("/api/inventory/:id/calibration", requireManagerOrOwner, withInventoryId, async (req, res) => {
+    try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!(await verifyRecordStoreAccess(req, item.storeId))) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+      res.json(await consumablesRepo.getCalibrationForSupply(item.id));
+    } catch {
+      res.status(500).json({ error: "Could not work out a measured rate." });
+    }
+  });
+
+  // Adopt the measured rates.
+  app.post("/api/inventory/:id/calibration/apply", requireManagerOrOwner, withInventoryId, async (req, res) => {
+    try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!(await verifyRecordStoreAccess(req, item.storeId))) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+      const result = await consumablesRepo.applyCalibration(item.id);
+      auditLogger.logDataModification("service_consumables", item.id, getUserId(req), "UPDATE", true);
+      broadcastChange(req, "inventory", item.storeId, "updated");
+      res.json(result);
+    } catch {
+      res.status(500).json({ error: "Could not apply the measured rate." });
+    }
+  });
+
+  // Which services meter this supply — drives the "remove these first" warning.
+  app.get("/api/inventory/:id/consumables/used-by", isAuthenticated, withInventoryId, async (req, res) => {
+    try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!(await verifyRecordStoreAccess(req, item.storeId))) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+      res.json(await consumablesRepo.getRecipesUsingSupply(item.id));
+    } catch {
+      res.status(500).json({ error: "Could not load recipe usage." });
+    }
+  });
+
+  // Switch a supply between 'expensed' and 'metered', truing up stock on hand.
+  app.patch("/api/inventory/:id/costing-mode", requireManagerOrOwner, withInventoryId, async (req, res) => {
+    try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!(await verifyRecordStoreAccess(req, item.storeId))) {
+        return res.status(403).json({ error: "You don't have access to this inventory item." });
+      }
+      if (item.type !== "supply") {
+        return res.status(400).json({ error: "Only supplies have a costing mode." });
+      }
+
+      const mode = String(req.body.costingMode || "");
+      if (mode !== "expensed" && mode !== "metered") {
+        return res.status(400).json({ error: "Costing mode must be 'expensed' or 'metered'." });
+      }
+
+      // Going back to 'expensed' while recipes still point at this supply would
+      // leave those recipes releasing cost that is now charged on purchase.
+      if (mode === "expensed") {
+        const users = await consumablesRepo.getRecipesUsingSupply(item.id);
+        if (users.length > 0) {
+          return res.status(400).json({
+            error:
+              `${users.length} service${users.length === 1 ? "" : "s"} still meter this supply ` +
+              `(${users.map((u) => u.itemName).join(", ")}). Remove those recipe lines first, ` +
+              `or the cost would be counted twice.`,
+          });
+        }
+      }
+
+      const tz = await getStoreTimezone(item.storeId);
+      const result = await db.transaction(async (tx) =>
+        switchCostingMode(tx, { storeId: item.storeId, item, to: mode, date: localDateString(tz) }),
+      );
+
+      auditLogger.logDataModification("inventory", item.id, getUserId(req), "UPDATE", true);
+      broadcastChange(req, "inventory", item.storeId, "updated");
+      broadcastChange(req, "expense", item.storeId, "updated");
+      res.json({
+        costingMode: mode,
+        adjustment: result.adjustment,
+        message:
+          result.adjustment === 0
+            ? "Costing mode updated."
+            : result.adjustment > 0
+            ? `Costing mode updated. Stock on hand worth ${result.adjustment} was charged to Direct Supplies.`
+            : `Costing mode updated. Stock on hand worth ${Math.abs(result.adjustment)} was credited back and is now an asset.`,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Could not change the costing mode." });
     }
   });
 
