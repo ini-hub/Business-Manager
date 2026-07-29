@@ -90,6 +90,11 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
             discountsGiven: 0,
             discountsList: [],
             totalOperationalExpenses: 0,
+            directSuppliesFromExpenses: 0,
+            directSuppliesFromRecipes: 0,
+            directSuppliesTotal: 0,
+            directSuppliesGrouped: [],
+            costOfDelivery: 0,
             totalPayrollExpenses: 0,
             totalExpenses: 0,
             operatingProfit: 0,
@@ -123,6 +128,11 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           discountsGiven: 0,
           discountsList: [] as any[],
           totalOperationalExpenses: 0,
+          directSuppliesFromExpenses: 0,
+          directSuppliesFromRecipes: 0,
+          directSuppliesTotal: 0,
+          directSuppliesGrouped: [] as { category: string; amount: number }[],
+          costOfDelivery: 0,
           totalPayrollExpenses: 0,
           totalExpenses: 0,
           operatingProfit: 0,
@@ -131,6 +141,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         };
 
         const expensesMap: Record<string, number> = {};
+        const directSuppliesMap: Record<string, number> = {};
 
         for (const s of validSummaries) {
           if (!s) continue;
@@ -143,6 +154,10 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           consolidated.grossProfit += s.grossProfit || 0;
           consolidated.discountsGiven += s.discountsGiven || 0;
           consolidated.totalOperationalExpenses += s.totalOperationalExpenses || 0;
+          consolidated.directSuppliesFromExpenses += s.directSuppliesFromExpenses || 0;
+          consolidated.directSuppliesFromRecipes += s.directSuppliesFromRecipes || 0;
+          consolidated.directSuppliesTotal += s.directSuppliesTotal || 0;
+          consolidated.costOfDelivery += s.costOfDelivery || 0;
           consolidated.totalPayrollExpenses += s.totalPayrollExpenses || 0;
           consolidated.totalExpenses += s.totalExpenses || 0;
           consolidated.operatingProfit += s.operatingProfit || 0;
@@ -158,9 +173,18 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
               expensesMap[eg.category] = (expensesMap[eg.category] || 0) + (eg.amount || 0);
             });
           }
+          if (Array.isArray(s.directSuppliesGrouped)) {
+            s.directSuppliesGrouped.forEach((eg: any) => {
+              directSuppliesMap[eg.category] = (directSuppliesMap[eg.category] || 0) + (eg.amount || 0);
+            });
+          }
         }
 
         consolidated.expensesGrouped = Object.entries(expensesMap).map(([category, amount]) => ({
+          category,
+          amount,
+        }));
+        consolidated.directSuppliesGrouped = Object.entries(directSuppliesMap).map(([category, amount]) => ({
           category,
           amount,
         }));

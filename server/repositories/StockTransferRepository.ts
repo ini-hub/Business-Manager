@@ -118,7 +118,9 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
 
         // 1. Validate stock availability at source
         for (const line of transferItems) {
-          if (line.inv.type === "product" && line.inv.quantity < line.item.quantity) {
+          // Supplies are transferable between branches like any other stock —
+          // only services have no quantity to move.
+          if (line.inv.type !== "service" && line.inv.quantity < line.item.quantity) {
             return {
               success: false,
               message: `Insufficient stock for item "${line.inv.name}" at source store. Available: ${line.inv.quantity}, Required: ${line.item.quantity}`,
@@ -128,7 +130,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
 
         // 2. Perform atomic movements
         for (const line of transferItems) {
-          if (line.inv.type !== "product") continue;
+          if (line.inv.type === "service") continue;
 
           // --- Source Deductions ---
           const sourcePrevQty = line.inv.quantity;

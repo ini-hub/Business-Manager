@@ -25,7 +25,9 @@ import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { BulkOperations } from "@/components/bulk-operations";
 import { VENDOR_BULK_CONFIG } from "@/lib/bulk-entity-configs";
@@ -59,6 +61,7 @@ export default function VendorsPage() {
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
   const storeCurrency = currentStore?.currency || "NGN";
   const formatCurrency = (v: number) => formatCurrencyUtil(v, storeCurrency);
+  const formatCompact = (v: number) => formatCurrencyCompact(v, storeCurrency);
 
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
   const [billDialogOpen, setBillDialogOpen] = useState(false);
@@ -413,12 +416,16 @@ export default function VendorsPage() {
       />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total Vendors</p><p className="text-2xl font-bold">{vendors.length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Open Bills</p><p className="text-2xl font-bold">{unpaidBills}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total Outstanding</p><p className="text-2xl font-bold font-mono">{formatCurrency(totalOutstanding)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total Bills</p><p className="text-2xl font-bold">{bills.length}</p></CardContent></Card>
-      </div>
+      <MetricGrid>
+        <MetricCard title="Total Vendors" value={vendors.length} />
+        <MetricCard title="Open Bills" value={unpaidBills} />
+        <MetricCard
+          title="Total Outstanding"
+          value={formatCurrency(totalOutstanding)}
+          compactValue={formatCompact(totalOutstanding)}
+        />
+        <MetricCard title="Total Bills" value={bills.length} />
+      </MetricGrid>
 
       {/* Vendor list with tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "active" | "archived")}>

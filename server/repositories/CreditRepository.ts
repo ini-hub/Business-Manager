@@ -15,6 +15,7 @@ import {
   type InsertReminderLog,
 } from "@shared/schema";
 import { eq, and, gte, lte, or, desc, sql, inArray, asc } from "drizzle-orm";
+import { resolveTransactionIdsForCheckouts } from "./TransactionRepository";
 
 export class CreditRepository extends BaseRepository<typeof creditEntries> {
   constructor() {
@@ -149,6 +150,10 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       .where(and(...conditions))
       .orderBy(desc(creditEntries.createdAt));
 
+    const txIdByCheckout = await resolveTransactionIdsForCheckouts(
+      rows.map((r) => r.checkout?.id).filter((id): id is string => !!id)
+    );
+
     let mapped = rows.map((r) => ({
       ...r.credit,
       customer: {
@@ -157,6 +162,7 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
         phone: r.customer.mobileNumber,
       },
       receiptNumber: r.checkout?.receiptNumber || null,
+      transactionId: r.checkout ? txIdByCheckout.get(r.checkout.id) ?? null : null,
     }));
 
     // Filter by search keyword on customer name or phone if supplied

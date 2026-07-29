@@ -13,7 +13,8 @@ import { useStore } from "@/lib/store-context";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { startOfMonth, startOfDay, endOfDay, format } from "date-fns";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
 import {
   ResponsiveContainer,
   BarChart,
@@ -60,6 +61,8 @@ const CustomTooltip = ({ active, payload, label, selectedMetric, formatCurrency 
 export default function StaffPerformancePage() {
   const { currentStore, business } = useStore();
   const storeCurrency = currentStore?.currency || "NGN";
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
 
   const [dateRange, setDateRange] = useState<DateRange>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -506,7 +509,14 @@ export default function StaffPerformancePage() {
                       </thead>
                       <tbody>
                         {breakdownData?.services.map((s: any, i: number) => (
-                          <tr key={i} className="border-t">
+                          <tr
+                            key={i}
+                            className={`border-t ${s.transactionId ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                            onClick={() => {
+                              if (!s.transactionId) return;
+                              setLocation(appendReturnTo(`/transactions/${s.transactionId}`, location, search));
+                            }}
+                          >
                             <td className="px-3 py-2">{s.inventoryName}</td>
                             <td className="px-3 py-2 text-muted-foreground">{s.receiptNumber}</td>
                             <td className="px-3 py-2 text-muted-foreground">{format(new Date(s.date), "dd MMM")}</td>
@@ -555,7 +565,14 @@ export default function StaffPerformancePage() {
                       </thead>
                       <tbody>
                         {breakdownData?.products.map((p: any, i: number) => (
-                          <tr key={i} className="border-t">
+                          <tr
+                            key={i}
+                            className={`border-t ${p.transactionId ? "cursor-pointer hover:bg-muted/40" : ""}`}
+                            onClick={() => {
+                              if (!p.transactionId) return;
+                              setLocation(appendReturnTo(`/transactions/${p.transactionId}`, location, search));
+                            }}
+                          >
                             <td className="px-3 py-2">{p.inventoryName}</td>
                             <td className="px-3 py-2 text-muted-foreground">{p.receiptNumber}</td>
                             <td className="px-3 py-2 text-muted-foreground">{format(new Date(p.date), "dd MMM")}</td>

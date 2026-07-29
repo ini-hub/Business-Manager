@@ -17,6 +17,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/currency-utils";
 import { useLocation } from "wouter";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
@@ -185,7 +186,11 @@ export default function PayrollAdvancesPage() {
     {
       key: "staffName",
       header: "Staff",
-      render: (a: any) => <span className="font-medium">{staffList.find(s => s.id === a.staffId)?.name || a.staffId}</span>,
+      render: (a: any) => (
+        <EntityLink href={`/staff/${a.staffId}/edit`} className="font-medium">
+          {staffList.find(s => s.id === a.staffId)?.name || a.staffId}
+        </EntityLink>
+      ),
     },
     {
       key: "amount",

@@ -4,8 +4,15 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import type { Inventory } from "@shared/schema";
 import type { CartItem } from "./types";
+
+// Left-edge accent color coding for item type, replacing a text badge that competed with the name for space.
+const TYPE_ACCENT: Record<"service" | "product", string> = {
+  service: "border-l-violet-500 dark:border-l-violet-400",
+  product: "border-l-sky-500 dark:border-l-sky-400",
+};
 
 // Shape returned by /api/products
 interface ProductGroup {
@@ -105,9 +112,19 @@ export function ProductGrid({
             data-testid="input-search-items"
           />
         </div>
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground -mt-2">
+          <span className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-violet-500 dark:bg-violet-400" />
+            Service
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-sky-500 dark:bg-sky-400" />
+            Product
+          </span>
+        </div>
 
         {isLoading ? (
-          <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="p-4 rounded-lg border animate-pulse">
                 <div className="h-4 w-32 bg-muted rounded mb-2" />
@@ -123,7 +140,7 @@ export function ProductGrid({
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
             {filtered.map((product) => {
               const cartQty = cartCountFor(product);
               const hasMultipleVariants = product.variants.length > 1;
@@ -139,28 +156,21 @@ export function ProductGrid({
               const tile = (
                 <div
                   key={product.id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover-elevate cursor-pointer select-none"
+                  className={cn(
+                    "flex items-center justify-between p-4 rounded-lg border border-l-4 hover-elevate cursor-pointer select-none",
+                    TYPE_ACCENT[product.type]
+                  )}
                   onClick={() => handleTileClick(product)}
                   data-testid={`item-${product.id}`}
+                  title={product.type === "service" ? "Service" : "Product"}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-sm truncate">{product.name}</p>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] h-5 py-0 capitalize shrink-0 ${
-                          product.type === "service"
-                            ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
-                            : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
-                        }`}
-                      >
-                        {product.type}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-muted-foreground">{priceLabel}</p>
+                    {/* line-clamp-2 + fixed min-h reserves the same vertical space whether the name is 1 or 2 lines, so tiles in the same grid row stay aligned */}
+                    <p className="font-medium text-sm leading-5 line-clamp-2 min-h-10 mb-1">{product.name}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-xs text-muted-foreground truncate min-w-0">{priceLabel}</p>
                       {hasMultipleVariants && (
-                        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+                        <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70 shrink-0 whitespace-nowrap">
                           <Layers className="h-2.5 w-2.5" />
                           {product.variants.length} options
                         </span>
@@ -192,15 +202,16 @@ export function ProductGrid({
                 >
                   <PopoverTrigger asChild>{tile}</PopoverTrigger>
                   <PopoverContent
-                    className="w-80 max-w-[92vw] p-2"
+                    className="w-80 max-w-[min(92vw,var(--radix-popover-content-available-width))] max-h-[var(--radix-popover-content-available-height)] p-2 flex flex-col overflow-hidden"
                     align="start"
                     side="bottom"
                     sideOffset={4}
+                    collisionPadding={8}
                   >
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 pb-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 pb-2 shrink-0">
                       Choose a variant
                     </p>
-                    <div className="space-y-1 max-h-72 overflow-y-auto">
+                    <div className="space-y-1 max-h-72 overflow-y-auto min-h-0">
                       {product.variants.map((variant) => {
                         const inCartQty = cart.find((c) => c.inventory.id === variant.id)?.quantity ?? 0;
                         const outOfStock =

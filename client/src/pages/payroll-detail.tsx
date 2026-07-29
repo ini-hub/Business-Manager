@@ -14,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
-import { formatCurrency as fmt } from "@/lib/currency-utils";
+import { formatCurrency as fmt, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
 import type { PayrollPeriod, PayrollEntry, CommissionBreakdown, DailySummaryLine } from "@shared/schema";
 
 const ROLE_CONFIG = {
@@ -32,6 +34,7 @@ export default function PayrollDetailPage() {
   const qc = useQueryClient();
   const currency = currentStore?.currency || "NGN";
   const fmtCur = (v: number) => fmt(v, currency);
+  const fmtCompact = (v: number) => formatCurrencyCompact(v, currency);
 
   const [showTransactions, setShowTransactions] = useState(false);
   const [showAddDeduction, setShowAddDeduction] = useState(false);
@@ -352,29 +355,31 @@ export default function PayrollDetailPage() {
 
       {/* Summary cards */}
       {entry && (
-        <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <MetricGrid>
           {[
             {
               label: "Base Salary",
               value: fmtCur(entry.calculationDetails?.baseSalary || 0),
+              compact: fmtCompact(entry.calculationDetails?.baseSalary || 0),
               sub: entry.calculationDetails?.paymentMethod === "fixed"
                 ? "Fixed salary (flat)"
                 : "Prorated monthly base",
             },
             { label: "Active Days",      value: `${entry.activeDays || 0} days`,    sub: "Assigned to services" },
             { label: "Passive Days",     value: `${entry.passiveDays || 0} days`,   sub: "Present, no service" },
-            { label: "Total Transport",  value: fmtCur(entry.totalTransport || 0),  sub: entry.calculationDetails?.paymentMethod === "fixed" ? "N/A — fixed salary" : "Daily transport allowances" },
-            { label: "Gross Commission", value: fmtCur(entry.grossCommission || 0), sub: entry.calculationDetails?.paymentMethod === "fixed" ? "N/A — fixed salary" : "Proportional split pools" },
+            { label: "Total Transport",  value: fmtCur(entry.totalTransport || 0),  compact: fmtCompact(entry.totalTransport || 0),  sub: entry.calculationDetails?.paymentMethod === "fixed" ? "N/A — fixed salary" : "Daily transport allowances" },
+            { label: "Gross Commission", value: fmtCur(entry.grossCommission || 0), compact: fmtCompact(entry.grossCommission || 0), sub: entry.calculationDetails?.paymentMethod === "fixed" ? "N/A — fixed salary" : "Proportional split pools" },
           ].map(card => (
-            <Card key={card.label}>
-              <CardContent className="pt-5">
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{card.label}</p>
-                <p className="text-xl font-bold mt-1 font-mono text-primary">{card.value}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{card.sub}</p>
-              </CardContent>
-            </Card>
+            <MetricCard
+              key={card.label}
+              title={card.label}
+              value={card.value}
+              compactValue={card.compact}
+              description={card.sub}
+              valueClassName="text-primary"
+            />
           ))}
-        </div>
+        </MetricGrid>
       )}
 
       {/* Final Net Pay Callout */}

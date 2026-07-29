@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { MetricGrid } from "@/components/metric-grid";
 
 export function PageSkeleton() {
   return (
@@ -10,18 +11,18 @@ export function PageSkeleton() {
       </div>
 
       {/* Metric cards row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricGrid>
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="rounded-lg border bg-card p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-3.5 w-24" />
-              <Skeleton className="h-4 w-4 rounded" />
+          <div key={i} className="rounded-xl border bg-card p-3 sm:p-6">
+            <div className="flex items-start justify-between gap-2">
+              <Skeleton className="h-3 w-16 sm:h-4 sm:w-24" />
+              <Skeleton className="h-4 w-4 shrink-0 rounded" />
             </div>
-            <Skeleton className="h-7 w-20" />
-            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-6 w-20 sm:h-8 mt-1.5 sm:mt-2" />
+            <Skeleton className="h-3 w-24 sm:w-32 mt-1" />
           </div>
         ))}
-      </div>
+      </MetricGrid>
 
       {/* Main content card with table rows */}
       <div className="rounded-lg border bg-card">

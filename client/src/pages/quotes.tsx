@@ -11,7 +11,8 @@ import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -23,7 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
+import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { buildSlug } from "@/lib/slug";
 import { useToast } from "@/hooks/use-toast";
 import { BulkOperations } from "@/components/bulk-operations";
 import { QUOTE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
@@ -32,6 +34,7 @@ import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Quote, QuoteItem, Customer, Inventory } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type QuoteWithCustomer = Quote & { customer: Customer | null };
 type FullQuote = Quote & { customer: Customer | null; items: (QuoteItem & { inventory: Inventory })[] };
@@ -196,6 +199,7 @@ export default function QuotesPage() {
   };
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const addItemRow = () => {
     setItems([...items, { inventoryId: "", quantity: 1, unitPrice: 0 }]);
@@ -271,14 +275,9 @@ export default function QuotesPage() {
     {
       key: "customer",
       header: "Customer",
-      render: (q: QuoteWithCustomer) => {
-        const presenter = new CustomerPresenter({
-          name: q.customer?.name || "Walk-in Customer",
-          customerNumber: q.customer?.customerNumber || q.customerId || "—",
-          mobileNumber: q.customer?.mobileNumber,
-        });
-        return <EntityDisplay presenter={presenter} />;
-      },
+      render: (q: QuoteWithCustomer) => (
+        <CustomerLink customer={q.customer} customerId={q.customerId} fallbackName="Walk-in Customer" />
+      ),
     },
     {
       key: "totalPrice",
@@ -396,32 +395,36 @@ export default function QuotesPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricGrid>
         <MetricCard
           title="Total Proposal Value"
           value={formatCurrency(totalVal)}
+          compactValue={formatCompact(totalVal)}
           icon={<FileText className="h-4 w-4 text-indigo-500" />}
           isLoading={isLoadingQuotes}
         />
         <MetricCard
           title="Draft / Estimates"
           value={formatCurrency(draftVal)}
+          compactValue={formatCompact(draftVal)}
           icon={<Clock className="h-4 w-4 text-slate-500" />}
           isLoading={isLoadingQuotes}
         />
         <MetricCard
           title="Sent (In Pipeline)"
           value={formatCurrency(sentVal)}
+          compactValue={formatCompact(sentVal)}
           icon={<RefreshCw className="h-4 w-4 text-blue-500 animate-spin-slow" />}
           isLoading={isLoadingQuotes}
         />
         <MetricCard
           title="Accepted Proposals"
           value={formatCurrency(acceptedVal)}
+          compactValue={formatCompact(acceptedVal)}
           icon={<CheckCircle className="h-4 w-4 text-emerald-500" />}
           isLoading={isLoadingQuotes}
         />
-      </div>
+      </MetricGrid>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-4">
@@ -725,7 +728,13 @@ export default function QuotesPage() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 uppercase font-semibold">Client Recipient</p>
-                    <p className="font-bold text-gray-800">{fullQuote.customer?.name || "Walk-in Customer"}</p>
+                    {fullQuote.customer?.id ? (
+                      <EntityLink href={`/customers/${buildSlug(fullQuote.customer.name, fullQuote.customer.id)}`} className="font-bold text-gray-800">
+                        {fullQuote.customer.name}
+                      </EntityLink>
+                    ) : (
+                      <p className="font-bold text-gray-800">Walk-in Customer</p>
+                    )}
                     {fullQuote.customer?.mobileNumber && (
                       <p className="text-gray-500 text-xs">{fullQuote.customer.mobileNumber}</p>
                     )}
@@ -745,7 +754,23 @@ export default function QuotesPage() {
                     {fullQuote.items.map((item, idx) => (
                       <tr key={idx} className="border-b text-gray-700">
                         <td className="py-3 px-3">
-                          <p className="font-medium text-gray-800">{item.inventory.name}</p>
+                          {item.inventory?.id ? (
+                            <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p className="font-medium text-gray-800 truncate max-w-[220px]">{item.inventory.name}</p>
+                                </TooltipTrigger>
+                                <TooltipContent>{item.inventory.name}</TooltipContent>
+                              </Tooltip>
+                            </EntityLink>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <p className="font-medium text-gray-800 truncate max-w-[220px]">{item.inventory.name}</p>
+                              </TooltipTrigger>
+                              <TooltipContent>{item.inventory.name}</TooltipContent>
+                            </Tooltip>
+                          )}
                           <Badge variant="outline" className={`text-[10px] capitalize mt-1 ${
                             item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
                             : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"

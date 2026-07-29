@@ -43,6 +43,36 @@
   --chart-3: 170 65% 32%;
   --chart-4: 155 60% 30%;
   --chart-5: 140 55% 28%;
+
+  /* ── Data-viz categorical palette ──────────────────────────────────────────
+     Separate from --chart-1..5, which is a blue->green SEQUENTIAL ramp being
+     used categorically: validated against this app's own card surface it fails
+     the chroma floor, CVD separation AND the normal-vision floor (worst adjacent
+     pair delta-E 4.2 in light, 2.0 in dark) — slots 4 and 5 are indistinguishable
+     even with full colour vision. --chart-* is left untouched because
+     components/charts.tsx depends on it.
+
+     These eight hues pass every gate on both surfaces (worst adjacent CVD
+     delta-E 9.1 light / 8.4 dark; normal-vision 19.6 / 19.3). Assign in fixed
+     order and never cycle: a 9th series folds into "Other".
+     Four light slots sit under 3:1 contrast, which is why every chart ships a
+     table-view twin as the relief channel. */
+  --viz-1: 210 68% 50%;   /* #2a78d6 blue    */
+  --viz-2: 18 81% 56%;    /* #eb6834 orange  */
+  --viz-3: 161 74% 40%;   /* #1baf7a aqua    */
+  --viz-4: 41 100% 46%;   /* #eda100 yellow  */
+  --viz-5: 338 71% 70%;   /* #e87ba4 magenta */
+  --viz-6: 120 100% 26%;  /* #008300 green   */
+  --viz-7: 249 48% 44%;   /* #4a3aa7 violet  */
+  --viz-8: 0 73% 59%;     /* #e34948 red     */
+
+  /* Sequential (magnitude): one hue, light -> dark. Never a rainbow. */
+  --viz-seq-from: 210 85% 90%;
+  --viz-seq-to: 214 79% 24%;
+  /* Diverging (correlation, -1..1): two poles through a NEUTRAL midpoint. */
+  --viz-div-neg: 210 68% 50%;
+  --viz-div-mid: 40 8% 93%;
+  --viz-div-pos: 0 73% 59%;
   --font-sans: Open Sans, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
@@ -127,6 +157,23 @@
   --chart-3: 170 65% 68%;
   --chart-4: 155 60% 70%;
   --chart-5: 140 55% 72%;
+
+  /* Same eight hues, re-stepped for the dark surface (not an automatic flip):
+     all inside the dark lightness band and all >= 3:1 on #181a1b. */
+  --viz-1: 210 77% 56%;   /* #3987e5 */
+  --viz-2: 18 70% 50%;    /* #d95926 */
+  --viz-3: 162 73% 36%;   /* #199e70 */
+  --viz-4: 40 100% 39%;   /* #c98500 */
+  --viz-5: 338 61% 58%;   /* #d55181 */
+  --viz-6: 120 100% 26%;  /* #008300 */
+  --viz-7: 246 71% 73%;   /* #9085e9 */
+  --viz-8: 0 72% 65%;     /* #e66767 */
+
+  --viz-seq-from: 214 60% 22%;
+  --viz-seq-to: 210 85% 82%;
+  --viz-div-neg: 210 77% 56%;
+  --viz-div-mid: 60 3% 21%;
+  --viz-div-pos: 0 72% 65%;
   --shadow-2xs: 0px 2px 0px 0px hsl(210 6% 8% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(210 6% 8% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(210 6% 8% / 0.00), 0px 1px 2px -1px hsl(210 6% 8% / 0.00);
@@ -296,20 +343,6 @@ input[type="number"]::-webkit-outer-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
-
-/* Responsive font scaling utility helpers */
-@media (max-width: 640px) {
-  .text-responsive-base {
-    font-size: 0.875rem !important; /* 14px */
-  }
-  .text-responsive-lg {
-    font-size: 1rem !important; /* 16px */
-  }
-  .text-responsive-xl {
-    font-size: 1.25rem !important; /* 20px */
-  }
-}
-
 
 /* ── Thermal Receipt Print Styles ─────────────────────────────────── */
 @media print {

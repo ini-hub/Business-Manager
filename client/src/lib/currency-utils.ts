@@ -70,6 +70,26 @@ export function formatCurrency(value: number, currencyCode: string = "NGN"): str
   }
 }
 
+/** 1 234 567 → 1.23M. For axes and narrow metric tiles, never in an export. */
+export function compactNumber(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
+/**
+ * Currency for a half-width tile on a phone.
+ *
+ * Abbreviates only where it actually buys space — ₦12,345.00 already fits, so
+ * shortening it to ₦12.3k would throw away precision for nothing.
+ */
+export function formatCurrencyCompact(value: number, currencyCode: string = "NGN"): string {
+  if (Math.abs(value) < 100_000) return formatCurrency(value, currencyCode);
+  return `${getCurrencySymbol(currencyCode)}${compactNumber(value)}`;
+}
+
 const USD_EXCHANGE_RATES: Record<string, number> = {
   NGN: 1500,
   GBP: 0.79,

@@ -25,6 +25,7 @@ import {
   Building2,
   Coins,
   ShieldCheck,
+  Compass,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -177,6 +178,18 @@ const reportsItems: MenuItem[] = [
     title: "Payroll",
     url: "/payroll",
     icon: DollarSign,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Analytics Explorer",
+    url: "/analytics",
+    icon: Compass,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Dashboards",
+    url: "/analytics/dashboards",
+    icon: LayoutDashboard,
     allowedRoles: ["owner", "manager"],
   },
   {

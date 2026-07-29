@@ -67,6 +67,7 @@ import { registerBusinessRoutes } from "./routes/business.routes";
 import { registerCustomerRoutes } from "./routes/customer.routes";
 import { registerStaffRoutes } from "./routes/staff.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
+import { registerConsumablesRoutes } from "./routes/consumables.routes";
 import { registerTransactionRoutes } from "./routes/transaction.routes";
 import { registerSalesRoutes } from "./routes/sales.routes";
 import { registerSettingsRoutes } from "./routes/settings.routes";
@@ -76,6 +77,9 @@ import { registerVendorRoutes } from "./routes/vendor.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerCashRoutes } from "./routes/cash.routes";
 import { registerAuditLogRoutes } from "./routes/audit-logs.routes";
+import { registerAnalyticsRoutes } from "./routes/analytics.routes";
+import { registerAnalyticsViewRoutes } from "./routes/analytics-views.routes";
+import { assertBindingsComplete } from "./analytics/sql";
 
 const SALT_ROUNDS = 12;
 
@@ -1493,6 +1497,7 @@ export async function registerRoutes(
   registerCustomerRoutes(app, routeMiddlewares);
   registerStaffRoutes(app, routeMiddlewares);
   registerInventoryRoutes(app, routeMiddlewares);
+  registerConsumablesRoutes(app, routeMiddlewares);
   registerTransactionRoutes(app, routeMiddlewares);
   registerSalesRoutes(app, routeMiddlewares);
   registerSettingsRoutes(app, routeMiddlewares);
@@ -1502,6 +1507,11 @@ export async function registerRoutes(
   registerPaymentRoutes(app, routeMiddlewares);
   registerCashRoutes(app, routeMiddlewares);
   registerAuditLogRoutes(app, routeMiddlewares);
+
+  // Fails fast if the analytics catalog and its SQL bindings have drifted apart.
+  assertBindingsComplete();
+  registerAnalyticsRoutes(app, routeMiddlewares);
+  registerAnalyticsViewRoutes(app, routeMiddlewares);
 
   return httpServer;
 }

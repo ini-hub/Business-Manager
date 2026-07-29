@@ -6,6 +6,7 @@ import {
   checkouts,
   orders,
   inventory,
+  transactions,
   attendanceRecords,
   type Staff,
   type InsertStaff,
@@ -236,10 +237,12 @@ export class StaffRepository {
       checkout: checkouts,
       order: orders,
       inventoryItem: inventory,
+      transactionId: transactions.id,
     })
       .from(orders)
       .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
       .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .leftJoin(transactions, and(eq(transactions.checkoutId, checkouts.id), eq(transactions.inventoryId, orders.inventoryId)))
       .where(and(...checkoutConditions))
       .orderBy(desc(checkouts.createdAt));
 
@@ -259,6 +262,7 @@ export class StaffRepository {
       const entry = {
         inventoryName: row.inventoryItem.name,
         receiptNumber: row.checkout.receiptNumber,
+        transactionId: row.transactionId,
         date: row.checkout.createdAt,
         revenue: this.revenueShare(staffId, row.checkout, row.order.totalPrice),
         role,

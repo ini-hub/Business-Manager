@@ -57,7 +57,11 @@ import { Label } from "@/components/ui/label";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
 
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useReturnTo } from "@/lib/return-to";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { buildSlug } from "@/lib/slug";
 import { useToast } from "@/hooks/use-toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const safeFormat = (dateValue: any, formatStr: string) => {
   if (!dateValue) return "N/A";
@@ -73,6 +77,7 @@ const safeFormat = (dateValue: any, formatStr: string) => {
 export default function BookingDetailsPage() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
+  const { backHref } = useReturnTo("/bookings");
   const { toast } = useToast();
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [newDate, setNewDate] = useState("");
@@ -166,7 +171,7 @@ export default function BookingDetailsPage() {
         <AlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h2 className="text-2xl font-bold mb-2">Booking Not Found</h2>
         <p className="text-muted-foreground mb-6">The booking you're looking for doesn't exist or you don't have access.</p>
-        <Button onClick={() => setLocation("/bookings")}>Back to Bookings</Button>
+        <Button onClick={() => setLocation(backHref)}>Back to Bookings</Button>
       </div>
     );
   }
@@ -381,7 +386,23 @@ export default function BookingDetailsPage() {
                     {booking.items?.map((item: any) => (
                       <div key={item.id} className="grid grid-cols-12 gap-4 p-4 items-center">
                         <div className="col-span-6">
-                          <p className="font-medium">{item.inventory?.name || "Unknown Item"}</p>
+                          {item.inventory?.id ? (
+                            <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p className="font-medium truncate">{item.inventory.name}</p>
+                                </TooltipTrigger>
+                                <TooltipContent>{item.inventory.name}</TooltipContent>
+                              </Tooltip>
+                            </EntityLink>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <p className="font-medium truncate">{item.inventory?.name || "Unknown Item"}</p>
+                              </TooltipTrigger>
+                              <TooltipContent>{item.inventory?.name || "Unknown Item"}</TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                         <div className="col-span-2 text-center">{item.quantity}</div>
                         <div className="col-span-2 text-right">₦{item.unitPrice?.toLocaleString()}</div>
@@ -460,7 +481,7 @@ export default function BookingDetailsPage() {
                 </div>
               </div>
               <Button variant="outline" className="w-full" asChild>
-                <Link href={`/customers/${booking.customerId}`}>View Profile</Link>
+                <EntityLink href={`/customers/${booking.customerId}`}>View Profile</EntityLink>
               </Button>
             </CardContent>
           </BaseCard>
@@ -478,7 +499,13 @@ export default function BookingDetailsPage() {
                     {booking.leadStaff.name?.charAt(0)}
                   </div>
                   <div>
-                    <p className="font-medium">{booking.leadStaff.name}</p>
+                    {booking.leadStaff.id ? (
+                      <EntityLink href={`/staff/${booking.leadStaff.id}/edit`} className="font-medium">
+                        {booking.leadStaff.name}
+                      </EntityLink>
+                    ) : (
+                      <p className="font-medium">{booking.leadStaff.name}</p>
+                    )}
                     <p className="text-xs text-muted-foreground capitalize">{booking.leadStaff.role}</p>
                   </div>
                 </div>

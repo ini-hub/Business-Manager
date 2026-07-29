@@ -264,7 +264,7 @@ export interface IStorage {
   getInventoryPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
   getInventoryForStores(storeIds: string[], options: PaginationOptions): Promise<PaginatedResult<Inventory>>;
   getInventoryItem(id: string): Promise<Inventory | undefined>;
-  getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined>;
+  getInventoryItemByName(storeId: string, name: string, type?: string): Promise<Inventory | undefined>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
   updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
@@ -479,6 +479,9 @@ export interface IStorage {
   // Update payment method/status post-checkout
   updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean>;
 
+  // Update transaction date post-sale (owner only)
+  updateTransactionDate(data: Parameters<SalesRepository["updateTransactionDate"]>[0]): ReturnType<SalesRepository["updateTransactionDate"]>;
+
   // Sale Drafts
   saveDraft(data: Parameters<SalesRepository["saveDraft"]>[0]): Promise<import("@shared/schema").SaleDraft>;
   updateDraft(id: string, storeId: string, data: Parameters<SalesRepository["updateDraft"]>[2]): Promise<import("@shared/schema").SaleDraft | null>;
@@ -500,9 +503,9 @@ export interface IStorage {
   getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }>;
 
   // Search
-  searchCustomers(storeId: string, query: string): Promise<Customer[]>;
-  searchInventory(storeId: string, query: string): Promise<Inventory[]>;
-  searchTransactions(storeId: string, query: string): Promise<any[]>;
+  searchCustomers(storeIds: string[], query: string): Promise<Customer[]>;
+  searchInventory(storeIds: string[], query: string): Promise<Inventory[]>;
+  searchTransactions(storeIds: string[], query: string): Promise<any[]>;
 
   getNotifications(userId: string): Promise<Notification[]>;
   markNotificationAsRead(id: string, userId: string): Promise<boolean>;
@@ -922,8 +925,8 @@ export class DatabaseStorage implements IStorage {
     return this.inventoryRepo.getInventoryItem(id);
   }
 
-  async getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined> {
-    return this.inventoryRepo.getInventoryItemByName(storeId, name);
+  async getInventoryItemByName(storeId: string, name: string, type?: string): Promise<Inventory | undefined> {
+    return this.inventoryRepo.getInventoryItemByName(storeId, name, type);
   }
 
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {
@@ -991,8 +994,8 @@ export class DatabaseStorage implements IStorage {
     return this.transactionRepo.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus);
   }
 
-  async searchTransactions(storeId: string, query: string): Promise<any[]> {
-    return this.transactionRepo.searchTransactions(storeId, query);
+  async searchTransactions(storeIds: string[], query: string): Promise<any[]> {
+    return this.transactionRepo.searchTransactions(storeIds, query);
   }
 
   // ─── Booking Repo Delegation ───────────────────────────────────────────────
@@ -1112,6 +1115,10 @@ export class DatabaseStorage implements IStorage {
 
   async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }> {
     return this.salesRepo.voidCheckout(checkoutId, reason, voidedByUserId);
+  }
+
+  async updateTransactionDate(data: Parameters<SalesRepository["updateTransactionDate"]>[0]) {
+    return this.salesRepo.updateTransactionDate(data);
   }
 
   async processAddendum(data: {
@@ -1514,12 +1521,12 @@ export class DatabaseStorage implements IStorage {
     return this.staffRepo.getStaffBreakdown(staffId, storeId, startDate, endDate);
   }
 
-  async searchCustomers(storeId: string, query: string): Promise<Customer[]> {
-    return this.customerRepo.searchCustomers(storeId, query);
+  async searchCustomers(storeIds: string[], query: string): Promise<Customer[]> {
+    return this.customerRepo.searchCustomers(storeIds, query);
   }
 
-  async searchInventory(storeId: string, query: string): Promise<Inventory[]> {
-    return this.inventoryRepo.searchInventory(storeId, query);
+  async searchInventory(storeIds: string[], query: string): Promise<Inventory[]> {
+    return this.inventoryRepo.searchInventory(storeIds, query);
   }
 
   // ─── Notification Repo Delegation ─────────────────────────────────────────

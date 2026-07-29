@@ -11,8 +11,11 @@ import { DataTable } from "@/components/data-table";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest } from "@/lib/queryClient";
-import { formatCurrency } from "@/lib/currency-utils";
-import { useLocation } from "wouter";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
+import { useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
 import { ExportToolbar } from "@/components/export-toolbar";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
@@ -24,9 +27,11 @@ const STATUS_CONFIG = {
 
 export default function PayrollReportPage() {
   const { currentStore } = useStore();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const currency = currentStore?.currency || "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
+  const fmtCompact = (v: number) => formatCurrencyCompact(v, currency);
 
   const { data: report = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/payroll/report", currentStore?.id],
@@ -179,20 +184,21 @@ export default function PayrollReportPage() {
       />
 
       {/* Summary stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <MetricGrid>
         {[
           { label: "Total Periods", value: report.length },
           { label: "Total Staff-Periods", value: totalStaff },
-          { label: "Total Paid Out", value: fmt(totalPaid) },
+          { label: "Total Paid Out", value: fmt(totalPaid), compact: fmtCompact(totalPaid) },
         ].map(c => (
-          <Card key={c.label}>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">{c.label}</p>
-              <p className="text-xl font-bold font-mono text-primary mt-1">{c.value}</p>
-            </CardContent>
-          </Card>
+          <MetricCard
+            key={c.label}
+            title={c.label}
+            value={c.value}
+            compactValue={c.compact}
+            valueClassName="text-primary"
+          />
         ))}
-      </div>
+      </MetricGrid>
 
       <Card>
         <CardHeader className="pb-2">
@@ -210,6 +216,7 @@ export default function PayrollReportPage() {
             searchable={false}
             filterConfigs={filterConfigs}
             onVisibleDataChange={setVisibleReport}
+            onRowClick={(r: any) => setLocation(appendReturnTo(`/payroll?period=${r.id}`, location, search))}
           />
         </CardContent>
         {report.length > 0 && (

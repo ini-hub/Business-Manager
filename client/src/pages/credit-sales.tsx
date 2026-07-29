@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
@@ -49,7 +50,11 @@ import {
   XCircle,
 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
-import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
+import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { CustomerLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { appendReturnTo } from "@/lib/return-to";
 import { BulkOperations } from "@/components/bulk-operations";
 import { CREDIT_SALES_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
@@ -63,6 +68,8 @@ export default function CreditSalesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
 
   // Modals & Dialog State
   const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
@@ -85,6 +92,9 @@ export default function CreditSalesPage() {
 
   // Queries
   const storeId = currentStore?.id;
+  const storeCurrency = currentStore?.currency || "NGN";
+  const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const { data: summary, isLoading: isSummaryLoading } = useQuery({
     queryKey: ["/api/credit/summary", storeId],
@@ -126,21 +136,31 @@ export default function CreditSalesPage() {
     {
       key: "customerName",
       header: "Customer",
-      render: (entry: any) => {
-        const presenter = new CustomerPresenter({
-          name: entry.customer?.name,
-          customerNumber: entry.customer?.customerNumber || entry.customerId || "—",
-          mobileNumber: entry.customer?.phone || entry.customer?.mobileNumber,
-        });
-        return <EntityDisplay presenter={presenter} />;
-      },
+      render: (entry: any) => (
+        <CustomerLink
+          customer={entry.customer ? {
+            id: entry.customerId,
+            name: entry.customer.name,
+            customerNumber: entry.customer.customerNumber,
+            mobileNumber: entry.customer.phone || entry.customer.mobileNumber,
+          } : null}
+          customerId={entry.customerId}
+        />
+      ),
     },
     {
       key: "receiptNumber",
       header: "Receipt / Description",
       render: (entry: any) => (
         <div className="flex flex-col">
-          <span className="text-xs font-semibold text-primary">
+          <span
+            className={`text-xs font-semibold text-primary ${entry.transactionId ? "cursor-pointer hover:underline" : ""}`}
+            onClick={(e) => {
+              if (!entry.transactionId) return;
+              e.stopPropagation();
+              setLocation(appendReturnTo(`/transactions/${entry.transactionId}`, location, search));
+            }}
+          >
             {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone Entry"}
           </span>
           <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={entry.description}>
@@ -508,86 +528,44 @@ export default function CreditSalesPage() {
       />
 
       {/* Summary Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="glass-card hover-elevate transition-all border-l-4 border-amber-500">
-          <CardContent className="pt-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Outstanding</p>
-                <h3 className="text-2xl font-bold mt-2">
-                  ₦{summary ? summary.totalOwed.toLocaleString() : "0"}
-                </h3>
-                <p className="text-[10px] text-muted-foreground mt-1 font-medium flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-amber-500" />
-                  {summary ? summary.totalOwedCount : 0} customers owing
-                </p>
-              </div>
-              <div className="p-2.5 bg-amber-500/10 rounded-lg">
-                <BookOpen className="h-5 w-5 text-amber-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card hover-elevate transition-all border-l-4 border-rose-500">
-          <CardContent className="pt-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Overdue Balance</p>
-                <h3 className="text-2xl font-bold mt-2 text-rose-500">
-                  ₦{summary ? summary.totalOverdue.toLocaleString() : "0"}
-                </h3>
-                <p className="text-[10px] text-rose-500 mt-1 font-medium flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
-                  {summary ? summary.totalOverdueCount : 0} debts overdue
-                </p>
-              </div>
-              <div className="p-2.5 bg-rose-500/10 rounded-lg">
-                <AlertTriangle className="h-5 w-5 text-rose-500 animate-pulse" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card hover-elevate transition-all border-l-4 border-blue-500">
-          <CardContent className="pt-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Due This Week</p>
-                <h3 className="text-2xl font-bold mt-2">
-                  ₦{summary ? summary.totalDueThisWeek.toLocaleString() : "0"}
-                </h3>
-                <p className="text-[10px] text-muted-foreground mt-1 font-medium flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-blue-500" />
-                  {summary ? summary.totalDueThisWeekCount : 0} entries pending
-                </p>
-              </div>
-              <div className="p-2.5 bg-blue-500/10 rounded-lg">
-                <Calendar className="h-5 w-5 text-blue-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass-card hover-elevate transition-all border-l-4 border-emerald-500">
-          <CardContent className="pt-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Collected (Month)</p>
-                <h3 className="text-2xl font-bold mt-2 text-emerald-500">
-                  ₦{summary ? summary.totalCollectedThisMonth.toLocaleString() : "0"}
-                </h3>
-                <p className="text-[10px] text-emerald-500 mt-1 font-medium">
-                  Reflects successful collections
-                </p>
-              </div>
-              <div className="p-2.5 bg-emerald-500/10 rounded-lg">
-                <TrendingDown className="h-5 w-5 text-emerald-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <MetricGrid>
+        <MetricCard
+          title="Total Outstanding"
+          value={formatCurrency(summary?.totalOwed ?? 0)}
+          compactValue={formatCompact(summary?.totalOwed ?? 0)}
+          description={`${summary?.totalOwedCount ?? 0} customers owing`}
+          icon={<BookOpen className="h-4 w-4" />}
+          tone="amber"
+          className="glass-card hover-elevate"
+        />
+        <MetricCard
+          title="Overdue Balance"
+          value={formatCurrency(summary?.totalOverdue ?? 0)}
+          compactValue={formatCompact(summary?.totalOverdue ?? 0)}
+          description={`${summary?.totalOverdueCount ?? 0} debts overdue`}
+          icon={<AlertTriangle className="h-4 w-4 animate-pulse" />}
+          tone="rose"
+          className="glass-card hover-elevate"
+        />
+        <MetricCard
+          title="Due This Week"
+          value={formatCurrency(summary?.totalDueThisWeek ?? 0)}
+          compactValue={formatCompact(summary?.totalDueThisWeek ?? 0)}
+          description={`${summary?.totalDueThisWeekCount ?? 0} entries pending`}
+          icon={<Calendar className="h-4 w-4" />}
+          tone="blue"
+          className="glass-card hover-elevate"
+        />
+        <MetricCard
+          title="Collected (Month)"
+          value={formatCurrency(summary?.totalCollectedThisMonth ?? 0)}
+          compactValue={formatCompact(summary?.totalCollectedThisMonth ?? 0)}
+          description="Reflects successful collections"
+          icon={<TrendingDown className="h-4 w-4" />}
+          tone="emerald"
+          className="glass-card hover-elevate"
+        />
+      </MetricGrid>
 
       {/* Main Ledger Table & Filters Card */}
       <Card className="border-border/50 shadow-sm">

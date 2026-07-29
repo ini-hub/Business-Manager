@@ -259,7 +259,7 @@ export const products = pgTable("products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
-  type: text("type").notNull(), // 'product' or 'service'
+  type: text("type").notNull(), // 'product' | 'service' | 'supply' (back-bar consumable, never sold)
   category: text("category"),
   brand: text("brand"),
   description: text("description"),
@@ -269,7 +269,9 @@ export const products = pgTable("products", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
-  unique("products_store_name_unique").on(table.storeId, table.name),
+  // Scoped by type: a salon that retails "Shampoo" also stocks it back-bar, and
+  // those are two different items with different costs and different stock.
+  unique("products_store_type_name_unique").on(table.storeId, table.type, table.name),
 ]);
 
 export const productsRelations = relations(products, ({ one, many }) => ({
@@ -285,9 +287,14 @@ export const inventory = pgTable("inventory", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
-  type: text("type").notNull(), // 'product' or 'service'
-  costPrice: numeric("cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  type: text("type").notNull(), // 'product' | 'service' | 'supply' (back-bar consumable, never sold)
+  // For a product this is the purchase cost; for a service, the FIXED direct cost of
+  // delivering it, EXCLUDING anything covered by a service_consumables recipe — those
+  // are costed from the supply's own cost price when the service is sold. A service
+  // carrying both a cost price and a recipe would count its consumables twice.
+  costPrice: numeric("cost_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0), // always 0 for supplies — they are never sold
+
   quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(0), // Supports fractional quantities (e.g. 1.5 kg)
   allowFractional: boolean("allow_fractional").notNull().default(false), // When true, quantity can be a decimal
   unit: text("unit"), // Optional unit label shown in UI and on receipts (e.g. 'kg', 'litre', 'm')
@@ -304,7 +311,8 @@ export const inventory = pgTable("inventory", {
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
 }, (table) => [
-  unique("inventory_store_name_unique").on(table.storeId, table.name),
+  // Scoped by type — see products_store_type_name_unique above.
+  unique("inventory_store_type_name_unique").on(table.storeId, table.type, table.name),
   unique("inventory_store_sku_unique").on(table.storeId, table.sku),
   index("idx_inventory_store_qty").on(table.storeId, table.quantity),
 ]);
@@ -423,14 +431,14 @@ export type BookingItem = typeof bookingItems.$inferSelect;
 
 export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true, updatedAt: true, isDeleted: true, deletedAt: true }).extend({
   name: trimmedString(1, "Product name is required"),
-  type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
+  type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service", "supply"], { errorMap: () => ({ message: "Type must be product, service or supply" }) })),
 });
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
 
 export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true, isDeleted: true, deletedAt: true }).extend({
   name: trimmedString(1, "Item name is required"),
-  type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service"], { errorMap: () => ({ message: "Type must be product or service" }) })),
+  type: z.string().transform(s => s.trim()).pipe(z.enum(["product", "service", "supply"], { errorMap: () => ({ message: "Type must be product, service or supply" }) })),
   // numeric columns come back as strings from pg driver — coerce to number
   quantity: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number().min(0)).default(0),
   costPrice: z.preprocess(v => (v === "" || v === null || v === undefined ? 0 : Number(v)), z.number()),
@@ -1321,6 +1329,11 @@ export const expenses = pgTable("expenses", {
   date: text("date").notNull(), // ISO Date YYYY-MM-DD
   notes: text("notes"),
   receiptUrl: text("receipt_url"),
+  // Which door this cost takes into the P&L: 'overhead' -> Operating Expenses,
+  // 'direct_supply' -> Direct Supplies & Consumables. Decided by what the cost IS,
+  // never by what it is linked to — linking is attribution only.
+  costClass: text("cost_class").notNull().default("overhead"),
+  backfilledCostClass: boolean("backfilled_cost_class").notNull().default(false), // set by migration 0022
   isAutoGenerated: boolean("is_auto_generated").notNull().default(false), // true if from Payroll module
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, pos, split, credit
   splitPayments: jsonb("split_payments").$type<Array<{method: string, amount: number}>>(),
@@ -1729,6 +1742,85 @@ export const bundleComponentsRelations = relations(bundleComponents, ({ one }) =
 
 export const insertBundleComponentSchema = createInsertSchema(bundleComponents).omit({ id: true });
 export type BundleComponent = typeof bundleComponents.$inferSelect;
+
+// Consumables: the recipe that says how much back-bar supply an item burns per unit sold.
+//
+// Grain is the inventory VARIANT, not the product group — "Wash — long hair" and
+// "Wash — short hair" burn different amounts, which is the entire point of tracking it.
+//
+// The consuming side is `inventoryId`, not `serviceInventoryId`: a retail product can
+// consume supplies too (packaging, gift wrap). v1 restricts it to services in the
+// service layer, but the column name should not have to change for that.
+export const serviceConsumables = pgTable("service_consumables", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  inventoryId: varchar("inventory_id").notNull().references(() => inventory.id), // the consuming item
+  supplyInventoryId: varchar("supply_inventory_id").notNull().references(() => inventory.id), // must be type='supply'
+  // >= 0.01 (enforced by CHECK): inventory.quantity is numeric(12,2), so a smaller
+  // recipe would round to zero on the stock column and stock would never move while
+  // cost accrued. Stock supplies in ml/g/ea rather than bottles.
+  quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4 }).$type<number>().notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  unique("service_consumables_item_supply_unique").on(table.inventoryId, table.supplyInventoryId),
+  index("idx_service_consumables_supply").on(table.supplyInventoryId),
+]);
+
+export const serviceConsumablesRelations = relations(serviceConsumables, ({ one }) => ({
+  store: one(stores, { fields: [serviceConsumables.storeId], references: [stores.id] }),
+  item: one(inventory, { fields: [serviceConsumables.inventoryId], references: [inventory.id] }),
+  supply: one(inventory, { fields: [serviceConsumables.supplyInventoryId], references: [inventory.id] }),
+}));
+
+export const insertServiceConsumableSchema = createInsertSchema(serviceConsumables)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    quantityPerUnit: z.coerce.number().min(0.01, "Quantity per unit must be at least 0.01."),
+  });
+export type ServiceConsumable = typeof serviceConsumables.$inferSelect;
+export type InsertServiceConsumable = z.infer<typeof insertServiceConsumableSchema>;
+
+// Consumables: the consumption ledger, written at checkout — one row per (sale line, supply).
+//
+// `unitCostAtSale` is a SNAPSHOT and that is not optional. Every other COGS path here
+// multiplies a historical quantity by the item's CURRENT cost price; supply costs move
+// on every weighted-average restock, so without a snapshot, restocking shampoo would
+// silently rewrite last quarter's service costs.
+//
+// The table carries no lifecycle state. Whether a row counts is derived by joining
+// orders -> checkouts and filtering payment_status='completed' AND is_voided=false,
+// exactly as getProfitLossSummary already derives revenue. That is what makes void need
+// no ledger write and return need no consumables code at all.
+//
+// createdAt is for audit only and must never be filtered on: the addendum path writes
+// its checkout with the ORIGINAL sale date, so the join-derived date is the correct one.
+export const orderConsumables = pgTable("order_consumables", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  orderId: varchar("order_id").notNull().references(() => orders.id),
+  supplyInventoryId: varchar("supply_inventory_id").notNull().references(() => inventory.id),
+  quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).$type<number>().notNull(),
+  unitCostAtSale: numeric("unit_cost_at_sale", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  totalCost: numeric("total_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  unique("order_consumables_order_supply_unique").on(table.orderId, table.supplyInventoryId),
+  index("idx_order_consumables_order").on(table.orderId),
+  index("idx_order_consumables_supply").on(table.supplyInventoryId),
+  index("idx_order_consumables_store").on(table.storeId),
+]);
+
+export const orderConsumablesRelations = relations(orderConsumables, ({ one }) => ({
+  store: one(stores, { fields: [orderConsumables.storeId], references: [stores.id] }),
+  order: one(orders, { fields: [orderConsumables.orderId], references: [orders.id] }),
+  supply: one(inventory, { fields: [orderConsumables.supplyInventoryId], references: [inventory.id] }),
+}));
+
+export const insertOrderConsumableSchema = createInsertSchema(orderConsumables).omit({ id: true, createdAt: true });
+export type OrderConsumable = typeof orderConsumables.$inferSelect;
+export type InsertOrderConsumable = z.infer<typeof insertOrderConsumableSchema>;
 
 // V3 Feature: Quotes & Estimates
 export const quotes = pgTable("quotes", {
@@ -2224,3 +2316,97 @@ export const payslipRecordsRelations = relations(payslipRecords, ({ one }) => ({
 }));
 
 export type PayslipRecord = typeof payslipRecords.$inferSelect;
+
+// ─── Analytics Explorer: saved views and dashboards ──────────────────────────
+//
+// Tenanted by businessId rather than storeId: a saved view routinely spans
+// several stores (that is much of the point of it), so it cannot belong to one.
+// This follows the stores / custom_roles / audit_logs precedent.
+
+export const analyticsViews = pgTable("analytics_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  /**
+   * A frozen AnalyticsViewSpec (query + presentation). Re-validated against the
+   * zod schema on every write, and re-authorised against the READER on every
+   * execution — never run as authored.
+   */
+  spec: jsonb("spec").notNull(),
+  vizType: text("viz_type").notNull().default("line"),
+  visibility: text("visibility").notNull().default("private"), // 'private' | 'business'
+  /** Stores the view was authored against. Advisory only; access is re-checked on read. */
+  storeIds: jsonb("store_ids").notNull().default(sql`'[]'::jsonb`),
+  specVersion: integer("spec_version").notNull().default(1),
+  isArchived: boolean("is_archived").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_analytics_views_business").on(table.businessId),
+  index("idx_analytics_views_owner").on(table.ownerUserId),
+  unique("analytics_views_owner_name_unique").on(table.ownerUserId, table.name),
+]);
+
+export const analyticsDashboards = pgTable("analytics_dashboards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  visibility: text("visibility").notNull().default("private"),
+  isDefault: boolean("is_default").notNull().default(false),
+  isArchived: boolean("is_archived").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_analytics_dashboards_business").on(table.businessId),
+  unique("analytics_dashboards_owner_name_unique").on(table.ownerUserId, table.name),
+]);
+
+export const analyticsDashboardTiles = pgTable("analytics_dashboard_tiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dashboardId: varchar("dashboard_id").notNull()
+    .references(() => analyticsDashboards.id, { onDelete: "cascade" }),
+  /** Exactly one of viewId / spec is set; a CHECK constraint enforces it. */
+  viewId: varchar("view_id").references(() => analyticsViews.id, { onDelete: "set null" }),
+  spec: jsonb("spec"),
+  titleOverride: text("title_override"),
+  /** 12-column grid. */
+  gridX: integer("grid_x").notNull().default(0),
+  gridY: integer("grid_y").notNull().default(0),
+  gridW: integer("grid_w").notNull().default(6),
+  gridH: integer("grid_h").notNull().default(4),
+  /** When false the tile follows the dashboard-level date range. */
+  overridesDateRange: boolean("overrides_date_range").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_analytics_tiles_dashboard").on(table.dashboardId),
+]);
+
+export const analyticsViewsRelations = relations(analyticsViews, ({ one }) => ({
+  business: one(businesses, { fields: [analyticsViews.businessId], references: [businesses.id] }),
+  owner: one(users, { fields: [analyticsViews.ownerUserId], references: [users.id] }),
+}));
+
+export const analyticsDashboardsRelations = relations(analyticsDashboards, ({ one, many }) => ({
+  business: one(businesses, { fields: [analyticsDashboards.businessId], references: [businesses.id] }),
+  tiles: many(analyticsDashboardTiles),
+}));
+
+export const analyticsDashboardTilesRelations = relations(analyticsDashboardTiles, ({ one }) => ({
+  dashboard: one(analyticsDashboards, {
+    fields: [analyticsDashboardTiles.dashboardId],
+    references: [analyticsDashboards.id],
+  }),
+  view: one(analyticsViews, {
+    fields: [analyticsDashboardTiles.viewId],
+    references: [analyticsViews.id],
+  }),
+}));
+
+export type AnalyticsView = typeof analyticsViews.$inferSelect;
+export type AnalyticsDashboard = typeof analyticsDashboards.$inferSelect;
+export type AnalyticsDashboardTile = typeof analyticsDashboardTiles.$inferSelect;

@@ -21,8 +21,9 @@ import {
   type InsertOrder,
   type TransactionWithRelations,
 } from "@shared/schema";
-import { eq, and, or, ilike, desc, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, or, ilike, desc, gte, lte, inArray, exists, sql } from "drizzle-orm";
 import { serializeUser } from "../storage";
+import { searchTokens, infix } from "../lib/searchTerms";
 
 export interface TransactionFilters {
   startDate?: Date;
@@ -355,10 +356,85 @@ export class TransactionRepository {
     };
   }
 
-  async searchTransactions(storeId: string, query: string): Promise<any[]> {
-    return db.select()
+  async searchTransactions(storeIds: string[], query: string): Promise<any[]> {
+    const tokens = searchTokens(query);
+    if (storeIds.length === 0 || tokens.length === 0) return [];
+
+    // A receipt carries no customer of its own — the buyer hangs off its line
+    // items — so customer-name hits are resolved with an EXISTS rather than a
+    // join, which would fan one checkout out into a row per line item.
+    const tokenMatches = tokens.map((token) => {
+      const pattern = infix(token);
+      return or(
+        ilike(checkouts.receiptNumber, pattern),
+        ilike(checkouts.paymentReference, pattern),
+        exists(
+          db.select({ hit: sql`1` })
+            .from(transactions)
+            .innerJoin(customers, eq(customers.id, transactions.customerId))
+            .where(and(
+              eq(transactions.checkoutId, checkouts.id),
+              ilike(customers.name, pattern),
+            )),
+        ),
+      )!;
+    });
+
+    const rows = await db.select()
       .from(checkouts)
-      .where(and(eq(checkouts.storeId, storeId), or(ilike(checkouts.receiptNumber, `%${query}%`), ilike(checkouts.paymentReference, `%${query}%`))))
+      .where(and(inArray(checkouts.storeId, storeIds), ...tokenMatches))
+      .orderBy(desc(checkouts.createdAt))
       .limit(10);
+
+    const checkoutIds = rows.map((r) => r.id);
+    const [txIdByCheckout, customerNameByCheckout] = await Promise.all([
+      resolveTransactionIdsForCheckouts(checkoutIds),
+      resolveCustomerNamesForCheckouts(checkoutIds),
+    ]);
+
+    return rows
+      .filter((r) => txIdByCheckout.has(r.id))
+      .map((r) => ({
+        ...r,
+        id: txIdByCheckout.get(r.id)!,
+        customerName: customerNameByCheckout.get(r.id) ?? null,
+      }));
   }
+}
+
+/**
+ * Maps each checkout id to one representative `transactions.id` belonging to it.
+ * Used to deep-link receipt/checkout-level references (which only carry a checkoutId)
+ * to the transaction detail page, since `/transactions/:id` resolves against `transactions.id`.
+ */
+export async function resolveTransactionIdsForCheckouts(checkoutIds: string[]): Promise<Map<string, string>> {
+  if (checkoutIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      checkoutId: transactions.checkoutId,
+      id: sql<string>`min(${transactions.id})`,
+    })
+    .from(transactions)
+    .where(inArray(transactions.checkoutId, checkoutIds))
+    .groupBy(transactions.checkoutId);
+  return new Map(rows.map((r) => [r.checkoutId, r.id]));
+}
+
+/**
+ * Maps each checkout id to the name of the customer it was sold to, so search
+ * results can show who a receipt belongs to. Every line item on a checkout
+ * carries the same customer, so any one of them answers the question.
+ */
+export async function resolveCustomerNamesForCheckouts(checkoutIds: string[]): Promise<Map<string, string>> {
+  if (checkoutIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      checkoutId: transactions.checkoutId,
+      name: sql<string>`min(${customers.name})`,
+    })
+    .from(transactions)
+    .innerJoin(customers, eq(customers.id, transactions.customerId))
+    .where(inArray(transactions.checkoutId, checkoutIds))
+    .groupBy(transactions.checkoutId);
+  return new Map(rows.map((r) => [r.checkoutId, r.name]));
 }

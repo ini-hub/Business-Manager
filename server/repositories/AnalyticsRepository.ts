@@ -8,6 +8,7 @@ import {
   transactions,
   orders,
   settings,
+  stores,
 } from "@shared/schema";
 import { eq, and, gte, lte, desc, count, sql } from "drizzle-orm";
 import type { SalesRepository } from "./SalesRepository";
@@ -52,7 +53,10 @@ export class AnalyticsRepository {
     const lowStockThreshold = settingsRows[0]?.lowStockThreshold || 5;
     const products  = allInventory.filter((i) => i.type === "product");
     const services  = allInventory.filter((i) => i.type === "service");
-    const lowStockItems = products.filter((p) => p.quantity <= lowStockThreshold);
+    const supplies  = allInventory.filter((i) => i.type === "supply");
+    // Supplies are stock and run out, so they belong in the low-stock alert —
+    // running dry on shampoo stops services just as surely as running dry on retail.
+    const lowStockItems = [...products, ...supplies].filter((p) => p.quantity <= lowStockThreshold);
 
     return {
       totalCustomers,
@@ -60,6 +64,7 @@ export class AnalyticsRepository {
       totalInventory: allInventory.length,
       totalProducts:  products.length,
       totalServices:  services.length,
+      totalSupplies:  supplies.length,
       totalTransactions: totalCheckouts,
       totalRevenue:    plSummary.totalRevenue,
       grossRevenue:    plSummary.grossRevenue,
@@ -69,48 +74,47 @@ export class AnalyticsRepository {
     };
   }
 
+  /**
+   * Daily revenue and transaction counts, most recent 30 buckets.
+   *
+   * Previously this loaded EVERY checkout for the store with no date filter just
+   * to build a lookup map, then bucketed with `toISOString()` — i.e. in UTC —
+   * even though the range filter was timezone-aware. For a Lagos store that put
+   * every sale between 00:00 and 01:00 local into the previous day. Both are
+   * fixed by aggregating in SQL and bucketing through the store's timezone.
+   */
   async getSalesTrends(storeId: string, startDate?: string, endDate?: string): Promise<{ date: string; revenue: number; transactions: number }[]> {
     const tz = await getStoreTimezone(storeId);
-    const conditions: any[] = [eq(transactions.storeId, storeId)];
+    const conditions: any[] = [
+      eq(transactions.storeId, storeId),
+      eq(checkouts.isVoided, false),
+    ];
     if (startDate) conditions.push(gte(transactions.transactionDate, toUtcStart(startDate, tz)));
     if (endDate) conditions.push(lte(transactions.transactionDate, toUtcEnd(endDate, tz)));
 
-    const allTransactions = await db
-      .select()
-      .from(transactions)
-      .where(and(...conditions))
-      .orderBy(transactions.transactionDate);
+    const bucket = sql<string>`((${transactions.transactionDate} AT TIME ZONE 'UTC' AT TIME ZONE ${stores.timezone})::date)::text`;
 
-    const allCheckouts = await db
+    const rows = await db
       .select({
-        checkout: checkouts,
-        refundedAmount: orders.refundedAmount,
+        date: bucket,
+        revenue: sql<number>`COALESCE(SUM(GREATEST((${checkouts.totalPrice})::numeric - COALESCE((${orders.refundedAmount})::numeric, 0), 0)), 0)`,
+        transactions: sql<number>`COUNT(*)`,
       })
-      .from(checkouts)
-      .leftJoin(orders, eq(checkouts.orderId, orders.id))
-      .where(eq(checkouts.storeId, storeId));
-    const checkoutMap = new Map(allCheckouts.map(c => [c.checkout.id, c]));
+      .from(transactions)
+      .innerJoin(stores, eq(stores.id, transactions.storeId))
+      .innerJoin(checkouts, eq(checkouts.id, transactions.checkoutId))
+      .leftJoin(orders, eq(orders.id, checkouts.orderId))
+      .where(and(...conditions))
+      .groupBy(bucket)
+      .orderBy(bucket);
 
-    const trendMap = new Map<string, { revenue: number; transactions: number }>();
-
-    for (const tx of allTransactions) {
-      const dateStr = new Date(tx.transactionDate).toISOString().split('T')[0];
-      const checkoutData = checkoutMap.get(tx.checkoutId);
-      if (!checkoutData || checkoutData.checkout.isVoided) continue;
-      const revenue = Math.max(0, (checkoutData.checkout.totalPrice || 0) - (checkoutData.refundedAmount || 0));
-
-      const existing = trendMap.get(dateStr) ?? { revenue: 0, transactions: 0 };
-      trendMap.set(dateStr, {
-        revenue: existing.revenue + revenue,
-        transactions: existing.transactions + 1,
-      });
-    }
-
-    const result = Array.from(trendMap.entries())
-      .map(([date, data]) => ({ date, ...data }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    return result.slice(-30);
+    return rows
+      .map((r) => ({
+        date: r.date,
+        revenue: Number(r.revenue) || 0,
+        transactions: Number(r.transactions) || 0,
+      }))
+      .slice(-30);
   }
 
   async getRevenueByType(storeId: string, startDate?: string, endDate?: string): Promise<{ name: string; value: number; type: string }[]> {

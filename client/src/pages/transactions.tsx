@@ -15,22 +15,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
+import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { appendReturnTo } from "@/lib/return-to";
+import { buildSlug } from "@/lib/slug";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
+import { formatCurrencyCompact } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { type TransactionWithRelations } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertCircle, Clock } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const PAGE_LIMIT = 50;
 
 export default function Transactions() {
   const { currentStore, stores, business } = useStore();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
 
   // Resolve Pending inline dialog state
   const [resolveTx, setResolveTx] = useState<TransactionWithRelations | null>(null);
@@ -220,9 +226,14 @@ export default function Transactions() {
       key: "notes",
       header: "Reconciliation Remarks",
       render: (session: any) => (
-        <span className="text-xs text-muted-foreground truncate max-w-[180px] block font-medium">
-          {session.notes || "No closing remarks logged."}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-xs text-muted-foreground truncate max-w-[180px] block font-medium">
+              {session.notes || "No closing remarks logged."}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{session.notes || "No closing remarks logged."}</TooltipContent>
+        </Tooltip>
       ),
     },
   ];
@@ -245,6 +256,8 @@ export default function Transactions() {
       currency: currency,
     }).format(value);
   };
+
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const formatDualCurrency = (value: number, isVoided: boolean = false) => {
     return (
@@ -365,20 +378,12 @@ export default function Transactions() {
     {
       key: "customer",
       header: "Customer",
-      render: (tx: TransactionWithRelations) => {
-        const presenter = new CustomerPresenter({
-          name: tx.customer?.name || "Unknown",
-          customerNumber: tx.customer?.customerNumber || tx.customerId || "—",
-          mobileNumber: tx.customer?.mobileNumber,
-          staffId: (tx.customer as any)?.staffId,
-        });
-        return (
-          <div className="flex items-center gap-2">
-            <User className="h-3 w-3 text-muted-foreground text-opacity-70" />
-            <EntityDisplay presenter={presenter} />
-          </div>
-        );
-      },
+      render: (tx: TransactionWithRelations) => (
+        <div className="flex items-center gap-2">
+          <User className="h-3 w-3 text-muted-foreground text-opacity-70" />
+          <CustomerLink customer={tx.customer as any} customerId={tx.customerId} fallbackName="Unknown" />
+        </div>
+      ),
     },
     {
       key: "inventory",
@@ -400,7 +405,13 @@ export default function Transactions() {
             <Package className="h-3 w-3 text-muted-foreground" />
             <div>
               <div className="flex items-baseline gap-1.5">
-                <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
+                {tx.inventory?.id ? (
+                  <EntityLink href={`/inventory/${buildSlug(tx.inventory.name, tx.inventory.id)}`}>
+                    <p className="font-medium text-sm">{tx.inventory.name}</p>
+                  </EntityLink>
+                ) : (
+                  <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
+                )}
                 {extraItems > 0 && (
                   <span className="text-[11px] text-muted-foreground whitespace-nowrap">
                     +{extraItems} more
@@ -421,7 +432,13 @@ export default function Transactions() {
       render: (tx: TransactionWithRelations) => (
         <div className="flex items-center gap-1.5">
           <User className="h-3 w-3 text-muted-foreground shrink-0" />
-          <span className="text-sm">{tx.checkout?.staff?.name ?? "—"}</span>
+          {tx.checkout?.staff?.id ? (
+            <EntityLink href={`/staff/${tx.checkout.staff.id}/edit`}>
+              <span className="text-sm">{tx.checkout.staff.name}</span>
+            </EntityLink>
+          ) : (
+            <span className="text-sm">{tx.checkout?.staff?.name ?? "—"}</span>
+          )}
         </div>
       ),
     },
@@ -642,7 +659,7 @@ export default function Transactions() {
         </TabsList>
 
         <TabsContent value="transactions" className="space-y-6 animate-in fade-in duration-300">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricGrid>
             <MetricCard
               title="Valid Transactions"
               value={nonVoidedCount}
@@ -652,6 +669,7 @@ export default function Transactions() {
             <MetricCard
               title="Gross Revenue"
               value={formatCurrency(totalAmount)}
+              compactValue={formatCompact(totalAmount)}
               description="Revenue before returns"
               icon={<Coins className="h-4 w-4" />}
               isLoading={isLoading}
@@ -659,6 +677,7 @@ export default function Transactions() {
             <MetricCard
               title="Actual Revenue (Net)"
               value={formatCurrency(actualRevenueNet)}
+              compactValue={formatCompact(actualRevenueNet)}
               description={totalRefunded > 0 ? `Refunded: ${formatCurrency(totalRefunded)}` : "Net revenue after returns"}
               icon={<Coins className="h-4 w-4" />}
               isLoading={isLoading}
@@ -668,10 +687,13 @@ export default function Transactions() {
               value={formatCurrency(
                 nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
               )}
+              compactValue={formatCompact(
+                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
+              )}
               icon={<Coins className="h-4 w-4" />}
               isLoading={isLoading}
             />
-          </div>
+          </MetricGrid>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
@@ -723,7 +745,7 @@ export default function Transactions() {
                 emptyTitle="No Transactions"
                 emptyMessage="No transactions found for the selected date range. Try adjusting the filters or date range."
                 emptyIcon={<ShoppingBag className="h-6 w-6" />}
-                onRowClick={(tx) => setLocation("/transactions/" + tx.id)}
+                onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
                 filterConfigs={filterConfigs}
                 onVisibleDataChange={setVisibleTxRows}
               />
@@ -757,7 +779,7 @@ export default function Transactions() {
         </TabsContent>
 
         <TabsContent value="drawer-shifts" className="space-y-6 animate-in fade-in duration-300">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <MetricGrid>
             <MetricCard
               title="Shift Sessions Run"
               value={drawerSessions.length}
@@ -767,6 +789,7 @@ export default function Transactions() {
             <MetricCard
               title="Accumulated Drawer Variance"
               value={formatCurrency(totalVariance)}
+              compactValue={formatCompact(totalVariance)}
               icon={<Coins className="h-4 w-4" />}
               isLoading={drawerLoading}
             />
@@ -776,7 +799,7 @@ export default function Transactions() {
               icon={<AlertCircle className="h-4 w-4" />}
               isLoading={drawerLoading}
             />
-          </div>
+          </MetricGrid>
 
           <Card>
             <CardHeader>

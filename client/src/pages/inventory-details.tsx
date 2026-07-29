@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { buildSlug } from "@/lib/slug";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import {
@@ -49,6 +50,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { inventoryApi } from "@/services/InventoryApiService";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { ConsumablesRecipeCard } from "@/components/consumables-recipe-card";
 import { format } from "date-fns";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
@@ -498,11 +500,11 @@ export default function InventoryDetails() {
             </div>
           </div>
           <CardContent className="pt-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="p-3 rounded-lg border bg-muted/20 space-y-2">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-6 w-28" />
+                  <Skeleton className="h-3 w-16 sm:w-20" />
+                  <Skeleton className="h-5 w-20 sm:h-6 sm:w-28" />
                 </div>
               ))}
             </div>
@@ -632,14 +634,14 @@ export default function InventoryDetails() {
 
         {/* Key Metrics Strip */}
         <CardContent className="p-0">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 border-b-0">
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b-0">
             {/* Cost Price */}
-            <div className="px-5 py-4">
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+            <div className="px-3 py-3 sm:px-5 sm:py-4">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
                 <Tag className="h-3 w-3" />
                 Cost Price
               </p>
-              <p className="font-mono font-semibold text-base" data-testid="text-cost-price">
+              <p className="font-mono font-semibold text-sm sm:text-base break-words" data-testid="text-cost-price">
                 {!isSimpleProduct
                   ? (minCost === maxCost ? formatCurrency(minCost) : `${formatCurrency(minCost)} – ${formatCurrency(maxCost)}`)
                   : formatCurrency(costPrice)
@@ -648,12 +650,12 @@ export default function InventoryDetails() {
             </div>
 
             {/* Selling Price */}
-            <div className="px-5 py-4">
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+            <div className="px-3 py-3 sm:px-5 sm:py-4">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
                 <ShoppingBag className="h-3 w-3" />
                 Selling Price
               </p>
-              <p className="font-mono font-semibold text-base" data-testid="text-selling-price">
+              <p className="font-mono font-semibold text-sm sm:text-base break-words" data-testid="text-selling-price">
                 {!isSimpleProduct
                   ? (minSelling === maxSelling ? formatCurrency(minSelling) : `${formatCurrency(minSelling)} – ${formatCurrency(maxSelling)}`)
                   : formatCurrency(sellingPrice)
@@ -662,23 +664,23 @@ export default function InventoryDetails() {
             </div>
 
             {/* Profit */}
-            <div className="px-5 py-4">
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+            <div className="px-3 py-3 sm:px-5 sm:py-4">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
                 <TrendingUp className="h-3 w-3" />
                 Profit / Unit
               </p>
               {!isSimpleProduct
-                ? <p className="text-sm text-muted-foreground">See variants matrix</p>
+                ? <p className="text-xs sm:text-sm text-muted-foreground">See variants matrix</p>
                 : (
                   <div>
                     <p
-                      className={cn("font-mono font-semibold text-base", profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}
+                      className={cn("font-mono font-semibold text-sm sm:text-base", profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}
                       data-testid="text-profit"
                     >
                       {formatCurrency(profit)}
                     </p>
                     {costPrice > 0 && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{profitMargin.toFixed(1)}% margin</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{profitMargin.toFixed(1)}% margin</p>
                     )}
                   </div>
                 )
@@ -686,14 +688,14 @@ export default function InventoryDetails() {
             </div>
 
             {/* Stock */}
-            <div className="px-5 py-4">
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
+            <div className="px-3 py-3 sm:px-5 sm:py-4">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
                 <Package className="h-3 w-3" />
                 Stock
               </p>
               {isService
                 ? (
-                  <p className="font-semibold text-base flex items-center gap-1" data-testid="text-quantity">
+                  <p className="font-semibold text-sm sm:text-base flex items-center gap-1" data-testid="text-quantity">
                     <Infinity className="h-4 w-4 text-blue-500" />
                     <span className="text-blue-600 dark:text-blue-400">Unlimited</span>
                   </p>
@@ -702,7 +704,7 @@ export default function InventoryDetails() {
                   <div>
                     <p
                       className={cn(
-                        "font-mono font-semibold text-base",
+                        "font-mono font-semibold text-sm sm:text-base",
                         totalQuantity === 0 ? "text-red-600 dark:text-red-400"
                           : totalQuantity <= lowStockThreshold ? "text-amber-600 dark:text-amber-400"
                           : ""
@@ -711,7 +713,7 @@ export default function InventoryDetails() {
                     >
                       {parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : ""}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{inventory.unit ? `${inventory.unit} in stock` : "units in stock"}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{inventory.unit ? `${inventory.unit} in stock` : "units in stock"}</p>
                   </div>
                 )
               }
@@ -727,6 +729,7 @@ export default function InventoryDetails() {
             { value: "overview", label: "Overview" },
             ...(inventory.type === "product" && !!activeVariantId ? [{ value: "restock-history", label: "Restock History" }] : []),
             ...(!!activeVariantId ? [{ value: "sustaining-costs", label: "Profitability" }] : []),
+            ...(isService && !!activeVariantId ? [{ value: "consumables", label: "Consumables" }] : []),
             ...(isBundle && !!activeVariantId ? [{ value: "bundle-components", label: "Bundle Components" }] : []),
             { value: "variants", label: "Variants" },
             ...(inventory.type === "product" && !isBundle && !!activeVariantId ? [{ value: "expiry-batches", label: "Expiry Batches" }] : []),
@@ -884,6 +887,18 @@ export default function InventoryDetails() {
           </Card>
         </TabsContent>
 
+        {/* CONSUMABLES RECIPE TAB */}
+        {isService && !!activeVariantId && (
+          <TabsContent value="consumables" className="space-y-4 mt-0">
+            <ConsumablesRecipeCard
+              inventoryId={activeVariantId}
+              storeId={inventory.storeId}
+              formatCurrency={formatCurrency}
+              canEdit={user?.role === "owner" || user?.role === "manager"}
+            />
+          </TabsContent>
+        )}
+
         {/* SUSTAINING COSTS TAB */}
         <TabsContent value="sustaining-costs" className="space-y-4 mt-0">
           <Card>
@@ -1029,7 +1044,13 @@ export default function InventoryDetails() {
                         columns={[
                           {
                             key: "componentName", header: "Component",
-                            render: (row: any) => <span className="font-medium">{row.component?.name || "Unknown"}</span>
+                            render: (row: any) => row.componentInventoryId && row.component?.name ? (
+                              <EntityLink href={`/inventory/${buildSlug(row.component.name, row.componentInventoryId)}`} className="font-medium">
+                                {row.component.name}
+                              </EntityLink>
+                            ) : (
+                              <span className="font-medium">{row.component?.name || "Unknown"}</span>
+                            )
                           },
                           {
                             key: "type", header: "Type",

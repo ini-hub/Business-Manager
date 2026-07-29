@@ -291,7 +291,7 @@ export class ProductController extends BaseController {
 
       const data = insertInventorySchema.parse(sanitizedBody);
 
-      const existing = await storage.getInventoryItemByName(product.storeId, data.name);
+      const existing = await storage.getInventoryItemByName(product.storeId, data.name, data.type);
       if (existing) {
         return this.conflict(res, `Variant name "${data.name}" already exists.`);
       }

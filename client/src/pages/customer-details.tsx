@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
 import { buildSlug, isUUID } from "@/lib/slug";
+import { useReturnTo, appendReturnTo } from "@/lib/return-to";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRoute, useLocation } from "wouter";
+import { useRoute, useLocation, useSearch } from "wouter";
 import { ArrowLeft, User, Phone, MapPin, Hash, Calendar, Package, Coins, CreditCard, Receipt, AlertCircle, BookOpen, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +13,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/page-header";
 import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
+import { formatCurrencyCompact } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { Link } from "wouter";
@@ -37,7 +41,9 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
 export default function CustomerDetails() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
+  const { backHref } = useReturnTo("/customers");
   const [match, params] = useRoute("/customers/:id");
   const { currentStore } = useStore();
   const customerId = params?.id;
@@ -188,7 +194,13 @@ export default function CustomerDetails() {
         <div className="flex items-center gap-2">
           <Package className="h-3 w-3 text-muted-foreground" />
           <div>
-            <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
+            {tx.inventory?.id ? (
+              <EntityLink href={`/inventory/${buildSlug(tx.inventory.name, tx.inventory.id)}`}>
+                <p className="font-medium text-sm">{tx.inventory.name}</p>
+              </EntityLink>
+            ) : (
+              <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
+            )}
             <Badge variant="outline" className={`text-xs capitalize mt-1 ${
               tx.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
               : tx.inventory?.type === "product" ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
@@ -260,7 +272,7 @@ export default function CustomerDetails() {
           title="Customer Details"
           description="View customer information and transactions"
           actions={
-            <Button variant="outline" onClick={() => setLocation("/customers")} data-testid="button-back">
+            <Button variant="outline" onClick={() => setLocation(backHref)} data-testid="button-back">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Customers
             </Button>
@@ -300,7 +312,7 @@ export default function CustomerDetails() {
         title={customer.name}
         description={`Customer details and transaction history`}
         actions={
-          <Button variant="outline" onClick={() => setLocation("/customers")} data-testid="button-back">
+          <Button variant="outline" onClick={() => setLocation(backHref)} data-testid="button-back">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Customers
           </Button>
@@ -313,9 +325,9 @@ export default function CustomerDetails() {
             <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 animate-bounce" />
             <AlertDescription className="text-sm font-medium text-amber-200">
               Possible Duplicate: This profile shares a mobile number with{" "}
-              <Link href={`/customers/${customer.duplicateOfId}`} className="underline font-bold hover:text-white">
+              <EntityLink href={`/customers/${customer.duplicateOfId}`} className="underline font-bold hover:text-white">
                 {customers.find(c => c.id === customer.duplicateOfId)?.name || "another profile"}
-              </Link>.
+              </EntityLink>.
             </AlertDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -405,7 +417,7 @@ export default function CustomerDetails() {
         </Card>
 
         <div className="md:col-span-2 space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <MetricGrid>
             <MetricCard
               title="Total Transactions"
               value={transactions.length}
@@ -414,9 +426,10 @@ export default function CustomerDetails() {
             <MetricCard
               title="Total Spent"
               value={formatCurrency(totalSpent, currentStore?.currency || "NGN")}
+              compactValue={formatCurrencyCompact(totalSpent, currentStore?.currency || "NGN")}
               icon={<Coins className="h-4 w-4" />}
             />
-          </div>
+          </MetricGrid>
 
           <Card className="glassmorphism border border-border/80">
             <CardHeader className="pb-3 border-b">
@@ -447,6 +460,7 @@ export default function CustomerDetails() {
                     <DataTable
                       columns={columns}
                       data={transactions}
+                      onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
                     />
                   )}
                 </TabsContent>
@@ -484,7 +498,13 @@ export default function CustomerDetails() {
                               <TableRow key={entry.id}>
                                 <TableCell>
                                   <div className="flex flex-col">
-                                    <span className="font-semibold text-xs text-primary">
+                                    <span
+                                      className={`font-semibold text-xs text-primary ${entry.transactionId ? "cursor-pointer hover:underline" : ""}`}
+                                      onClick={() => {
+                                        if (!entry.transactionId) return;
+                                        setLocation(appendReturnTo(`/transactions/${entry.transactionId}`, location, search));
+                                      }}
+                                    >
                                       {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone"}
                                     </span>
                                     <span className="text-[10px] text-muted-foreground">
@@ -586,7 +606,7 @@ export default function CustomerDetails() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <Button variant="ghost" size="sm" asChild>
-                                    <Link href={`/bookings/${booking.id}`}>View</Link>
+                                    <Link href={appendReturnTo(`/bookings/${booking.id}`, location, search)}>View</Link>
                                   </Button>
                                 </TableCell>
                               </TableRow>

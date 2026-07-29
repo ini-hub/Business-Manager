@@ -6,7 +6,7 @@ import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number };
 type AuditPerson = { name?: string; email?: string };
 type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
-import { Plus, Edit, Trash2, Package, Wrench, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
@@ -54,10 +54,25 @@ import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
-import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import { buildSlug } from "@/lib/slug";
 
-type FilterType = "all" | "product" | "service" | "low-stock" | "audits" | "archived";
+type FilterType = "all" | "product" | "service" | "supply" | "low-stock" | "audits" | "archived";
+
+/** Icon and badge colour per inventory type, so the three stay consistent across
+ *  the active list, the archived list and the item name cell. */
+function itemTypeIcon(type: string) {
+  if (type === "service") return <Wrench className="h-4 w-4 text-muted-foreground" />;
+  if (type === "supply") return <Droplets className="h-4 w-4 text-muted-foreground" />;
+  return <Package className="h-4 w-4 text-muted-foreground" />;
+}
+
+function itemTypeBadgeClass(type: string) {
+  if (type === "service") return "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30";
+  if (type === "supply") return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30";
+  return "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30";
+}
 
 export default function InventoryPage() {
   const { toast } = useToast();
@@ -96,9 +111,11 @@ export default function InventoryPage() {
     receiptUrl: "",
   });
 
+  // This is the stock management screen, so it opts into supplies — /api/products
+  // hides them by default to keep them out of the POS and other sale surfaces.
   const { data: inventoryList = [], isLoading } = useMultiStoreQuery<ProductWithVariants>(
     "/api/products",
-    { merge: "dedup-by-id", staleTime: STALE_TIMES.reference }
+    { merge: "dedup-by-id", staleTime: STALE_TIMES.reference, params: { include: "supplies" } }
   );
 
   const { data: archivedList = [], isLoading: isLoadingArchived } = useMultiStoreQuery<ProductWithVariants>(
@@ -182,9 +199,13 @@ export default function InventoryPage() {
         return inventoryList.filter((item) => item.type === "product");
       case "service":
         return inventoryList.filter((item) => item.type === "service");
+      case "supply":
+        return inventoryList.filter((item) => item.type === "supply");
       case "low-stock":
+        // Supplies run out too — running dry on shampoo stops services just as
+        // surely as running dry on retail stock.
         return inventoryList.filter(
-          (item) => item.type === "product" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
+          (item) => item.type !== "service" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
         );
       default:
         return inventoryList;
@@ -193,7 +214,7 @@ export default function InventoryPage() {
 
   const lowStockCount = useMemo(() => {
     return inventoryList.filter(
-      (item) => item.type === "product" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
+      (item) => item.type !== "service" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
     ).length;
   }, [inventoryList, lowStockThreshold]);
 
@@ -366,6 +387,7 @@ export default function InventoryPage() {
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);
   };
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const openCreateForm = () => {
     setLocation("/inventory/new");
@@ -537,11 +559,7 @@ export default function InventoryPage() {
       render: (item: any) => (
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-            {item.type === "product" ? (
-              <Package className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Wrench className="h-4 w-4 text-muted-foreground" />
-            )}
+            {itemTypeIcon(item.type)}
           </div>
           <div className="flex flex-col">
             <span className="font-medium">{item.name}</span>
@@ -558,10 +576,7 @@ export default function InventoryPage() {
       key: "type",
       header: "Type",
       render: (item: any) => (
-        <Badge variant="outline" className={`capitalize ${
-          item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
-          : item.type === "product" ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
-          : ""}`}>
+        <Badge variant="outline" className={`capitalize ${itemTypeBadgeClass(item.type)}`}>
           {item.type}
         </Badge>
       ),
@@ -728,6 +743,7 @@ export default function InventoryPage() {
     : filterType === "low-stock" ? "Low Stock"
     : filterType === "product" ? "Products"
     : filterType === "service" ? "Services"
+    : filterType === "supply" ? "Supplies"
     : "All";
 
   if (!currentStore) {
@@ -805,7 +821,7 @@ export default function InventoryPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <MetricGrid>
         {filterType === "audits" ? (
           <>
             <MetricCard
@@ -835,6 +851,7 @@ export default function InventoryPage() {
             <MetricCard
               title="Total Cost Value"
               value={formatCurrency(totalCostValue)}
+              compactValue={formatCompact(totalCostValue)}
               icon={<Package className="h-4 w-4" />}
               description="Total value of products in stock"
               isLoading={isLoading}
@@ -842,6 +859,7 @@ export default function InventoryPage() {
             <MetricCard
               title="Total Retail Value"
               value={formatCurrency(totalRetailValue)}
+              compactValue={formatCompact(totalRetailValue)}
               icon={<Coins className="h-4 w-4" />}
               description="Expected revenue if all sold"
               isLoading={isLoading}
@@ -855,7 +873,7 @@ export default function InventoryPage() {
             />
           </>
         )}
-      </div>
+      </MetricGrid>
 
       {lowStockCount > 0 && filterType !== "audits" && (
         <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
@@ -888,6 +906,7 @@ export default function InventoryPage() {
             { value: "all", label: `All (${inventoryList.length})`, testId: "tab-all" },
             { value: "product", label: `Products (${inventoryList.filter((i) => i.type === "product").length})`, testId: "tab-products" },
             { value: "service", label: `Services (${inventoryList.filter((i) => i.type === "service").length})`, testId: "tab-services" },
+            { value: "supply", label: `Supplies (${inventoryList.filter((i) => i.type === "supply").length})`, testId: "tab-supplies" },
             { 
               value: "low-stock", 
               label: `Low Stock (${lowStockCount})`, 
@@ -1053,7 +1072,7 @@ export default function InventoryPage() {
                   render: (item: any) => (
                     <div className="flex items-center gap-3 opacity-60">
                       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
-                        {item.type === "product" ? <Package className="h-4 w-4 text-muted-foreground" /> : <Wrench className="h-4 w-4 text-muted-foreground" />}
+                        {itemTypeIcon(item.type)}
                       </div>
                       <span className="font-medium line-through text-muted-foreground">{item.name}</span>
                     </div>
@@ -1063,7 +1082,7 @@ export default function InventoryPage() {
                   key: "type",
                   header: "Type",
                   render: (item: any) => (
-                    <Badge variant="outline" className={`capitalize ${item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30" : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
+                    <Badge variant="outline" className={`capitalize ${itemTypeBadgeClass(item.type)}`}>
                       {item.type}
                     </Badge>
                   ),

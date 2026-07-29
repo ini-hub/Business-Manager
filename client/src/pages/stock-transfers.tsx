@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
@@ -350,7 +351,7 @@ export default function StockTransfersPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <MetricGrid>
         <MetricCard
           title="Outgoing Shipments"
           value={outgoingCount}
@@ -369,7 +370,7 @@ export default function StockTransfersPage() {
           icon={<Clock className="h-4 w-4 text-amber-500" />}
           isLoading={isLoadingTransfers}
         />
-      </div>
+      </MetricGrid>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-4">

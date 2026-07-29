@@ -20,19 +20,24 @@ import {
   inventoryRestockEvents,
   storeCreditTransactions,
   bundleComponents,
+  orderConsumables,
   payrollPeriods,
   saleDrafts,
   type ProfitLossWithInventory,
   type SaleDraft,
 } from "@shared/schema";
-import { eq, and, or, gt, gte, lte, sql, desc } from "drizzle-orm";
+import { eq, and, or, gt, gte, lte, sql, desc, asc, inArray } from "drizzle-orm";
 import { InventoryRepository } from "./InventoryRepository";
-import { TransactionRepository } from "./TransactionRepository";
+import { TransactionRepository, resolveTransactionIdsForCheckouts } from "./TransactionRepository";
+import { ConsumablesRepository } from "./ConsumablesRepository";
+import { expandConsumables } from "../services/ConsumablesService";
 import type { NotificationRepository } from "./NotificationRepository";
+import { LOYALTY_POINT_VALUE_NGN } from "@shared/analytics/constants";
 
 export class SalesRepository {
   private inventoryRepo = new InventoryRepository();
   private transactionRepo = new TransactionRepository();
+  private consumablesRepo = new ConsumablesRepository();
 
   setNotificationRepo(notificationRepo: NotificationRepository) {
     this._notificationRepo = notificationRepo;
@@ -44,6 +49,34 @@ export class SalesRepository {
     if (this._notificationRepo) {
       await this._notificationRepo.notifyManagers(storeId, type, message);
     }
+  }
+
+  private async getPayrollPeriodsCoveringDate(storeId: string, date: Date) {
+    const dateStr = date.toISOString().slice(0, 10);
+    return db
+      .select({ id: payrollPeriods.id, status: payrollPeriods.status, startDate: payrollPeriods.startDate, endDate: payrollPeriods.endDate })
+      .from(payrollPeriods)
+      .where(
+        and(
+          eq(payrollPeriods.storeId, storeId),
+          sql`${payrollPeriods.startDate} <= ${dateStr}`,
+          sql`${payrollPeriods.endDate} >= ${dateStr}`,
+          sql`${payrollPeriods.status} IN ('approved', 'paid')`
+        )
+      );
+  }
+
+  private parseDateOnly(dateStr: string): Date {
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      return new Date(year, month, day, 0, 0, 0, 0);
+    }
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
+    return d;
   }
 
   // ─── Profit & Loss ────────────────────────────────────────────────────────
@@ -70,7 +103,9 @@ export class SalesRepository {
     const totalQuantitySold = allOrders.reduce((sum, order) => sum + order.quantity, 0);
     const totalRevenue = allOrders.reduce((sum, order) => sum + order.totalPrice, 0);
     const totalGrossProfit = totalRevenue - (totalQuantitySold * inventoryItem.costPrice);
-    const quantityRemaining = inventoryItem.type === "product" ? inventoryItem.quantity : 0;
+    // Only services are stockless. Supplies carry real stock, so the test is
+    // "not a service" rather than "is a product".
+    const quantityRemaining = inventoryItem.type === "service" ? 0 : inventoryItem.quantity;
 
     const [existingPL] = await db.select().from(profitLoss).where(
       and(eq(profitLoss.inventoryId, inventoryId), eq(profitLoss.storeId, storeId))
@@ -98,6 +133,7 @@ export class SalesRepository {
     discountsGiven: number;
     discountsList: Array<{
       receiptNumber: string;
+      transactionId: string | null;
       discountAmount: number;
       discountPercent: number;
       discountReason: string | null;
@@ -141,10 +177,20 @@ export class SalesRepository {
       grossRevenue += row.totalPrice;
       returnedRevenue += (row.refundedAmount || 0);
 
+      // Tested in both directions rather than service/else. With the 'supply' type
+      // an `else` would silently bank back-bar consumables as product revenue.
+      // Supplies are unsellable (rejected in processCheckout and hidden from every
+      // sale surface), so this branch means the data is already wrong — say so
+      // rather than absorbing it into a total.
       if (row.inventoryType === "service") {
         serviceRevenue += netTotalPrice;
-      } else {
+      } else if (row.inventoryType === "product") {
         productRevenue += netTotalPrice;
+      } else {
+        console.warn(
+          `[profit-loss] sale line on inventory type "${row.inventoryType}" counted in neither ` +
+          `service nor product revenue (store ${storeId}). A supply should never reach a sale line.`
+        );
       }
       costOfGoodsSold += (row.costPrice ?? 0) * netQuantity;
     }
@@ -152,40 +198,52 @@ export class SalesRepository {
     const totalRevenue = serviceRevenue + productRevenue;
     const grossProfit = totalRevenue - costOfGoodsSold;
 
+    // A receipt is stored as one `checkouts` row PER LINE, and processCheckout
+    // replicates the basket-level discount, percent and points onto every one of
+    // them. Grouping by checkouts.id (line grain) therefore counted a single
+    // basket discount once per line, inflating discountsGiven on any multi-line
+    // discounted sale. Group by receipt instead.
+    //
+    // All lines of the receipt are grouped, not just the discounted ones, so
+    // `subtotal` is the true receipt gross; HAVING then keeps only receipts that
+    // actually carried a discount. Promo lines store 0, so MAX() recovers the
+    // basket value.
     const discountConditions: any[] = [
       eq(checkouts.storeId, storeId),
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
-      or(gt(checkouts.discountAmount, 0), gt(checkouts.pointsRedeemed, 0)),
     ];
     if (startDate) discountConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
     if (endDate) discountConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
     const uniqueTxDiscounts = await db
       .select({
+        checkoutId: sql<string>`min(${checkouts.id})`,
         receiptNumber: checkouts.receiptNumber,
-        discountAmount: checkouts.discountAmount,
-        discountPercent: checkouts.discountPercent,
-        discountReason: checkouts.discountReason,
-        discountApprovedBy: checkouts.discountApprovedBy,
-        pointsRedeemed: checkouts.pointsRedeemed,
-        createdAt: checkouts.createdAt,
+        discountAmount: sql<number>`max(${checkouts.discountAmount})`,
+        discountPercent: sql<number>`max(${checkouts.discountPercent})`,
+        discountReason: sql<string | null>`max(${checkouts.discountReason})`,
+        discountApprovedBy: sql<string | null>`max(${checkouts.discountApprovedBy})`,
+        pointsRedeemed: sql<number>`max(${checkouts.pointsRedeemed})`,
+        createdAt: sql<Date>`min(${checkouts.createdAt})`,
         subtotal: sql<number>`sum(${checkouts.totalPrice})`,
       })
       .from(checkouts)
       .where(and(...discountConditions))
-      .groupBy(
-        checkouts.receiptNumber,
-        checkouts.discountAmount,
-        checkouts.discountPercent,
-        checkouts.discountReason,
-        checkouts.discountApprovedBy,
-        checkouts.pointsRedeemed,
-        checkouts.createdAt
+      .groupBy(checkouts.receiptNumber)
+      .having(
+        or(
+          gt(sql`max(${checkouts.discountAmount})`, 0),
+          gt(sql`max(${checkouts.pointsRedeemed})`, 0),
+        ),
       );
 
+    const discountTxIdByCheckout = await resolveTransactionIdsForCheckouts(
+      uniqueTxDiscounts.map((d) => d.checkoutId)
+    );
+
     const processedDiscounts = uniqueTxDiscounts.map((d) => {
-      const loyaltyDiscount = (d.pointsRedeemed || 0) * 10;
+      const loyaltyDiscount = (d.pointsRedeemed || 0) * LOYALTY_POINT_VALUE_NGN;
       const totalDiscountVal = (d.discountAmount || 0) + loyaltyDiscount;
       const subtotalVal = Number(d.subtotal || 0);
       const totalPct = subtotalVal > 0 ? (totalDiscountVal / subtotalVal) * 100 : 0;
@@ -198,6 +256,7 @@ export class SalesRepository {
 
       return {
         receiptNumber: d.receiptNumber,
+        transactionId: discountTxIdByCheckout.get(d.checkoutId) ?? null,
         discountAmount: totalDiscountVal,
         discountPercent: totalPct,
         discountReason: finalReason || "Loyalty Point Redemption",
@@ -262,7 +321,8 @@ export class SalesRepository {
           storeId,
           inventoryId: row.inventoryItem.id,
           totalQuantitySold: netQuantity,
-          quantityRemaining: row.inventoryItem.type === "product" ? row.inventoryItem.quantity : 0,
+          // Only services are stockless — see updateProfitLoss.
+          quantityRemaining: row.inventoryItem.type === "service" ? 0 : row.inventoryItem.quantity,
           totalRevenue: netTotalPrice,
           totalGrossProfit: grossProfit,
           inventory: row.inventoryItem,
@@ -402,6 +462,13 @@ export class SalesRepository {
             throw new Error(`Invalid quantity for item ${inventoryItem.name}. Quantity must be at least 1.`);
           }
 
+          // Checked here, at the cart's entry point, so it beats the ₦0 guard below.
+          // A supply always has a zero selling price, so that guard would otherwise
+          // reject it first with a message that explains nothing.
+          if (inventoryItem.type === "supply") {
+            throw new Error(`"${inventoryItem.name}" is a back-bar supply and cannot be sold. It is charged to the P&L when a service that uses it is delivered.`);
+          }
+
           const unitPrice = item.customPrice !== undefined ? item.customPrice : inventoryItem.sellingPrice;
 
           if (unitPrice <= 0) {
@@ -520,7 +587,7 @@ export class SalesRepository {
         if (data.pointsRedeemed && data.pointsRedeemed > customer.loyaltyPoints) {
           throw new Error(`Insufficient loyalty points. Customer has only ${customer.loyaltyPoints} points.`);
         }
-        const pointsValueRate = 10;
+        const pointsValueRate = LOYALTY_POINT_VALUE_NGN;
         const pointsDiscount = (data.pointsRedeemed || 0) * pointsValueRate;
 
         let totalDiscount = data.discountAmount || 0;
@@ -561,9 +628,48 @@ export class SalesRepository {
           }
         }
 
+        // ── Consumables: lock the supplies this cart will burn ──────────────
+        //
+        // Done as one id-ordered lock BEFORE any per-item lock so every concurrent
+        // checkout acquires supply rows in the same order. Locking them per line
+        // instead would let two carts touching the same two supplies deadlock.
+        //
+        // Promo lines are included deliberately: a free service still uses product.
+        const cartItemIds = Array.from(new Set(processedItems.map(i => i.inventoryId)));
+        const cartRecipes = await this.consumablesRepo.getActiveRecipes(cartItemIds);
+        const supplyCosts = new Map<string, number>();
+        const supplyRows = new Map<string, { name: string; quantity: number }>();
+
+        if (cartRecipes.size > 0) {
+          const supplyIds = Array.from(
+            new Set(Array.from(cartRecipes.values()).flat().map(r => r.supplyInventoryId)),
+          ).sort();
+
+          if (supplyIds.length > 0) {
+            const locked = await tx
+              .select()
+              .from(inventory)
+              .where(inArray(inventory.id, supplyIds))
+              .orderBy(asc(inventory.id))
+              .for("update");
+            for (const s of locked) {
+              supplyCosts.set(s.id, Number(s.costPrice));
+              supplyRows.set(s.id, { name: s.name, quantity: Number(s.quantity) });
+            }
+          }
+        }
+
+        const consumingLines: { orderId: string; inventoryId: string; quantity: number }[] = [];
+
         for (const item of processedItems) {
           const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId)).for("update");
           if (!inventoryItem) throw new Error("One of the items in your cart is no longer available.");
+
+          // Back-bar supplies are not merchandise. The client hides them, but a
+          // client filter is not a boundary.
+          if (inventoryItem.type === "supply") {
+            throw new Error(`"${inventoryItem.name}" is a back-bar supply and cannot be sold.`);
+          }
 
           if (inventoryItem.type === "product") {
             if (inventoryItem.isBundle) {
@@ -673,6 +779,13 @@ export class SalesRepository {
             }
           }
 
+          // Consumables are attributed to this order but deliberately do NOT enter
+          // profit_loss: gross profit keeps its meaning of revenue minus item cost.
+          // Supply cost lands below gross profit, as Direct Supplies.
+          if (cartRecipes.has(item.inventoryId)) {
+            consumingLines.push({ orderId: order.id, inventoryId: item.inventoryId, quantity: item.quantity });
+          }
+
           const costPrice = inventoryItem.costPrice;
           const revenue = totalPrice;
           const profit = revenue - (costPrice * item.quantity);
@@ -698,6 +811,52 @@ export class SalesRepository {
               totalRevenue: revenue,
               totalGrossProfit: profit,
             });
+          }
+        }
+
+        // ── Consumables: write the ledger and draw down supply stock ─────────
+        //
+        // One expansion for the whole cart, so two lines of the same service on one
+        // order collapse into a single ledger row (order_consumables is
+        // UNIQUE(order, supply)) and stock moves once per supply.
+        if (consumingLines.length > 0) {
+          const { rows: consumableRows, deductions } = expandConsumables(consumingLines, cartRecipes, supplyCosts);
+
+          if (consumableRows.length > 0) {
+            await tx.insert(orderConsumables).values(
+              consumableRows.map(r => ({
+                storeId: data.storeId,
+                orderId: r.orderId,
+                supplyInventoryId: r.supplyInventoryId,
+                quantityUsed: r.quantityUsed,
+                unitCostAtSale: r.unitCostAtSale,
+                totalCost: r.totalCost,
+              })),
+            );
+          }
+
+          for (const [supplyId, used] of Array.from(deductions.entries())) {
+            const snapshot = supplyRows.get(supplyId);
+            const newQty = (snapshot?.quantity ?? 0) - used;
+
+            // Deducted directly rather than through deductFIFO: inventory_batches
+            // .quantity is an integer column, so a fractional supply draw-down would
+            // be silently rounded there. Supplies get no expiry batches in v1.
+            await tx.update(inventory).set({ quantity: newQty }).where(eq(inventory.id, supplyId));
+
+            if (snapshot && newQty <= lowStockThreshold) {
+              lowStockItems.push({ name: snapshot.name, quantity: newQty });
+            }
+            if (newQty < 0) {
+              // Never blocks the sale. A till must not refuse a client because the
+              // back office forgot to log a delivery, and the product is already
+              // used by the time it is rung up. Negative stock is the signal that
+              // more was consumed than was recorded as bought.
+              console.warn(
+                `[consumables] supply "${snapshot?.name ?? supplyId}" went negative (${newQty}) ` +
+                `in store ${data.storeId}. Record the purchases that were missed.`
+              );
+            }
           }
         }
 
@@ -842,6 +1001,21 @@ export class SalesRepository {
               .where(eq(inventory.id, inventoryItem.id));
           }
 
+          // Consumables go back on the shelf: a voided sale is one that never
+          // happened, so the shampoo was never poured. (Contrast processReturn,
+          // where the service WAS delivered and the product genuinely is gone.)
+          //
+          // The order_consumables rows are left in place as an audit record — the
+          // P&L stops counting them on its own, because it joins through checkouts
+          // and filters is_voided = false.
+          const voidedConsumables = await tx.select().from(orderConsumables)
+            .where(eq(orderConsumables.orderId, order.id));
+          for (const oc of voidedConsumables) {
+            await tx.update(inventory)
+              .set({ quantity: sql`quantity + ${oc.quantityUsed}` })
+              .where(eq(inventory.id, oc.supplyInventoryId));
+          }
+
           const [existingPL] = await tx.select().from(profitLoss)
             .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, checkout.storeId)));
           if (existingPL) {
@@ -866,18 +1040,7 @@ export class SalesRepository {
 
       let payrollWarning: string | undefined;
       if (checkoutCreatedAt && voidedStoreId) {
-        const checkoutDateStr = (checkoutCreatedAt as Date).toISOString().slice(0, 10);
-        const affectedPeriods = await db
-          .select({ id: payrollPeriods.id, status: payrollPeriods.status, startDate: payrollPeriods.startDate, endDate: payrollPeriods.endDate })
-          .from(payrollPeriods)
-          .where(
-            and(
-              eq(payrollPeriods.storeId, voidedStoreId),
-              sql`${payrollPeriods.startDate} <= ${checkoutDateStr}`,
-              sql`${payrollPeriods.endDate} >= ${checkoutDateStr}`,
-              sql`${payrollPeriods.status} IN ('approved', 'paid')`
-            )
-          );
+        const affectedPeriods = await this.getPayrollPeriodsCoveringDate(voidedStoreId, checkoutCreatedAt as Date);
 
         if (affectedPeriods.length > 0) {
           const periodLabels = affectedPeriods.map((p) => `${p.startDate} – ${p.endDate} (${p.status})`).join(", ");
@@ -888,6 +1051,92 @@ export class SalesRepository {
       return { success: true, message: "Transaction voided successfully.", payrollWarning };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not void transaction.";
+      return { success: false, message };
+    }
+  }
+
+  // ─── updateTransactionDate ─────────────────────────────────────────────────
+  async updateTransactionDate(data: {
+    checkoutId: string;
+    newDate: string;
+    updatedByUserId: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    storeId?: string;
+    receiptNumber?: string;
+    affectedCheckoutIds?: string[];
+    previousDate?: string;
+    newDate?: string;
+  }> {
+    try {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data.newDate)) {
+        return { success: false, message: "A valid date (YYYY-MM-DD) is required." };
+      }
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (data.newDate > todayStr) {
+        return { success: false, message: "Transaction date cannot be in the future." };
+      }
+
+      const newDateObj = this.parseDateOnly(data.newDate);
+
+      let resultStoreId = "";
+      let resultReceiptNumber = "";
+      let affectedCheckoutIds: string[] = [];
+      let previousDateStr = "";
+
+      await db.transaction(async (tx) => {
+        const [primaryCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
+        if (!primaryCheckout) throw new Error("Transaction not found.");
+
+        resultStoreId = primaryCheckout.storeId;
+        resultReceiptNumber = primaryCheckout.receiptNumber;
+        const oldCreatedAt = new Date(primaryCheckout.createdAt);
+        previousDateStr = oldCreatedAt.toISOString().slice(0, 10);
+
+        if (previousDateStr === data.newDate) {
+          throw new Error("New date is the same as the current transaction date.");
+        }
+
+        const [oldPeriods, newPeriods] = await Promise.all([
+          this.getPayrollPeriodsCoveringDate(resultStoreId, oldCreatedAt),
+          this.getPayrollPeriodsCoveringDate(resultStoreId, newDateObj),
+        ]);
+
+        if (oldPeriods.length > 0 || newPeriods.length > 0) {
+          const describe = (periods: typeof oldPeriods) =>
+            periods.map((p) => `${p.startDate} – ${p.endDate} (${p.status})`).join(", ");
+          const parts: string[] = [];
+          if (oldPeriods.length > 0) parts.push(`current date falls within finalized payroll period(s): ${describe(oldPeriods)}`);
+          if (newPeriods.length > 0) parts.push(`new date falls within finalized payroll period(s): ${describe(newPeriods)}`);
+          throw new Error(`Cannot change this transaction's date — ${parts.join("; ")}. Reopen or amend the payroll period before editing this date.`);
+        }
+
+        const receiptCheckouts = await tx.select().from(checkouts)
+          .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
+        affectedCheckoutIds = receiptCheckouts.map((c) => c.id);
+
+        await tx.update(checkouts)
+          .set({ createdAt: newDateObj })
+          .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
+
+        await tx.update(transactions)
+          .set({ transactionDate: newDateObj })
+          .where(inArray(transactions.checkoutId, affectedCheckoutIds));
+      });
+
+      return {
+        success: true,
+        message: "Transaction date updated successfully.",
+        storeId: resultStoreId,
+        receiptNumber: resultReceiptNumber,
+        affectedCheckoutIds,
+        previousDate: previousDateStr,
+        newDate: data.newDate,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update transaction date.";
       return { success: false, message };
     }
   }
@@ -945,6 +1194,9 @@ export class SalesRepository {
           .where(eq(inventory.id, data.inventoryId))
           .for("update");
         if (!inv) throw new Error("Item not found.");
+        if (inv.type === "supply") {
+          throw new Error(`"${inv.name}" is a back-bar supply and cannot be sold.`);
+        }
         if (inv.type === "product" && Number(inv.quantity) < data.quantity) {
           throw new Error(`Insufficient stock. Only ${inv.quantity} unit(s) available.`);
         }
@@ -1007,6 +1259,53 @@ export class SalesRepository {
             .set({ quantity: sql`${inventory.quantity} - ${data.quantity}` })
             .where(eq(inventory.id, data.inventoryId));
           await this.inventoryRepo.deductFIFO(data.inventoryId, data.quantity, tx);
+        }
+
+        // 8b. Consumables for the added line.
+        //
+        // No date column is needed on order_consumables: this checkout is written
+        // with `createdAt: originalSaleDate`, so the date the P&L derives through
+        // the join already lands in the original period — which is the whole point
+        // of the addendum feature.
+        const addendumRecipes = await this.consumablesRepo.getActiveRecipes([data.inventoryId]);
+        if (addendumRecipes.size > 0) {
+          const supplyIds = Array.from(
+            new Set(Array.from(addendumRecipes.values()).flat().map(r => r.supplyInventoryId)),
+          ).sort();
+
+          const lockedSupplies = await tx
+            .select()
+            .from(inventory)
+            .where(inArray(inventory.id, supplyIds))
+            .orderBy(asc(inventory.id))
+            .for("update");
+
+          const addendumCosts = new Map(lockedSupplies.map(s => [s.id, Number(s.costPrice)]));
+          const { rows: addendumRows, deductions } = expandConsumables(
+            [{ orderId: order.id, inventoryId: data.inventoryId, quantity: data.quantity }],
+            addendumRecipes,
+            addendumCosts,
+          );
+
+          if (addendumRows.length > 0) {
+            await tx.insert(orderConsumables).values(
+              addendumRows.map(r => ({
+                storeId,
+                orderId: r.orderId,
+                supplyInventoryId: r.supplyInventoryId,
+                quantityUsed: r.quantityUsed,
+                unitCostAtSale: r.unitCostAtSale,
+                totalCost: r.totalCost,
+              })),
+            );
+          }
+
+          // Negative stock is allowed here for the same reason it is at checkout.
+          for (const [supplyId, used] of Array.from(deductions.entries())) {
+            await tx.update(inventory)
+              .set({ quantity: sql`${inventory.quantity} - ${used}` })
+              .where(eq(inventory.id, supplyId));
+          }
         }
 
         // 9. Update profit/loss
@@ -1076,16 +1375,7 @@ export class SalesRepository {
       });
 
       // Payroll warning: check if today falls in a finalized payroll period
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const affectedPeriods = await db
-        .select({ id: payrollPeriods.id, status: payrollPeriods.status, startDate: payrollPeriods.startDate, endDate: payrollPeriods.endDate })
-        .from(payrollPeriods)
-        .where(and(
-          eq(payrollPeriods.storeId, addendumStoreId),
-          sql`${payrollPeriods.startDate} <= ${todayStr}`,
-          sql`${payrollPeriods.endDate} >= ${todayStr}`,
-          sql`${payrollPeriods.status} IN ('approved', 'paid')`
-        ));
+      const affectedPeriods = await this.getPayrollPeriodsCoveringDate(addendumStoreId, new Date());
       if (affectedPeriods.length > 0) {
         const labels = affectedPeriods.map(p => `${p.startDate} – ${p.endDate} (${p.status})`).join(", ");
         payrollWarning = `This addendum falls within finalized payroll period(s): ${labels}. Commission for affected staff may need manual adjustment.`;
@@ -1145,6 +1435,18 @@ export class SalesRepository {
 
           let restockEventId: string | null = null;
 
+          // Consumables are deliberately NOT touched here, and this is not an
+          // oversight — do not "fix" it.
+          //
+          // A refunded haircut still consumed the shampoo. The product is gone, so
+          // the supply is not restocked and its cost is not reversed: the full
+          // original consumable cost stands while the revenue drops away. That is
+          // exactly the margin signal an owner needs, because returns really do
+          // cost twice.
+          //
+          // Note a full return is NOT a void — checkouts.isVoided stays false, so
+          // the consumable cost correctly remains counted. If the service genuinely
+          // never happened, the right operation is a void, not a return.
           const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
           if (inventoryItem && inventoryItem.type === "product" && item.restock) {
             const newQty = inventoryItem.quantity + item.quantity;

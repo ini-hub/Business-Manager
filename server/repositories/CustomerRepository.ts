@@ -13,6 +13,7 @@ import {
 } from "@shared/schema";
 import { eq, and, or, ilike, inArray, count, asc, sql, gte, lte, desc } from "drizzle-orm";
 import { normalizePhoneNumber } from "../sanitize";
+import { searchTokens, infix, searchPhoneDigits } from "../lib/searchTerms";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 
 export class CustomerRepository {
@@ -413,10 +414,36 @@ export class CustomerRepository {
     return customer;
   }
 
-  async searchCustomers(storeId: string, query: string): Promise<Customer[]> {
+  async searchCustomers(storeIds: string[], query: string): Promise<Customer[]> {
+    const tokens = searchTokens(query);
+    if (storeIds.length === 0 || tokens.length === 0) return [];
+
+    // Every token must appear somewhere in the record; each may land in a
+    // different field, so "ade CUST-4" matches on name and number together.
+    const tokenMatches = tokens.map((token) => {
+      const pattern = infix(token);
+      return or(
+        ilike(customers.name, pattern),
+        ilike(customers.customerNumber, pattern),
+        ilike(customers.mobileNumber, pattern),
+      )!;
+    });
+
+    const digits = searchPhoneDigits(query);
+    const matches = digits
+      ? or(
+          and(...tokenMatches)!,
+          // '[^0-9]' rather than '\D': a backslash class would be eaten by the
+          // template literal before it ever reached Postgres.
+          sql`regexp_replace(coalesce(${customers.mobileNumber}, ''), '[^0-9]', '', 'g') like ${`%${digits}%`}`,
+        )!
+      : and(...tokenMatches)!;
+
     return db.select()
       .from(customers)
-      .where(and(eq(customers.storeId, storeId), ilike(customers.name, `%${query}%`)))
+      .where(and(inArray(customers.storeId, storeIds), matches))
+      // Archived customers stay searchable (the UI badges them) but rank last.
+      .orderBy(asc(customers.isArchived), asc(customers.name))
       .limit(10);
   }
 

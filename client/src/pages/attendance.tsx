@@ -28,6 +28,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
 
 const STATUS_CONFIG: Record<AttendanceStatus, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -309,7 +310,9 @@ export default function AttendancePage() {
                           {s.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-sm truncate">{s.name}</p>
+                          <EntityLink href={`/staff/${s.id}/edit`} className="font-medium text-sm truncate">
+                            {s.name}
+                          </EntityLink>
                           <p className="text-xs text-muted-foreground font-mono truncate">{s.staffNumber}</p>
                         </div>
                       </div>
@@ -367,7 +370,7 @@ export default function AttendancePage() {
                     <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
                       {s.name.charAt(0)}
                     </div>
-                    {s.name}
+                    <EntityLink href={`/staff/${s.id}/edit`}>{s.name}</EntityLink>
                     <span className="font-mono text-xs text-muted-foreground">{s.staffNumber}</span>
                   </CardTitle>
                   <div className="flex flex-wrap gap-2.5 text-xs font-medium">
@@ -482,7 +485,9 @@ export default function AttendancePage() {
                             {s.name.charAt(0)}
                           </div>
                           <div>
-                            <p className="font-medium">{s.name}</p>
+                            <EntityLink href={`/staff/${s.id}/edit`} className="font-medium">
+                              {s.name}
+                            </EntityLink>
                             <p className="text-xs text-muted-foreground font-mono">{s.staffNumber}</p>
                           </div>
                         </div>

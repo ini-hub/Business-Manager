@@ -84,6 +84,9 @@ const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
 const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
 const ReportsIndexPage = lazy(() => import("@/pages/reports/index"));
 const AuditLogsPage = lazy(() => import("@/pages/reports/audit-logs"));
+const AnalyticsExplorerPage = lazy(() => import("@/pages/analytics"));
+const AnalyticsDashboardsPage = lazy(() => import("@/pages/analytics/dashboards"));
+const AnalyticsDashboardDetailPage = lazy(() => import("@/pages/analytics/dashboard-detail"));
 const VerifyPayslipPage = lazy(() => import("@/pages/verify-payslip"));
 
 // Super Admin Portal (lazy — separate user segment)
@@ -248,24 +251,27 @@ function AuthenticatedLayout() {
       }
 
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        switch (e.key.toLowerCase()) {
-          case "n":
+        // Use e.code (physical key) instead of e.key: on macOS, Option acts as a
+        // diacritic/dead-key modifier, so e.key returns "ç", "∂", "†", etc.
+        // instead of the letter typed, and the shortcuts would never match.
+        switch (e.code) {
+          case "KeyN":
             e.preventDefault();
             setLocation("/sales/new");
             break;
-          case "i":
+          case "KeyI":
             e.preventDefault();
             setLocation("/inventory");
             break;
-          case "c":
+          case "KeyC":
             e.preventDefault();
             setLocation("/customers");
             break;
-          case "d":
+          case "KeyD":
             e.preventDefault();
             setLocation("/");
             break;
-          case "t":
+          case "KeyT":
             e.preventDefault();
             setLocation("/transactions");
             break;
@@ -393,6 +399,17 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/settings/promotions">
                     {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}
+                  </Route>
+                  {/* Most specific first — wouter matches top-down, so
+                      /analytics would otherwise swallow its own subpaths. */}
+                  <Route path="/analytics/dashboards/:id">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <AnalyticsDashboardDetailPage />}
+                  </Route>
+                  <Route path="/analytics/dashboards">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <AnalyticsDashboardsPage />}
+                  </Route>
+                  <Route path="/analytics">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <AnalyticsExplorerPage />}
                   </Route>
                   <Route path="/reports/audit-logs">
                     {user?.role === "staff" ? <Redirect to="/" /> : <AuditLogsPage />}

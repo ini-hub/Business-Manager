@@ -16,7 +16,9 @@ import {
   History,
   AlertCircle
 } from "lucide-react";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
 import { format, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -49,9 +51,10 @@ export default function StaffDashboard() {
   const upcomingBookings = bookingsData?.data || [];
 
   const formatCurrency = (val: number) => formatCurrencyUtil(val, currency);
+  const formatCompact = (val: number) => formatCurrencyCompact(val, currency);
 
   if (isSummaryLoading) {
-    return <div className="p-8 space-y-6"><Skeleton className="h-40 w-full" /><div className="grid grid-cols-2 gap-4"><Skeleton className="h-32" /><Skeleton className="h-32" /></div></div>;
+    return <div className="p-8 space-y-6"><Skeleton className="h-40 w-full" /><MetricGrid><Skeleton className="h-24 sm:h-32" /><Skeleton className="h-24 sm:h-32" /></MetricGrid></div>;
   }
 
   return (
@@ -62,68 +65,36 @@ export default function StaffDashboard() {
       />
 
       {/* Current Earnings Overview */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-primary text-primary-foreground">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Wallet className="h-4 w-4 opacity-70" />
-              Est. Net Pay
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary?.earnings || 0)}</div>
-            <p className="text-xs opacity-70 mt-1">Current Period: {summary?.period?.label || "None"}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-              <TrendingUp className="h-4 w-4" />
-              Commission Earned
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary?.commission || 0)}</div>
-            <p className="text-xs text-muted-foreground mt-1">From services & products</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-              <Clock className="h-4 w-4" />
-              Transport Allowance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary?.transport || 0)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Based on present days</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-              <CalendarCheck className="h-4 w-4" />
-              Attendance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col">
-                <span className="text-xl font-bold">{summary?.attendance?.present || 0}</span>
-                <span className="text-[10px] uppercase text-muted-foreground font-semibold">Present</span>
-              </div>
-              <Separator orientation="vertical" className="h-8" />
-              <div className="flex flex-col">
-                <span className="text-xl font-bold text-red-500">{summary?.attendance?.absent || 0}</span>
-                <span className="text-[10px] uppercase text-muted-foreground font-semibold">Absent</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <MetricGrid>
+        <MetricCard
+          title="Est. Net Pay"
+          value={formatCurrency(summary?.earnings || 0)}
+          compactValue={formatCompact(summary?.earnings || 0)}
+          icon={<Wallet className="h-4 w-4 opacity-70" />}
+          description={`Current Period: ${summary?.period?.label || "None"}`}
+          className="bg-primary text-primary-foreground [&_p]:text-primary-foreground/70 [&_.text-muted-foreground]:text-primary-foreground/70"
+        />
+        <MetricCard
+          title="Commission Earned"
+          value={formatCurrency(summary?.commission || 0)}
+          compactValue={formatCompact(summary?.commission || 0)}
+          icon={<TrendingUp className="h-4 w-4" />}
+          description="From services & products"
+        />
+        <MetricCard
+          title="Transport Allowance"
+          value={formatCurrency(summary?.transport || 0)}
+          compactValue={formatCompact(summary?.transport || 0)}
+          icon={<Clock className="h-4 w-4" />}
+          description="Based on present days"
+        />
+        <MetricCard
+          title="Attendance (Present)"
+          value={summary?.attendance?.present || 0}
+          icon={<CalendarCheck className="h-4 w-4" />}
+          description={`${summary?.attendance?.absent || 0} absent this period`}
+        />
+      </MetricGrid>
 
       <div className="grid gap-6 md:grid-cols-[1fr_300px]">
         {/* Payment History */}

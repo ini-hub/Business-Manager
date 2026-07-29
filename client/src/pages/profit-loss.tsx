@@ -12,8 +12,10 @@ import { ExportToolbar } from "@/components/export-toolbar";
 import { exportFinancialStatementToPDF, type StatementLine } from "@/lib/export-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
-import { Link } from "wouter";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
+import { Link, useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { Separator } from "@/components/ui/separator";
 import type { ProfitLossWithInventory } from "@shared/schema";
@@ -29,6 +31,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export default function ProfitLossPage() {
   const { currentStore, business, stores } = useStore();
   const { user } = useAuth();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const storeCurrency = currentStore?.currency || "NGN";
   const [discountsCollapsed, setDiscountsCollapsed] = useState(true);
   const [activeTab, setActiveTab] = useState("income");
@@ -196,6 +200,7 @@ export default function ProfitLossPage() {
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);
   };
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const isLoading = isLoadingPL || isLoadingSummary || isLoadingCashFlow;
 
@@ -475,30 +480,34 @@ export default function ProfitLossPage() {
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricGrid>
         {activeTab === "cashflow" ? (
           <>
             <PolymorphicMetricCard
               title="Customer Cash Inflows"
               value={formatCurrency(cashFlowData?.operatingActivities?.cashReceiptsFromCustomers ?? 0)}
+              compactValue={formatCompact(cashFlowData?.operatingActivities?.cashReceiptsFromCustomers ?? 0)}
               icon={<Coins className="h-5 w-5 text-emerald-600" />}
               isLoading={isLoadingCashFlow}
             />
             <PolymorphicMetricCard
               title="Cash Paid for Expenses"
               value={formatCurrency(cashFlowData?.operatingActivities?.cashPaidForOperatingExpenses ?? 0)}
+              compactValue={formatCompact(cashFlowData?.operatingActivities?.cashPaidForOperatingExpenses ?? 0)}
               icon={<Wallet className="h-5 w-5 text-red-600" />}
               isLoading={isLoadingCashFlow}
             />
             <PolymorphicMetricCard
               title="Drawer Cash Drops"
               value={formatCurrency(cashFlowData?.operatingActivities?.cashDropsFromDrawer ?? 0)}
+              compactValue={formatCompact(cashFlowData?.operatingActivities?.cashDropsFromDrawer ?? 0)}
               icon={<TrendingDown className="h-5 w-5 text-amber-600" />}
               isLoading={isLoadingCashFlow}
             />
             <PolymorphicMetricCard
               title="Net Cash Flow"
               value={formatCurrency(cashFlowData?.netCashIncrease ?? 0)}
+              compactValue={formatCompact(cashFlowData?.netCashIncrease ?? 0)}
               trend={(cashFlowData?.netCashIncrease ?? 0) >= 0 ? "up" : "down"}
               trendValue="Net Cash Increase"
               icon={<TrendingUp className="h-5 w-5 text-blue-600" />}
@@ -510,6 +519,7 @@ export default function ProfitLossPage() {
             <PolymorphicMetricCard
               title="Actual Revenue (Net)"
               value={formatCurrency(summary?.totalRevenue ?? 0)}
+              compactValue={formatCompact(summary?.totalRevenue ?? 0)}
               description={summary?.returnedRevenue > 0 ? `Gross: ${formatCurrency(summary.grossRevenue)} (Refunded: ${formatCurrency(summary.returnedRevenue)})` : "Net revenue after returns"}
               icon={<Coins className="h-5 w-5 text-emerald-600" />}
               isLoading={isLoading}
@@ -517,6 +527,7 @@ export default function ProfitLossPage() {
             <PolymorphicMetricCard
               title="Gross Profit"
               value={formatCurrency(summary?.grossProfit ?? 0)}
+              compactValue={formatCompact(summary?.grossProfit ?? 0)}
               trend={(summary?.grossProfit ?? 0) >= 0 ? "up" : "down"}
               trendValue="Gross margin"
               icon={(summary?.grossProfit ?? 0) >= 0 ? <TrendingUp className="h-5 w-5 text-blue-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
@@ -526,6 +537,7 @@ export default function ProfitLossPage() {
               <PolymorphicMetricCard
                 title="Total Expenses"
                 value={formatCurrency(summary?.totalExpenses ?? 0)}
+                compactValue={formatCompact(summary?.totalExpenses ?? 0)}
                 icon={<Wallet className="h-5 w-5 text-amber-600" />}
                 description="Operational + Payroll"
                 isLoading={isLoading}
@@ -535,6 +547,7 @@ export default function ProfitLossPage() {
               <PolymorphicMetricCard
                 title="Operating Profit"
                 value={formatCurrency(opProfit)}
+                compactValue={formatCompact(opProfit)}
                 trend={opProfit >= 0 ? "up" : "down"}
                 trendValue="Operating margin"
                 icon={opProfit >= 0 ? <TrendingUp className="h-5 w-5 text-green-600" /> : <TrendingDown className="h-5 w-5 text-red-600" />}
@@ -543,7 +556,7 @@ export default function ProfitLossPage() {
             )}
           </>
         )}
-      </div>
+      </MetricGrid>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <PolymorphicTabsList tabs={plTabItems} variant="default" className="mb-6" />
@@ -622,7 +635,15 @@ export default function ProfitLossPage() {
                           summary.discountsList.map((d: any, idx: number) => (
                             <div key={idx} className="p-3 text-xs flex flex-col gap-1.5">
                               <div className="flex justify-between items-center">
-                                <span className="font-mono font-medium text-foreground">{d.receiptNumber}</span>
+                                <span
+                                  className={`font-mono font-medium text-foreground ${d.transactionId ? "cursor-pointer hover:underline" : ""}`}
+                                  onClick={() => {
+                                    if (!d.transactionId) return;
+                                    setLocation(appendReturnTo(`/transactions/${d.transactionId}`, location, search));
+                                  }}
+                                >
+                                  {d.receiptNumber}
+                                </span>
                                 <span className="font-mono text-red-500 font-semibold">
                                   − {formatCurrency(d.discountAmount)} ({d.discountPercent.toFixed(0)}%)
                                 </span>
@@ -648,6 +669,22 @@ export default function ProfitLossPage() {
                   </div>
 
                   <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Direct Supplies &amp; Consumables</span>
+                    <span className="font-mono">− {formatCurrency(summary?.directSuppliesTotal ?? 0)}</span>
+                  </div>
+                  {(summary?.directSuppliesFromRecipes ?? 0) > 0 && (
+                    <div className="flex justify-between items-center text-xs pl-4 text-muted-foreground">
+                      <span>from service recipes</span>
+                      <span className="font-mono">{formatCurrency(summary.directSuppliesFromRecipes)}</span>
+                    </div>
+                  )}
+                  {(summary?.directSuppliesFromExpenses ?? 0) > 0 && (
+                    <div className="flex justify-between items-center text-xs pl-4 text-muted-foreground">
+                      <span>from supply expenses</span>
+                      <span className="font-mono">{formatCurrency(summary.directSuppliesFromExpenses)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-sm">
                     <span className="text-muted-foreground">Operational Expenses</span>
                     <span className="font-mono">− {formatCurrency(summary?.totalOperationalExpenses ?? 0)}</span>
                   </div>
@@ -667,14 +704,23 @@ export default function ProfitLossPage() {
                     </span>
                   </div>
 
+                  <div className="flex justify-between items-center text-xs text-muted-foreground pb-2">
+                    <span>memo: Cost of Delivery (COGS + Direct Supplies)</span>
+                    <span className="font-mono">{formatCurrency(summary?.costOfDelivery ?? 0)}</span>
+                  </div>
+
                   <Separator className="my-4" />
                   <div className="flex gap-2 items-center p-3 rounded-lg border border-blue-100 bg-blue-50/50 text-blue-800 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-200 shadow-sm">
                     <AlertCircle className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
                     <div className="flex-1 text-xs md:text-sm flex flex-col md:flex-row md:items-center justify-between gap-2">
-                      <span>ⓘ Service & Product sustaining costs are completely excluded from this statement.</span>
-                      <Link href="/inventory">
+                      <span>
+                        ⓘ Supplies and consumables are now counted here, under Direct Supplies.
+                        Periods before this change showed a higher operating profit because
+                        item-linked costs were left out of the statement.
+                      </span>
+                      <Link href="/reports/service-profitability">
                         <Button size="sm" variant="ghost" className="text-blue-700 dark:text-blue-400 p-0 h-auto font-semibold flex items-center gap-1">
-                          View per-item breakdown in Inventory &rarr;
+                          See it split per item &rarr;
                         </Button>
                       </Link>
                     </div>
@@ -866,7 +912,15 @@ export default function ProfitLossPage() {
                             <td className="p-3 font-mono text-xs">
                               {d.createdAt ? format(new Date(d.createdAt), "yyyy-MM-dd HH:mm") : "N/A"}
                             </td>
-                            <td className="p-3 font-medium font-mono text-xs">{d.receiptNumber}</td>
+                            <td
+                              className={`p-3 font-medium font-mono text-xs ${d.transactionId ? "cursor-pointer hover:underline text-primary" : ""}`}
+                              onClick={() => {
+                                if (!d.transactionId) return;
+                                setLocation(appendReturnTo(`/transactions/${d.transactionId}`, location, search));
+                              }}
+                            >
+                              {d.receiptNumber}
+                            </td>
                             <td className="p-3 text-right font-mono text-xs">{formatCurrency(d.subtotal || 0)}</td>
                             <td className="p-3 text-right font-mono text-xs text-red-500 font-medium">
                               − {formatCurrency(d.discountAmount)} ({d.discountPercent.toFixed(0)}%)

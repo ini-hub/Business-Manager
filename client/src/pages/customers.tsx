@@ -8,7 +8,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { useLocation } from "wouter";
-import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, TrendingUp, TrendingDown, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,13 +56,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buildSlug } from "@/lib/slug";
 import { Link } from "wouter";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
 import { exportReportToPDF } from "@/lib/export-utils";
 import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
 import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   ResponsiveContainer,
   LineChart,
@@ -542,9 +543,9 @@ export default function Customers() {
       key: "address",
       header: "Address",
       render: (customer: Customer) => (
-        <div className="flex items-center gap-2 max-w-xs">
-          <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-          <span className="truncate">{customer.address || "-"}</span>
+        <div className="flex items-start gap-2 max-w-xs">
+          <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0 mt-0.5" />
+          <span className="line-clamp-2">{customer.address || "-"}</span>
         </div>
       ),
     },
@@ -903,83 +904,47 @@ export default function Customers() {
         })()}
         <TabsContent value="analytics" className="space-y-6 mt-4">
           {isLoading || isLoadingTxs ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <MetricGrid>
               {[...Array(4)].map((_, i) => (
-                <Card key={i} className="border-primary/10">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <Skeleton className="h-4 w-[100px]" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-8 w-[60px] mb-2" />
-                    <Skeleton className="h-3 w-[120px]" />
-                  </CardContent>
-                </Card>
+                <MetricCard key={i} title="" value="" isLoading className="border-primary/10" />
               ))}
-            </div>
+            </MetricGrid>
           ) : (
             <>
               {/* Key Indicators Row */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">New Customers (This Month)</CardTitle>
-                    <Users className="h-4 w-4 text-indigo-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-sans">{newThisMonth}</div>
-                    <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                      {acquisitionPercentChange >= 0 ? (
-                        <TrendingUp className="h-3 w-3 text-green-500 inline" />
-                      ) : (
-                        <TrendingDown className="h-3 w-3 text-rose-500 inline" />
-                      )}
-                      <span className={acquisitionPercentChange >= 0 ? "text-green-600 font-medium" : "text-rose-600 font-medium"}>
-                        {acquisitionPercentChange >= 0 ? "+" : ""}{acquisitionPercentChange}%
-                      </span>{" "}
-                      vs last month
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">Returning Customer Rate</CardTitle>
-                    <Percent className="h-4 w-4 text-emerald-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-sans">{retentionRate}%</div>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      <strong>{returningCustomersCount}</strong> out of {totalCustomersCount} active profiles
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">Avg. Days to Return</CardTitle>
-                    <Clock className="h-4 w-4 text-cyan-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-sans">{avgReturnDays} days</div>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Typical gap between checkouts for regulars
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-primary/10 hover:border-primary/20 transition-all shadow-sm">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">Top Loyalty Customer</CardTitle>
-                    <Award className="h-4 w-4 text-amber-500" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-base font-bold truncate mt-1">{topLoyaltyCustomerName}</div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      Completed <strong>{topLoyaltyVisitCount}</strong> visits overall
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
+              <MetricGrid>
+                <MetricCard
+                  title="New Customers (This Month)"
+                  value={newThisMonth}
+                  icon={<Users className="h-4 w-4 text-indigo-500" />}
+                  trend={acquisitionPercentChange >= 0 ? "up" : "down"}
+                  trendValue={`${acquisitionPercentChange >= 0 ? "+" : ""}${acquisitionPercentChange}%`}
+                  description="vs last month"
+                  className="border-primary/10 hover:border-primary/20"
+                />
+                <MetricCard
+                  title="Returning Customer Rate"
+                  value={`${retentionRate}%`}
+                  icon={<Percent className="h-4 w-4 text-emerald-500" />}
+                  description={`${returningCustomersCount} out of ${totalCustomersCount} active profiles`}
+                  className="border-primary/10 hover:border-primary/20"
+                />
+                <MetricCard
+                  title="Avg. Days to Return"
+                  value={`${avgReturnDays} days`}
+                  icon={<Clock className="h-4 w-4 text-cyan-500" />}
+                  description="Typical gap between checkouts for regulars"
+                  className="border-primary/10 hover:border-primary/20"
+                />
+                <MetricCard
+                  title="Top Loyalty Customer"
+                  value={topLoyaltyCustomerName}
+                  valueClassName="font-sans text-base sm:text-lg truncate"
+                  icon={<Award className="h-4 w-4 text-amber-500" />}
+                  description={`Completed ${topLoyaltyVisitCount} visits overall`}
+                  className="border-primary/10 hover:border-primary/20"
+                />
+              </MetricGrid>
 
               {/* Trend Chart */}
               <Card className="border-primary/10 shadow-sm">

@@ -11,7 +11,8 @@ import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -390,6 +391,7 @@ export default function PurchaseOrdersPage() {
   };
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const addItemRow = () => {
     setItems([...items, { inventoryId: "", quantity: 1, unitCost: 0 }]);
@@ -517,6 +519,12 @@ export default function PurchaseOrdersPage() {
   const totalPOVal = purchaseOrders.reduce((sum, po) => sum + po.totalAmount, 0);
   const orderedCount = purchaseOrders.filter(po => po.status === "ordered" || po.status === "partially_received").length;
   const fulfilledCount = purchaseOrders.filter(po => po.status === "received").length;
+  const outstandingPayable = vendorBills
+    .filter(b => b.status !== "paid")
+    .reduce((sum, b) => sum + (Number(b.amount) - Number(b.amountPaid || 0)), 0);
+  const paidLiabilities = vendorBills
+    .filter(b => b.status === "paid" || b.status === "partially_paid")
+    .reduce((sum, b) => sum + Number(b.amountPaid || 0), 0);
 
   const poExportColumns = [
     { key: "poNumber", header: "PO Code" },
@@ -581,26 +589,20 @@ export default function PurchaseOrdersPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <MetricGrid>
         {activeTab === "bills" ? (
           <>
             <MetricCard
               title="Accounts Payable (Outstanding)"
-              value={formatCurrency(
-                vendorBills
-                  .filter(b => b.status !== "paid")
-                  .reduce((sum, b) => sum + (Number(b.amount) - Number(b.amountPaid || 0)), 0)
-              )}
+              value={formatCurrency(outstandingPayable)}
+              compactValue={formatCompact(outstandingPayable)}
               icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
               isLoading={isLoadingBills}
             />
             <MetricCard
               title="Paid Liabilities (This Month)"
-              value={formatCurrency(
-                vendorBills
-                  .filter(b => b.status === "paid" || b.status === "partially_paid")
-                  .reduce((sum, b) => sum + Number(b.amountPaid || 0), 0)
-              )}
+              value={formatCurrency(paidLiabilities)}
+              compactValue={formatCompact(paidLiabilities)}
               icon={<CheckSquare className="h-4 w-4 text-emerald-500" />}
               isLoading={isLoadingBills}
             />
@@ -616,6 +618,7 @@ export default function PurchaseOrdersPage() {
             <MetricCard
               title="Procurement Volume"
               value={formatCurrency(totalPOVal)}
+              compactValue={formatCompact(totalPOVal)}
               icon={<Truck className="h-4 w-4 text-blue-500" />}
               isLoading={isLoadingPOs}
             />
@@ -633,7 +636,7 @@ export default function PurchaseOrdersPage() {
             />
           </>
         )}
-      </div>
+      </MetricGrid>
 
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

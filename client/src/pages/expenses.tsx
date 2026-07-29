@@ -14,7 +14,8 @@ import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { BulkOperations } from "@/components/bulk-operations";
 import { EXPENSE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
@@ -424,6 +425,7 @@ export default function ExpensesPage() {
   });
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const filteredExpenses = expenses.filter((e) => {
     if (filterType === "general") return !e.inventoryId;
@@ -658,10 +660,11 @@ export default function ExpensesPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricGrid>
         <MetricCard
           title="Total Expenses"
           value={formatCurrency(totalExpenses)}
+          compactValue={formatCompact(totalExpenses)}
           icon={<Wallet className="h-4 w-4" />}
           description={dateRange?.from && dateRange?.to ? `Period: ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}` : "All time"}
           isLoading={isLoadingExpenses}
@@ -672,7 +675,7 @@ export default function ExpensesPage() {
           icon={<Receipt className="h-4 w-4" />}
           isLoading={isLoadingExpenses}
         />
-      </div>
+      </MetricGrid>
 
       <Card>
         <CardHeader>

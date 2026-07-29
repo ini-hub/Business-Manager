@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { format, parseISO } from "date-fns";
 import {
   DollarSign,
@@ -66,7 +67,9 @@ export default function PayrollPage() {
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedPeriodId, setSelectedPeriodIdRaw] = useState<string | null>(
-    () => sessionStorage.getItem("payroll_selected_period")
+    // A `?period=` link (e.g. from the Payroll Report) takes precedence over the last
+    // session-persisted selection on first load.
+    () => new URLSearchParams(window.location.search).get("period") || sessionStorage.getItem("payroll_selected_period")
   );
 
   // Wrap setter to also persist to sessionStorage
@@ -569,7 +572,13 @@ export default function PayrollPage() {
                             {entry.staff.name.charAt(0)}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-medium text-sm truncate">{entry.staff.name}</p>
+                            {entry.staffId ? (
+                              <EntityLink href={`/staff/${entry.staffId}/edit`} className="font-medium text-sm truncate">
+                                {entry.staff.name}
+                              </EntityLink>
+                            ) : (
+                              <p className="font-medium text-sm truncate">{entry.staff.name}</p>
+                            )}
                             <p className="text-xs text-muted-foreground font-mono">{entry.staff.staffNumber}</p>
                           </div>
                         </div>

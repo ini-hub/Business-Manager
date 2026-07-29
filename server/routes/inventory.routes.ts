@@ -38,6 +38,46 @@ import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withInventoryId } from '../utils/slug-resolver';
 
+/**
+ * Per-type money rules for an inventory row. Returns an error message, or null
+ * when valid. Shared by create, update, variant-create and bulk import so the
+ * three types cannot drift apart across four call sites.
+ *
+ * - supply: back-bar consumables are never sold, so there is no selling price and
+ *   no margin to check. Cost must be positive — it is what the P&L charges when a
+ *   service consumes the item.
+ * - service: cost price is the FIXED direct cost only and may legitimately be zero
+ *   once consumables are modelled as a service_consumables recipe. Requiring a
+ *   positive number here is what used to force owners to invent one.
+ * - product: unchanged.
+ */
+export function validateItemPricing(type: string, costPrice: number, sellingPrice: number): string | null {
+  if (type === "supply") {
+    return costPrice > 0 ? null : "Unit cost must be greater than zero.";
+  }
+
+  if (type === "service") {
+    if (costPrice < 0) return "Fixed cost cannot be negative.";
+  } else if (costPrice <= 0) {
+    return "Unit cost must be greater than zero.";
+  }
+
+  if (sellingPrice <= 0) return "Selling price must be greater than zero.";
+  if (sellingPrice < costPrice) {
+    return `Selling price cannot be less than unit cost (₦${costPrice.toLocaleString()}).`;
+  }
+  return null;
+}
+
+/** Services are the only stockless type; products and supplies both carry quantity. */
+export function normaliseItemStock(type: string, quantity: number): { quantity: number; error: string | null } {
+  if (type === "service") return { quantity: 0, error: null };
+  if (quantity === undefined || quantity === null || isNaN(quantity) || quantity < 0) {
+    return { quantity: 0, error: "Stock quantity must be 0 or greater." };
+  }
+  return { quantity, error: null };
+}
+
 export type RouteMiddlewares = {
   isAuthenticated: any;
   requireRole: (...roles: any[]) => any;
@@ -52,8 +92,15 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required" });
       if (!(await checkStoreAccess(storeId, req, res))) return;
+      // Supplies are excluded unless asked for. This endpoint feeds the POS, the
+      // booking and quote pickers and the expense linker, none of which may offer a
+      // back-bar consumable for sale. Defaulting to exclude means every existing
+      // caller is safe without being touched; purchasing surfaces opt in with
+      // ?include=supplies. The client filter is convenience — processCheckout
+      // rejects supply lines outright.
+      const includeSupplies = String(req.query.include || "").split(",").includes("supplies");
       const productList = await storage.getProducts(storeId);
-      res.json(productList.filter((p: any) => !p.isDeleted));
+      res.json(productList.filter((p: any) => !p.isDeleted && (includeSupplies || p.type !== "supply")));
     } catch {
       res.status(500).json({ error: "Could not fetch products." });
     }
@@ -77,30 +124,21 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       const quantity = sanitizedBody.quantity;
       const costPrice = sanitizedBody.costPrice;
       const sellingPrice = sanitizedBody.sellingPrice;
-      if (type === "product") {
-        if (quantity === undefined || quantity === null || isNaN(quantity) || quantity < 0) {
-          return res.status(400).json({ error: "Stock quantity must be 0 or greater." });
-        }
-      } else if (type === "service") {
-        sanitizedBody.quantity = 0; // Services do not have stock
-      }
+      const stock = normaliseItemStock(type, quantity);
+      if (stock.error) return res.status(400).json({ error: stock.error });
+      sanitizedBody.quantity = stock.quantity;
 
-      if (costPrice <= 0) {
-        return res.status(400).json({ error: "Unit cost must be greater than zero." });
-      }
+      // A supply is never sold, so any selling price sent for one is meaningless.
+      if (type === "supply") sanitizedBody.sellingPrice = 0;
 
-      if (sellingPrice <= 0) {
-        return res.status(400).json({ error: "Selling price must be greater than zero." });
-      }
-
-      if (sellingPrice < costPrice) {
-        return res.status(400).json({ error: `Selling price cannot be less than unit cost (₦${costPrice.toLocaleString()}).` });
-      }
+      const pricingError = validateItemPricing(type, costPrice, sanitizedBody.sellingPrice);
+      if (pricingError) return res.status(400).json({ error: pricingError });
 
       const data = insertInventorySchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
-      
-      const existingItem = await storage.getInventoryItemByName(data.storeId, data.name);
+
+      // Scoped by type: retailing "Shampoo" must not block stocking it back-bar.
+      const existingItem = await storage.getInventoryItemByName(data.storeId, data.name, data.type);
       if (existingItem) {
         return res.status(409).json({
           error: "duplicate_name",
@@ -223,23 +261,19 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       const finalCostPrice = data.costPrice !== undefined ? data.costPrice : item.costPrice;
       const finalSellingPrice = data.sellingPrice !== undefined ? data.sellingPrice : item.sellingPrice;
 
-      if (finalType === "product") {
-        if (finalQuantity === undefined || finalQuantity === null || isNaN(finalQuantity) || finalQuantity < 0) {
-          return res.status(400).json({ error: "Stock quantity must be 0 or greater." });
-        }
+      if (finalType !== "service") {
+        const stock = normaliseItemStock(finalType, finalQuantity);
+        if (stock.error) return res.status(400).json({ error: stock.error });
       }
 
-      if (finalCostPrice <= 0) {
-        return res.status(400).json({ error: "Unit cost must be greater than zero." });
-      }
+      if (finalType === "supply" && data.sellingPrice !== undefined) data.sellingPrice = 0;
 
-      if (finalSellingPrice <= 0) {
-        return res.status(400).json({ error: "Selling price must be greater than zero." });
-      }
-
-      if (finalSellingPrice < finalCostPrice) {
-        return res.status(400).json({ error: `Selling price cannot be less than unit cost (₦${finalCostPrice.toLocaleString()}).` });
-      }
+      const pricingError = validateItemPricing(
+        finalType,
+        finalCostPrice,
+        finalType === "supply" ? 0 : finalSellingPrice,
+      );
+      if (pricingError) return res.status(400).json({ error: pricingError });
 
       const updatedItem = await storage.updateInventoryItem(req.params.id, data);
       if (!updatedItem) {
@@ -397,7 +431,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             type: itemType,
             costPrice: parseFloat(row.costPrice) || 0,
             sellingPrice: parseFloat(row.sellingPrice) || 0,
-            quantity: itemType === "product" ? (parseInt(row.quantity) || 0) : 0,
+            quantity: itemType === "service" ? 0 : (parseInt(row.quantity) || 0),
             productId: product.id,
           }));
           auditLogger.logDataModification("inventory", created.id, getUserId(req), "CREATE", true);
@@ -718,8 +752,11 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         return res.status(403).json({ error: "You don't have access to this inventory item." });
       }
 
-      if (item.type !== "product") {
-        return res.status(400).json({ error: "Only products can be restocked. Services don't have inventory quantities." });
+      // Supplies are restocked through exactly this path — it is how a back-bar
+      // purchase capitalises into stock instead of hitting the P&L. Only services
+      // are stockless.
+      if (item.type === "service") {
+        return res.status(400).json({ error: "Services can't be restocked — they don't have inventory quantities." });
       }
 
       const { quantityAdded, unitCost, costStrategy, newSellingPrice, notes, staffId } = req.body;
@@ -952,7 +989,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         type: parentItem.type,
         costPrice: sanitizeNumber(costPrice),
         sellingPrice: sanitizeNumber(sellingPrice),
-        quantity: parentItem.type === "product" ? sanitizeNumber(quantity) : 0,
+        quantity: parentItem.type === "service" ? 0 : sanitizeNumber(quantity),
         parentInventoryId: parentItem.id,
         productId: parentItem.productId,
         variantDimensions: variantDimensions || {},
@@ -963,25 +1000,20 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         commissionSplitStaffShare: commissionSplitStaffShare !== undefined ? sanitizeNumber(commissionSplitStaffShare) : 20,
       };
 
-      if (sanitizedBody.type === "product") {
-        if (sanitizedBody.quantity === undefined || sanitizedBody.quantity === null || isNaN(sanitizedBody.quantity) || sanitizedBody.quantity < 0) {
-          return res.status(400).json({ error: "Stock quantity must be a non-negative number." });
-        }
-      }
+      const variantStock = normaliseItemStock(sanitizedBody.type, sanitizedBody.quantity);
+      if (variantStock.error) return res.status(400).json({ error: variantStock.error });
+      sanitizedBody.quantity = variantStock.quantity;
 
-      if (sanitizedBody.costPrice <= 0) {
-        return res.status(400).json({ error: "Unit cost must be greater than zero." });
-      }
+      if (sanitizedBody.type === "supply") sanitizedBody.sellingPrice = 0;
 
-      if (sanitizedBody.sellingPrice <= 0) {
-        return res.status(400).json({ error: "Selling price must be greater than zero." });
-      }
+      const variantPricingError = validateItemPricing(
+        sanitizedBody.type,
+        sanitizedBody.costPrice,
+        sanitizedBody.sellingPrice,
+      );
+      if (variantPricingError) return res.status(400).json({ error: variantPricingError });
 
-      if (sanitizedBody.sellingPrice < sanitizedBody.costPrice) {
-        return res.status(400).json({ error: `Selling price cannot be less than unit cost (₦${sanitizedBody.costPrice.toLocaleString()}).` });
-      }
-
-      const existingItem = await storage.getInventoryItemByName(sanitizedBody.storeId, sanitizedBody.name);
+      const existingItem = await storage.getInventoryItemByName(sanitizedBody.storeId, sanitizedBody.name, sanitizedBody.type);
       if (existingItem) {
         return res.status(409).json({
           error: "duplicate_name",

@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
+import { formatInTimeZone } from "date-fns-tz";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import {
@@ -35,7 +36,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -47,17 +48,28 @@ export type RouteMiddlewares = {
 export function registerReportsRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== SEARCH ==========
   app.get("/api/search", isAuthenticated, async (req, res) => {
+    const empty = { customers: [], inventory: [], transactions: [] };
     try {
-      const q = req.query.q as string;
+      const q = ((req.query.q as string) ?? "").trim();
       const storeId = req.query.storeId as string;
-      if (!q || q.length < 2) return res.json({ results: [] });
+      if (!q || q.length < 2) return res.json(empty);
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
-      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      // "all" is the owner's consolidated view, not a store id — resolving it
+      // against the stores table would 404 (or blow up on the uuid cast).
+      let storeIds: string[];
+      if (storeId === "all") {
+        ({ storeIds } = await resolveAccessibleStoreIds(req));
+        if (storeIds.length === 0) return res.json(empty);
+      } else {
+        if (!(await checkStoreAccess(storeId, req, res))) return;
+        storeIds = [storeId];
+      }
 
       const [customersRes, inventoryRes, transactionsRes] = await Promise.all([
-        storage.searchCustomers(storeId, q),
-        storage.searchInventory(storeId, q),
-        storage.searchTransactions(storeId, q)
+        storage.searchCustomers(storeIds, q),
+        storage.searchInventory(storeIds, q),
+        storage.searchTransactions(storeIds, q)
       ]);
 
       res.json({
@@ -331,16 +343,28 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         }
       }
 
-      // Paid expenses as Operating outflow
-      const startStr = start.toISOString().split('T')[0];
-      const endStr = end.toISOString().split('T')[0];
+      // Paid expenses as Operating outflow.
+      //
+      // `expenses.date` is a text 'YYYY-MM-DD' already written in store-local wall
+      // clock, so it must be compared against local date strings. Deriving them
+      // from `start`/`end` via toISOString() re-introduced the very offset
+      // toUtcStart/toUtcEnd had just removed — for a UTC+1 store, local midnight
+      // is 23:00 the previous day in UTC, so the range picked up an extra day at
+      // the start and lost one at the end. Use the request's local dates directly.
+      const startStr = startDateStr ?? formatInTimeZone(start, tz, "yyyy-MM-dd");
+      const endStr = endDateStr ?? formatInTimeZone(end, tz, "yyyy-MM-dd");
 
+      // Every cost class counts here — this is a CASH statement, not the accrual
+      // P&L, so what matters is money leaving the till, not which door the cost
+      // takes into the income statement. Soft-deleted rows must not: without the
+      // isDeleted filter a deleted expense still showed up as cash out.
       const expensesList = await db
         .select()
         .from(expenses)
         .where(
           and(
             eq(expenses.storeId, storeId),
+            eq(expenses.isDeleted, false),
             gte(expenses.date, startStr),
             lte(expenses.date, endStr)
           )

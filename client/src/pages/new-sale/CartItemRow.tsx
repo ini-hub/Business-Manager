@@ -66,17 +66,18 @@ export function CartItemRow({
 
   return (
     <div className={cn(
-      "flex flex-col gap-2 p-3 rounded-lg bg-muted/50",
-      missingLead && "border border-destructive/40"
+      "flex flex-col gap-2 p-3 rounded-lg bg-muted/50 border-l-4",
+      missingLead
+        ? "border border-destructive/40"
+        : isService
+          ? "border-l-violet-500 dark:border-l-violet-400"
+          : "border-l-sky-500 dark:border-l-sky-400"
     )}>
-      {/* Row 1: name + type badge + delete (delete always anchored top-right) */}
+      {/* Row 1: name + delete (delete always anchored top-right); item type is shown via the left-edge color accent, not a badge, so it never competes with the name for space */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <p className="font-medium text-sm leading-snug">{item.inventory.name}</p>
-            <Badge variant="outline" className="text-[10px] h-5 py-0 capitalize shrink-0">
-              {item.inventory.type}
-            </Badge>
             {item.customPrice !== item.inventory.sellingPrice && (
               <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
                 Custom
@@ -95,8 +96,8 @@ export function CartItemRow({
         </Button>
       </div>
 
-      {/* Row 2a: qty stepper + total + staff toggle */}
-      <div className="flex items-center gap-1 flex-nowrap">
+      {/* Row 2a: qty stepper + total + staff toggle — wraps instead of overflowing when the cart panel is narrow, but stays packed together (no ml-auto/justify-between) so it doesn't stretch apart when the panel is wide */}
+      <div className="flex items-center gap-1 flex-wrap">
         <Button
           variant="outline"
           size="icon"
@@ -133,7 +134,7 @@ export function CartItemRow({
         >
           <Plus className="h-3 w-3" />
         </Button>
-        <span className="font-mono text-sm font-medium ml-auto shrink-0">
+        <span className="font-mono text-sm font-medium shrink-0 ml-2">
           {formatCurrency(item.totalPrice)}
         </span>
         {isService && (
@@ -141,7 +142,7 @@ export function CartItemRow({
             variant="ghost"
             size="sm"
             className={cn(
-              "h-7 px-1.5 shrink-0 gap-0.5 text-xs",
+              "h-7 px-1.5 shrink-0 gap-0.5 text-xs whitespace-nowrap",
               missingLead
                 ? "text-destructive hover:text-destructive"
                 : "text-muted-foreground hover:text-foreground"
@@ -156,8 +157,8 @@ export function CartItemRow({
         )}
       </div>
 
-      {/* Row 2b: unit price input */}
-      <div className="flex items-center gap-1.5">
+      {/* Row 2c: unit price input */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-[10px] text-muted-foreground shrink-0">Unit price</span>
         <Input
           type="number"
@@ -170,7 +171,7 @@ export function CartItemRow({
             if (/^0\d+/.test(val)) clean = val.replace(/^0+/, "");
             onUpdatePrice(item.inventory.id, clean === "" ? 0 : parseFloat(clean) || 0);
           }}
-          className="h-6 w-24 font-mono text-xs"
+          className="h-6 w-24 font-mono text-xs shrink-0"
           data-testid={`input-price-${item.inventory.id}`}
           onKeyDown={advanceFocus}
         />

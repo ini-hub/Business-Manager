@@ -152,7 +152,7 @@ export default function InventoryAuditNewPage() {
               </SelectTrigger>
               <SelectContent>
                 {inventoryList
-                  .filter((i) => i.type === "product" && !auditItems.some((ai) => ai.inventoryId === i.id))
+                  .filter((i) => i.type !== "service" && !auditItems.some((ai) => ai.inventoryId === i.id))
                   .map((i) => (
                     <SelectItem key={i.id} value={i.id}>
                       {i.name} (stock: {i.quantity}{i.unit ? ` ${i.unit}` : ""})

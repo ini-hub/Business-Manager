@@ -124,13 +124,16 @@ export class ProductRepository extends BaseRepository<typeof products> {
     });
   }
 
-  async getProductByName(storeId: string, name: string): Promise<Product | undefined> {
+  /** `type` scopes the lookup to the (store_id, type, name) unique key — see
+   *  InventoryRepository.getInventoryItemByName for why. */
+  async getProductByName(storeId: string, name: string, type?: string): Promise<Product | undefined> {
     const [item] = await db
       .select()
       .from(products)
       .where(and(
         eq(products.storeId, storeId),
         eq(products.isDeleted, false),
+        type ? eq(products.type, type) : sql`true`,
         sql`lower(${products.name}) = ${name.toLowerCase().trim()}`
       ));
     return item;

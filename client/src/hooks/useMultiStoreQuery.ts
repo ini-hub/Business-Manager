@@ -7,6 +7,10 @@ interface UseMultiStoreQueryOptions {
   enabled?: boolean;
   merge?: MergeStrategy;
   staleTime?: number;
+  /** Extra query-string params appended alongside storeId. Part of the query key,
+   *  so two callers of the same path with different params do not share a cache
+   *  entry (e.g. /api/products with and without ?include=supplies). */
+  params?: Record<string, string>;
 }
 
 /**
@@ -19,19 +23,22 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
   options: UseMultiStoreQueryOptions = {}
 ) {
   const { currentStore, stores } = useStore();
-  const { enabled = true, merge = "flat", staleTime } = options;
+  const { enabled = true, merge = "flat", staleTime, params } = options;
 
   const isAll = currentStore?.id === "all";
   const queryEnabled = enabled && (isAll ? stores.length > 0 : !!currentStore?.id);
 
+  const extra = new URLSearchParams(params ?? {}).toString();
+  const suffix = extra ? `&${extra}` : "";
+
   return useQuery<(T & { storeName?: string })[]>({
-    queryKey: [path, currentStore?.id, stores.map((s) => s.id).join(",")],
+    queryKey: [path, currentStore?.id, stores.map((s) => s.id).join(","), extra],
     queryFn: async () => {
       if (isAll && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`${path}?storeId=${s.id}`);
+              const res = await fetch(`${path}?storeId=${s.id}${suffix}`);
               if (!res.ok) return [] as (T & { storeName?: string })[];
               const list = (await res.json()) as T[];
               return list.map((item) => ({ ...item, storeName: s.name }));
@@ -61,7 +68,7 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
         return responses.flat();
       }
 
-      const res = await fetch(`${path}?storeId=${currentStore?.id}`);
+      const res = await fetch(`${path}?storeId=${currentStore?.id}${suffix}`);
       if (!res.ok) throw new Error(`Failed to fetch ${path}`);
       return res.json();
     },

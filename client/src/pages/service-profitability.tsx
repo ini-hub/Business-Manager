@@ -13,7 +13,8 @@ import { MetricCard } from "@/components/metric-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { format } from "date-fns";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
@@ -81,6 +82,7 @@ export default function ServiceProfitabilityPage() {
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);
   };
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const getStatusBadge = (status: "profit" | "breakeven" | "loss") => {
     switch (status) {
@@ -262,40 +264,47 @@ export default function ServiceProfitabilityPage() {
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricGrid>
         <PolymorphicMetricCard
           title="Total Sustained Revenue"
           value={formatCurrency(report?.totalRevenue ?? 0)}
+          compactValue={formatCompact(report?.totalRevenue ?? 0)}
           icon={<Coins className="h-5 w-5 text-green-600 animate-pulse" />}
           isLoading={isLoading}
         />
         <PolymorphicMetricCard
           title="Total Cost of Goods (COGS)"
           value={formatCurrency(report?.totalCogs ?? 0)}
+          compactValue={formatCompact(report?.totalCogs ?? 0)}
           icon={<ShoppingCart className="h-5 w-5 text-amber-600" />}
           isLoading={isLoading}
         />
         <PolymorphicMetricCard
           title="Total Sustaining Costs"
           value={formatCurrency(report?.totalSustainingCosts ?? 0)}
+          compactValue={formatCompact(report?.totalSustainingCosts ?? 0)}
           icon={<Wallet className="h-5 w-5 text-red-500" />}
           isLoading={isLoading}
         />
         <PolymorphicMetricCard
           title="Net Consolidated Profit"
           value={formatCurrency(report?.netProfit ?? 0)}
+          compactValue={formatCompact(report?.netProfit ?? 0)}
           trend={(report?.netProfit ?? 0) >= 0 ? "up" : "down"}
           trendValue={`Margin: ${(report?.netProfitMargin ?? 0).toFixed(1)}%`}
           icon={<BarChart3 className="h-5 w-5 text-primary" />}
           isLoading={isLoading}
         />
-      </div>
+      </MetricGrid>
 
       <Card className="border border-blue-100 bg-gradient-to-br from-blue-50/20 to-indigo-50/25 dark:border-blue-900/20 dark:from-blue-950/10 dark:to-indigo-950/10 shadow-sm">
         <CardContent className="p-4 flex gap-3 items-center">
           <AlertTriangle className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
           <div className="text-xs md:text-sm text-blue-800 dark:text-blue-200">
-            <span className="font-semibold">Sustainability Accounting Concept:</span> Unlike traditional Operational Expenses (OPEX), product/service sustaining costs are directly linked to item replenishment or upkeep, and are entirely excluded from the General P&L statement to facilitate per-item ROI precision.
+            <span className="font-semibold">How sustaining costs are counted:</span> these are the same naira the P&amp;L reports on its
+            Direct Supplies &amp; Consumables line — shown here split across the items that incurred them, rather than as one
+            total. Attributing a cost to an item changes where it is reported, never whether it is counted, so these figures
+            add back up to that line exactly.
           </div>
         </CardContent>
       </Card>

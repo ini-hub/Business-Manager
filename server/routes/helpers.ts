@@ -89,6 +89,43 @@ export async function getUserStores(req: Request): Promise<any[]> {
   return await storage.getStores(user.businessId);
 }
 
+/**
+ * Intersects a requested set of store ids with the ones the caller may actually see.
+ *
+ * The Explorer queries many stores in one pass, so checking them one at a time
+ * would mean N round-trips per request. This resolves the caller's stores once
+ * and filters. Inaccessible ids are dropped rather than rejected — a saved view
+ * authored by an owner may name stores a manager cannot reach, and the useful
+ * behaviour there is to show what they can see and say so.
+ *
+ * Passing no ids means "everything I can see".
+ */
+export async function resolveAccessibleStoreIds(
+  req: Request,
+  requested?: string[],
+): Promise<{ storeIds: string[]; dropped: string[] }> {
+  const user = (req as any).user;
+  const stores = await getUserStores(req);
+
+  let allowed = stores.map((s: any) => s.id as string);
+
+  // Staff are pinned to their own store, matching verifyStoreAccess.
+  if (user?.role === "staff") {
+    const staffRecord = await storage.getStaffByUserId(user.id ?? user.userId);
+    allowed = staffRecord ? allowed.filter((id) => id === staffRecord.storeId) : [];
+  }
+
+  if (!requested || requested.length === 0) {
+    return { storeIds: allowed, dropped: [] };
+  }
+
+  const allowedSet = new Set(allowed);
+  return {
+    storeIds: requested.filter((id) => allowedSet.has(id)),
+    dropped: requested.filter((id) => !allowedSet.has(id)),
+  };
+}
+
 export async function verifyStoreAccess(req: any, storeId: string): Promise<boolean> {
   const user = req.user;
   if (!user?.businessId) return false;

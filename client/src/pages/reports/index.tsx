@@ -7,6 +7,7 @@ import {
   DollarSign,
   ShieldCheck,
   ChevronRight,
+  Compass,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -47,6 +48,13 @@ const REPORT_SECTIONS = [
     icon: BarChart3,
     href: "/reports/service-profitability",
     roles: ["owner"],
+  },
+  {
+    title: "Analytics Explorer",
+    description: "Build your own view: any measures, any breakdown, any time grain, all stores side by side.",
+    icon: Compass,
+    href: "/analytics",
+    roles: ["owner", "manager"],
   },
   {
     title: "Activity Log",

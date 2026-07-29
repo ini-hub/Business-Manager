@@ -11,7 +11,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Plus, Trash2, ShieldAlert, Sparkles, Percent, Calendar, FileText, CheckCircle, HelpCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -184,6 +185,7 @@ export default function TaxesCompliancePage() {
   };
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   // Computations for Compliance Reporting
   const validCheckouts = transactions.filter(tx => !tx.isVoided);
@@ -330,16 +332,18 @@ export default function TaxesCompliancePage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <MetricGrid>
         <MetricCard
           title="VAT / Sales Tax Collected"
           value={formatCurrency(totalVAT)}
+          compactValue={formatCompact(totalVAT)}
           icon={<Percent className="h-4 w-4 text-emerald-500 animate-pulse" />}
           isLoading={isLoadingTransactions}
         />
         <MetricCard
           title="Taxable Sales Volume"
           value={formatCurrency(totalTaxableSales)}
+          compactValue={formatCompact(totalTaxableSales)}
           icon={<FileText className="h-4 w-4 text-blue-500" />}
           isLoading={isLoadingTransactions}
         />
@@ -349,7 +353,7 @@ export default function TaxesCompliancePage() {
           icon={<CheckCircle className="h-4 w-4 text-purple-500" />}
           isLoading={isLoadingRates}
         />
-      </div>
+      </MetricGrid>
 
       <Tabs defaultValue="rates" className="w-full">
         <TabsList className="mb-4">

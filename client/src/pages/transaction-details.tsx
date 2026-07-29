@@ -56,20 +56,26 @@ import { ReceiptModal } from "@/components/receipt-modal";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { AddendumDialog } from "@/components/AddendumDialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useReturnTo } from "@/lib/return-to";
+import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { buildSlug } from "@/lib/slug";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { type TransactionWithRelations, VOID_REASON_PRESETS } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function TransactionDetailsPage() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
+  const { backHref } = useReturnTo("/transactions");
   const { currentStore } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
 
   const userRole = user?.role || "staff";
   const canManage = userRole === "manager" || userRole === "owner";
+  const canEditDate = userRole === "owner";
 
   // Receipt Modal State
   const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
@@ -83,6 +89,10 @@ export default function TransactionDetailsPage() {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [editPaymentMethod, setEditPaymentMethod] = useState("");
   const [editPaymentStatus, setEditPaymentStatus] = useState("");
+
+  // Edit Transaction Date State
+  const [isEditDateDialogOpen, setIsEditDateDialogOpen] = useState(false);
+  const [editTransactionDate, setEditTransactionDate] = useState("");
 
   // Resolve Pending Dialog
   const [isResolvePendingOpen, setIsResolvePendingOpen] = useState(false);
@@ -255,6 +265,38 @@ export default function TransactionDetailsPage() {
     },
   });
 
+  const editDateMutation = useMutation({
+    mutationFn: async (params: { checkoutId: string; newDate: string }) => {
+      const res = await apiRequest("PATCH", `/api/transactions/${params.checkoutId}/date`, {
+        newDate: params.newDate,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/charts/sales-trends"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/charts/revenue-by-type"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss"] });
+      toast({ title: "Transaction date updated" });
+      setIsEditDateDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update date",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const openEditDateDialog = () => {
+    if (!transaction?.transactionDate) return;
+    setEditTransactionDate(new Date(transaction.transactionDate).toISOString().slice(0, 10));
+    setIsEditDateDialogOpen(true);
+  };
+
   const handleVoidConfirm = () => {
     if (!checkoutId) return;
     const reasonToSubmit = voidReason === "Other" ? customVoidReason : voidReason;
@@ -309,7 +351,7 @@ export default function TransactionDetailsPage() {
           <p className="text-muted-foreground max-w-md">
             The transaction you're looking for doesn't exist or you don't have access to view it.
           </p>
-          <Button onClick={() => setLocation("/transactions")}>
+          <Button onClick={() => setLocation(backHref)}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Transactions
           </Button>
@@ -325,7 +367,7 @@ export default function TransactionDetailsPage() {
       {/* Back Navigation */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild className="shrink-0">
-          <Link href="/transactions">
+          <Link href={backHref}>
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
@@ -408,9 +450,13 @@ export default function TransactionDetailsPage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Billed By</p>
-                    <p className="font-semibold">
-                      {tx.checkout?.staff?.name ?? "Unknown"}
-                    </p>
+                    {tx.checkout?.staff?.id ? (
+                      <EntityLink href={`/staff/${tx.checkout.staff.id}/edit`} className="font-semibold text-primary">
+                        {tx.checkout.staff.name}
+                      </EntityLink>
+                    ) : (
+                      <p className="font-semibold">{tx.checkout?.staff?.name ?? "Unknown"}</p>
+                    )}
                     <p className="text-xs text-muted-foreground font-mono">
                       {tx.checkout?.staff?.staffNumber ?? "N/A"}
                     </p>
@@ -423,12 +469,16 @@ export default function TransactionDetailsPage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Customer</p>
-                    <Link
-                      href={`/customers/${tx.customer?.id}`}
-                      className="font-semibold text-primary hover:underline"
-                    >
-                      {tx.customer?.name ?? "Unknown"}
-                    </Link>
+                    {tx.customer?.id ? (
+                      <EntityLink
+                        href={`/customers/${buildSlug(tx.customer.name, tx.customer.id)}`}
+                        className="font-semibold text-primary"
+                      >
+                        {tx.customer.name}
+                      </EntityLink>
+                    ) : (
+                      <p className="font-semibold">Unknown</p>
+                    )}
                     <p className="text-xs text-muted-foreground font-mono">
                       {tx.customer?.customerNumber}
                     </p>
@@ -533,7 +583,23 @@ export default function TransactionDetailsPage() {
                             return (
                               <tr key={item.order.id} className="hover:bg-muted/10 transition-colors">
                                 <td className="p-3">
-                                  <p className="font-medium text-foreground">{item.inventory?.name || "Unknown Item"}</p>
+                                  {item.inventory?.id ? (
+                                    <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <p className="font-medium text-foreground truncate max-w-[220px]">{item.inventory.name}</p>
+                                        </TooltipTrigger>
+                                        <TooltipContent>{item.inventory.name}</TooltipContent>
+                                      </Tooltip>
+                                    </EntityLink>
+                                  ) : (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <p className="font-medium text-foreground truncate max-w-[220px]">{item.inventory?.name || "Unknown Item"}</p>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{item.inventory?.name || "Unknown Item"}</TooltipContent>
+                                    </Tooltip>
+                                  )}
                                   <Badge variant="outline" className={`text-[10px] py-0 px-1 capitalize mt-0.5 ${
                                     item.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
                                     : item.inventory?.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
@@ -583,7 +649,14 @@ export default function TransactionDetailsPage() {
                     <div className="flex-1 space-y-1">
                       <div className="flex justify-between items-start">
                         <p className="font-semibold text-foreground">
-                          Returned {log.quantity} × {log.inventory?.name || "Item"}
+                          Returned {log.quantity} ×{" "}
+                          {log.inventory?.id ? (
+                            <EntityLink href={`/inventory/${buildSlug(log.inventory.name, log.inventory.id)}`}>
+                              {log.inventory.name}
+                            </EntityLink>
+                          ) : (
+                            log.inventory?.name || "Item"
+                          )}
                         </p>
                         <span className="font-mono font-bold text-orange-600 dark:text-orange-400">
                           -{formatCurrency(log.refundAmount)}
@@ -591,7 +664,16 @@ export default function TransactionDetailsPage() {
                       </div>
                       <p className="text-muted-foreground">
                         Refunded via <span className="capitalize font-medium text-foreground">{log.refundMethod.replace("_", " ")}</span>
-                        {log.staff && ` by ${log.staff.name}`}
+                        {log.staff && (
+                          <>
+                            {" by "}
+                            {log.staff.id ? (
+                              <EntityLink href={`/staff/${log.staff.id}/edit`}>{log.staff.name}</EntityLink>
+                            ) : (
+                              log.staff.name
+                            )}
+                          </>
+                        )}
                       </p>
                       {log.reason && (
                         <p className="text-muted-foreground italic bg-muted/40 p-1.5 rounded mt-1.5 border-l-2 border-orange-400">
@@ -674,6 +756,18 @@ export default function TransactionDetailsPage() {
                 >
                   <CreditCard className="mr-2 h-4 w-4" />
                   {isFullyReturned ? "Correct Payment Record" : "Update Payment"}
+                </Button>
+              )}
+
+              {/* Edit Transaction Date — owner only, post-sale correction */}
+              {canEditDate && !isVoided && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={openEditDateDialog}
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Edit Transaction Date
                 </Button>
               )}
 
@@ -861,6 +955,43 @@ export default function TransactionDetailsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Transaction Date Dialog */}
+      <AlertDialog open={isEditDateDialogOpen} onOpenChange={setIsEditDateDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Edit Transaction Date</AlertDialogTitle>
+            <AlertDialogDescription>
+              This changes the recorded sale date for this entire receipt (all line items),
+              including for reports, revenue trends, and staff commission calculations. This
+              cannot be done if either the current or new date falls within a finalized
+              (approved/paid) payroll period.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2 space-y-2">
+            <Label htmlFor="edit-transaction-date">New Date</Label>
+            <Input
+              id="edit-transaction-date"
+              type="date"
+              value={editTransactionDate}
+              onChange={(e) => setEditTransactionDate(e.target.value)}
+              max={new Date().toISOString().split("T")[0]}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={editDateMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                checkoutId &&
+                editDateMutation.mutate({ checkoutId, newDate: editTransactionDate })
+              }
+              disabled={editDateMutation.isPending || !editTransactionDate}
+            >
+              {editDateMutation.isPending ? "Saving..." : "Save Date"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Return Dialog */}
       {returnCheckoutObj && (

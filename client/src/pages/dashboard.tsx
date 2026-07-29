@@ -7,11 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { buildSlug } from "@/lib/slug";
+import { appendReturnTo } from "@/lib/return-to";
 import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { useEffect, useState } from "react";
@@ -37,6 +40,8 @@ export default function Dashboard() {
   const { currentStore, business, stores } = useStore();
   const { user } = useAuth();
   const isOwner = user?.role === "owner";
+  const [location] = useLocation();
+  const search = useSearch();
 
   const [dateRange, setDateRange] = useState<DateRange>(() => {
     const saved = sessionStorage.getItem("dashboard_date_range");
@@ -164,6 +169,7 @@ export default function Dashboard() {
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);
   };
+  const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   if (!currentStore) {
     return (
@@ -195,7 +201,7 @@ export default function Dashboard() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricGrid>
         <MetricCard
           title="Total Customers"
           value={stats?.totalCustomers ?? 0}
@@ -225,12 +231,13 @@ export default function Dashboard() {
           isLoading={isLoading}
           href={`/transactions${deepLinkQuery}`}
         />
-      </div>
+      </MetricGrid>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <MetricGrid>
         <MetricCard
           title="Actual Revenue (Net)"
           value={formatCurrency(stats?.totalRevenue ?? 0)}
+          compactValue={formatCompact(stats?.totalRevenue ?? 0)}
           description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Gross: ${formatCurrency(stats.grossRevenue ?? 0)} (Refunded: ${formatCurrency(stats.returnedRevenue)})` : "Net revenue after returns"}
           icon={<Coins className="h-4 w-4" />}
           trend="up"
@@ -241,13 +248,14 @@ export default function Dashboard() {
         <MetricCard
           title="Gross Profit"
           value={formatCurrency(stats?.totalProfit ?? 0)}
+          compactValue={formatCompact(stats?.totalProfit ?? 0)}
           icon={<TrendingUp className="h-4 w-4" />}
           trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}
           trendValue="All time"
           isLoading={isLoading}
           href={`/profit-loss${deepLinkQuery}`}
         />
-      </div>
+      </MetricGrid>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SalesTrendChart 
@@ -397,9 +405,10 @@ export default function Dashboard() {
             {topCustomers.length > 0 ? (
               <div className="space-y-4">
                 {topCustomers.map((customer: any, index: number) => (
-                  <div
+                  <Link
                     key={customer.id}
-                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
+                    href={appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search)}
+                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md hover:bg-muted transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
@@ -415,7 +424,7 @@ export default function Dashboard() {
                     <p className="font-mono text-sm font-medium">
                       {formatCurrency(customer.totalSpent)}
                     </p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             ) : (

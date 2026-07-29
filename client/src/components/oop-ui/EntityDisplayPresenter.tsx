@@ -1,4 +1,8 @@
 import React from "react";
+import { useLocation, useSearch } from "wouter";
+import { buildSlug } from "@/lib/slug";
+import { appendReturnTo } from "@/lib/return-to";
+import { cn } from "@/lib/utils";
 
 /**
  * Interface representing a displayable entity (OOP principle: Interface Segregation & Dependency Inversion)
@@ -104,4 +108,80 @@ interface EntityDisplayProps {
 
 export const EntityDisplay: React.FC<EntityDisplayProps> = ({ presenter }) => {
   return <>{presenter.renderVisual()}</>;
+};
+
+/**
+ * Generic click-through wrapper for a nested entity reference: navigates to `href` carrying
+ * a `returnTo` (so the destination's Back button lands right back where this was clicked),
+ * and stops propagation so it can be nested inside a row that has its own `onRowClick` for a
+ * different destination without triggering it.
+ */
+interface EntityLinkProps {
+  href: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+export const EntityLink: React.FC<EntityLinkProps> = ({ href, className, children }) => {
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
+  const target = appendReturnTo(href, location, search);
+
+  const navigate = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    setLocation(target);
+  };
+
+  return (
+    <span
+      role="link"
+      tabIndex={0}
+      className={cn("cursor-pointer hover:underline", className)}
+      onClick={navigate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") navigate(e);
+      }}
+    >
+      {children}
+    </span>
+  );
+};
+
+/**
+ * Renders a customer reference embedded in another entity's row (transaction, booking,
+ * credit sale, quote, ...) as a click-through to that customer's detail page, carrying
+ * a `returnTo` so the customer page's Back button lands the user right back on this row's
+ * page. Falls back to a plain (non-clickable) presenter when no customer id is known at all
+ * (e.g. a quote with no linked customer).
+ */
+interface CustomerLinkProps {
+  customer?: {
+    id: string;
+    name: string;
+    customerNumber?: string | null;
+    mobileNumber?: string | null;
+    staffId?: string | null;
+  } | null;
+  customerId?: string | null;
+  fallbackName?: string;
+}
+
+export const CustomerLink: React.FC<CustomerLinkProps> = ({ customer, customerId, fallbackName = "Unknown" }) => {
+  const id = customer?.id ?? customerId ?? null;
+  const presenter = new CustomerPresenter({
+    name: customer?.name || fallbackName,
+    customerNumber: customer?.customerNumber || customerId || "—",
+    mobileNumber: customer?.mobileNumber,
+    staffId: customer?.staffId,
+  });
+
+  if (!id) {
+    return <EntityDisplay presenter={presenter} />;
+  }
+
+  return (
+    <EntityLink href={`/customers/${buildSlug(customer?.name || fallbackName, id)}`}>
+      {presenter.renderVisual()}
+    </EntityLink>
+  );
 };

@@ -1,6 +1,7 @@
 import { CalendarDays, Wallet } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
-import { formatCurrency } from "@/lib/currency-utils";
+import { MetricGrid } from "@/components/metric-grid";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/currency-utils";
 
 interface CalendarTotalsBarProps {
   count: number;
@@ -12,7 +13,7 @@ interface CalendarTotalsBarProps {
 
 export function CalendarTotalsBar({ count, revenue, currency, label, isLoading }: CalendarTotalsBarProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <MetricGrid>
       <MetricCard
         title={`Bookings (${label})`}
         value={count}
@@ -22,9 +23,10 @@ export function CalendarTotalsBar({ count, revenue, currency, label, isLoading }
       <MetricCard
         title={`Revenue (${label})`}
         value={formatCurrency(revenue, currency)}
+        compactValue={formatCurrencyCompact(revenue, currency)}
         icon={<Wallet className="h-4 w-4" />}
         isLoading={isLoading}
       />
-    </div>
+    </MetricGrid>
   );
 }

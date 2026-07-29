@@ -12,6 +12,7 @@ import {
   type InsertInventoryBatch,
 } from "@shared/schema";
 import { eq, and, or, ilike, asc, sql, count, gt, inArray } from "drizzle-orm";
+import { searchTokens, infix } from "../lib/searchTerms";
 
 export interface PaginationOptions {
   page: number;
@@ -106,13 +107,20 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
     return this.findById(id);
   }
 
-  async getInventoryItemByName(storeId: string, name: string): Promise<Inventory | undefined> {
+  /**
+   * `type` scopes the lookup to match the (store_id, type, name) unique key. A salon
+   * that retails "Shampoo" also stocks it back-bar, and those are different items —
+   * without the scope, creating the second one reports a spurious duplicate.
+   * Omitting `type` keeps the old store-wide behaviour for callers that want it.
+   */
+  async getInventoryItemByName(storeId: string, name: string, type?: string): Promise<Inventory | undefined> {
     const [item] = await db
       .select()
       .from(inventory)
       .where(and(
         eq(inventory.storeId, storeId),
         eq(inventory.isDeleted, false),
+        type ? eq(inventory.type, type) : sql`true`,
         sql`lower(${inventory.name}) = ${name.toLowerCase().trim()}`
       ));
     return item;
@@ -146,10 +154,27 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
     return result[0].count > 0;
   }
 
-  async searchInventory(storeId: string, query: string): Promise<Inventory[]> {
+  async searchInventory(storeIds: string[], query: string): Promise<Inventory[]> {
+    const tokens = searchTokens(query);
+    if (storeIds.length === 0 || tokens.length === 0) return [];
+
+    const tokenMatches = tokens.map((token) => {
+      const pattern = infix(token);
+      return or(
+        ilike(inventory.name, pattern),
+        ilike(inventory.sku, pattern),
+        ilike(inventory.barcode, pattern),
+      )!;
+    });
+
     return db.select()
       .from(inventory)
-      .where(and(eq(inventory.storeId, storeId), ilike(inventory.name, `%${query}%`)))
+      .where(and(
+        inArray(inventory.storeId, storeIds),
+        eq(inventory.isDeleted, false),
+        ...tokenMatches,
+      ))
+      .orderBy(asc(inventory.name))
       .limit(10);
   }
 

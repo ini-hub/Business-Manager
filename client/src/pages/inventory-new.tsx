@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   Package,
   Wrench,
+  Droplets,
   Layers,
   AlertTriangle,
   Check,
@@ -146,7 +147,7 @@ export default function InventoryNewPage() {
   });
   const sym: string = settingsData?.currency?.symbol || currentStore?.currency || "₦";
   const [name, setName] = useState("");
-  const [type, setType] = useState<"product" | "service" | "">("");
+  const [type, setType] = useState<"product" | "service" | "supply" | "">("");
   const [hasVariants, setHasVariants] = useState(false);
 
   // ── Pricing ───────────────────────────────────────────────────────────
@@ -184,6 +185,8 @@ export default function InventoryNewPage() {
   const steps = useMemo(() => {
     if (type === "service" && hasVariants) return ["Basics", "Define Variants", "Prices", "Review"];
     if (type === "service") return ["Basics", "Pricing", "Review"];
+    // A supply is never sold, so there is no selling price to collect.
+    if (type === "supply") return ["Basics", "Cost & Stock", "Review"];
     if (hasVariants) return ["Basics", "Define Variants", "Prices & Stock", "Review"];
     return ["Basics", "Pricing & Stock", "Review"];
   }, [type, hasVariants]);
@@ -200,10 +203,14 @@ export default function InventoryNewPage() {
     const cost = Number(costPrice);
     const sell = Number(sellingPrice);
     const costOk = costPrice !== "" && cost > 0;
+    // Supplies have no selling price and therefore no margin to invert.
+    if (type === "supply") {
+      return { costOk, sellOk: true, noInversion: true, all: costOk };
+    }
     const sellOk = sellingPrice !== "" && sell > 0;
     const noInversion = sell >= cost;
     return { costOk, sellOk, noInversion, all: costOk && sellOk && noInversion };
-  }, [costPrice, sellingPrice]);
+  }, [costPrice, sellingPrice, type]);
 
   const canProceed = useMemo(() => {
     if (step === 0) {
@@ -292,7 +299,8 @@ export default function InventoryNewPage() {
     setSaving(true);
     try {
       const finalCost = costPrice === "" ? 0 : Number(costPrice);
-      const finalSelling = sellingPrice === "" ? 0 : Number(sellingPrice);
+      // Supplies are never sold, so any selling price left in state is discarded.
+      const finalSelling = type === "supply" ? 0 : (sellingPrice === "" ? 0 : Number(sellingPrice));
       const targetStoreId = isMultiStore ? storeId : defaultStoreId;
 
       // 1. Create the Product Grouping
@@ -350,13 +358,14 @@ export default function InventoryNewPage() {
           name: name.trim(),
           costPrice: finalCost,
           sellingPrice: finalSelling,
-          quantity: type === "product" ? quantity : 0,
+          // Services are the only stockless type — supplies carry real stock.
+          quantity: type === "service" ? 0 : quantity,
           commissionSplitOverride: type === "service" ? commissionOverride : false,
           commissionSplitBusinessShare: bizShare,
           commissionSplitStaffShare: staffShare,
           sku: `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          allowFractional: type === "product" ? allowFractional : false,
-          unit: type === "product" && allowFractional && unit.trim() ? unit.trim() : null,
+          allowFractional: type === "service" ? false : allowFractional,
+          unit: type !== "service" && allowFractional && unit.trim() ? unit.trim() : null,
         });
         if (!varRes.ok) {
           const err = await varRes.json().catch(() => ({}));
@@ -468,13 +477,16 @@ export default function InventoryNewPage() {
                 <Label>
                   Type <span className="text-destructive">*</span>
                 </Label>
-                <div className="grid grid-cols-2 gap-3">
-                  {(["product", "service"] as const).map((t) => (
+                <div className="grid grid-cols-3 gap-3">
+                  {(["product", "service", "supply"] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
                       onClick={() => {
                         setType(t);
+                        // Supplies are single SKUs: "500ml Shampoo" and "1L Shampoo"
+                        // are separate supplies with separate costs, not variants.
+                        if (t === "supply") setHasVariants(false);
                         setShowErrors(false);
                       }}
                       className={cn(
@@ -485,33 +497,31 @@ export default function InventoryNewPage() {
                       )}
                       data-testid={`wiz-type-${t}`}
                     >
-                      {t === "product" ? (
-                        <Package
-                          className={cn(
-                            "h-4 w-4",
-                            type === t ? "text-primary" : "text-muted-foreground"
-                          )}
-                        />
-                      ) : (
-                        <Wrench
-                          className={cn(
-                            "h-4 w-4",
-                            type === t ? "text-primary" : "text-muted-foreground"
-                          )}
-                        />
-                      )}
+                      {(() => {
+                        const Icon = t === "product" ? Package : t === "service" ? Wrench : Droplets;
+                        return (
+                          <Icon
+                            className={cn(
+                              "h-4 w-4",
+                              type === t ? "text-primary" : "text-muted-foreground"
+                            )}
+                          />
+                        );
+                      })()}
                       <div className="font-semibold text-sm capitalize">{t}</div>
                       <div className="text-xs text-muted-foreground leading-tight">
                         {t === "product"
-                          ? "Physical item with tracked stock"
-                          : "Non-physical, unlimited supply"}
+                          ? "Physical item you sell, with tracked stock"
+                          : t === "service"
+                          ? "Work you perform, no stock"
+                          : "Back-bar stock used up delivering services — never sold"}
                       </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {type !== "" && (
+              {type !== "" && type !== "supply" && (
                 <div className="flex items-center justify-between rounded-lg border p-4 bg-muted/20">
                   <div className="space-y-0.5">
                     <div className="text-sm font-medium flex items-center gap-2">
@@ -634,9 +644,9 @@ export default function InventoryNewPage() {
           )}
 
           {/* ── Step 1 (product, no variants): Pricing & Stock ───────── */}
-          {step === 1 && type === "product" && !hasVariants && (
+          {step === 1 && (type === "product" || type === "supply") && !hasVariants && (
             <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className={type === "supply" ? "grid grid-cols-1 gap-4" : "grid grid-cols-2 gap-4"}>
                 <div className="space-y-1.5">
                   <Label htmlFor="inv-cost-prod">
                     Cost Price ({sym}) <span className="text-destructive">*</span>
@@ -658,28 +668,42 @@ export default function InventoryNewPage() {
                     <p className="text-xs text-destructive">Cost price is required and must be greater than 0.</p>
                   )}
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="inv-selling-prod">
-                    Selling Price ({sym}) <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="inv-selling-prod"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    placeholder="0.00"
-                    value={sellingPrice}
-                    onChange={(e) =>
-                      setSellingPrice(e.target.value === "" ? "" : parseFloat(e.target.value))
-                    }
-                    className={showErrors && !pricingValid.sellOk ? "border-destructive focus-visible:ring-destructive" : ""}
-                    data-testid="wiz-input-selling"
-                  />
-                  {showErrors && !pricingValid.sellOk && (
-                    <p className="text-xs text-destructive">Selling price is required and must be greater than 0.</p>
-                  )}
-                </div>
+                {type !== "supply" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="inv-selling-prod">
+                      Selling Price ({sym}) <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="inv-selling-prod"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      placeholder="0.00"
+                      value={sellingPrice}
+                      onChange={(e) =>
+                        setSellingPrice(e.target.value === "" ? "" : parseFloat(e.target.value))
+                      }
+                      className={showErrors && !pricingValid.sellOk ? "border-destructive focus-visible:ring-destructive" : ""}
+                      data-testid="wiz-input-selling"
+                    />
+                    {showErrors && !pricingValid.sellOk && (
+                      <p className="text-xs text-destructive">Selling price is required and must be greater than 0.</p>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {type === "supply" && (
+                <Alert>
+                  <Droplets className="h-4 w-4" />
+                  <AlertDescription>
+                    Supplies are never sold, so they have no selling price. Buying one adds to stock
+                    without touching your Profit &amp; Loss — the cost is charged only when a service
+                    that uses it is delivered. Stock this in the smallest unit you measure it in
+                    (ml, g, each) rather than whole bottles.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {pricingValid.costOk && pricingValid.sellOk && !pricingValid.noInversion && (
                 <Alert variant="destructive">

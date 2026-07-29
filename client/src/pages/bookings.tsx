@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { Plus, Calendar, List as ListIcon, CalendarDays, CheckCircle, XCircle, CalendarCheck2, CalendarX2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { MetricCard } from "@/components/metric-card";
+import { MetricGrid } from "@/components/metric-grid";
 import {
   Card,
   CardContent,
@@ -18,7 +19,8 @@ import { PageHeader } from "@/components/page-header";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/data-table";
-import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
+import { CustomerLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { appendReturnTo } from "@/lib/return-to";
 import { BulkOperations } from "@/components/bulk-operations";
 import { BOOKING_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
@@ -34,7 +36,8 @@ export default function BookingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [view, setView] = useState<"list" | "calendar">("list");
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "issues">("all");
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
@@ -96,14 +99,9 @@ export default function BookingsPage() {
     {
       key: "customerName",
       header: "Customer",
-      render: (booking: any) => {
-        const presenter = new CustomerPresenter({
-          name: booking.customer?.name,
-          customerNumber: booking.customer?.customerNumber || booking.customerId || "—",
-          mobileNumber: booking.customer?.mobileNumber,
-        });
-        return <EntityDisplay presenter={presenter} />;
-      },
+      render: (booking: any) => (
+        <CustomerLink customer={booking.customer} customerId={booking.customerId} />
+      ),
     },
     {
       key: "scheduledAt",
@@ -226,7 +224,7 @@ export default function BookingsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <MetricGrid>
         <MetricCard
           title="Total Bookings"
           value={totalBookingsCount}
@@ -251,7 +249,7 @@ export default function BookingsPage() {
           active={statusFilter === "issues"}
           onClick={() => setStatusFilter(statusFilter === "issues" ? "all" : "issues")}
         />
-      </div>
+      </MetricGrid>
 
       <Card className="border-border/50 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -314,7 +312,7 @@ export default function BookingsPage() {
                   </Link>
                 }
                 filterConfigs={filterConfigs}
-                onRowClick={(booking) => setLocation(`/bookings/${booking.id}`)}
+                onRowClick={(booking) => setLocation(appendReturnTo(`/bookings/${booking.id}`, location, search))}
                 multiselect={isManagerOrOwner}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={setSelectedIds}

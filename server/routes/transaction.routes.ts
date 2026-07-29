@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
 import { auditLogger } from "../audit";
-import { getUserId, getClientIp, checkBusinessAccess, getUserStores, verifyStoreAccess, broadcastChange } from './helpers';
+import { getUserId, getClientIp, checkBusinessAccess, getUserStores, verifyStoreAccess, broadcastChange, getAuditContext } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -293,6 +293,50 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not update payment status." });
+    }
+  });
+
+  // ─── Edit transaction date (post-sale correction) ────────────────────────
+  app.patch("/api/transactions/:checkoutId/date", requireRole("owner"), async (req: any, res) => {
+    try {
+      const { checkoutId } = req.params;
+      const { newDate } = req.body;
+      if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+        return res.status(400).json({ error: "A valid date (YYYY-MM-DD) is required." });
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      if (newDate > today) {
+        return res.status(400).json({ error: "Transaction date cannot be in the future." });
+      }
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const result = await storage.updateTransactionDate({ checkoutId, newDate, updatedByUserId: userId });
+
+      if (!result.success) {
+        const isPayrollLocked = /payroll period/i.test(result.message);
+        const ctx = await getAuditContext(req, { storeId: result.storeId });
+        auditLogger.logEvent(ctx, "TRANSACTION_DATE_EDIT", "checkout", checkoutId, "failure", {
+          errorMessage: result.message,
+          details: { attemptedNewDate: newDate },
+        });
+        return res.status(400).json({
+          error: result.message,
+          code: isPayrollLocked ? "PAYROLL_LOCKED" : undefined,
+        });
+      }
+
+      const ctx = await getAuditContext(req, { storeId: result.storeId });
+      auditLogger.logEvent(ctx, "TRANSACTION_DATE_EDIT", "checkout", checkoutId, "success", {
+        previousValues: { transactionDate: result.previousDate, receiptNumber: result.receiptNumber, affectedCheckoutIds: result.affectedCheckoutIds },
+        newValues: { transactionDate: result.newDate },
+        changedFields: ["transactionDate", "createdAt"],
+      });
+
+      broadcastChange(req, "sales", result.storeId, "updated");
+      res.json({ success: true, message: result.message });
+    } catch (error) {
+      res.status(500).json({ error: "Could not update transaction date." });
     }
   });
 
