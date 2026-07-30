@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { buildSlug } from "@/lib/slug";
@@ -16,7 +15,8 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { format } from "date-fns";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
+import { format, startOfMonth } from "date-fns";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
 import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { analyticsApi } from "@/services/AnalyticsApiService";
@@ -61,14 +61,14 @@ export default function ServiceProfitabilityPage() {
   const { currentStore } = useStore();
   const storeCurrency = currentStore?.currency || "NGN";
   
-  const [dateRange, setDateRange] = useState<DateRange>({
-    from: (() => {
-      const d = new Date();
-      d.setDate(d.getDate() - 30);
-      return d;
-    })(),
-    to: new Date(),
-  });
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    "service_profitability_date_range",
+    () =>
+      readPersistedRange("service_profitability_date_range") ?? {
+        from: startOfMonth(new Date()),
+        to: new Date(),
+      },
+  );
 
   const startDateStr = dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : undefined;
   const endDateStr = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
@@ -230,7 +230,7 @@ export default function ServiceProfitabilityPage() {
           <DateRangeFilter
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
-            defaultPreset="30days"
+            defaultPreset="thisMonth"
             timezone={currentStore?.timezone}
           />
           <ExportToolbar

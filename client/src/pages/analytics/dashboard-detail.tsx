@@ -10,10 +10,10 @@
  * panels are always comparable with each other.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useParams } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format, subDays } from "date-fns";
+import { format, startOfMonth } from "date-fns";
 import { AlertTriangle, ArrowDown, ArrowUp, Maximize2, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { useStore } from "@/lib/store-context";
 import { apiRequest } from "@/lib/queryClient";
 import { useAnalyticsQuery } from "@/hooks/useAnalyticsQuery";
@@ -70,10 +71,15 @@ export default function AnalyticsDashboardDetailPage() {
   const { currentStore } = useStore();
   const queryClient = useQueryClient();
 
-  const [dateRange, setDateRange] = useState<DateRange>({
-    from: subDays(new Date(), 29),
-    to: new Date(),
-  });
+  const dateRangeStorageKey = `analytics_dashboard_${id}_date_range`;
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    dateRangeStorageKey,
+    () =>
+      readPersistedRange(dateRangeStorageKey) ?? {
+        from: startOfMonth(new Date()),
+        to: new Date(),
+      },
+  );
 
   const dashboard = useQuery<DashboardResponse>({
     queryKey: [`/api/analytics/dashboards/${id}`],
@@ -140,6 +146,7 @@ export default function AnalyticsDashboardDetailPage() {
           <DateRangeFilter
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
+            defaultPreset="thisMonth"
             timezone={currentStore?.timezone}
           />
         </CardContent>

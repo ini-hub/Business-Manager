@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { format, subDays } from "date-fns";
+import { format, startOfMonth } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { useStore } from "@/lib/store-context";
 import { useAnalyticsModel } from "@/hooks/useAnalyticsModel";
 import { useAnalyticsQuery } from "@/hooks/useAnalyticsQuery";
@@ -57,10 +58,14 @@ export default function AnalyticsExplorerPage() {
   const { currentStore, stores, business } = useStore();
   const { data: model, isLoading: modelLoading, error: modelError } = useAnalyticsModel();
 
-  const [dateRange, setDateRange] = useState<DateRange>({
-    from: subDays(new Date(), 29),
-    to: new Date(),
-  });
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    "analytics_explorer_date_range",
+    () =>
+      readPersistedRange("analytics_explorer_date_range") ?? {
+        from: startOfMonth(new Date()),
+        to: new Date(),
+      },
+  );
   const [measures, setMeasures] = useState<string[]>(DEFAULT_MEASURES);
   const [dimensions, setDimensions] = useState<string[]>(["date"]);
   const [grain, setGrain] = useState<Grain>("day");
@@ -232,6 +237,7 @@ export default function AnalyticsExplorerPage() {
             <DateRangeFilter
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
+              defaultPreset="thisMonth"
               timezone={currentStore?.timezone}
             />
             <GrainControl

@@ -38,6 +38,7 @@ import { ExportToolbar } from "@/components/export-toolbar";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -100,7 +101,10 @@ export default function AuditLogsPage() {
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
   const [resourceFilter, setResourceFilter] = useState("all");
-  const [dateRange, setDateRange] = useState<DateRange>({ from: undefined, to: undefined });
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    "audit_logs_date_range",
+    () => readPersistedRange("audit_logs_date_range") ?? { from: undefined, to: undefined },
+  );
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
 

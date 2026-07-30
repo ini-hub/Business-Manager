@@ -117,11 +117,12 @@ export function AddVariantsSheet({
 
   const existingVariants: any[] = parentProduct?.variants ?? [];
   const properVariants = existingVariants.filter((v) => !hasNoDimensions(v));
-  const baseItem = existingVariants.find(
-    (v) =>
-      hasNoDimensions(v) &&
-      v.name.toLowerCase() === parentName.toLowerCase()
-  );
+  // A dimensionless variant is stale once proper (dimensioned) siblings exist — regardless
+  // of what it's currently named. Name matching used to gate this instead, but that broke
+  // silently the moment the product was renamed after the variant was created, leaving the
+  // leftover entry permanently invisible to this cleanup flow.
+  const baseItems = existingVariants.filter((v) => hasNoDimensions(v));
+  const baseItem = baseItems[0];
 
   // Existing combo keys (for "already exists" detection)
   const existingComboKeys = useMemo(
@@ -402,9 +403,11 @@ export function AddVariantsSheet({
         }
       }
 
-      // Archive the base item if opted in
-      if (successCount > 0 && archiveBaseItem && baseItem) {
-        await apiRequest("POST", `/api/inventory/${baseItem.id}/archive`).catch(() => null);
+      // Archive the base item(s) if opted in
+      if (successCount > 0 && archiveBaseItem && baseItems.length > 0) {
+        await Promise.all(
+          baseItems.map((b) => apiRequest("POST", `/api/inventory/${b.id}/archive`).catch(() => null))
+        );
       }
 
       // Archive dimensionally-incomplete variants if opted in
@@ -426,7 +429,7 @@ export function AddVariantsSheet({
 
       if (successCount > 0) {
         const archivedCount =
-          (archiveBaseItem && baseItem ? 1 : 0) +
+          (archiveBaseItem ? baseItems.length : 0) +
           (archiveIncomplete ? incompleteVariants.length : 0);
         const parts: string[] = [];
         if (errors.length) parts.push(`${errors.length} failed`);
@@ -533,9 +536,7 @@ export function AddVariantsSheet({
                   </div>
                   <div className="divide-y max-h-40 overflow-y-auto">
                     {existingVariants.map((v) => {
-                      const isBase =
-                        hasNoDimensions(v) &&
-                        v.name.toLowerCase() === parentName.toLowerCase();
+                      const isBase = hasNoDimensions(v);
                       const dims =
                         v.variantDimensions &&
                         Object.keys(v.variantDimensions).length > 0
@@ -594,7 +595,7 @@ export function AddVariantsSheet({
               )}
 
               {/* ── Base item warning ───────────────────────────────────── */}
-              {step === 0 && baseItem && (
+              {step === 0 && baseItems.length > 0 && (
                 <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
                   <AlertTriangle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="space-y-3">
@@ -611,8 +612,8 @@ export function AddVariantsSheet({
                         The original entry will become redundant — you should
                         archive it and enter stock per new variant instead.
                       </p>
-                    ) : (
-                      /* Case B: proper variants already exist + base item still present */
+                    ) : baseItems.length === 1 ? (
+                      /* Case B: proper variants already exist + one base item still present */
                       <p className="text-sm text-amber-800 dark:text-amber-200">
                         <span className="font-semibold">"{baseItem.name}"</span>{" "}
                         is an unspecified base entry that exists alongside your
@@ -622,6 +623,16 @@ export function AddVariantsSheet({
                           ? ` (${Number(baseItem.quantity).toLocaleString()} ${baseItem.unit || "units"})`
                           : ""}
                         . Archive it to keep your inventory clean.
+                      </p>
+                    ) : (
+                      /* Case C: multiple leftover dimensionless entries have piled up */
+                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                        <span className="font-semibold">
+                          {baseItems.length} entries
+                        </span>{" "}
+                        ({baseItems.map((b) => `"${b.name}"`).join(", ")}) have
+                        no attributes and exist alongside your variants.
+                        Archive them to keep your inventory clean.
                       </p>
                     )}
                     <label className="flex items-start gap-2.5 cursor-pointer">
@@ -634,7 +645,9 @@ export function AddVariantsSheet({
                         <Archive className="h-3 w-3 inline mr-1" />
                         Archive{" "}
                         <span className="font-semibold">
-                          "{baseItem.name}"
+                          {baseItems.length === 1
+                            ? `"${baseItem.name}"`
+                            : `${baseItems.length} entries`}
                         </span>{" "}
                         after adding new variants
                       </span>
@@ -1331,8 +1344,8 @@ export function AddVariantsSheet({
                     <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                     {newCombos.length} new variant
                     {newCombos.length !== 1 ? "s" : ""} will be created.
-                    {archiveBaseItem && baseItem &&
-                      ` Original "${parentName}" base entry will be archived.`}
+                    {archiveBaseItem && baseItems.length > 0 &&
+                      ` ${baseItems.length} base entr${baseItems.length !== 1 ? "ies" : "y"} will be archived.`}
                     {archiveIncomplete && incompleteVariants.length > 0 &&
                       ` ${incompleteVariants.length} incomplete variant${incompleteVariants.length !== 1 ? "s" : ""} will be archived.`}
                   </p>

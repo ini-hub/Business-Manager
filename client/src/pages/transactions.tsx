@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation, useSearch } from "wouter";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
@@ -41,21 +42,26 @@ export default function Transactions() {
   // Resolve Pending inline dialog state
   const [resolveTx, setResolveTx] = useState<TransactionWithRelations | null>(null);
 
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const startDateParam = params.get("startDate");
-    const endDateParam = params.get("endDate");
-    if (startDateParam && endDateParam) {
-      return {
-        from: startOfDay(new Date(startDateParam)),
-        to: endOfDay(new Date(endDateParam))
-      };
-    }
-    return {
-      from: startOfDay(new Date()),
-      to: endOfDay(new Date()),
-    };
-  });
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    "transactions_date_range",
+    () => {
+      const params = new URLSearchParams(window.location.search);
+      const startDateParam = params.get("startDate");
+      const endDateParam = params.get("endDate");
+      if (startDateParam && endDateParam) {
+        return {
+          from: startOfDay(new Date(startDateParam)),
+          to: endOfDay(new Date(endDateParam))
+        };
+      }
+      return (
+        readPersistedRange("transactions_date_range") ?? {
+          from: startOfDay(new Date()),
+          to: endOfDay(new Date()),
+        }
+      );
+    },
+  );
 
   const dateParams = useMemo(() => {
     const p = new URLSearchParams();

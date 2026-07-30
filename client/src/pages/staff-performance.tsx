@@ -12,6 +12,7 @@ import { ExportToolbar } from "@/components/export-toolbar";
 import { useStore } from "@/lib/store-context";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { startOfMonth, startOfDay, endOfDay, format } from "date-fns";
 import { Link, useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
@@ -64,21 +65,26 @@ export default function StaffPerformancePage() {
   const [location, setLocation] = useLocation();
   const search = useSearch();
 
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const startDateParam = params.get("startDate");
-    const endDateParam = params.get("endDate");
-    if (startDateParam && endDateParam) {
-      return {
-        from: startOfDay(new Date(startDateParam)),
-        to: endOfDay(new Date(endDateParam))
-      };
-    }
-    return {
-      from: startOfMonth(new Date()),
-      to: endOfDay(new Date())
-    };
-  });
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    "staff_performance_date_range",
+    () => {
+      const params = new URLSearchParams(window.location.search);
+      const startDateParam = params.get("startDate");
+      const endDateParam = params.get("endDate");
+      if (startDateParam && endDateParam) {
+        return {
+          from: startOfDay(new Date(startDateParam)),
+          to: endOfDay(new Date(endDateParam))
+        };
+      }
+      return (
+        readPersistedRange("staff_performance_date_range") ?? {
+          from: startOfMonth(new Date()),
+          to: endOfDay(new Date())
+        }
+      );
+    },
+  );
 
   const { data: performanceData = [], isLoading } = useQuery<any[]>({
     queryKey: [

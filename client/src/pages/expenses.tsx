@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { BulkOperations } from "@/components/bulk-operations";
 import { EXPENSE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
@@ -102,10 +103,14 @@ export default function ExpensesPage() {
   const [, setLocation] = useLocation();
   const storeCurrency = currentStore?.currency || "NGN";
   
-  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>({
-    from: startOfDay(new Date()),
-    to: endOfDay(new Date())
-  });
+  const [dateRange, setDateRange] = usePersistedDateRange<{ from: Date; to: Date } | undefined>(
+    "expenses_date_range",
+    () =>
+      (readPersistedRange("expenses_date_range") as { from: Date; to: Date } | undefined) ?? {
+        from: startOfDay(new Date()),
+        to: endOfDay(new Date())
+      },
+  );
 
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);

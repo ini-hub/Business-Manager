@@ -17,6 +17,7 @@ import { MetricGrid } from "@/components/metric-grid";
 import { Link, useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Separator } from "@/components/ui/separator";
 import type { ProfitLossWithInventory } from "@shared/schema";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
@@ -38,21 +39,26 @@ export default function ProfitLossPage() {
   const [activeTab, setActiveTab] = useState("income");
   const isOwner = user?.role === "owner";
 
-  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const startDateParam = params.get("startDate");
-    const endDateParam = params.get("endDate");
-    if (startDateParam && endDateParam) {
-      return {
-        from: startOfDay(new Date(startDateParam)),
-        to: endOfDay(new Date(endDateParam))
-      };
-    }
-    return {
-      from: startOfDay(new Date()),
-      to: endOfDay(new Date())
-    };
-  });
+  const [dateRange, setDateRange] = usePersistedDateRange<{ from: Date; to: Date } | undefined>(
+    "profit_loss_date_range",
+    () => {
+      const params = new URLSearchParams(window.location.search);
+      const startDateParam = params.get("startDate");
+      const endDateParam = params.get("endDate");
+      if (startDateParam && endDateParam) {
+        return {
+          from: startOfDay(new Date(startDateParam)),
+          to: endOfDay(new Date(endDateParam))
+        };
+      }
+      return (
+        readPersistedRange("profit_loss_date_range") as { from: Date; to: Date } | undefined ?? {
+          from: startOfMonth(new Date()),
+          to: endOfDay(new Date())
+        }
+      );
+    },
+  );
 
   const { data: profitLossData = [], isLoading: isLoadingPL } = useQuery<ProfitLossWithInventory[]>({
     queryKey: [
@@ -465,6 +471,7 @@ export default function ProfitLossPage() {
             onDateRangeChange={(r) => setDateRange(
               r.from && r.to ? { from: r.from, to: r.to } : undefined
             )}
+            defaultPreset="thisMonth"
             timezone={currentStore?.timezone}
           />
           <ExportToolbar

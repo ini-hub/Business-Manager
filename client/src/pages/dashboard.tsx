@@ -18,9 +18,9 @@ import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/l
 import { MetricGrid } from "@/components/metric-grid";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { useEffect, useState } from "react";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
+import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface DashboardStats {
@@ -44,24 +44,14 @@ export default function Dashboard() {
   const [location] = useLocation();
   const search = useSearch();
 
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const saved = sessionStorage.getItem("dashboard_date_range");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.from && parsed.to) {
-          return { from: new Date(parsed.from), to: new Date(parsed.to) };
-        }
-      } catch (e) {
-        // ignore parsing errors
-      }
-    }
-    return { from: startOfDay(new Date()), to: endOfDay(new Date()) };
-  });
-
-  useEffect(() => {
-    sessionStorage.setItem("dashboard_date_range", JSON.stringify(dateRange));
-  }, [dateRange]);
+  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+    "dashboard_date_range",
+    () =>
+      readPersistedRange("dashboard_date_range") ?? {
+        from: startOfDay(new Date()),
+        to: endOfDay(new Date()),
+      },
+  );
 
   const queryParams = new URLSearchParams();
   if (dateRange.from) queryParams.set("from", format(dateRange.from, "yyyy-MM-dd"));
