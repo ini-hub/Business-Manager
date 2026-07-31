@@ -16,6 +16,9 @@ if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  // Render's network can't route the AAAA record Node resolves for
+  // smtp.gmail.com, producing ENETUNREACH — force IPv4 to avoid it.
+  family: 4,
 });
 
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
