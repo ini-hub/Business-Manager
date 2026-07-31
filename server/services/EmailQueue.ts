@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import dns from "node:dns";
 import { db } from "../db";
 import { pendingEmails } from "@shared/schema";
 import { eq, and, lte } from "drizzle-orm";
@@ -13,12 +14,32 @@ if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
   console.warn("[EmailQueue] WARNING: NODEMAILER_AUTH_USER or NODEMAILER_AUTH_PASS is not set. Emails will not be sent.");
 }
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-  // Render's network can't route the AAAA record Node resolves for
-  // smtp.gmail.com, producing ENETUNREACH — force IPv4 to avoid it.
-  family: 4,
+const SMTP_HOST = "smtp.gmail.com";
+
+function buildTransporter(host: string) {
+  return nodemailer.createTransport({
+    host,
+    port: 465,
+    secure: true,
+    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    // `host` may be a raw IPv4 address (see below) — keep servername so
+    // TLS still validates the certificate against the real hostname.
+    tls: { servername: SMTP_HOST },
+  });
+}
+
+let transporter = buildTransporter(SMTP_HOST);
+
+// Render has no IPv6 egress route, but nodemailer's own DNS resolution
+// for smtp.gmail.com can end up leaving only AAAA addresses to try there,
+// causing ENETUNREACH on every send. Resolve the A record ourselves and
+// pin the transport to that literal IPv4 address instead.
+dns.lookup(SMTP_HOST, { family: 4 }, (err, address) => {
+  if (err) {
+    console.error("[EmailQueue] IPv4 lookup for smtp.gmail.com failed, falling back to hostname:", err.message);
+    return;
+  }
+  transporter = buildTransporter(address);
 });
 
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
