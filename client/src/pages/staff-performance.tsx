@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
 import { Users, TrendingUp, TrendingDown, Calendar, ShoppingBag, Wrench, BarChart3, AlertCircle, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,8 +109,8 @@ export default function StaffPerformancePage() {
     return formatCurrencyUtil(value, storeCurrency);
   };
 
-  const [selectedMetric, setSelectedMetric] = useState<"revenue" | "services" | "products" | "attendance" | "performance">("revenue");
-  const [activeTab, setActiveTab] = useState("directory");
+  const [selectedMetric, setSelectedMetric] = useUrlState<"revenue" | "services" | "products" | "attendance" | "performance">("metric", "revenue");
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "directory");
 
   const [drawerStaff, setDrawerStaff] = useState<{ id: string; name: string } | null>(null);
 
@@ -388,6 +389,7 @@ export default function StaffPerformancePage() {
                 isLoading={isLoading}
                 emptyMessage="No data available for the selected period."
                 onVisibleDataChange={setVisiblePerformanceRows}
+                urlKey="directory"
               />
             </CardContent>
           </Card>

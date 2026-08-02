@@ -616,6 +616,7 @@ export default function CreditSalesPage() {
             multiselect={user?.role !== "staff"}
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
+            urlKey="credit"
           />
         </CardContent>
       </Card>

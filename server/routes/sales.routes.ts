@@ -88,6 +88,8 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
             returnedRevenue: 0,
             totalRevenue: 0,
             costOfGoodsSold: 0,
+            costOfProductsSold: 0,
+            costOfServicesSold: 0,
             grossProfit: 0,
             discountsGiven: 0,
             discountsList: [],
@@ -126,6 +128,8 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           returnedRevenue: 0,
           totalRevenue: 0,
           costOfGoodsSold: 0,
+          costOfProductsSold: 0,
+          costOfServicesSold: 0,
           grossProfit: 0,
           discountsGiven: 0,
           discountsList: [] as any[],
@@ -153,6 +157,8 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           consolidated.returnedRevenue += s.returnedRevenue || 0;
           consolidated.totalRevenue += s.totalRevenue || 0;
           consolidated.costOfGoodsSold += s.costOfGoodsSold || 0;
+          consolidated.costOfProductsSold += s.costOfProductsSold || 0;
+          consolidated.costOfServicesSold += s.costOfServicesSold || 0;
           consolidated.grossProfit += s.grossProfit || 0;
           consolidated.discountsGiven += s.discountsGiven || 0;
           consolidated.totalOperationalExpenses += s.totalOperationalExpenses || 0;

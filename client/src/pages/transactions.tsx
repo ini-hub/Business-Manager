@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Link, useLocation, useSearch } from "wouter";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
+import { useUrlState } from "@/hooks/use-url-state";
 import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
@@ -70,7 +71,7 @@ export default function Transactions() {
     return p.toString();
   }, [dateRange]);
 
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlState("page", 1, Number);
   const [totalPages, setTotalPages] = useState(1);
 
   // Reset page when date range or store changes
@@ -244,7 +245,7 @@ export default function Transactions() {
     },
   ];
 
-  const [staffSaleFilter, setStaffSaleFilter] = useState<"all" | "staff" | "regular">("all");
+  const [staffSaleFilter, setStaffSaleFilter] = useUrlState<"all" | "staff" | "regular">("staffFilter", "all");
 
   // Apply staff sale filter on top of date-range results
   const filteredTransactions = useMemo(() => {
@@ -754,6 +755,7 @@ export default function Transactions() {
                 onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
                 filterConfigs={filterConfigs}
                 onVisibleDataChange={setVisibleTxRows}
+                urlKey="tx"
               />
               {currentStore?.id !== "all" && totalPages > 1 && (
                 <Pagination className="mt-4">
@@ -820,6 +822,7 @@ export default function Transactions() {
                 searchKeys={["notes"]}
                 isLoading={drawerLoading}
                 emptyMessage="No historical cash register sessions found for this branch."
+                urlKey="drawer"
               />
             </CardContent>
           </Card>

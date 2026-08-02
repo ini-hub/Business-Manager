@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, FileText, Truck, CheckSquare, Clock, AlertTriangle, Printer, PlusCircle, Trash, RefreshCw, UserCheck, Inbox, Coins } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
@@ -47,7 +48,7 @@ export default function PurchaseOrdersPage() {
   const { toast } = useToast();
   const storeCurrency = currentStore?.currency || "NGN";
 
-  const [activeTab, setActiveTab] = useState<string>("list");
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "list");
   const [selectedPOId, setSelectedPOId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
@@ -698,6 +699,7 @@ export default function PurchaseOrdersPage() {
                 multiselect={isManagerOrOwner}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={setSelectedIds}
+                urlKey="orders"
               />
             </CardContent>
           </Card>
@@ -815,6 +817,7 @@ export default function PurchaseOrdersPage() {
                 searchKeys={["vendor.name"]}
                 isLoading={isLoadingBills}
                 emptyMessage="No accounts payable invoices logged."
+                urlKey="bills"
               />
             </CardContent>
           </Card>

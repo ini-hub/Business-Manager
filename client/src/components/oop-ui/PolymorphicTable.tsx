@@ -1,5 +1,7 @@
 import * as React from "react";
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation } from "wouter";
+import { useDebounce } from "@/hooks/use-debounce";
 import {
   Table,
   TableBody,
@@ -56,6 +58,28 @@ const getNestedValue = (obj: any, path: string): any => {
   return val;
 };
 
+interface EncodedTableState {
+  q?: string;
+  p?: number;
+  ps?: number;
+  sc?: string;
+  sd?: "asc" | "desc";
+  f?: Record<string, any>;
+}
+
+// Reads once at mount, so a table whose `urlKey` prop is set can restore the search/page/
+// sort/filters it had before the user navigated away (e.g. to a detail page) and back —
+// otherwise this state lives only in local useState and resets to defaults on remount.
+function readTableStateFromUrl(urlKey: string | undefined): EncodedTableState | null {
+  if (!urlKey) return null;
+  try {
+    const raw = new URLSearchParams(window.location.search).get(urlKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface TableFilterConfig {
   key: string;
   label: string;
@@ -105,6 +129,11 @@ export interface PolymorphicTableProps<T> {
   // not just the current page) — lets a parent page offer "export what I'm currently
   // looking at" alongside its normal full-dataset export.
   onVisibleDataChange?: (rows: T[]) => void;
+
+  // When set, persists search/page/sort/filters to a URL query param under this key, so the
+  // list survives navigating to a detail page and back. Must be unique among tables rendered
+  // on the same page.
+  urlKey?: string;
 }
 
 interface DropdownFilterProps {
@@ -414,15 +443,19 @@ export function PolymorphicTable<T extends { id: string | number }>({
   emptyTitle = "No Records Available",
 
   onVisibleDataChange,
+  urlKey,
 }: PolymorphicTableProps<T>) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSizeState, setPageSizeState] = useState(pageSize);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(null);
+  const [initialUrlState] = useState(() => readTableStateFromUrl(urlKey));
+  const [location, setLocation] = useLocation();
+
+  const [searchTerm, setSearchTerm] = useState(initialUrlState?.q ?? "");
+  const [currentPage, setCurrentPage] = useState(initialUrlState?.p ?? 1);
+  const [pageSizeState, setPageSizeState] = useState(initialUrlState?.ps ?? pageSize);
+  const [sortColumn, setSortColumn] = useState<string | null>(initialUrlState?.sc ?? null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(initialUrlState?.sd ?? null);
 
   // Advanced filters state
-  const [activeFilters, setActiveFilters] = useState<Record<string, any>>({});
+  const [activeFilters, setActiveFilters] = useState<Record<string, any>>(initialUrlState?.f ?? {});
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [mobileDetailItem, setMobileDetailItem] = useState<T | null>(null);
 
@@ -467,6 +500,31 @@ export function PolymorphicTable<T extends { id: string | number }>({
   };
 
   const hasActiveFilters = Object.keys(activeFilters).length > 0;
+
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  useEffect(() => {
+    if (!urlKey) return;
+    const state: EncodedTableState = {};
+    if (debouncedSearchTerm) state.q = debouncedSearchTerm;
+    if (currentPage > 1) state.p = currentPage;
+    if (pageSizeState !== pageSize) state.ps = pageSizeState;
+    if (sortColumn) state.sc = sortColumn;
+    if (sortDirection) state.sd = sortDirection;
+    if (Object.keys(activeFilters).length > 0) state.f = activeFilters;
+
+    const params = new URLSearchParams(window.location.search);
+    if (Object.keys(state).length > 0) {
+      params.set(urlKey, JSON.stringify(state));
+    } else {
+      params.delete(urlKey);
+    }
+    const nextSearch = params.toString();
+    const currentSearch = window.location.search.replace(/^\?/, "");
+    if (nextSearch !== currentSearch) {
+      setLocation(nextSearch ? `${location}?${nextSearch}` : location, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlKey, debouncedSearchTerm, currentPage, pageSizeState, sortColumn, sortDirection, activeFilters]);
 
   // Filter & Search Logic
   const filteredData = useMemo(() => data.filter((item) => {

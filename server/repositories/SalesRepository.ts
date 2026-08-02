@@ -129,6 +129,8 @@ export class SalesRepository {
     returnedRevenue: number;
     totalRevenue: number;
     costOfGoodsSold: number;
+    costOfProductsSold: number;
+    costOfServicesSold: number;
     grossProfit: number;
     discountsGiven: number;
     discountsList: Array<{
@@ -169,13 +171,15 @@ export class SalesRepository {
 
     let serviceRevenue = 0;
     let productRevenue = 0;
-    let costOfGoodsSold = 0;
+    let costOfProductsSold = 0;
+    let costOfServicesSold = 0;
     let grossRevenue = 0;
     let returnedRevenue = 0;
 
     for (const row of rows) {
       const netQuantity = Math.max(0, row.quantity - (row.returnedQuantity || 0));
       const netTotalPrice = Math.max(0, row.totalPrice - (row.refundedAmount || 0));
+      const netLineCost = (row.costPrice ?? 0) * netQuantity;
 
       grossRevenue += row.totalPrice;
       returnedRevenue += (row.refundedAmount || 0);
@@ -184,21 +188,25 @@ export class SalesRepository {
       // an `else` would silently bank back-bar consumables as product revenue.
       // Supplies are unsellable (rejected in processCheckout and hidden from every
       // sale surface), so this branch means the data is already wrong — say so
-      // rather than absorbing it into a total.
+      // rather than absorbing it into a total. Cost is gated the same way revenue
+      // is, so costOfGoodsSold (derived below) can never drift from the sum of
+      // the two split figures.
       if (row.inventoryType === "service") {
         serviceRevenue += netTotalPrice;
+        costOfServicesSold += netLineCost;
       } else if (row.inventoryType === "product") {
         productRevenue += netTotalPrice;
+        costOfProductsSold += netLineCost;
       } else {
         console.warn(
           `[profit-loss] sale line on inventory type "${row.inventoryType}" counted in neither ` +
           `service nor product revenue (store ${storeId}). A supply should never reach a sale line.`
         );
       }
-      costOfGoodsSold += (row.costPrice ?? 0) * netQuantity;
     }
 
     const totalRevenue = serviceRevenue + productRevenue;
+    const costOfGoodsSold = costOfProductsSold + costOfServicesSold;
     const grossProfit = totalRevenue - costOfGoodsSold;
 
     // A receipt is stored as one `checkouts` row PER LINE, and processCheckout
@@ -278,6 +286,8 @@ export class SalesRepository {
       returnedRevenue,
       totalRevenue,
       costOfGoodsSold,
+      costOfProductsSold,
+      costOfServicesSold,
       grossProfit,
       discountsGiven,
       discountsList: processedDiscounts,

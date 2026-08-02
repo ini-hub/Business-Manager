@@ -407,7 +407,8 @@ export default function ProfitLossPage() {
       { kind: "subtotal", label: "Gross Revenue", amount: s.grossRevenue ?? 0, indent: 1 },
       { kind: "line", label: "Less: Returns & Refunds", amount: -(s.returnedRevenue ?? 0), indent: 1 },
       { kind: "total", label: "Net Revenue", amount: s.totalRevenue ?? 0 },
-      { kind: "total", label: "Cost of Goods Sold", amount: -(s.costOfGoodsSold ?? 0) },
+      { kind: "total", label: "Cost of Goods Sold (Products)", amount: -(s.costOfProductsSold ?? 0) },
+      { kind: "total", label: "Cost of Services Sold", amount: -(s.costOfServicesSold ?? 0) },
       { kind: "total", label: "Gross Profit", amount: s.grossProfit ?? 0 },
     ];
 
@@ -606,10 +607,14 @@ export default function ProfitLossPage() {
               </div>
               
               <div className="flex justify-between items-center text-sm pt-4">
-                <span className="text-muted-foreground">Cost of Goods/Services Sold</span>
-                <span className="font-mono text-amber-600">− {formatCurrency(summary?.costOfGoodsSold ?? 0)}</span>
+                <span className="text-muted-foreground">Cost of Goods Sold (Products)</span>
+                <span className="font-mono text-amber-600">− {formatCurrency(summary?.costOfProductsSold ?? 0)}</span>
               </div>
-              
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Cost of Services Sold</span>
+                <span className="font-mono text-amber-600">− {formatCurrency(summary?.costOfServicesSold ?? 0)}</span>
+              </div>
+
               <div className="flex justify-between items-center font-bold text-lg pt-2 border-t">
                 <span>GROSS PROFIT</span>
                 <span className="font-mono text-blue-600">{formatCurrency(summary?.grossProfit ?? 0)}</span>

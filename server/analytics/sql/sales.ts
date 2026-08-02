@@ -93,6 +93,14 @@ export const salesLinesCube: CubeSql = {
       kind: "agg",
       agg: sql`COALESCE(SUM(i.cost_price * ${NET_LINE_QTY}), 0)`,
     },
+    "sales.product_cogs": {
+      kind: "agg",
+      agg: sql`COALESCE(SUM(CASE WHEN i.type = 'product' THEN i.cost_price * ${NET_LINE_QTY} ELSE 0 END), 0)`,
+    },
+    "sales.service_cogs": {
+      kind: "agg",
+      agg: sql`COALESCE(SUM(CASE WHEN i.type = 'service' THEN i.cost_price * ${NET_LINE_QTY} ELSE 0 END), 0)`,
+    },
     "sales.units": {
       kind: "agg",
       agg: sql`COALESCE(SUM(${NET_LINE_QTY}), 0)`,

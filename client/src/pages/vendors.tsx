@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
+import { useUrlState } from "@/hooks/use-url-state";
 import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
@@ -72,11 +74,12 @@ export default function VendorsPage() {
   const [form, setForm] = useState(emptyForm);
   const [billForm, setBillForm] = useState({ amount: "", dueDate: "", notes: "" });
   const [payAmount, setPayAmount] = useState("");
-  const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
+  const [activeTab, setActiveTab] = useUrlState<"active" | "archived">("tab", "active");
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [archivedSelectedIds, setArchivedSelectedIds] = useState<(string | number)[]>([]);
   const [visibleVendorRows, setVisibleVendorRows] = useState<VendorWithStats[]>([]);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
 
   // Fetch all vendors (active + archived) — client splits them
   const { data: allVendors = [], isLoading } = useQuery<Vendor[]>({
@@ -385,7 +388,7 @@ export default function VendorsPage() {
     )},
     { key: "dueDate", header: "Due", render: (b: any) => b.dueDate ? new Date(b.dueDate).toLocaleDateString() : "—" },
     { key: "actions", header: "", render: (b: any) => b.status !== "paid" && isManagerOrOwner && (
-      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setLocation(`/vendors/bills/${b.id}/pay`)}>Pay</Button>
+      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setLocation(appendReturnTo(`/vendors/bills/${b.id}/pay`, location, search))}>Pay</Button>
     )},
   ];
 
@@ -469,6 +472,7 @@ export default function VendorsPage() {
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
             onVisibleDataChange={setVisibleVendorRows}
+            urlKey="active"
           />
         </TabsContent>
 
@@ -518,6 +522,7 @@ export default function VendorsPage() {
             selectedIds={archivedSelectedIds}
             onSelectedIdsChange={setArchivedSelectedIds}
             onVisibleDataChange={(rows) => setVisibleVendorRows(rows as VendorWithStats[])}
+            urlKey="archivedTbl"
           />
         </TabsContent>
       </Tabs>

@@ -1,46 +1,17 @@
-import nodemailer from "nodemailer";
-import dns from "node:dns";
+import { Resend } from "resend";
 import { db } from "../db";
 import { pendingEmails } from "@shared/schema";
 import { eq, and, lte } from "drizzle-orm";
 
-const GMAIL_USER = (process.env.NODEMAILER_AUTH_USER || "").trim();
-// Google App Passwords are shown as "xxxx xxxx xxxx xxxx" — strip whitespace
-// so a copy-paste from the Google settings page still authenticates.
-const GMAIL_APP_PASSWORD = (process.env.NODEMAILER_AUTH_PASS || "").replace(/\s+/g, "");
+const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "noreply@kowope.bolujo.com";
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
 
-if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
-  console.warn("[EmailQueue] WARNING: NODEMAILER_AUTH_USER or NODEMAILER_AUTH_PASS is not set. Emails will not be sent.");
+if (!RESEND_API_KEY) {
+  console.warn("[EmailQueue] WARNING: RESEND_API_KEY is not set. Emails will not be sent.");
 }
 
-const SMTP_HOST = "smtp.gmail.com";
-
-function buildTransporter(host: string) {
-  return nodemailer.createTransport({
-    host,
-    port: 465,
-    secure: true,
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-    // `host` may be a raw IPv4 address (see below) — keep servername so
-    // TLS still validates the certificate against the real hostname.
-    tls: { servername: SMTP_HOST },
-  });
-}
-
-let transporter = buildTransporter(SMTP_HOST);
-
-// Render has no IPv6 egress route, but nodemailer's own DNS resolution
-// for smtp.gmail.com can end up leaving only AAAA addresses to try there,
-// causing ENETUNREACH on every send. Resolve the A record ourselves and
-// pin the transport to that literal IPv4 address instead.
-dns.lookup(SMTP_HOST, { family: 4 }, (err, address) => {
-  if (err) {
-    console.error("[EmailQueue] IPv4 lookup for smtp.gmail.com failed, falling back to hostname:", err.message);
-    return;
-  }
-  transporter = buildTransporter(address);
-});
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
 const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
@@ -65,7 +36,7 @@ function htmlToText(html: string): string {
 let flushing = false;
 
 async function flush(): Promise<void> {
-  if (flushing || !GMAIL_USER || !GMAIL_APP_PASSWORD) return;
+  if (flushing || !resend) return;
   flushing = true;
 
   try {
@@ -76,18 +47,19 @@ async function flush(): Promise<void> {
 
     for (const item of due) {
       try {
-        await transporter.sendMail({
-          from: `"${BUSINESS_NAME}" <${GMAIL_USER}>`,
+        const { error } = await resend.emails.send({
+          from: `${BUSINESS_NAME} <${RESEND_FROM_EMAIL}>`,
           to: item.to,
           subject: item.subject,
           html: item.html,
           text: htmlToText(item.html),
           replyTo: item.replyTo || undefined,
         });
+        if (error) throw new Error(`${error.name}: ${error.message}`);
         console.log(`[EmailQueue] Sent to ${item.to} (attempt ${item.attempts + 1})`);
         await db.update(pendingEmails).set({ status: "sent", attempts: item.attempts + 1 }).where(eq(pendingEmails.id, item.id));
       } catch (err) {
-        console.error(`[EmailQueue] SMTP error for ${item.to}:`, err instanceof Error ? err.message : err);
+        console.error(`[EmailQueue] Resend error for ${item.to}:`, err instanceof Error ? err.message : err);
         const nextAttempts = item.attempts + 1;
         if (nextAttempts >= MAX_ATTEMPTS) {
           console.error(`[EmailQueue] Dropped after ${nextAttempts} attempts — to: ${item.to}, subject: ${item.subject}`);

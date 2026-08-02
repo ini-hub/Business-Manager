@@ -233,6 +233,32 @@ export const SALES_MEASURES: readonly MeasureDef[] = [
     dimensions: LINE_DIMS,
   },
   {
+    id: "sales.product_cogs",
+    cube: "sales_lines",
+    label: "Cost of Products Sold",
+    description:
+      "Cost of Goods Sold restricted to lines whose inventory type is 'product'. " +
+      "Sums with sales.service_cogs to sales.cogs.",
+    format: "currency",
+    additivity: "flow",
+    polarity: "lower_is_better",
+    minRole: "owner",
+    dimensions: LINE_DIMS,
+  },
+  {
+    id: "sales.service_cogs",
+    cube: "sales_lines",
+    label: "Cost of Services Sold",
+    description:
+      "Cost of Goods Sold restricted to lines whose inventory type is 'service'. " +
+      "Sums with sales.product_cogs to sales.cogs.",
+    format: "currency",
+    additivity: "flow",
+    polarity: "lower_is_better",
+    minRole: "owner",
+    dimensions: LINE_DIMS,
+  },
+  {
     id: "sales.units",
     cube: "sales_lines",
     label: "Units Sold",

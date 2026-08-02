@@ -34,6 +34,11 @@ export interface DataTableProps<T> {
   // Fires with the live search/filter/sort result set — lets a page offer "export what
   // I'm currently looking at" alongside its normal full-dataset export.
   onVisibleDataChange?: (rows: T[]) => void;
+
+  // When set, persists search/page/sort/filters to a URL query param under this key, so the
+  // list survives navigating to a detail page and back. Must be unique among tables rendered
+  // on the same page.
+  urlKey?: string;
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -54,6 +59,7 @@ export function DataTable<T extends { id: string | number }>({
   emptyAction,
   emptyTitle,
   onVisibleDataChange,
+  urlKey,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -82,6 +88,7 @@ export function DataTable<T extends { id: string | number }>({
       emptyAction={emptyAction}
       emptyTitle={emptyTitle}
       onVisibleDataChange={onVisibleDataChange}
+      urlKey={urlKey}
     />
   );
 }

@@ -3,6 +3,7 @@ import { buildSlug } from "@/lib/slug";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
+import { useReturnTo } from "@/lib/return-to";
 import {
   ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock,
   Edit, Infinity, Info, AlertTriangle, Archive, Plus, Trash2, Layers, Wrench, BarChart2,
@@ -81,6 +82,7 @@ type RestockEventWithStaff = RestockEvent & {
 export default function InventoryDetails() {
   const [, setLocation] = useLocation();
   const [match, params] = useRoute("/inventory/:id");
+  const { backHref } = useReturnTo("/inventory");
   const { currentStore } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -487,7 +489,7 @@ export default function InventoryDetails() {
   if (itemLoading) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setLocation("/inventory")}>
+        <Button variant="ghost" onClick={() => setLocation(backHref)}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Back to Inventory
         </Button>
         <Card className="overflow-hidden">
@@ -518,7 +520,7 @@ export default function InventoryDetails() {
   if (!inventory) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" onClick={() => setLocation("/inventory")}>
+        <Button variant="ghost" onClick={() => setLocation(backHref)}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Back to Inventory
         </Button>
         <Card>
@@ -557,7 +559,7 @@ export default function InventoryDetails() {
     <div className="space-y-5">
       {/* Top navigation row */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <Button variant="ghost" onClick={() => setLocation("/inventory")} data-testid="button-back">
+        <Button variant="ghost" onClick={() => setLocation(backHref)} data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Inventory
         </Button>

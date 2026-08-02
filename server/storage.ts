@@ -422,6 +422,8 @@ export interface IStorage {
     returnedRevenue: number;
     totalRevenue: number;
     costOfGoodsSold: number;
+    costOfProductsSold: number;
+    costOfServicesSold: number;
     grossProfit: number;
     discountsGiven: number;
     discountsList: Array<{
@@ -1078,6 +1080,8 @@ export class DatabaseStorage implements IStorage {
     returnedRevenue: number;
     totalRevenue: number;
     costOfGoodsSold: number;
+    costOfProductsSold: number;
+    costOfServicesSold: number;
     grossProfit: number;
     discountsGiven: number;
     discountsList: Array<{

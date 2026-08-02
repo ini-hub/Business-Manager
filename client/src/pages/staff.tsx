@@ -22,7 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
+import { useUrlState } from "@/hooks/use-url-state";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -44,7 +46,8 @@ import { exportReportToPDF } from "@/lib/export-utils";
 
 export default function StaffPage() {
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const { currentStore, stores, business } = useStore();
   const { user } = useAuth();
   const userRole = user?.role || "staff";
@@ -55,7 +58,7 @@ export default function StaffPage() {
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [transferTargetStoreId, setTransferTargetStoreId] = useState<string>("");
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "active");
 
   const { data: staffList = [], isLoading } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
@@ -293,7 +296,7 @@ export default function StaffPage() {
                 size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLocation(`/staff/${staff.id}/edit`);
+                  setLocation(appendReturnTo(`/staff/${staff.id}/edit`, location, search));
                 }}
                 title="Edit staff member"
               >
@@ -609,6 +612,7 @@ export default function StaffPage() {
                   }
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleStaffRows}
+                  urlKey="active"
                 />
               </TabsContent>
               <TabsContent value="archived" className="mt-4">
@@ -624,6 +628,7 @@ export default function StaffPage() {
                   emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleStaffRows}
+                  urlKey="archivedTbl"
                 />
               </TabsContent>
             </>

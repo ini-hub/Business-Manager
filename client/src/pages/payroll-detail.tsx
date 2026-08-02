@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
+import { useReturnTo } from "@/lib/return-to";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { ArrowLeft, Lock, TrendingUp, Calendar, ChevronDown, ChevronUp, DollarSign, Printer, Minus, Plus, AlertTriangle } from "lucide-react";
@@ -29,6 +30,7 @@ export default function PayrollDetailPage() {
   const [, params] = useRoute("/payroll/:periodId/staff/:staffId");
   const periodId = params?.periodId ?? "";
   const staffId = params?.staffId ?? "";
+  const { backHref } = useReturnTo("/payroll");
   const { currentStore, business } = useStore();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -324,7 +326,7 @@ export default function PayrollDetailPage() {
     <div className="space-y-6">
       {/* Back navigation */}
       <div className="flex items-center gap-3">
-        <Link href="/payroll">
+        <Link href={backHref}>
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Payroll

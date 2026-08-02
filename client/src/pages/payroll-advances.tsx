@@ -320,6 +320,7 @@ export default function PayrollAdvancesPage() {
             // column, which only shows a delete button for non-recovered advances).
             onSelectedIdsChange={(ids) => setSelectedIds(ids.filter((id) => !recoveredIds.has(String(id))))}
             onVisibleDataChange={setVisibleAdvanceRows}
+            urlKey="advances"
           />
         </CardContent>
       </Card>

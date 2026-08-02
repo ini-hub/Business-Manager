@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Edit, Printer, FileDown, PlusCircle, Trash, RefreshCw } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -45,7 +46,7 @@ export default function QuotesPage() {
   const { toast } = useToast();
   const storeCurrency = currentStore?.currency || "NGN";
 
-  const [activeTab, setActiveTab] = useState<string>("list");
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "list");
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
@@ -481,6 +482,7 @@ export default function QuotesPage() {
                 multiselect={isManagerOrOwner}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={setSelectedIds}
+                urlKey="quotes"
               />
             </CardContent>
           </Card>

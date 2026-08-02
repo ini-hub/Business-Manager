@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { format, parseISO } from "date-fns";
 import {
@@ -61,7 +63,8 @@ export default function PayrollPage() {
   const { toast } = useToast();
   const { currentStore } = useStore();
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const userRole = user?.role || "staff";
   const isOwner = userRole === "owner";
 
@@ -91,8 +94,8 @@ export default function PayrollPage() {
   });
   const [periodToDelete, setPeriodToDelete] = useState<string | null>(null);
 
-  const [periodsPage, setPeriodsPage] = useState(1);
-  const [entriesPage, setEntriesPage] = useState(1);
+  const [periodsPage, setPeriodsPage] = useUrlState("periodsPage", 1, Number);
+  const [entriesPage, setEntriesPage] = useUrlState("entriesPage", 1, Number);
   const [visiblePayrollEntries, setVisiblePayrollEntries] = useState<(PayrollEntryWithStaff & { staffName: string; netPay: number })[]>([]);
 
   const storeCurrency = currentStore?.currency || "NGN";
@@ -614,7 +617,7 @@ export default function PayrollPage() {
                       key: "actions",
                       header: "",
                       render: (entry: PayrollEntryWithStaff) => (
-                        <Link href={`/payroll/${selectedPeriodId}/staff/${entry.staffId}`}>
+                        <Link href={appendReturnTo(`/payroll/${selectedPeriodId}/staff/${entry.staffId}`, location, search)}>
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs font-semibold text-primary">
                             Details
                           </Button>
@@ -651,6 +654,7 @@ export default function PayrollPage() {
                           filterConfigs={filterConfigs}
                           pageSize={5}
                           onVisibleDataChange={setVisiblePayrollEntries}
+                          urlKey="entries"
                         />
                       </CardContent>
                       <Separator />

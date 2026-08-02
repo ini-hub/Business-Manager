@@ -23,6 +23,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
 import type { ExpenseCategory, Inventory } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
+import { useReturnTo } from "@/lib/return-to";
 
 const schema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -53,6 +54,7 @@ type FormValues = z.infer<typeof schema>;
 export default function ExpenseEditPage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const { backHref } = useReturnTo("/expenses");
   const { toast } = useToast();
   const { currentStore } = useStore();
   const queryClient = useQueryClient();
@@ -167,7 +169,7 @@ export default function ExpenseEditPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       toast({ title: "Expense updated" });
-      setLocation("/expenses");
+      setLocation(backHref);
     },
     onError: (e: Error) =>
       toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -187,7 +189,7 @@ export default function ExpenseEditPage() {
       <PageHeader
         title="Edit Expense"
         actions={
-          <Button variant="outline" onClick={() => setLocation("/expenses")}>
+          <Button variant="outline" onClick={() => setLocation(backHref)}>
             <ChevronLeft className="h-4 w-4 mr-1" />Back to Expenses
           </Button>
         }
@@ -408,7 +410,7 @@ export default function ExpenseEditPage() {
 
               <Separator />
               <div className="flex items-center justify-between">
-                <Button type="button" variant="ghost" onClick={() => setLocation("/expenses")}>Cancel</Button>
+                <Button type="button" variant="ghost" onClick={() => setLocation(backHref)}>Cancel</Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? "Updating…" : "Update Expense"}
                 </Button>

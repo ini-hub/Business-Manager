@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
@@ -100,7 +101,8 @@ export default function ExpensesPage() {
   const canBulkDelete = user?.role === "owner";
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const storeCurrency = currentStore?.currency || "NGN";
   
   const [dateRange, setDateRange] = usePersistedDateRange<{ from: Date; to: Date } | undefined>(
@@ -353,7 +355,7 @@ export default function ExpensesPage() {
     },
   });
 
-  const handleEditClick = (e: ExpenseWithCategory) => setLocation(`/expenses/${buildSlug(e.title, e.id)}/edit`);
+  const handleEditClick = (e: ExpenseWithCategory) => setLocation(appendReturnTo(`/expenses/${buildSlug(e.title, e.id)}/edit`, location, search));
 
   const addCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -739,6 +741,7 @@ export default function ExpensesPage() {
                 }
                 filterConfigs={filterConfigs}
                 onVisibleDataChange={setVisibleExpenses}
+                urlKey="expenses"
                 multiselect={canBulkDelete}
                 selectedIds={selectedIds}
                 // Auto-generated expenses have no manual delete path (mirrors the

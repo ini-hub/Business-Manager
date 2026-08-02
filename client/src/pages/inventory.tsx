@@ -53,10 +53,12 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
 import { buildSlug } from "@/lib/slug";
+import { appendReturnTo } from "@/lib/return-to";
+import { useUrlState } from "@/hooks/use-url-state";
 
 type FilterType = "all" | "product" | "service" | "supply" | "low-stock" | "audits" | "archived";
 
@@ -78,12 +80,13 @@ export default function InventoryPage() {
   const { toast } = useToast();
   const { currentStore, business } = useStore();
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteBlockedBySales, setDeleteBlockedBySales] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ProductWithVariants | null>(null);
-  const [filterType, setFilterType] = useState<FilterType>("all");
+  const [filterType, setFilterType] = useUrlState<FilterType>("view", "all");
   const [isAuditFormOpen, setIsAuditFormOpen] = useState(false);
   const [isAuditDetailOpen, setIsAuditDetailOpen] = useState(false);
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
@@ -533,7 +536,7 @@ export default function InventoryPage() {
   }, [inventoryList]);
 
   const navigateToDetails = (item: ProductWithVariants) => {
-    setLocation(`/inventory/${buildSlug(item.name, item.id)}`);
+    setLocation(appendReturnTo(`/inventory/${buildSlug(item.name, item.id)}`, location, search));
   };
 
   const getStockBadge = (item: any) => {
@@ -1047,6 +1050,7 @@ export default function InventoryPage() {
                 setSelectedAuditId(audit.id);
                 setIsAuditDetailOpen(true);
               }}
+              urlKey="audits"
             />
           );
         })()
@@ -1125,6 +1129,7 @@ export default function InventoryPage() {
               ]}
               searchable
               searchPlaceholder="Search archived items…"
+              urlKey="archived"
             />
           )}
         </div>
@@ -1203,6 +1208,7 @@ export default function InventoryPage() {
               onSelectedIdsChange={setSelectedIds}
               filterConfigs={filterConfigs}
               onVisibleDataChange={setVisibleProducts}
+              urlKey="items"
               emptyIcon={<Package className="h-6 w-6" />}
               emptyTitle="No Inventory Items"
               emptyAction={

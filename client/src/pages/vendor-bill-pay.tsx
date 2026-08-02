@@ -13,10 +13,12 @@ import { useStore } from "@/lib/store-context";
 import { apiRequest } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
+import { useReturnTo } from "@/lib/return-to";
 
 export default function VendorBillPayPage() {
   const { billId } = useParams<{ billId: string }>();
   const [, setLocation] = useLocation();
+  const { backHref } = useReturnTo("/vendors");
   const { toast } = useToast();
   const { currentStore } = useStore();
   const queryClient = useQueryClient();
@@ -50,7 +52,7 @@ export default function VendorBillPayPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vendors/bills", currentStore?.id] });
       toast({ title: "Payment recorded" });
-      setLocation("/vendors");
+      setLocation(backHref);
     },
     onError: (e: Error) =>
       toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -64,7 +66,7 @@ export default function VendorBillPayPage() {
         title="Record Payment"
         description={bill ? `Outstanding balance: ${fmt(outstanding, currency)}` : "Record a payment against this bill."}
         actions={
-          <Button variant="outline" onClick={() => setLocation("/vendors")}>
+          <Button variant="outline" onClick={() => setLocation(backHref)}>
             <ChevronLeft className="h-4 w-4 mr-1" />
             Back to Vendors
           </Button>
@@ -108,7 +110,7 @@ export default function VendorBillPayPage() {
 
           <Separator />
           <div className="flex items-center justify-between">
-            <Button variant="ghost" onClick={() => setLocation("/vendors")}>
+            <Button variant="ghost" onClick={() => setLocation(backHref)}>
               Cancel
             </Button>
             <Button

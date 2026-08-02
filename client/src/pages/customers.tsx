@@ -7,7 +7,9 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
@@ -88,15 +90,16 @@ export default function Customers() {
   const { toast } = useToast();
   const { currentStore, stores, business } = useStore();
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "active");
   const [duplicateCustomer, setDuplicateCustomer] = useState<any | null>(null);
   const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
   const [pendingSubmitValues, setPendingSubmitValues] = useState<any | null>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlState("page", 1, Number);
   const [totalPages, setTotalPages] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -350,7 +353,7 @@ export default function Customers() {
   }, [customerVisits]);
 
   const navigateToCustomerDetails = (customer: Customer) => {
-    setLocation(`/customers/${buildSlug(customer.name, customer.id)}`);
+    setLocation(appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search));
   };
 
   const form = useForm<InsertCustomer>({
@@ -847,6 +850,7 @@ export default function Customers() {
                   onRowClick={navigateToCustomerDetails}
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
+                  urlKey="active"
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
                   emptyAction={
@@ -895,6 +899,7 @@ export default function Customers() {
                   emptyMessage="Archived or deleted customers will be filed here for compliance histories."
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
+                  urlKey="archivedTbl"
                   emptyIcon={<Users className="h-6 w-6 opacity-40" />}
                   emptyTitle="No Archived Profiles"
                 />

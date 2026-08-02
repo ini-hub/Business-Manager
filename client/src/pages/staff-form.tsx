@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
+import { useReturnTo } from "@/lib/return-to";
 import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, User, Briefcase, Settings2, UserCheck, UserPlus, Unlink, Link2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ const localStaffSchema = z.object({
 export default function StaffFormPage() {
   const { id } = useParams<{ id?: string }>();
   const [, setLocation] = useLocation();
+  const { backHref } = useReturnTo("/staff");
   const { toast } = useToast();
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
@@ -212,7 +214,7 @@ export default function StaffFormPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: `Staff member ${staffId ? "updated" : "created"} successfully` });
-      setLocation("/staff");
+      setLocation(backHref);
     },
     onError: (error: Error) => {
       toast({ title: "Error Saving Staff Member", description: getUserFriendlyError(error, "staff"), variant: "destructive" });
@@ -241,7 +243,7 @@ export default function StaffFormPage() {
     return (
       <div className="p-8 text-center">
         <p className="text-muted-foreground">Please select a store to manage staff.</p>
-        <Button variant="outline" className="mt-4" onClick={() => setLocation("/staff")}>
+        <Button variant="outline" className="mt-4" onClick={() => setLocation(backHref)}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Staff
         </Button>
       </div>
@@ -257,7 +259,7 @@ export default function StaffFormPage() {
     <div className="min-h-screen bg-muted/20">
       {/* Sticky top nav */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/staff")}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation(backHref)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -719,7 +721,7 @@ export default function StaffFormPage() {
 
             {/* Bottom actions */}
             <div className="flex gap-3 pt-2 pb-8">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setLocation("/staff")}>Cancel</Button>
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setLocation(backHref)}>Cancel</Button>
               <Button type="submit" className="flex-1" disabled={mutation.isPending}>
                 {mutation.isPending ? "Saving…" : staffId ? "Save Changes" : "Create Profile"}
               </Button>

@@ -217,6 +217,7 @@ export default function PayrollReportPage() {
             filterConfigs={filterConfigs}
             onVisibleDataChange={setVisibleReport}
             onRowClick={(r: any) => setLocation(appendReturnTo(`/payroll?period=${r.id}`, location, search))}
+            urlKey="report"
           />
         </CardContent>
         {report.length > 0 && (

@@ -71,6 +71,8 @@ export class AnalyticsService {
       returnedRevenue,
       totalRevenue,
       costOfGoodsSold,
+      costOfProductsSold,
+      costOfServicesSold,
       grossProfit,
       discountsGiven,
       discountsList,
@@ -143,6 +145,8 @@ export class AnalyticsService {
       returnedRevenue,
       totalRevenue,
       costOfGoodsSold,
+      costOfProductsSold,
+      costOfServicesSold,
       grossProfit,
       discountsGiven,
       discountsList,
@@ -153,7 +157,11 @@ export class AnalyticsService {
       directSuppliesGrouped,
       // Memo line: what delivery actually costs. Gross profit deliberately keeps
       // its old meaning (revenue - item cost) so margin history stays comparable,
-      // which makes this the figure to read for true delivery margin.
+      // which makes this the figure to read for true delivery margin. Note this
+      // is NOT costOfServicesSold + directSuppliesTotal — directSuppliesFromRecipes
+      // (inside directSuppliesTotal) is the recipe-driven consumable cost of
+      // actually performing a service, a different number from the static
+      // costPrice set on the service item itself (costOfServicesSold).
       costOfDelivery: costOfGoodsSold + directSuppliesTotal,
       totalPayrollExpenses,
       totalExpenses,

@@ -167,6 +167,8 @@ async function runCase(
         "sales.returned_revenue",
         "sales.net_revenue",
         "sales.cogs",
+        "sales.product_cogs",
+        "sales.service_cogs",
         "sales.gross_profit",
         "sales.discounts",
       ],
@@ -183,6 +185,8 @@ async function runCase(
       { label: "returnedRevenue", expected: expected.returnedRevenue, actual: t["sales.returned_revenue"] ?? 0, tolerance: MONEY_TOLERANCE },
       { label: "totalRevenue", expected: expected.totalRevenue, actual: t["sales.net_revenue"] ?? 0, tolerance: MONEY_TOLERANCE },
       { label: "costOfGoodsSold", expected: expected.costOfGoodsSold, actual: t["sales.cogs"] ?? 0, tolerance: MONEY_TOLERANCE },
+      { label: "costOfProductsSold", expected: expected.costOfProductsSold, actual: t["sales.product_cogs"] ?? 0, tolerance: MONEY_TOLERANCE },
+      { label: "costOfServicesSold", expected: expected.costOfServicesSold, actual: t["sales.service_cogs"] ?? 0, tolerance: MONEY_TOLERANCE },
       { label: "grossProfit", expected: expected.grossProfit, actual: t["sales.gross_profit"] ?? 0, tolerance: MONEY_TOLERANCE },
       // Both sides must now deduplicate the basket discount by receipt. Before
       // that fix the report multiplied it by the receipt's line count, so this

@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/data-table";
 import { CustomerLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
+import { useUrlState } from "@/hooks/use-url-state";
 import { BulkOperations } from "@/components/bulk-operations";
 import { BOOKING_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
@@ -35,11 +36,11 @@ export default function BookingsPage() {
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [view, setView] = useState<"list" | "calendar">("list");
+  const [view, setView] = useUrlState<"list" | "calendar">("view", "list");
   const [location, setLocation] = useLocation();
   const search = useSearch();
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
-  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "issues">("all");
+  const [statusFilter, setStatusFilter] = useUrlState<"all" | "completed" | "issues">("status", "all");
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
   const ISSUE_STATUSES = ["no_show", "cancelled", "rescheduled"];
 
@@ -316,6 +317,7 @@ export default function BookingsPage() {
                 multiselect={isManagerOrOwner}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={setSelectedIds}
+                urlKey="bookings"
               />
             </div>
           ) : (

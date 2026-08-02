@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
 import { BarChart3, RefreshCw, Layers, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart, Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -57,7 +58,8 @@ interface ServiceProfitabilityReport {
 }
 
 export default function ServiceProfitabilityPage() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const search = useSearch();
   const { currentStore } = useStore();
   const storeCurrency = currentStore?.currency || "NGN";
   
@@ -193,7 +195,7 @@ export default function ServiceProfitabilityPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setLocation(`/inventory/${buildSlug(item.name, item.id)}`)}
+          onClick={() => setLocation(appendReturnTo(`/inventory/${buildSlug(item.name, item.id)}`, location, search))}
           className="flex items-center gap-1 hover:bg-primary hover:text-primary-foreground transition-all duration-200"
         >
           Details
@@ -326,6 +328,7 @@ export default function ServiceProfitabilityPage() {
             filterConfigs={profitabilityFilterConfigs}
             isLoading={isLoading}
             emptyMessage="No inventory items found."
+            urlKey="profitability"
           />
         </CardContent>
       </Card>

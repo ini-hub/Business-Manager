@@ -157,6 +157,21 @@ describe("measure selection", () => {
     expect(text).toContain("CASE WHEN i.type = 'product' THEN");
     expect(text).not.toContain("WHEN i.type = 'service' THEN 0 ELSE");
   });
+
+  it("splits product and service COGS by positive tests, so a supply lands in neither", () => {
+    // Same rationale as the revenue split above: sales.product_cogs and
+    // sales.service_cogs must sum to sales.cogs under the "supply never sells"
+    // invariant, which only holds if both sides test their own type positively
+    // instead of one side using a catch-all ELSE.
+    const { sql: text } = compile({
+      ...BASE,
+      measures: ["sales.product_cogs", "sales.service_cogs"],
+    });
+    expect(text).toContain("CASE WHEN i.type = 'product' THEN");
+    expect(text).toContain("CASE WHEN i.type = 'service' THEN");
+    expect(text).not.toContain("WHEN i.type = 'product' THEN 0 ELSE");
+    expect(text).not.toContain("WHEN i.type = 'service' THEN 0 ELSE");
+  });
 });
 
 describe("time bucketing", () => {
