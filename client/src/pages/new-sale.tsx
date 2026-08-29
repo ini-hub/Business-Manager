@@ -58,6 +58,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -95,6 +96,14 @@ import { SupervisorOverrideDialog } from "./new-sale/SupervisorOverrideDialog";
 import { DraftsSheet } from "./new-sale/DraftsSheet";
 import type { CartItem } from "./new-sale/types";
 
+type SplitPayment = { method: "cash" | "transfer" | "credit", amount: number };
+
+// Fresh array each call — split rows are edited in place by index.
+const defaultSplitPayments = (): SplitPayment[] => [
+  { method: "cash", amount: 0 },
+  { method: "transfer", amount: 0 },
+];
+
 export default function NewSale() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -115,10 +124,7 @@ export default function NewSale() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [staffOpen, setStaffOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave" | "credit" | "split">("cash");
-  const [splitPayments, setSplitPayments] = useState<Array<{method: "cash" | "transfer" | "credit", amount: number}>>([
-    { method: "cash", amount: 0 },
-    { method: "transfer", amount: 0 }
-  ]);
+  const [splitPayments, setSplitPayments] = useState<SplitPayment[]>(defaultSplitPayments);
   const [creditUpfrontPaid, setCreditUpfrontPaid] = useState<number>(0);
 
   const updateSplitPayment = (index: number, field: "method" | "amount", value: string | number) => {
@@ -405,6 +411,68 @@ export default function NewSale() {
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
+  // Clear the register for the next customer. Used after a completed sale and after parking a draft.
+  const resetSaleState = () => {
+    setCart([]);
+    setActiveDraftId(null);
+    setSelectedCustomer("");
+    setSelectedStaff("");
+    setPaymentMethod("cash");
+    setSplitPayments(defaultSplitPayments());
+    setApplyDiscount(false);
+    setRedeemPoints(false);
+    setRedeemStoreCredit(false);
+    setDiscountAmount(0);
+    setDiscountPercent(0);
+    setDiscountReason("");
+    setDiscountApprovedBy("");
+    setCreditUpfrontPaid(0);
+    setCreditDueDate("");
+    setEffectiveDate(new Date().toISOString().split("T")[0]);
+    setIsDateModified(false);
+    setActiveTab("products");
+  };
+
+  const loadDraft = (draft: any) => {
+    // Restore cart from stored snapshot — map back to CartItem using current inventory list
+    const restoredCart = draft.cartData.map((item: any) => {
+      const inv = inventory.find(i => i.id === item.inventoryId);
+      if (!inv) return null;
+      return {
+        inventory: inv,
+        quantity: item.quantity,
+        customPrice: item.customPrice,
+        totalPrice: item.totalPrice,
+        leadStaffId: item.leadStaffId ?? null,
+        assistingStaff1Id: item.assistingStaff1Id ?? null,
+        assistingStaff2Id: item.assistingStaff2Id ?? null,
+        commissionSplit: item.commissionSplit ?? "standard",
+        showAsst1: !!item.assistingStaff1Id,
+        showAsst2: !!item.assistingStaff2Id,
+      };
+    }).filter(Boolean);
+
+    // Set every field unconditionally — a draft must never inherit leftover state from the
+    // cart it replaces.
+    setCart(restoredCart);
+    setSelectedCustomer(draft.customerId || "");
+    setSelectedStaff(draft.staffId || "");
+    setPaymentMethod((draft.paymentMethod as any) || "cash");
+    setDiscountAmount(Number(draft.discountAmount) || 0);
+    setDiscountPercent(Number(draft.discountPercent) || 0);
+    setDiscountReason(draft.discountReason || "");
+    setDiscountApprovedBy(draft.discountApprovedBy || "");
+    setApplyDiscount(Number(draft.discountAmount) > 0);
+    setRedeemPoints(draft.redeemPoints ?? false);
+    setRedeemStoreCredit(draft.redeemStoreCredit ?? false);
+    setCreditUpfrontPaid(Number(draft.creditUpfrontPaid) || 0);
+    setCreditDueDate(draft.creditDueDate || "");
+    setSplitPayments(draft.splitPayments ?? defaultSplitPayments());
+    setActiveDraftId(draft.id);
+    setDraftsOpen(false);
+    toast({ title: "Draft loaded!", description: "Your cart has been restored." });
+  };
+
   const saveDraftMutation = useMutation({
     mutationFn: async (isUpdate: boolean) => {
       const cartData = cart.map(c => ({
@@ -456,9 +524,19 @@ export default function NewSale() {
       }
     },
     onSuccess: (data) => {
-      setActiveDraftId(data.id);
+      // Saving a draft parks the sale — unload the cart so the next customer can be served
+      // straight away. The draft itself is the record; nothing is left attached to the register.
+      resetSaleState();
       refetchDrafts();
-      toast({ title: "Draft saved!", description: "You can load it from the Drafts panel." });
+      toast({
+        title: "Draft saved",
+        description: "Cart cleared — ready for the next customer.",
+        action: (
+          <ToastAction altText="Reopen draft" onClick={() => loadDraft(data)}>
+            Reopen
+          </ToastAction>
+        ),
+      });
     },
     onError: () => {
       toast({ title: "Could not save draft", variant: "destructive" });
@@ -480,44 +558,6 @@ export default function NewSale() {
       toast({ title: "Could not delete draft", variant: "destructive" });
     },
   });
-
-  const loadDraft = (draft: any) => {
-    // Restore cart from stored snapshot — map back to CartItem using current inventory list
-    const restoredCart = draft.cartData.map((item: any) => {
-      const inv = inventory.find(i => i.id === item.inventoryId);
-      if (!inv) return null;
-      return {
-        inventory: inv,
-        quantity: item.quantity,
-        customPrice: item.customPrice,
-        totalPrice: item.totalPrice,
-        leadStaffId: item.leadStaffId ?? null,
-        assistingStaff1Id: item.assistingStaff1Id ?? null,
-        assistingStaff2Id: item.assistingStaff2Id ?? null,
-        commissionSplit: item.commissionSplit ?? "standard",
-        showAsst1: !!item.assistingStaff1Id,
-        showAsst2: !!item.assistingStaff2Id,
-      };
-    }).filter(Boolean);
-
-    setCart(restoredCart);
-    if (draft.customerId) setSelectedCustomer(draft.customerId);
-    if (draft.staffId) setSelectedStaff(draft.staffId);
-    if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod as any);
-    setDiscountAmount(Number(draft.discountAmount) || 0);
-    setDiscountPercent(Number(draft.discountPercent) || 0);
-    setDiscountReason(draft.discountReason || "");
-    setDiscountApprovedBy(draft.discountApprovedBy || "");
-    setApplyDiscount(Number(draft.discountAmount) > 0);
-    setRedeemPoints(draft.redeemPoints ?? false);
-    setRedeemStoreCredit(draft.redeemStoreCredit ?? false);
-    setCreditUpfrontPaid(Number(draft.creditUpfrontPaid) || 0);
-    setCreditDueDate(draft.creditDueDate || "");
-    if (draft.splitPayments) setSplitPayments(draft.splitPayments);
-    setActiveDraftId(draft.id);
-    setDraftsOpen(false);
-    toast({ title: "Draft loaded!", description: "Your cart has been restored." });
-  };
 
   const searchParams = new URLSearchParams(window.location.search);
   const bookingId = searchParams.get("bookingId");
@@ -1065,29 +1105,18 @@ export default function NewSale() {
         toast({ title: "Sale completed successfully!" });
       }
 
+      // Capture the draft id before resetting — the reset releases it.
+      const draftIdToDelete = activeDraftId;
+
+      resetSaleState();
+
       // Delete the active draft now that the sale is complete
-      if (activeDraftId && currentStore?.id) {
-        apiRequest("DELETE", `/api/sales/drafts/${activeDraftId}?storeId=${currentStore.id}`)
-          .then(() => { setActiveDraftId(null); refetchDrafts(); })
+      if (draftIdToDelete && currentStore?.id) {
+        apiRequest("DELETE", `/api/sales/drafts/${draftIdToDelete}?storeId=${currentStore.id}`)
+          .then(() => refetchDrafts())
           .catch(() => {});
       }
 
-      setCart([]);
-      setSelectedCustomer("");
-      setSelectedStaff("");
-      setPaymentMethod("cash");
-      setApplyDiscount(false);
-      setRedeemPoints(false);
-      setRedeemStoreCredit(false);
-      setDiscountAmount(0);
-      setDiscountPercent(0);
-      setDiscountReason("");
-      setDiscountApprovedBy("");
-      setCreditUpfrontPaid(0);
-      setCreditDueDate("");
-      setEffectiveDate(new Date().toISOString().split("T")[0]);
-      setIsDateModified(false);
-      
       // Open receipt modal only for physical online checkouts
       if (!data.offline && data.checkoutIds && data.checkoutIds.length > 0) {
         setReceiptCheckoutId(data.checkoutIds[0]);

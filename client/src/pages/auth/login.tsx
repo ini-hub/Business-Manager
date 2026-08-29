@@ -12,9 +12,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, AlertCircle } from "lucide-react";
-import { validateEmailOrPhone } from "@/lib/validation-utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 
 // Password policy validator
 const validatePassword = (password: string) => {
@@ -34,6 +36,8 @@ export default function Login() {
     "identifier" | "password" | "activation_code" | "create_password" | "verify_otp" | "org_select" | "almost_there"
   >("identifier");
   const [identifier, setIdentifier] = useState("");
+  const [identifierDisplay, setIdentifierDisplay] = useState("");
+  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [isPasswordValid, setIsPasswordValid] = useState(false);
   const [stayLoggedIn, setStayLoggedIn] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState<string | null>(null);
@@ -59,9 +63,19 @@ export default function Login() {
   const [orgSelectToken, setOrgSelectToken] = useState<string | null>(null);
 
   // Form schemas
-  const identifierSchema = z.object({
-    emailOrPhone: z.string().min(1, "Email or phone number is required").refine(validateEmailOrPhone, "Enter a valid email address or phone number."),
+  const emailIdentifierSchema = z.object({
+    email: z.string().min(1, "Email is required").email("Enter a valid email address"),
   });
+
+  const phoneIdentifierSchema = z
+    .object({
+      phoneCountryCode: z.string().default("+234"),
+      phone: z.string().min(1, "Phone number is required"),
+    })
+    .refine((data) => validatePhoneNumber(data.phone, data.phoneCountryCode).valid, {
+      message: "Enter a valid phone number",
+      path: ["phone"],
+    });
 
   const passwordFormSchema = z.object({
     password: z.string().min(1, "Password is required"),
@@ -89,9 +103,14 @@ export default function Login() {
     path: ["confirmPassword"],
   });
 
-  const idForm = useForm({
-    resolver: zodResolver(identifierSchema),
-    defaultValues: { emailOrPhone: "" },
+  const emailIdForm = useForm({
+    resolver: zodResolver(emailIdentifierSchema),
+    defaultValues: { email: "" },
+  });
+
+  const phoneIdForm = useForm({
+    resolver: zodResolver(phoneIdentifierSchema),
+    defaultValues: { phoneCountryCode: "+234", phone: "" },
   });
 
   const passForm = useForm({
@@ -194,6 +213,11 @@ export default function Login() {
           description: data.message,
         });
         queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        // Reset (not just invalidate) org-scoped queries cached under global
+        // keys - stale data from a previous org/session would otherwise
+        // render immediately and race the onboarding-redirect guard.
+        queryClient.resetQueries({ queryKey: ["/api/stores"] });
+        queryClient.resetQueries({ queryKey: ["/api/business"] });
         setLocation("/");
       }
     },
@@ -223,6 +247,8 @@ export default function Login() {
         description: data.message,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.resetQueries({ queryKey: ["/api/stores"] });
+      queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
     onError: (error: any) => {
@@ -279,6 +305,8 @@ export default function Login() {
         description: "Welcome to Kowope.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.resetQueries({ queryKey: ["/api/stores"] });
+      queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
     onError: (error: any) => {
@@ -300,12 +328,24 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data.requiresOrganisationSelection) {
+        setOrgs(data.organisations);
+        setOrgSelectToken(data.orgSelectToken);
+        setStep("org_select");
+        toast({
+          title: "Multiple Workspaces Found",
+          description: "Please select the organisation you want to access.",
+        });
+        return;
+      }
       toast({
         title: "Email Verified!",
         description: "Welcome back to Kowope.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.resetQueries({ queryKey: ["/api/stores"] });
+      queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
     onError: (error: any) => {
@@ -378,9 +418,18 @@ export default function Login() {
     },
   });
 
-  const onIdentifierSubmit = (data: { emailOrPhone: string }) => {
-    setIdentifier(data.emailOrPhone);
-    checkIdentityMutation.mutate(data.emailOrPhone);
+  const onEmailIdentifierSubmit = (data: { email: string }) => {
+    const value = data.email.trim().toLowerCase();
+    setIdentifier(value);
+    setIdentifierDisplay(value);
+    checkIdentityMutation.mutate(value);
+  };
+
+  const onPhoneIdentifierSubmit = (data: { phoneCountryCode: string; phone: string }) => {
+    const value = normalizePhoneForStorage(data.phone, data.phoneCountryCode);
+    setIdentifier(value);
+    setIdentifierDisplay(formatPhoneDisplay(data.phone.trim(), data.phoneCountryCode));
+    checkIdentityMutation.mutate(value);
   };
 
   const onPasswordSubmit = (data: { password: string }) => {
@@ -441,12 +490,14 @@ export default function Login() {
             {step === "identifier" ? "Sign in to Kowope" : "Welcome back"}
           </CardTitle>
           <CardDescription>
-            {step === "identifier" && "Kowope Business Management System — enter your email or phone to continue"}
-            {step === "password" && `Enter your password for ${identifier}`}
-            {step === "verify_otp" && `Verify your email address for ${identifier}`}
-            {step === "activation_code" && `Activate your staff invitation for ${identifier}`}
-            {step === "create_password" && `Create a password for ${identifier}`}
-            {step === "almost_there" && `Complete your Kowope registration for ${identifier}`}
+            {step === "identifier" && (loginMethod === "email"
+              ? "Kowope Business Management System — sign in with your email"
+              : "Kowope Business Management System — sign in with your phone number")}
+            {step === "password" && `Enter your password for ${identifierDisplay}`}
+            {step === "verify_otp" && `Verify your email address for ${identifierDisplay}`}
+            {step === "activation_code" && `Activate your staff invitation for ${identifierDisplay}`}
+            {step === "create_password" && `Create a password for ${identifierDisplay}`}
+            {step === "almost_there" && `Complete your Kowope registration for ${identifierDisplay}`}
             {step === "org_select" && "Select the business workspace you want to access"}
           </CardDescription>
         </CardHeader>
@@ -454,43 +505,125 @@ export default function Login() {
         <CardContent className="space-y-4">
           {/* Identity Step */}
           {step === "identifier" && (
-            <Form {...idForm}>
-              <form onSubmit={idForm.handleSubmit(onIdentifierSubmit)} className="space-y-4">
-                <FormField
-                  control={idForm.control}
-                  name="emailOrPhone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email or Phone Number</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="name@gmail.com or +234..."
-                          data-testid="input-identifier"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <>
+              <Tabs
+                value={loginMethod}
+                onValueChange={(v) => setLoginMethod(v as "email" | "phone")}
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="email" data-testid="tab-login-email">Email</TabsTrigger>
+                  <TabsTrigger value="phone" data-testid="tab-login-phone">Phone</TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={checkIdentityMutation.isPending}
-                  data-testid="button-continue"
-                >
-                  {checkIdentityMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Checking...
-                    </>
-                  ) : (
-                    "Continue"
-                  )}
-                </Button>
-              </form>
-            </Form>
+              {loginMethod === "email" ? (
+                <Form {...emailIdForm}>
+                  <form onSubmit={emailIdForm.handleSubmit(onEmailIdentifierSubmit)} className="space-y-4">
+                    <FormField
+                      control={emailIdForm.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email Address</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="email"
+                              placeholder="name@gmail.com"
+                              autoComplete="email"
+                              data-testid="input-identifier-email"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={checkIdentityMutation.isPending}
+                      data-testid="button-continue"
+                    >
+                      {checkIdentityMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Checking...
+                        </>
+                      ) : (
+                        "Continue"
+                      )}
+                    </Button>
+                  </form>
+                </Form>
+              ) : (
+                <Form {...phoneIdForm}>
+                  <form onSubmit={phoneIdForm.handleSubmit(onPhoneIdentifierSubmit)} className="space-y-4">
+                    <div className="grid grid-cols-3 gap-2">
+                      <FormField
+                        control={phoneIdForm.control}
+                        name="phoneCountryCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Code</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-login-country-code">
+                                  <SelectValue placeholder="+234" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {deduplicatedCountryCodes.map((country) => (
+                                  <SelectItem key={country.dialCode} value={country.dialCode}>
+                                    {country.dialCode}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={phoneIdForm.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Phone Number</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="tel"
+                                placeholder="Phone number"
+                                data-testid="input-identifier-phone"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={checkIdentityMutation.isPending}
+                      data-testid="button-continue"
+                    >
+                      {checkIdentityMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Checking...
+                        </>
+                      ) : (
+                        "Continue"
+                      )}
+                    </Button>
+                  </form>
+                </Form>
+              )}
+            </>
           )}
 
           {/* Password Step */}

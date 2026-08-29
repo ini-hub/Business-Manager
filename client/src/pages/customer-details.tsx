@@ -466,6 +466,16 @@ export default function CustomerDetails() {
                 </TabsContent>
 
                 <TabsContent value="credit" className="space-y-4">
+                  {customer?.staffId && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-3 py-2.5">
+                      <p className="text-xs text-amber-900 dark:text-amber-200">
+                        <span className="font-semibold">Staff account.</span>{" "}
+                        Outstanding balances here are proposed automatically as salary deductions on
+                        this person's next payroll period, capped so their take-home never goes below
+                        zero. Anything not recovered stays owing and carries to the following period.
+                      </p>
+                    </div>
+                  )}
                   {creditLoading ? (
                     <div className="space-y-2">
                       {[1, 2, 3].map((i) => (

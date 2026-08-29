@@ -18,6 +18,7 @@ import {
 } from "@shared/schema";
 import { storage } from "../storage";
 import { CommissionSplitCalculator } from "./CommissionService";
+import { staffCreditDeductionService } from "./StaffCreditDeductionService";
 
 export class PayrollService {
   /**
@@ -612,6 +613,16 @@ export class PayrollService {
         .returning();
 
       results.push({ ...entry, staff: staffMember });
+    }
+
+    // Propose recovery of any shop debt owed by staff-linked customer profiles.
+    // Runs last because the allocation is capped against the netPay just
+    // written above. Failure here must not lose a completed calculation — the
+    // proposals are re-derived on the next sync.
+    try {
+      await staffCreditDeductionService.syncProposals(periodId);
+    } catch (e) {
+      console.error("Failed to sync staff credit deductions:", e);
     }
 
     return results.sort((a, b) => b.netPay - a.netPay);

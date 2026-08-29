@@ -189,6 +189,35 @@ export async function sendPasswordChangedEmail(
   });
 }
 
+export async function sendEmailChangeNoticeToOldAddress(
+  to: string,
+  name: string,
+  newEmail: string,
+  businessName: string = BUSINESS_NAME
+): Promise<void> {
+  const safeName = escapeHtml(name);
+  const safeNewEmail = escapeHtml(newEmail);
+  const safeBusiness = escapeHtml(businessName);
+
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #b91c1c; margin-bottom: 20px;">Your account email is being changed</h2>
+      <p>Hi <strong>${safeName}</strong>,</p>
+      <p>A request was made to change the email address on your account to <strong>${safeNewEmail}</strong>.</p>
+      <p>This change will only take effect once the new address is verified. Until then, this email address remains your login.</p>
+      <p style="color: #dc2626; font-weight: bold;">If you did not request this, contact your manager immediately or change your password now to secure your account.</p>
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
+    </div>
+  `;
+
+  sendEmail({
+    to,
+    subject: `Email change requested on your account — ${businessName}`,
+    html,
+  });
+}
+
 const TRIAL_REMINDER_COPY: Record<"3_days" | "2_days" | "today", { subject: string; headline: string; urgency: string }> = {
   "3_days": {
     subject: "Your free trial ends in 3 days",
@@ -269,8 +298,13 @@ export async function sendAccountLockedEmail(
   });
 }
 
-export async function sendSMS(_phone: string, _textContent: string): Promise<void> {
+// Returns whether the message was actually handed off to a provider, so
+// callers that depend on SMS as their only delivery channel (no email
+// fallback available) can detect failure and tell the user, instead of
+// silently claiming success for a code that will never arrive.
+export async function sendSMS(_phone: string, _textContent: string): Promise<boolean> {
   // SMS provider not yet integrated
+  return false;
 }
 
 export async function sendEmailVerificationOtpEmail(

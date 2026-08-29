@@ -59,3 +59,8 @@ export const pool = new Pool({
 });
 
 export const db = drizzle(pool, { schema });
+
+// Either the pool-backed `db` or a transaction handle. Lets a repository method
+// be called standalone or enlisted into a caller's transaction without the
+// method caring which.
+export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];

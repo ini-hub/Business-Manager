@@ -1,9 +1,14 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Some endpoints return a machine-readable `error.code` alongside the
+// human-readable message (e.g. "SMS_UNAVAILABLE"), so callers can branch on
+// the failure reason instead of pattern-matching the message text.
+export type ApiError = Error & { code?: string };
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    
+
     // Try to parse JSON error response and extract just the message
     try {
       const jsonError = JSON.parse(text);
@@ -12,7 +17,11 @@ async function throwIfResNotOk(res: Response) {
         (rawError !== null && typeof rawError === "object" ? rawError.message : rawError) ||
         jsonError.message ||
         text;
-      throw new Error(errorMessage);
+      const error: ApiError = new Error(errorMessage);
+      if (rawError !== null && typeof rawError === "object" && typeof rawError.code === "string") {
+        error.code = rawError.code;
+      }
+      throw error;
     } catch (parseError) {
       // If not JSON, use the text directly (without status code prefix)
       if (parseError instanceof SyntaxError) {

@@ -1,7 +1,8 @@
 import { BaseRepository } from "./BaseRepository";
 import { db } from "../db";
 import { users, type User, type UpsertUser, type UserRole } from "@shared/schema";
-import { eq, and, or, gt } from "drizzle-orm";
+import { eq, and, or, gt, inArray } from "drizzle-orm";
+import { buildPhoneLookupCandidates } from "@shared/phone-utils";
 
 export class UserRepository extends BaseRepository<typeof users> {
   constructor() {
@@ -24,11 +25,25 @@ export class UserRepository extends BaseRepository<typeof users> {
 
   async getUserByIdentifier(emailOrPhone: string): Promise<User | undefined> {
     const clean = emailOrPhone.trim().toLowerCase();
-    const [user] = await db
+
+    // Exact match first - covers email and any already-canonical phone.
+    const [exact] = await db
       .select()
       .from(users)
       .where(or(eq(users.email, clean), eq(users.phone, clean)));
-    return user;
+    if (exact) return exact;
+
+    // A phone-shaped identifier may have been stored with or without its
+    // leading trunk zero depending on how it was typed at signup - try
+    // every variant. The unique constraint on users.phone only blocks exact
+    // string duplicates, so two legacy accounts could in principle each hold
+    // a different variant of the same digits; if more than one row matches,
+    // refuse rather than silently authenticating against an arbitrary one.
+    const phoneCandidates = buildPhoneLookupCandidates(clean).filter((c) => c !== clean);
+    if (phoneCandidates.length === 0) return undefined;
+
+    const matches = await db.select().from(users).where(inArray(users.phone, phoneCandidates));
+    return matches.length === 1 ? matches[0] : undefined;
   }
 
   async getUserByActivationCode(code: string): Promise<User | undefined> {

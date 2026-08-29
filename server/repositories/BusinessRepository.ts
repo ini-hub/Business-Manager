@@ -6,7 +6,6 @@ import {
   stores,
   storeCounters,
   staff,
-  otpCodes,
   settings,
   promotions,
   customRoles,
@@ -21,7 +20,6 @@ import {
   type InsertOrganisation,
   type OrganisationMember,
   type InsertOrganisationMember,
-  type OtpCode,
   type Settings,
   type InsertSettings,
   type Promotion,
@@ -32,38 +30,9 @@ import {
   type InsertStoreIntegration,
   users,
 } from "@shared/schema";
-import { eq, and, ilike, gt, count } from "drizzle-orm";
+import { eq, and, ilike, count } from "drizzle-orm";
 
 export class BusinessRepository {
-  // ─── OTP Codes ────────────────────────────────────────────────────────────
-  async createOtpCode(data: { userId: string; code: string; type: string; expiresAt: Date }): Promise<OtpCode> {
-    const [otp] = await db.insert(otpCodes).values({
-      userId: data.userId,
-      code: data.code,
-      type: data.type,
-      expiresAt: data.expiresAt,
-      isUsed: false,
-    }).returning();
-    return otp;
-  }
-
-  async getValidOtpCode(userId: string, code: string, type: string): Promise<OtpCode | undefined> {
-    const [otp] = await db.select().from(otpCodes).where(
-      and(
-        eq(otpCodes.userId, userId),
-        eq(otpCodes.code, code),
-        eq(otpCodes.type, type),
-        eq(otpCodes.isUsed, false),
-        gt(otpCodes.expiresAt, new Date())
-      )
-    );
-    return otp;
-  }
-
-  async markOtpCodeAsUsed(id: string): Promise<void> {
-    await db.update(otpCodes).set({ isUsed: true }).where(eq(otpCodes.id, id));
-  }
-
   // ─── Organisations ────────────────────────────────────────────────────────
   async getOrganisationsByUserId(userId: string): Promise<any[]> {
     const rows = await db

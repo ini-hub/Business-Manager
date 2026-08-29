@@ -39,6 +39,8 @@ import { z } from "zod";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { normalizePhoneForStorage } from "@shared/phone-utils";
+import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
@@ -172,6 +174,28 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       };
       const data = insertStaffSchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
+
+      // Phone pre-check, before any staff row is created. sanitizePhoneNumber
+      // (above) strips the dial code entirely for the staff.mobileNumber
+      // column - normalizePhoneForStorage rebuilds the canonical dial-code-
+      // prefixed form matching what users.phone actually stores elsewhere,
+      // using this record's own countryCode.
+      let normalizedInvitePhone: string | undefined;
+      if (data.mobileNumber) {
+        normalizedInvitePhone = normalizePhoneForStorage(data.mobileNumber, data.countryCode);
+        const emailOwner = data.email ? await storage.getUserByIdentifier(data.email.toLowerCase()) : undefined;
+        const phoneOwner = await storage.getUserByIdentifier(normalizedInvitePhone);
+        // Only a problem if the phone belongs to a DIFFERENT account than
+        // the one email already resolves to - auto-merge-into-existing-user
+        // stays email-only (email is the authoritative invite identifier
+        // for the "attach to existing user" branch below).
+        if (phoneOwner && (!emailOwner || phoneOwner.id !== emailOwner.id)) {
+          return res.status(409).json({
+            error: "This mobile number is already linked to another account. Please use a different number or check if this staff member already has an account under a different email.",
+          });
+        }
+      }
+
       const staffMember = await storage.createStaff(data);
       const ctx = await getAuditContext(req, { storeId: data.storeId });
       auditLogger.logEvent(ctx, "CREATE", "staff", staffMember.id, "success", { newValues: staffMember });
@@ -239,7 +263,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
               activationCodeUsed: false,
               createdByInvitation: true,
               name: data.name,
-              phone: data.mobileNumber || undefined,
+              phone: normalizedInvitePhone,
             });
 
             await storage.updateUser(newUser.id, {
@@ -279,11 +303,20 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
-      // Check for duplicate email constraint error
-      const errorMessage = (error as Error).message || "";
-      if (errorMessage.includes("unique") || errorMessage.includes("duplicate") || errorMessage.includes("email")) {
+      const constraint = getViolatedConstraint(error);
+      if (constraint === "users_email_unique" || constraint === "staff_email_unique") {
         return res.status(409).json({
           error: "This email address is already assigned to another staff member. Please use a different email."
+        });
+      }
+      if (constraint === "users_phone_unique") {
+        return res.status(409).json({
+          error: "This mobile number is already linked to another account. Please use a different number."
+        });
+      }
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({
+          error: "This staff member could not be created due to a conflicting record. Please check the details and try again."
         });
       }
       res.status(500).json({ error: "We couldn't add this staff member right now. Please try again." });

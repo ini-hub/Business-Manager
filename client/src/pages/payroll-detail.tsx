@@ -101,10 +101,23 @@ export default function PayrollDetailPage() {
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/payroll/periods/${periodId}/deductions/${id}`);
     },
+    // A staff-credit line is waived rather than deleted, so the wording has to
+    // cover both outcomes.
     onSuccess: () => { refetchDeductions(); toast({ title: "Deduction removed" }); },
   });
 
-  const totalDeductions = deductions.reduce((s: number, d: any) => s + Number(d.amount), 0);
+  const restoreDeductionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("POST", `/api/payroll/periods/${periodId}/deductions/${id}/restore`);
+    },
+    onSuccess: () => { refetchDeductions(); toast({ title: "Deduction restored" }); },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  // Waived lines were explicitly excluded by a manager: they are shown for
+  // transparency but never come out of pay.
+  const activeDeductions = deductions.filter((d: any) => !d.isWaived);
+  const totalDeductions = activeDeductions.reduce((s: number, d: any) => s + Number(d.amount), 0);
 
   const dailySummary = drilldownData?.dailySummary || [];
   const breakdown = drilldownData?.transactions || [];
@@ -238,13 +251,13 @@ export default function PayrollDetailPage() {
     y += 13;
 
     // ── Deductions ────────────────────────────────────────────────────────────
-    if (deductions.length > 0) {
+    if (activeDeductions.length > 0) {
       doc.setFontSize(7); doc.setFont("helvetica", "bold");
       doc.setTextColor(...LABEL);
       doc.text("DEDUCTIONS", L, y);
       y += 5;
 
-      deductions.forEach((d: any, i: number) => {
+      activeDeductions.forEach((d: any, i: number) => {
         if (i % 2 === 0) {
           doc.setFillColor(...STRIPE);
           doc.rect(L - 2, y - 4.5, R - L + 4, 7, "F");
@@ -428,7 +441,7 @@ export default function PayrollDetailPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Minus className="h-4 w-4 text-destructive" />
-              Deductions{deductions.length > 0 ? ` (${deductions.length})` : ""}
+              Deductions{activeDeductions.length > 0 ? ` (${activeDeductions.length})` : ""}
             </CardTitle>
             {period?.status !== "paid" && (
               <Button variant="outline" size="sm" onClick={() => setShowAddDeduction(v => !v)}>
@@ -478,23 +491,58 @@ export default function PayrollDetailPage() {
           {deductions.length === 0 && !showAddDeduction && (
             <p className="text-xs text-muted-foreground py-2 text-center">No deductions for this period.</p>
           )}
-          {deductions.map((d: any) => (
-            <div key={d.id} className="flex items-center justify-between text-sm border rounded-lg px-3 py-2 bg-muted/10">
-              <div>
-                <span className="font-medium">{d.label}</span>
-                <Badge variant="outline" className="ml-2 text-[10px] h-4">{d.type.replace("_", " ")}</Badge>
+          {deductions.map((d: any) => {
+            const isStaffCredit = d.type === "staff_credit";
+            // What the debt still carries beyond what this period recovers —
+            // the manager's cue that recovery was capped by available pay.
+            const remainder = isStaffCredit && d.creditEntry && !d.repaymentId
+              ? Number(d.creditEntry.outstandingBalance) - Number(d.amount)
+              : 0;
+            return (
+              <div key={d.id} className={`flex items-center justify-between text-sm border rounded-lg px-3 py-2 ${d.isWaived ? "bg-muted/30 opacity-60" : "bg-muted/10"}`}>
+                <div className="min-w-0">
+                  <span className={`font-medium ${d.isWaived ? "line-through" : ""}`}>{d.label}</span>
+                  <Badge variant="outline" className="ml-2 text-[10px] h-4">{d.type.replace(/_/g, " ")}</Badge>
+                  {d.isWaived && (
+                    <Badge variant="outline" className="ml-1 text-[10px] h-4 text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300">waived</Badge>
+                  )}
+                  {isStaffCredit && !d.isWaived && remainder > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Capped at available pay — {fmtCur(remainder)} stays owing and carries to the next period.
+                    </p>
+                  )}
+                  {isStaffCredit && d.isWaived && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Excluded from this payroll. The debt stays open in the Borrow Book.
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`font-mono text-sm font-semibold ${d.isWaived ? "text-muted-foreground line-through" : "text-destructive"}`}>
+                    -{fmtCur(Number(d.amount))}
+                  </span>
+                  {period?.status !== "paid" && (
+                    d.isWaived ? (
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                        onClick={() => restoreDeductionMutation.mutate(d.id)}>
+                        Restore
+                      </Button>
+                    ) : isStaffCredit ? (
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive"
+                        onClick={() => deleteDeductionMutation.mutate(d.id)}>
+                        Waive
+                      </Button>
+                    ) : (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                        onClick={() => deleteDeductionMutation.mutate(d.id)}>
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                    )
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-destructive text-sm font-semibold">-{fmtCur(Number(d.amount))}</span>
-                {period?.status !== "paid" && (
-                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                    onClick={() => deleteDeductionMutation.mutate(d.id)}>
-                    <Minus className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {totalDeductions > 0 && (
             <div className="flex justify-between text-sm font-semibold border-t pt-2">
               <span>Total Deductions</span>

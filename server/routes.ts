@@ -53,9 +53,12 @@ import { z } from "zod";
 import { db } from "./db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
+import { normalizePhoneForStorage } from "@shared/phone-utils";
+import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
 import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
 import { logFunnelEvent } from "./lib/funnel";
+import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "./lib/otp-cooldown";
 import { bulkUploadService } from "./services/BulkUploadService";
 import { analyticsService } from "./services/AnalyticsService";
 import { initWebSocketServer, broadcastDataChange } from "./websocket";
@@ -236,7 +239,13 @@ export async function registerRoutes(
   // ========== CUSTOM AUTH ROUTES ==========
 
   const LOCKOUT_TIME_MS = 30 * 60 * 1000;
+  const LOCKOUT_MAX_MS = 24 * 60 * 60 * 1000; // escalation cap
   const MAX_LOGIN_ATTEMPTS = 5;
+
+  // Escalating lockout duration: 30m, 1h, 2h, 4h, ... capped at 24h.
+  function nextLockoutDurationMs(priorLockoutCount: number): number {
+    return Math.min(LOCKOUT_TIME_MS * Math.pow(2, priorLockoutCount), LOCKOUT_MAX_MS);
+  }
 
   // Single Entry point continue route
   app.post("/api/auth/continue", async (req: Request, res: Response) => {
@@ -285,16 +294,32 @@ export async function registerRoutes(
         });
       }
 
-      // 3. If user is self-registered and email not verified yet -> send OTP and require OTP verification
-      if (user.email && !user.isEmailVerified && !user.createdByInvitation) {
-        const otpCode = crypto.randomInt(100000, 1000000).toString();
-        const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-        await storage.updateUser(user.id, {
-          otpCode,
-          otpExpiry,
-        });
+      // 3. If the account has no verified contact channel at all -> send OTP
+      // and require email OTP verification. This must NOT be scoped to "only
+      // when logging in with the email identifier" - phone is optional and
+      // never verified at signup, so gating on the identifier used would let
+      // an account log in indefinitely via phone while its (possibly
+      // unowned) email is never verified.
+      const hasVerifiedPhone = !!(user.phone && user.isPhoneVerified);
+      if (user.email && !user.isEmailVerified && !hasVerifiedPhone && !user.createdByInvitation) {
+        // Only mint + send a fresh OTP if we're not on cooldown - repeatedly
+        // hitting /continue must not be a way to bypass the resend-otp rate
+        // limit. If on cooldown, fall through with whatever code is already
+        // pending (the user can use "Resend" once the cooldown clears).
+        const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
+        if (cooldown.allowed) {
+          const otpCode = crypto.randomInt(100000, 1000000).toString();
+          const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+          await storage.updateUser(user.id, {
+            otpCode,
+            otpExpiry,
+            otpAttempts: 0,
+            otpResendAttempts: cooldown.nextAttempts,
+            otpResendWindowStart: cooldown.nextWindowStart,
+          });
 
-        await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
+          await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
+        }
 
         return res.json({
           status: "email_verification_required",
@@ -326,6 +351,17 @@ export async function registerRoutes(
         return res.status(400).json({ error: "This email address is already registered. Please use a different email or log in." });
       }
 
+      // Check if phone already exists - normalize first so this matches
+      // what will actually be stored below.
+      let normalizedPhone: string | undefined;
+      if (data.phone) {
+        normalizedPhone = normalizePhoneForStorage(data.phone, data.phoneCountryCode);
+        const existingPhoneUser = await storage.getUserByIdentifier(normalizedPhone);
+        if (existingPhoneUser) {
+          return res.status(400).json({ error: "This phone number is already registered. Please use a different number or log in." });
+        }
+      }
+
       // Hash password
       const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
 
@@ -350,7 +386,7 @@ export async function registerRoutes(
         role: "owner", // For backward compatibility
         isVerified: false,
         name: data.ownerName,
-        phone: data.phone ? `${data.phoneCountryCode}${data.phone}` : undefined,
+        phone: normalizedPhone,
       });
 
       // Update remaining fields on the user
@@ -392,14 +428,20 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
-      
-      const errStr = String(error);
-      if (errStr.includes("organisations_slug_key") || errStr.includes("duplicate key value violates unique constraint")) {
-        return res.status(400).json({ 
-          error: "A business with a similar name is already registered. Please choose a slightly different business name to proceed successfully." 
+
+      const constraint = getViolatedConstraint(error);
+      if (constraint === "users_email_unique") {
+        return res.status(400).json({ error: "This email address is already registered. Please use a different email or log in." });
+      }
+      if (constraint === "users_phone_unique") {
+        return res.status(400).json({ error: "This phone number is already registered. Please use a different number or log in." });
+      }
+      if (constraint === "organisations_slug_key" || isUniqueViolation(error)) {
+        return res.status(400).json({
+          error: "A business with a similar name is already registered. Please choose a slightly different business name to proceed successfully."
         });
       }
-      
+
       res.status(500).json({ error: "Registration failed. Please try again." });
     }
   });
@@ -413,10 +455,18 @@ export async function registerRoutes(
       }
 
       const user = await storage.getUserByIdentifier(emailOrPhone);
-      const otpMatch = user?.otpCode &&
-        otp?.length === user.otpCode.length &&
+      if (!user || !user.otpCode) {
+        return res.status(400).json({ error: "Invalid or expired OTP code." });
+      }
+
+      if ((user.otpAttempts ?? 0) >= MAX_OTP_ATTEMPTS) {
+        return res.status(429).json({ error: "Too many incorrect attempts. Please request a new code." });
+      }
+
+      const otpMatch = otp?.length === user.otpCode.length &&
         crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(otp));
-      if (!user || !otpMatch) {
+      if (!otpMatch) {
+        await storage.updateUser(user.id, { otpAttempts: (user.otpAttempts ?? 0) + 1 });
         return res.status(400).json({ error: "Invalid or expired OTP code." });
       }
 
@@ -436,8 +486,10 @@ export async function registerRoutes(
           passwordHash: hashedPassword,
           otpCode: null,
           otpExpiry: null,
+          otpAttempts: 0,
           loginAttempts: 0,
           lockedUntil: null,
+          lockoutCount: 0,
         });
 
         if (user.email) {
@@ -469,6 +521,14 @@ export async function registerRoutes(
         return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
+      const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
+      if (!cooldown.allowed) {
+        // Same generic response as the "no such account" branch above - a
+        // distinct rate-limit response here would be a user-enumeration
+        // oracle (only real accounts can accumulate cooldown state).
+        return res.json({ message: "If account exists, an OTP code has been sent." });
+      }
+
       // Generate random 6-digit OTP
       const otp = crypto.randomInt(100000, 1000000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -478,6 +538,8 @@ export async function registerRoutes(
         otpCode: otp,
         otpExpiry: expiresAt,
         otpAttempts: 0,
+        otpResendAttempts: cooldown.nextAttempts,
+        otpResendWindowStart: cooldown.nextWindowStart,
       });
 
       // Send via email or phone
@@ -487,13 +549,13 @@ export async function registerRoutes(
         await sendSMS(user.phone, `Your password reset code is: ${otp}. Valid for 10 minutes.`);
       }
 
-      const maskedIdentifier = user.email 
-        ? user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3") 
+      const maskedIdentifier = user.email
+        ? user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3")
         : user.phone?.replace(/(.{3})(.*)(.{3})/, "$1***$3");
 
-      res.json({ 
-        message: "If account exists, an OTP code has been sent.", 
-        maskedIdentifier 
+      res.json({
+        message: "If account exists, an OTP code has been sent.",
+        maskedIdentifier
       });
     } catch (error) {
       console.error("Forgot password error:", error);
@@ -514,6 +576,14 @@ export async function registerRoutes(
         return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
+      const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
+      if (!cooldown.allowed) {
+        // Same generic response as the "no such account" branch above - a
+        // distinct rate-limit response here would be a user-enumeration
+        // oracle (only real accounts can accumulate cooldown state).
+        return res.json({ message: "If account exists, an OTP code has been sent." });
+      }
+
       // Generate random 6-digit OTP
       const otp = crypto.randomInt(100000, 1000000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -523,6 +593,8 @@ export async function registerRoutes(
         otpCode: otp,
         otpExpiry: expiresAt,
         otpAttempts: 0,
+        otpResendAttempts: cooldown.nextAttempts,
+        otpResendWindowStart: cooldown.nextWindowStart,
       });
 
       // Send via email or phone
@@ -532,13 +604,13 @@ export async function registerRoutes(
         await sendSMS(user.phone, `Your password reset code is: ${otp}. Valid for 10 minutes.`);
       }
 
-      const maskedIdentifier = user.email 
-        ? user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3") 
+      const maskedIdentifier = user.email
+        ? user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3")
         : user.phone?.replace(/(.{3})(.*)(.{3})/, "$1***$3");
 
-      res.json({ 
-        message: "OTP resent successfully.", 
-        maskedIdentifier 
+      res.json({
+        message: "OTP resent successfully.",
+        maskedIdentifier
       });
     } catch (error) {
       console.error("Resend OTP error:", error);
@@ -577,17 +649,24 @@ export async function registerRoutes(
       if (!passwordMatch) {
         const attempts = (user.loginAttempts || 0) + 1;
         if (attempts >= MAX_LOGIN_ATTEMPTS) {
-          const lockedUntil = new Date(Date.now() + LOCKOUT_TIME_MS);
+          const priorLockoutCount = user.lockoutCount || 0;
+          const durationMs = nextLockoutDurationMs(priorLockoutCount);
+          const lockedUntil = new Date(Date.now() + durationMs);
           await storage.updateUser(user.id, {
             loginAttempts: 0,
             lockedUntil,
+            lockoutCount: priorLockoutCount + 1,
           });
           if (user.email) {
             await sendAccountLockedEmail(user.email, user.name || user.email);
           }
           auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "lockout");
+          const durationMinutes = Math.round(durationMs / 60000);
+          const durationLabel = durationMinutes >= 60
+            ? `${Math.round(durationMinutes / 60)} hour(s)`
+            : `${durationMinutes} minutes`;
           return res.status(423).json({
-            error: "Too many failed attempts. Your account has been locked for 30 minutes.",
+            error: `Too many failed attempts. Your account has been locked for ${durationLabel}.`,
             lockedUntil,
           });
         } else {
@@ -597,16 +676,32 @@ export async function registerRoutes(
         }
       }
 
-      // Reset login attempts on success
-      await storage.updateUser(user.id, { loginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() });
+      // Reset login attempts and lockout escalation on success
+      await storage.updateUser(user.id, { loginAttempts: 0, lockedUntil: null, lockoutCount: 0, lastLoginAt: new Date() });
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "login");
 
-      // Block unverified users who try to bypass /continue and call /login directly
-      if (user.email && !user.isEmailVerified && !user.createdByInvitation) {
-        const otpCode = crypto.randomInt(100000, 1000000).toString();
-        const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-        await storage.updateUser(user.id, { otpCode, otpExpiry });
-        await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
+      // Block unverified users who try to bypass /continue and call /login directly.
+      // Applies regardless of which identifier was used to log in - phone is
+      // never verified at signup, so scoping this to "only when logging in
+      // with the email itself" would let an account log in indefinitely via
+      // phone while its email is never verified.
+      const hasVerifiedPhone = !!(user.phone && user.isPhoneVerified);
+      if (user.email && !user.isEmailVerified && !hasVerifiedPhone && !user.createdByInvitation) {
+        // Same cooldown as /continue - repeated login attempts must not
+        // bypass the resend-otp rate limit.
+        const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
+        if (cooldown.allowed) {
+          const otpCode = crypto.randomInt(100000, 1000000).toString();
+          const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+          await storage.updateUser(user.id, {
+            otpCode,
+            otpExpiry,
+            otpAttempts: 0,
+            otpResendAttempts: cooldown.nextAttempts,
+            otpResendWindowStart: cooldown.nextWindowStart,
+          });
+          await sendEmailVerificationOtpEmail(user.email, user.name || user.email, otpCode);
+        }
         return res.json({ status: "email_verification_required", email: user.email });
       }
 
@@ -1138,10 +1233,18 @@ export async function registerRoutes(
       }
 
       if (!user.isEmailVerified) {
-        const verifyMatch = user.otpCode &&
-          otp?.length === user.otpCode.length &&
+        if (!user.otpCode) {
+          return res.status(400).json({ error: "Invalid verification code." });
+        }
+
+        if ((user.otpAttempts ?? 0) >= MAX_OTP_ATTEMPTS) {
+          return res.status(429).json({ error: "Too many incorrect attempts. Please request a new code." });
+        }
+
+        const verifyMatch = otp?.length === user.otpCode.length &&
           crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(otp));
         if (!verifyMatch) {
+          await storage.updateUser(user.id, { otpAttempts: (user.otpAttempts ?? 0) + 1 });
           return res.status(400).json({ error: "Invalid verification code." });
         }
 
@@ -1155,6 +1258,7 @@ export async function registerRoutes(
           isVerified: true,
           otpCode: null,
           otpExpiry: null,
+          otpAttempts: 0,
         });
       }
 
@@ -1162,7 +1266,7 @@ export async function registerRoutes(
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "email_verified");
 
       let members = await storage.getOrganisationsByUserId(user.id);
-      
+
       // Auto-create workspace member if missing but businessId is present
       if (members.length === 0 && user.businessId) {
         const newMember = await storage.createOrganisationMember({
@@ -1175,17 +1279,39 @@ export async function registerRoutes(
         members = [newMember];
       }
 
-      let activeMember = members.find(m => m.status === "active");
-      if (!activeMember && members.length > 0) {
+      let activeMembers = members.filter(m => m.status === "active");
+
+      // Brand-new signup: no membership has been activated yet, activate the first one
+      if (activeMembers.length === 0 && members.length > 0) {
         const firstMember = members[0];
         await storage.updateOrganisationMemberStatus(firstMember.memberId || firstMember.id, "active", new Date());
-        activeMember = { ...firstMember, status: "active", activatedAt: new Date() };
+        activeMembers = [{ ...firstMember, status: "active", activatedAt: new Date() }];
       }
 
-      if (!activeMember) {
+      if (activeMembers.length === 0) {
         return res.status(400).json({ error: "No active business workspace associated." });
       }
 
+      // Existing user with multiple workspaces - let them choose, same as password login
+      if (activeMembers.length > 1) {
+        const orgIds = activeMembers.map(m => m.organisationId);
+        const orgs = await storage.getBusinessesByIds(orgIds);
+        const orgMap = new Map(orgs.map(o => [o.id, o]));
+        const orgList = activeMembers
+          .map(m => {
+            const org = orgMap.get(m.organisationId);
+            if (!org) return null;
+            return { id: org.id, name: org.name, slug: org.slug, role: m.role };
+          })
+          .filter(Boolean);
+        return res.json({
+          requiresOrganisationSelection: true,
+          organisations: orgList,
+          orgSelectToken: generateOrgSelectToken(user.id),
+        });
+      }
+
+      const activeMember = activeMembers[0];
       const org = await storage.getBusinessById(activeMember.organisationId);
 
       const payload = {
@@ -1235,12 +1361,22 @@ export async function registerRoutes(
         return res.status(400).json({ error: "User not found." });
       }
 
+      const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
+      if (!cooldown.allowed) {
+        return res.status(429).json({
+          error: `Too many resend requests. Please try again in ${cooldown.retryAfterMinutes} minutes.`,
+        });
+      }
+
       const otpCode = crypto.randomInt(100000, 1000000).toString();
       const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       await storage.updateUser(user.id, {
         otpCode,
         otpExpiry,
+        otpAttempts: 0,
+        otpResendAttempts: cooldown.nextAttempts,
+        otpResendWindowStart: cooldown.nextWindowStart,
       });
 
       if (user.email) {
@@ -1353,18 +1489,46 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Account not found." });
       }
 
-      const otpCode = await storage.getValidOtpCode(user.id, data.otp, "password_reset");
-      if (!otpCode) {
+      // NOTE: forgot-password/resend-otp write the OTP to user.otpCode/
+      // otpExpiry (not the separate otp_codes table), so this must check
+      // the same place or a valid code would always be rejected here.
+      if (!user.otpCode) {
         auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "reset-password");
         return res.status(400).json({ error: "Invalid or expired OTP code." });
+      }
+
+      if ((user.otpAttempts ?? 0) >= MAX_OTP_ATTEMPTS) {
+        return res.status(429).json({ error: "Too many incorrect attempts. Please request a new code." });
+      }
+
+      const otpMatch = data.otp.length === user.otpCode.length &&
+        crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(data.otp));
+      if (!otpMatch) {
+        await storage.updateUser(user.id, { otpAttempts: (user.otpAttempts ?? 0) + 1 });
+        auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "reset-password");
+        return res.status(400).json({ error: "Invalid or expired OTP code." });
+      }
+
+      if (user.otpExpiry && new Date() > new Date(user.otpExpiry)) {
+        return res.status(400).json({ error: "OTP has expired." });
       }
 
       // Hash new password
       const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
 
-      // Mark OTP as used and update password
-      await storage.markOtpCodeAsUsed(otpCode.id);
-      await storage.updateUser(user.id, { passwordHash: hashedPassword });
+      await storage.updateUser(user.id, {
+        passwordHash: hashedPassword,
+        otpCode: null,
+        otpExpiry: null,
+        otpAttempts: 0,
+        loginAttempts: 0,
+        lockedUntil: null,
+        lockoutCount: 0,
+      });
+
+      if (user.email) {
+        await sendPasswordChangedEmail(user.email, user.name || user.email);
+      }
 
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "reset-password");
 
@@ -1412,6 +1576,10 @@ export async function registerRoutes(
             otpExpiry: undefined,
             activationCode: undefined,
             activationCodeExpiry: undefined,
+            pendingEmailOtp: undefined,
+            pendingEmailOtpExpiry: undefined,
+            pendingPhoneOtp: undefined,
+            pendingPhoneOtpExpiry: undefined,
           });
         }
       }

@@ -25,7 +25,7 @@ import type { CubeSql } from "./types";
 /**
  * Money columns must be cast to `numeric` before they are summed.
  *
- * `shared/schema.ts` declares these as numeric(12,2), but in the live database
+ * `shared/schema/` declares these as numeric(12,2), but in the live database
  * `orders.total_price`, `orders.refunded_amount`, `checkouts.total_price`,
  * `checkouts.subtotal`, `checkouts.discount_amount`, `expenses.amount` and
  * several others are actually `real` (float4). float4 carries only ~7 significant

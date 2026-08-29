@@ -41,6 +41,7 @@ import { analyticsService } from "../services/AnalyticsService";
 import { isTrialExpired } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { withCustomerId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -738,7 +739,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.patch("/api/customers/:id", requireRole("owner", "manager"), async (req, res) => {
+  app.patch("/api/customers/:id", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -782,7 +783,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.delete("/api/customers/:id", requireRole("owner", "manager"), async (req, res) => {
+  app.delete("/api/customers/:id", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -808,7 +809,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
   });
 
   // Restore archived customer
-  app.post("/api/customers/:id/restore", requireRole("owner", "manager"), async (req, res) => {
+  app.post("/api/customers/:id/restore", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {
@@ -833,7 +834,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
   });
 
   // Permanently delete archived customer
-  app.delete("/api/customers/:id/permanent", requireRole("owner", "manager"), async (req, res) => {
+  app.delete("/api/customers/:id/permanent", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
     try {
       const customer = await storage.getCustomer(req.params.id);
       if (!customer) {

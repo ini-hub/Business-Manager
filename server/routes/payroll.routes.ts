@@ -38,6 +38,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
+import { staffCreditDeductionService } from "../services/StaffCreditDeductionService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withExpenseId } from '../utils/slug-resolver';
 
@@ -47,6 +48,17 @@ export type RouteMiddlewares = {
   requireManagerOrOwner: any;
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
+
+// Re-clamp staff-credit proposals after a deduction changed. Used on paths
+// where the mutation has already committed: the caller's response must still
+// report success, and stale proposals are corrected by the next calculation.
+async function resyncStaffCredit(periodId: string): Promise<void> {
+  try {
+    await staffCreditDeductionService.syncProposals(periodId);
+  } catch (e) {
+    console.error("Failed to re-sync staff credit deductions:", e);
+  }
+}
 
 export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== STAFF SELF-SERVICE ==========
@@ -230,14 +242,30 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const entries = await storage.getPayrollEntries(period.id);
       const userId = (req as any).user?.id;
 
-      // Build per-staff deduction totals
-      const allDeductions = await storage.getPayrollDeductions(period.id);
+      // Settle staff shop debt before totalling. First re-clamp the proposals
+      // against current state — a debt may have been paid down in cash since
+      // the manager approved the period. Then convert each surviving line into
+      // a real repayment. Settlement is transactional so a failure cannot dock
+      // a salary for a debt that still shows as owed; the re-sync deliberately
+      // sits outside it, since proposals are advisory and safely re-derived.
+      await staffCreditDeductionService.syncProposals(period.id);
+      await db.transaction(async (tx) => {
+        await staffCreditDeductionService.settle(tx, period.id);
+      });
+
+      // Build per-staff deduction totals — read AFTER settlement, since
+      // settle() clamps amounts down to what was actually recoverable.
+      // Waived lines were excluded by the manager and never come out of pay.
+      const allDeductions = (await storage.getPayrollDeductions(period.id)).filter(d => !d.isWaived);
       const deductionsByStaff = new Map<string, number>();
       for (const d of allDeductions) {
         deductionsByStaff.set(d.staffId, (deductionsByStaff.get(d.staffId) ?? 0) + Number(d.amount));
       }
 
-      // Actual cash outflow = sum of max(0, netPay - deductions) per staff
+      // Actual cash outflow = sum of max(0, netPay - deductions) per staff.
+      // Note this is the CASH figure, carried by the mirror expense below. The
+      // P&L recognises wages at raw netPay instead and skips that row, because
+      // a deduction settles a receivable rather than reducing wage cost.
       const totalAmount = entries.reduce((sum, entry) => {
         const staffDeductions = deductionsByStaff.get(entry.staffId) ?? 0;
         return sum + Math.max(0, (entry.netPay || 0) - staffDeductions);
@@ -246,7 +274,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const updated = await storage.updatePayrollPeriodStatus(req.params.id, "paid", userId);
       auditLogger.log({ action: "PAYROLL_PERIOD_MARK_PAID", resource: "payroll_period", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id, totalAmount } });
 
-      // Save carry-forward amount on each entry where deductions exceed earnings
+      // Save carry-forward amount on each entry where deductions exceed earnings.
+      // Staff credit can never contribute here: it is allocated against
+      // available pay, so it floors take-home at zero rather than going negative.
       for (const entry of entries) {
         const staffDeductions = deductionsByStaff.get(entry.staffId) ?? 0;
         const deficit = staffDeductions - (entry.netPay || 0);
@@ -278,6 +308,8 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
 
       broadcastChange(req, "payroll", period.storeId, "paid");
       broadcastChange(req, "expense", period.storeId, "created");
+      // Settlement moved money in the Borrow Book — refresh anyone watching it.
+      broadcastChange(req, "credit", period.storeId, "updated");
       res.json(updated);
     } catch (error) {
       console.error("Mark paid error:", error);
@@ -340,7 +372,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
-      const deductions = await storage.getPayrollDeductions(req.params.id, req.query.staffId as string | undefined);
+      const deductions = await storage.getPayrollDeductionsWithCredit(req.params.id, req.query.staffId as string | undefined);
       res.json(deductions);
     } catch (e) { res.status(500).json({ error: "Could not fetch deductions." }); }
   });
@@ -354,8 +386,14 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const { staffId, type, label, amount } = req.body;
       if (!staffId || !type || !label || !amount) return res.status(400).json({ error: "staffId, type, label, and amount are required." });
       const userId = (req as any).user?.id;
+      if (type === "staff_credit") return res.status(400).json({ error: "Staff credit deductions are proposed automatically from the Borrow Book and cannot be added by hand." });
       const deduction = await storage.createPayrollDeduction({ periodId: req.params.id, storeId: period.storeId, staffId, type, label, amount: Number(amount), createdByUserId: userId });
       auditLogger.log({ action: "PAYROLL_DEDUCTION_CREATE", resource: "payroll_deduction", resourceId: deduction.id, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id, staffId, type, label, amount } });
+      // A new deduction outranks staff credit, so the residual left for debt
+      // recovery has shrunk — re-clamp the proposals against it. The deduction
+      // is already committed, so a sync failure must not fail the request;
+      // proposals are re-derived on the next calculation.
+      await resyncStaffCredit(req.params.id);
       res.status(201).json(deduction);
     } catch (e) { res.status(500).json({ error: "Could not create deduction." }); }
   });
@@ -367,10 +405,46 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (period.status === "paid") return res.status(400).json({ error: "Cannot delete deductions from a paid period." });
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
       const userId = (req as any).user?.id;
+      const existing = await storage.getPayrollDeduction(req.params.deductionId);
+      if (!existing || existing.periodId !== req.params.id) return res.status(404).json({ error: "Deduction not found." });
+
+      // A staff-credit line is waived, never deleted. Payroll is recalculated
+      // on every sale, so a deleted proposal would be re-inserted within
+      // minutes and the manager's decision silently undone.
+      if (existing.type === "staff_credit") {
+        const waived = await storage.setPayrollDeductionWaived(req.params.deductionId, true, userId);
+        auditLogger.log({ action: "PAYROLL_DEDUCTION_WAIVE", resource: "payroll_deduction", resourceId: req.params.deductionId, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id, creditEntryId: existing.creditEntryId, amount: existing.amount } });
+        // Waiving frees up pay that other outstanding debts can now claim.
+        await resyncStaffCredit(req.params.id);
+        return res.json(waived);
+      }
+
       await storage.deletePayrollDeduction(req.params.deductionId);
       auditLogger.log({ action: "PAYROLL_DEDUCTION_DELETE", resource: "payroll_deduction", resourceId: req.params.deductionId, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id, deductionId: req.params.deductionId } });
+      // Removing a higher-priority line frees pay for debt recovery.
+      await resyncStaffCredit(req.params.id);
       res.status(204).end();
     } catch (e) { res.status(500).json({ error: "Could not delete deduction." }); }
+  });
+
+  // Un-waive a staff-credit line the manager previously excluded.
+  app.post("/api/payroll/periods/:id/deductions/:deductionId/restore", requireManagerOrOwner, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ error: "Period not found." });
+      if (period.status === "paid") return res.status(400).json({ error: "Cannot change deductions on a paid period." });
+      if (!(await checkStoreAccess(period.storeId, req, res))) return;
+      const existing = await storage.getPayrollDeduction(req.params.deductionId);
+      if (!existing || existing.periodId !== req.params.id) return res.status(404).json({ error: "Deduction not found." });
+      if (existing.type !== "staff_credit") return res.status(400).json({ error: "Only staff credit deductions can be restored." });
+
+      const userId = (req as any).user?.id;
+      const restored = await storage.setPayrollDeductionWaived(req.params.deductionId, false, userId);
+      auditLogger.log({ action: "PAYROLL_DEDUCTION_RESTORE", resource: "payroll_deduction", resourceId: req.params.deductionId, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id, creditEntryId: existing.creditEntryId } });
+      // Re-clamp: the restored line has to fit in whatever pay is left.
+      await resyncStaffCredit(req.params.id);
+      res.json(restored);
+    } catch (e) { res.status(500).json({ error: "Could not restore deduction." }); }
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -532,7 +606,8 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         const totalGross = entries.reduce((s, e) => s + (e.grossCommission || 0), 0);
         const totalTransport = entries.reduce((s, e) => s + (e.totalTransport || 0), 0);
         const totalNet = entries.reduce((s, e) => s + (e.netPay || 0), 0);
-        const deductions = await storage.getPayrollDeductions(p.id);
+        // Waived lines were excluded by a manager and never came out of pay.
+        const deductions = (await storage.getPayrollDeductions(p.id)).filter(d => !d.isWaived);
         const totalDeductions = deductions.reduce((s, d) => s + Number(d.amount), 0);
         return {
           id: p.id, periodType: p.periodType, startDate: p.startDate, endDate: p.endDate,

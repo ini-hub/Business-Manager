@@ -91,7 +91,9 @@ export default function CustomerFormPage() {
   const updateMutation = useMutation({
     mutationFn: (data: InsertCustomer) => apiRequest("PATCH", `/api/customers/${id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      // Prefix invalidation: covers both the store list key and this record's own
+      // ["/api/customers", id] key, so re-opening the form shows the saved values.
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       toast({ title: "Customer updated" });
       setLocation(id ? `/customers/${id}` : "/customers");
     },

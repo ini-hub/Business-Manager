@@ -143,6 +143,9 @@ export default function CreditSalesPage() {
             name: entry.customer.name,
             customerNumber: entry.customer.customerNumber,
             mobileNumber: entry.customer.phone || entry.customer.mobileNumber,
+            // Renders the "Staff" badge — this debt is recoverable from
+            // payroll rather than chased for cash.
+            staffId: entry.customer.staffId,
           } : null}
           customerId={entry.customerId}
         />
@@ -842,17 +845,26 @@ export default function CreditSalesPage() {
                 <p className="text-xs text-muted-foreground italic bg-muted/40 p-2.5 rounded border border-dashed">No repayments recorded yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {repaymentsList.map((rep: any) => (
+                  {repaymentsList.map((rep: any) => {
+                    // Payroll deductions settle the debt without any money
+                    // changing hands, so they must not read as cash received.
+                    const isPayroll = rep.paymentMethod === "payroll_deduction";
+                    return (
                     <div key={rep.id} className="p-3 bg-background border rounded-lg flex justify-between items-center text-xs">
                       <div className="flex flex-col">
-                        <span className="font-semibold text-emerald-500">+₦{rep.amountReceived.toLocaleString()} ({rep.paymentMethod})</span>
-                        <span className="text-[10px] text-muted-foreground">Recorded by {rep.recordedBy}</span>
+                        <span className={`font-semibold ${isPayroll ? "text-sky-600 dark:text-sky-400" : "text-emerald-500"}`}>
+                          +₦{rep.amountReceived.toLocaleString()} ({isPayroll ? "salary deduction — no cash" : rep.paymentMethod})
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {isPayroll ? (rep.notes || "Recovered from payroll") : `Recorded by ${rep.recordedBy}`}
+                        </span>
                       </div>
                       <span className="text-muted-foreground">
                         {new Date(rep.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

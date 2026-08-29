@@ -1,5 +1,5 @@
 import { BaseRepository } from "./BaseRepository";
-import { db } from "../db";
+import { db, type DbExecutor } from "../db";
 import {
   creditEntries,
   repayments,
@@ -160,6 +160,9 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
         name: r.customer.name,
         customerNumber: r.customer.customerNumber,
         phone: r.customer.mobileNumber,
+        // Marks the debtor as a staff member, so the Borrow Book can show that
+        // this debt is recoverable from payroll rather than chased for cash.
+        staffId: r.customer.staffId,
       },
       receiptNumber: r.checkout?.receiptNumber || null,
       transactionId: r.checkout ? txIdByCheckout.get(r.checkout.id) ?? null : null,
@@ -224,11 +227,19 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
     return inserted;
   }
 
-  async createRepayment(data: InsertRepayment): Promise<Repayment> {
-    const [inserted] = await db.insert(repayments).values(data).returning();
+  /**
+   * Writes a repayment and rolls the debt's balance/status forward.
+   *
+   * Takes an executor so the payroll settlement path can run this inside the
+   * mark-paid transaction while the ordinary "customer walked in and paid"
+   * path runs it standalone — both share one implementation of the arithmetic
+   * rather than each recomputing outstanding balance and status.
+   */
+  async applyRepayment(exec: DbExecutor, data: InsertRepayment): Promise<Repayment> {
+    const [inserted] = await exec.insert(repayments).values(data).returning();
 
     // Fetch the linked entry to adjust balance
-    const [entry] = await db
+    const [entry] = await exec
       .select()
       .from(creditEntries)
       .where(eq(creditEntries.id, data.creditEntryId));
@@ -237,7 +248,7 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       const nextOutstanding = Math.max(0, entry.outstandingBalance - data.amountReceived);
       const nextStatus = nextOutstanding <= 0 ? "settled" : "partial";
 
-      await db
+      await exec
         .update(creditEntries)
         .set({
           outstandingBalance: nextOutstanding,
@@ -248,6 +259,49 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
     }
 
     return inserted;
+  }
+
+  async createRepayment(data: InsertRepayment): Promise<Repayment> {
+    return this.applyRepayment(db, data);
+  }
+
+  /**
+   * Open debt owed by a given set of customer profiles, for the payroll sweep.
+   *
+   * Scoped by storeId on purpose: customers.staff_id carries no FK and no
+   * store guard, so a stale or cross-store link must not pull another store's
+   * debt into this store's payroll.
+   *
+   * Voided checkouts are excluded. voidCheckout() does not currently touch the
+   * linked credit entry, so without this filter a voided sale's debt would
+   * still be garnished from a salary.
+   *
+   * Ordered oldest-first so limited pay recovers the most-aged debt.
+   */
+  async getOpenEntriesForCustomers(
+    storeId: string,
+    customerIds: string[],
+    asOfUtc: Date,
+  ): Promise<CreditEntry[]> {
+    if (customerIds.length === 0) return [];
+
+    const rows = await db
+      .select({ entry: creditEntries })
+      .from(creditEntries)
+      .leftJoin(checkouts, eq(creditEntries.linkedTransactionId, checkouts.id))
+      .where(
+        and(
+          eq(creditEntries.storeId, storeId),
+          inArray(creditEntries.customerId, customerIds),
+          inArray(creditEntries.status, ["owing", "partial", "overdue"]),
+          sql`${creditEntries.outstandingBalance} > 0`,
+          lte(creditEntries.createdAt, asOfUtc),
+          or(sql`${checkouts.id} IS NULL`, eq(checkouts.isVoided, false)),
+        )
+      )
+      .orderBy(asc(creditEntries.createdAt));
+
+    return rows.map(r => r.entry);
   }
 
   async writeOffDebt(id: string, reason: string): Promise<CreditEntry | undefined> {

@@ -53,8 +53,6 @@ import {
   type UpsertUser,
   type Notification,
   type InsertNotification,
-  type OtpCode,
-  type InsertOtpCode,
   type UserRole,
   type RestockEvent,
   type CostStrategy,
@@ -154,6 +152,10 @@ export function serializeUser(user: any) {
     activationCodeExpiry,
     loginAttempts,
     lockedUntil,
+    pendingEmailOtp,
+    pendingEmailOtpExpiry,
+    pendingPhoneOtp,
+    pendingPhoneOtpExpiry,
     ...cleanUser
   } = user;
   return cleanUser;
@@ -186,12 +188,7 @@ export interface IStorage {
   createUser(userData: { email: string; password: string; businessId: string; name?: string; phone?: string; role?: UserRole; isVerified?: boolean }): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
-  
-  // OTP Codes
-  createOtpCode(data: { userId: string; code: string; type: string; expiresAt: Date }): Promise<OtpCode>;
-  getValidOtpCode(userId: string, code: string, type: string): Promise<OtpCode | undefined>;
-  markOtpCodeAsUsed(id: string): Promise<void>;
-  
+
   // Business for user
   getBusinessByUserId(userId: string): Promise<Business | undefined>;
 
@@ -666,19 +663,6 @@ export class DatabaseStorage implements IStorage {
 
   async upsertUser(userData: UpsertUser): Promise<User> {
     return this.userRepo.upsertUser(userData);
-  }
-
-  // OTP Codes
-  async createOtpCode(data: { userId: string; code: string; type: string; expiresAt: Date }): Promise<OtpCode> {
-    return this.businessRepo.createOtpCode(data);
-  }
-
-  async getValidOtpCode(userId: string, code: string, type: string): Promise<OtpCode | undefined> {
-    return this.businessRepo.getValidOtpCode(userId, code, type);
-  }
-
-  async markOtpCodeAsUsed(id: string): Promise<void> {
-    return this.businessRepo.markOtpCodeAsUsed(id);
   }
 
   // Business for user
@@ -1318,8 +1302,45 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(payrollDeductions).where(and(...conditions));
   }
 
+  /**
+   * Deductions joined to the debt they recover, so the payroll UI can show a
+   * staff-credit line's receipt and what is still outstanding on it.
+   */
+  async getPayrollDeductionsWithCredit(periodId: string, staffId?: string): Promise<any[]> {
+    const conditions: any[] = [eq(payrollDeductions.periodId, periodId)];
+    if (staffId) conditions.push(eq(payrollDeductions.staffId, staffId));
+    const rows = await db
+      .select({ deduction: payrollDeductions, creditEntry: creditEntries })
+      .from(payrollDeductions)
+      .leftJoin(creditEntries, eq(payrollDeductions.creditEntryId, creditEntries.id))
+      .where(and(...conditions));
+    return rows.map(r => ({ ...r.deduction, creditEntry: r.creditEntry }));
+  }
+
+  async getPayrollDeduction(id: string): Promise<PayrollDeduction | undefined> {
+    const [row] = await db.select().from(payrollDeductions).where(eq(payrollDeductions.id, id));
+    return row;
+  }
+
   async createPayrollDeduction(data: InsertPayrollDeduction): Promise<PayrollDeduction> {
     const [row] = await db.insert(payrollDeductions).values(data).returning();
+    return row;
+  }
+
+  /**
+   * Waive/restore a staff-credit line. Waiving replaces deletion for these
+   * rows: payroll is recalculated on every sale, so a deleted proposal would
+   * be re-inserted within minutes and the manager's exclusion silently undone.
+   */
+  async setPayrollDeductionWaived(id: string, isWaived: boolean, userId?: string): Promise<PayrollDeduction | undefined> {
+    const [row] = await db.update(payrollDeductions)
+      .set({
+        isWaived,
+        waivedByUserId: isWaived ? (userId ?? null) : null,
+        waivedAt: isWaived ? new Date() : null,
+      })
+      .where(eq(payrollDeductions.id, id))
+      .returning();
     return row;
   }
 
