@@ -31,6 +31,39 @@ import { z } from "zod";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { isValidLatitude, isValidLongitude } from "@shared/geo";
+
+const clampInt = (value: unknown, min: number, max: number): number =>
+  Math.min(max, Math.max(min, Math.round(sanitizeNumber(value))));
+
+/** Unique weekday numbers, 0 = Sunday, sorted. Anything else is discarded. */
+const normaliseWeekdays = (value: unknown): number[] => {
+  if (!Array.isArray(value)) return [];
+  const days = value
+    .map(d => Math.round(Number(d)))
+    .filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+  return Array.from(new Set(days)).sort((a, b) => a - b);
+};
+
+/** Returns a message for anything that must be refused outright, else null. */
+const validateAttendanceSettings = (body: any): string | null => {
+  if (body.openingTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.openingTime).trim())) {
+    return "Opening time must be in HH:MM format (24-hour), e.g. 09:00.";
+  }
+
+  const latGiven = body.geofenceLatitude !== undefined && body.geofenceLatitude !== null;
+  const lngGiven = body.geofenceLongitude !== undefined && body.geofenceLongitude !== null;
+  if (latGiven !== lngGiven && (body.geofenceLatitude !== undefined || body.geofenceLongitude !== undefined)) {
+    return "Set both latitude and longitude for the branch location, or clear both.";
+  }
+  if (latGiven && !isValidLatitude(Number(body.geofenceLatitude))) {
+    return "Latitude must be between -90 and 90.";
+  }
+  if (lngGiven && !isValidLongitude(Number(body.geofenceLongitude))) {
+    return "Longitude must be between -180 and 180.";
+  }
+  return null;
+};
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
@@ -132,8 +165,51 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
         if (body.loyaltyPointsPerCurrency !== undefined) sanitized.loyaltyPointsPerCurrency = Math.max(1, Math.round(sanitizeNumber(body.loyaltyPointsPerCurrency)));
         if (body.loyaltyPointValue !== undefined) sanitized.loyaltyPointValue = Math.max(0, sanitizeNumber(body.loyaltyPointValue));
 
+        // ── Attendance & Clock-In ──────────────────────────────────────────
+        // This allowlist is the only thing standing between the client and these
+        // columns, so the clamps here are the real validation, not decoration.
+        if (body.clockInEnabled !== undefined) sanitized.clockInEnabled = sanitizeBoolean(body.clockInEnabled);
+        if (body.lateDeductionEnabled !== undefined) sanitized.lateDeductionEnabled = sanitizeBoolean(body.lateDeductionEnabled);
+        if (body.requirePunchPin !== undefined) sanitized.requirePunchPin = sanitizeBoolean(body.requirePunchPin);
+        if (body.openingTime !== undefined) sanitized.openingTime = sanitizeString(body.openingTime);
+        if (body.geofencePlaceLabel !== undefined) sanitized.geofencePlaceLabel = sanitizeString(body.geofencePlaceLabel);
+        // Null clears the fence; a number is range-checked in validateAttendanceSettings.
+        if (body.geofenceLatitude !== undefined) {
+          sanitized.geofenceLatitude = body.geofenceLatitude === null ? null : sanitizeNumber(body.geofenceLatitude);
+        }
+        if (body.geofenceLongitude !== undefined) {
+          sanitized.geofenceLongitude = body.geofenceLongitude === null ? null : sanitizeNumber(body.geofenceLongitude);
+        }
+        if (body.geofenceRadiusMeters !== undefined) {
+          sanitized.geofenceRadiusMeters = clampInt(body.geofenceRadiusMeters, 10, 5000);
+        }
+        if (body.geofenceMaxAccuracyMeters !== undefined) {
+          sanitized.geofenceMaxAccuracyMeters = clampInt(body.geofenceMaxAccuracyMeters, 10, 1000);
+        }
+        if (body.lateGraceMinutes !== undefined) sanitized.lateGraceMinutes = clampInt(body.lateGraceMinutes, 0, 720);
+        if (body.lateDeductionAmount !== undefined) {
+          // Deliberately uncapped against the day's transport — the business owner
+          // chose for a late arrival to be able to cost more than the day is worth.
+          sanitized.lateDeductionAmount = Math.max(0, sanitizeNumber(body.lateDeductionAmount));
+        }
+        if (body.maxOfflinePunchAgeMinutes !== undefined) {
+          sanitized.maxOfflinePunchAgeMinutes = clampInt(body.maxOfflinePunchAgeMinutes, 0, 10080);
+        }
+        if (body.retroRequestMaxAgeDays !== undefined) {
+          sanitized.retroRequestMaxAgeDays = clampInt(body.retroRequestMaxAgeDays, 0, 90);
+        }
+        if (body.defaultWeeklyOffDays !== undefined) {
+          sanitized.defaultWeeklyOffDays = normaliseWeekdays(body.defaultWeeklyOffDays);
+        }
+
         return sanitized;
       };
+
+      // Rejected rather than coerced: a malformed opening time would silently make
+      // every staff member permanently late (or never late), and half a coordinate
+      // pair would produce a fence centred on the equator.
+      const attendanceError = validateAttendanceSettings(data);
+      if (attendanceError) return res.status(400).json({ error: attendanceError });
 
       const sanitizedData = sanitizeSettings(data);
 

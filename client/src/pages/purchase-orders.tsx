@@ -883,8 +883,8 @@ export default function PurchaseOrdersPage() {
                   <Label>Required Items Grid</Label>
                   <div className="space-y-3">
                     {items.map((item, index) => (
-                      <div key={index} className="flex gap-4 items-center bg-muted/40 p-3 rounded-lg border">
-                        <div className="flex-1 min-w-[200px]">
+                      <div key={index} className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center bg-muted/40 p-3 rounded-lg border">
+                        <div className="flex-1 sm:min-w-[200px]">
                           <Label className="text-xs text-muted-foreground">Select Product</Label>
                           <Select
                             value={item.inventoryId}
@@ -903,36 +903,38 @@ export default function PurchaseOrdersPage() {
                           </Select>
                         </div>
 
-                        <div className="w-24">
-                          <Label className="text-xs text-muted-foreground">
-                            Order Qty{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}
-                          </Label>
-                          <Input
-                            type="number"
-                            min={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                            step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                            value={item.quantity}
-                            onChange={(e) => {
-                              const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
-                              updateItemRow(index, "quantity", isFrac ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1);
-                            }}
-                          />
+                        <div className="grid grid-cols-2 sm:flex gap-3 sm:gap-4">
+                          <div className="w-full sm:w-24">
+                            <Label className="text-xs text-muted-foreground">
+                              Order Qty{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}
+                            </Label>
+                            <Input
+                              type="number"
+                              min={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
+                              step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
+                              value={item.quantity}
+                              onChange={(e) => {
+                                const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
+                                updateItemRow(index, "quantity", isFrac ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1);
+                              }}
+                            />
+                          </div>
+
+                          <div className="w-full sm:w-32">
+                            <Label className="text-xs text-muted-foreground">Supplying Cost ({storeCurrency})</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.unitCost}
+                              onChange={(e) => updateItemRow(index, "unitCost", Number(e.target.value))}
+                            />
+                          </div>
                         </div>
 
-                        <div className="w-32">
-                          <Label className="text-xs text-muted-foreground">Supplying Cost ({storeCurrency})</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.unitCost}
-                            onChange={(e) => updateItemRow(index, "unitCost", Number(e.target.value))}
-                          />
-                        </div>
-
-                        <div className="w-36 text-right">
-                          <Label className="text-xs text-muted-foreground block">Cost Total</Label>
-                          <span className="font-mono font-medium block mt-2">
+                        <div className="flex items-center justify-between sm:block w-full sm:w-36 sm:text-right">
+                          <Label className="text-xs text-muted-foreground sm:block">Cost Total</Label>
+                          <span className="font-mono font-medium sm:block sm:mt-2">
                             {formatCurrency(item.quantity * item.unitCost)}
                           </span>
                         </div>
@@ -941,7 +943,7 @@ export default function PurchaseOrdersPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => removeItemRow(index)}
-                          className="text-red-500 hover:text-red-700 mt-5"
+                          className="text-red-500 hover:text-red-700 self-end sm:self-auto sm:mt-5"
                         >
                           <Trash className="h-4 w-4" />
                         </Button>
@@ -1037,7 +1039,8 @@ export default function PurchaseOrdersPage() {
                   </div>
                 </div>
 
-                <table className="w-full text-left text-sm border-collapse my-6">
+                <div className="overflow-x-auto my-6">
+                <table className="w-full min-w-[640px] text-left text-sm border-collapse">
                   <thead>
                     <tr className="border-b bg-muted/50 font-semibold text-muted-foreground">
                       <th className="py-2 px-3">Product Description</th>
@@ -1064,6 +1067,7 @@ export default function PurchaseOrdersPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
 
                 <div className="flex justify-between items-center pt-4 border-t">
                   <span className="text-sm text-muted-foreground">Aggregated PO cost:</span>

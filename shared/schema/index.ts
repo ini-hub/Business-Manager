@@ -11,6 +11,7 @@ export * from "./inventory-ops";
 export * from "./consumables";
 export * from "./credit";
 export * from "./payroll";
+export * from "./attendance";
 export * from "./expenses";
 export * from "./notifications";
 export * from "./vendors-purchasing";

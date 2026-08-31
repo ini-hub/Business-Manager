@@ -10,7 +10,10 @@
     "check": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "analytics:parity": "tsx scripts/analytics-parity.ts",
+    "payroll:postings:parity": "tsx scripts/payroll-postings-parity.ts",
+    "payroll:postings:backfill": "tsx scripts/backfill-payroll-postings.ts",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"

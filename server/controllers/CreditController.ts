@@ -5,6 +5,27 @@ import { isAuthenticated } from "../auth";
 import { creditEntries } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { bulkUploadService } from "../services/BulkUploadService";
+import { staffCreditDeductionService } from "../services/StaffCreditDeductionService";
+import { staffCreditPeriodStatusFor } from "../repositories/CreditRepository";
+import { canRestoreWriteOff } from "../lib/creditBalance";
+import { getStoreTimezone } from "../lib/dateUtils";
+import { auditLogger } from "../audit";
+import { broadcastChange, getClientIp } from "../routes/helpers";
+
+/**
+ * Staff debt is recovered from payroll, so any move on a staff member's debt
+ * invalidates the open period's proposals. Runs after the caller's write has
+ * already committed: a sync failure must not fail the repayment or write-off,
+ * and stale proposals are corrected again at mark-paid.
+ */
+async function resyncPayrollForCustomer(req: Request, storeId: string, customerId: string): Promise<void> {
+  try {
+    await staffCreditDeductionService.syncOpenPeriodsForCustomer(storeId, customerId);
+    broadcastChange(req, "payroll", storeId);
+  } catch (e) {
+    console.error("Failed to re-sync payroll after credit change:", e);
+  }
+}
 
 export class CreditController extends BaseController {
   public register(router: Router): void {
@@ -17,6 +38,7 @@ export class CreditController extends BaseController {
     router.post("/credit/entries/:id/reminders", isAuthenticated, this.sendReminder.bind(this));
     router.get("/credit/entries/:id/reminders", isAuthenticated, this.getReminderLogs.bind(this));
     router.post("/credit/entries/:id/write-off", isAuthenticated, this.writeOffDebt.bind(this));
+    router.post("/credit/entries/:id/restore-write-off", isAuthenticated, this.restoreWriteOff.bind(this));
     router.get("/credit/reports", isAuthenticated, this.getBorrowBookReport.bind(this));
   }
 
@@ -205,6 +227,10 @@ export class CreditController extends BaseController {
         recordedByStaffId: staffMember?.id || null,
       });
 
+      // The debt just shrank. If it belongs to a staff member, the open
+      // payroll period is still proposing to deduct the old amount.
+      await resyncPayrollForCustomer(req, entry.storeId, entry.customerId);
+
       return this.created(res, repayment);
     } catch (e) {
       console.error("Record repayment controller error:", e);
@@ -336,10 +362,77 @@ export class CreditController extends BaseController {
       }
 
       const updated = await storage.creditRepo.writeOffDebt(id, reason);
+      auditLogger.log({
+        action: "CREDIT_WRITE_OFF", resource: "credit_entry", resourceId: id,
+        userId: (req as any).user?.id, ip: getClientIp(req), status: "success",
+        details: { storeId: entry.storeId, customerId: entry.customerId, amount: entry.outstandingBalance, reason },
+      });
+
+      // A written-off debt drops out of the open-debt sweep, so its payroll
+      // proposal has to go with it rather than garnishing pay for a balance
+      // the business has already given up on.
+      await resyncPayrollForCustomer(req, entry.storeId, entry.customerId);
+
       return this.ok(res, updated);
     } catch (e) {
       console.error("Write-off controller error:", e);
       return this.error(res, "Could not write off debt. Please try again.");
+    }
+  }
+
+  /**
+   * Undo a write-off — the debt comes back at the balance it had, and any
+   * payroll line that was waived alongside it is proposed again.
+   *
+   * Owner-only, like the write-off it reverses, and refused outside the window
+   * canRestoreWriteOff defines so no already-reported P&L can shift.
+   */
+  private async restoreWriteOff(req: Request, res: Response): Promise<Response> {
+    try {
+      const { id } = req.params;
+
+      const entry = await storage.creditRepo.findById(id);
+      if (!entry) return this.notFound(res, "Credit entry not found.");
+      if (!(await this.checkStoreAccess(entry.storeId, req, res))) return res;
+
+      if ((req as any).user?.role !== "owner") {
+        return this.forbidden(res, "Only business owners can restore a written-off debt.");
+      }
+
+      const linked = (await staffCreditPeriodStatusFor([id])).get(id);
+      const guard = canRestoreWriteOff(entry, {
+        now: new Date(),
+        timezone: await getStoreTimezone(entry.storeId),
+        linkedPeriodStatus: linked?.periodStatus,
+      });
+      if (!guard.allowed) return this.badRequest(res, guard.reason!);
+
+      const restored = await storage.creditRepo.restoreWrittenOffDebt(id);
+
+      // The debt is open again, so the deduction that was waived alongside it
+      // should be back on the payslip. Un-waive rather than re-create: the row
+      // still carries its creditEntryId, and syncProposals treats a waived line
+      // as frozen, so it would otherwise refuse to re-propose this debt at all.
+      if (linked && linked.periodStatus !== "paid") {
+        await storage.setPayrollDeductionWaived(linked.deductionId, false, (req as any).user?.id);
+      }
+
+      auditLogger.log({
+        action: "CREDIT_WRITE_OFF_RESTORE", resource: "credit_entry", resourceId: id,
+        userId: (req as any).user?.id, ip: getClientIp(req), status: "success",
+        details: {
+          storeId: entry.storeId, customerId: entry.customerId,
+          restoredBalance: restored?.outstandingBalance, deductionId: linked?.deductionId ?? null,
+        },
+      });
+
+      // Re-clamp: the restored line has to fit in whatever pay is left.
+      await resyncPayrollForCustomer(req, entry.storeId, entry.customerId);
+
+      return this.ok(res, restored);
+    } catch (e) {
+      console.error("Restore write-off controller error:", e);
+      return this.error(res, "Could not restore this debt. Please try again.");
     }
   }
 

@@ -644,6 +644,26 @@ export default function NewSale() {
     staleTime: STALE_TIMES.transactional,
   });
 
+  // Ranked product-group ids for the POS quick-pick strip.
+  //
+  // The key deliberately isn't the URL. useRealtimeSync invalidates by string
+  // prefix on the first key element, so "/api/products/top-sellers" would be
+  // swept up by every inventory broadcast — including ones from other tills —
+  // and re-rank the strip while a cashier is reaching for a tile. A 30-day
+  // ranking doesn't need that: refreshed on mount is current enough, and stock
+  // changes still reach the strip, since ProductGrid resolves these ids against
+  // the live /api/products list and drops whatever has gone unavailable.
+  const { data: topProductIds = [] } = useQuery<string[]>({
+    queryKey: ["pos-top-sellers", currentStore?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/products/top-sellers?storeId=${currentStore?.id}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+    staleTime: STALE_TIMES.reference,
+  });
+
   // Flat variant list — kept for booking prefill, cart logic, promotions
   const inventory: Inventory[] = products.flatMap((p: any) => p.variants ?? []);
 
@@ -1347,6 +1367,7 @@ export default function NewSale() {
             onAddToCart={addToCart}
             formatCurrency={formatCurrency}
             isOffline={!isOnline}
+            topProductIds={topProductIds}
           />
         </div>
 

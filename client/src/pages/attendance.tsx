@@ -29,6 +29,8 @@ import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallb
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link } from "wouter";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
+import { AttendanceSchedules } from "@/components/attendance-schedules";
+import { AttendanceExceptions } from "@/components/attendance-exceptions";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
 
 const STATUS_CONFIG: Record<AttendanceStatus, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -82,7 +84,7 @@ export default function AttendancePage() {
   const userRole = user?.role || "staff";
   const canEdit = userRole === "manager" || userRole === "owner";
 
-  const [view, setView] = useState<"daily" | "monthly" | "sixmonth" | "yearly">("daily");
+  const [view, setView] = useState<"daily" | "monthly" | "sixmonth" | "yearly" | "schedules" | "exceptions">("daily");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>("present");
 
@@ -555,17 +557,19 @@ export default function AttendancePage() {
 
       {/* View selector + navigation */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
+        <Tabs value={view} onValueChange={(v) => setView(v as typeof view)} className="max-w-full overflow-x-auto">
           <TabsList>
             <TabsTrigger value="daily">Daily</TabsTrigger>
             <TabsTrigger value="monthly">Monthly</TabsTrigger>
             <TabsTrigger value="sixmonth">6-Month</TabsTrigger>
             <TabsTrigger value="yearly">Yearly</TabsTrigger>
+            <TabsTrigger value="schedules" data-testid="tab-schedules">Schedules</TabsTrigger>
+            <TabsTrigger value="exceptions" data-testid="tab-exceptions">Clock-In</TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" size="icon" onClick={navPrev}><ChevronLeft className="h-4 w-4" /></Button>
-          <span className="text-sm font-medium min-w-[200px] text-center">{periodLabel}</span>
+          <span className="text-sm font-medium min-w-0 sm:min-w-[200px] text-center">{periodLabel}</span>
           <Button variant="outline" size="icon" onClick={navNext}><ChevronRight className="h-4 w-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>Today</Button>
         </div>
@@ -575,6 +579,8 @@ export default function AttendancePage() {
       {view === "daily" && DailyView()}
       {view === "monthly" && MonthlyView()}
       {(view === "sixmonth" || view === "yearly") && SummaryView()}
+      {view === "schedules" && <AttendanceSchedules storeId={currentStore.id} staff={activeStaff} />}
+      {view === "exceptions" && <AttendanceExceptions storeId={currentStore.id} staff={activeStaff} />}
     </div>
   );
 }

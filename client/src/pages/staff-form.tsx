@@ -22,7 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStaffSchema, type Staff, type Customer } from "@shared/schema";
+import { insertStaffSchema, type Staff, type Customer, type StaffInviteStatus } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -74,7 +74,7 @@ export default function StaffFormPage() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [selectedLinkCustomerId, setSelectedLinkCustomerId] = useState<string>("");
 
-  const { data: staffMember, isLoading: isLoadingStaff } = useQuery<Staff>({
+  const { data: staffMember, isLoading: isLoadingStaff } = useQuery<Staff & { inviteStatus?: StaffInviteStatus }>({
     queryKey: [`/api/staff/${staffId}`],
     enabled: !!staffId,
     queryFn: async () => {
@@ -205,15 +205,44 @@ export default function StaffFormPage() {
   }, [staffMember, form]);
 
   const mutation = useMutation({
-    mutationFn: (data: any) => {
+    mutationFn: async (data: any) => {
       const endpoint = staffId ? `/api/staff/${staffId}` : "/api/staff";
       const method = staffId ? "PATCH" : "POST";
-      return apiRequest(method, endpoint, { ...data, storeId: data.storeId || currentStore?.id });
+      const res = await apiRequest(method, endpoint, { ...data, storeId: data.storeId || currentStore?.id });
+      // The body carries what happened to the invitation, which used to be
+      // invisible - a staff member could be created with no invitation ever
+      // sent and nothing said about it.
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: `Staff member ${staffId ? "updated" : "created"} successfully` });
+
+      if (result?.inviteWarning) {
+        // Stay on the page: a warning the user navigates away from is a
+        // warning they never read.
+        toast({
+          title: "Saved, but the invitation wasn't sent",
+          description: result.inviteWarning,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const inviteMessage: Record<string, string> = {
+        reinvited: "A fresh activation code was emailed to the new address.",
+        relinked: "This staff member is now linked to the account for that email address.",
+        added_to_existing: "That email already has an account - they've been added to this business.",
+        email_changed_verification_sent:
+          "We emailed a verification code to the new address. They'll be asked to confirm it next time they sign in.",
+        invited: "An invitation has been emailed to them.",
+      };
+      toast({
+        title: `Staff member ${staffId ? "updated" : "created"} successfully`,
+        ...(result?.inviteAction && inviteMessage[result.inviteAction]
+          ? { description: inviteMessage[result.inviteAction] }
+          : {}),
+      });
       setLocation(backHref);
     },
     onError: (error: Error) => {
@@ -343,7 +372,13 @@ export default function StaffFormPage() {
                     <FormItem>
                       <FormLabel className="flex items-center gap-1.5"><Mail className="h-3 w-3" />Email <span className="text-destructive">*</span></FormLabel>
                       <FormControl><Input type="email" placeholder="jane@example.com" className="h-11" {...field} /></FormControl>
-                      <FormDescription className="text-xs">Used for login &amp; notifications.</FormDescription>
+                      <FormDescription className="text-xs">
+                        {!staffId
+                          ? "Used for login & notifications. We'll email them an activation code."
+                          : staffMember?.inviteStatus === "active"
+                            ? "This is their login email. Changing it means they'll have to confirm the new address before signing in again."
+                            : "Used for login & notifications. Correcting a typo here re-sends their activation code to the new address."}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -364,9 +399,9 @@ export default function StaffFormPage() {
               <CardContent className="p-4 space-y-4">
                 <SectionHeader icon={<Phone className="h-3.5 w-3.5" />} label="Contact" />
 
-                <div className="grid grid-cols-5 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <FormField control={form.control} name="countryCode" render={({ field }) => (
-                    <FormItem className="col-span-2">
+                    <FormItem className="sm:col-span-2">
                       <FormLabel>Country</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value || "NG"}>
                         <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
@@ -380,7 +415,7 @@ export default function StaffFormPage() {
                     </FormItem>
                   )} />
                   <FormField control={form.control} name="mobileNumber" render={({ field }) => (
-                    <FormItem className="col-span-3">
+                    <FormItem className="sm:col-span-3">
                       <FormLabel>Mobile Number <span className="text-destructive">*</span></FormLabel>
                       <FormControl><Input placeholder="8012345678" className="h-11" {...field} /></FormControl>
                       <FormMessage />

@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Printer, Download, MessageCircle, X, Loader2, AlertCircle } from "lucide-react";
 import {
   Dialog,
@@ -19,7 +18,6 @@ interface ReceiptModalProps {
 
 export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
   const { data: payload, isLoading, error } = useReceiptPayload(open ? checkoutId : null);
-  const printRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = () => {
     window.print();
@@ -109,10 +107,8 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
               </Button>
             </div>
 
-            {/* Receipt — id targets @media print CSS */}
-            <div ref={printRef} id="receipt-print-area">
-              <ReceiptView payload={payload} />
-            </div>
+            {/* Receipt — ReceiptView renders id="receipt-print-area", which @media print targets */}
+            <ReceiptView payload={payload} />
           </>
         )}
       </DialogContent>

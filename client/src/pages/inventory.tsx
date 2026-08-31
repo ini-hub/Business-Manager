@@ -1375,8 +1375,8 @@ export default function InventoryPage() {
 
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-foreground">Audited Items & Drifts</h4>
-                  <div className="border border-muted/30 rounded-lg overflow-hidden">
-                    <table className="w-full text-left text-xs border-collapse">
+                  <div className="border border-muted/30 rounded-lg overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-left text-xs border-collapse">
                       <thead>
                         <tr className="bg-muted/10 border-b border-muted/30 text-muted-foreground font-semibold">
                           <th className="p-3">Product Name</th>

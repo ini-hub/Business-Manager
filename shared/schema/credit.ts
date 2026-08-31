@@ -34,6 +34,24 @@ export const creditEntries = pgTable("credit_entries", {
 export const repaymentMethodEnum = ["cash", "transfer", "pos", "payroll_deduction"] as const;
 export type RepaymentMethod = typeof repaymentMethodEnum[number];
 
+/**
+ * Why a debt was given up on. Mandatory wherever a write-off is authorised —
+ * the Borrow Book and the payslip's Waive both pick from this one list, so a
+ * debt forgiven from payroll reads the same in the ledger as one forgiven
+ * directly. "Internal Adjustment / Data Correction" is the signal that a
+ * restore may legitimately follow.
+ */
+export const WRITE_OFF_REASONS = [
+  "Bad Debt — Customer Uncontactable",
+  "Bad Debt — Customer Relocated / Moved Away",
+  "Bad Debt — Customer Deceased",
+  "Bad Debt — Business Closed",
+  "Dispute Settled — Balance Forgiven",
+  "Promotional Write-Off / Goodwill Gesture",
+  "Internal Adjustment / Data Correction",
+  "Other — See Notes",
+] as const;
+
 export const repayments = pgTable("repayments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   creditEntryId: varchar("credit_entry_id").notNull().references(() => creditEntries.id),

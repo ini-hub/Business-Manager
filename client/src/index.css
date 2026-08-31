@@ -345,10 +345,15 @@ input[type="number"] {
 }
 
 /* ── Thermal Receipt Print Styles ─────────────────────────────────── */
+/* Targets that should be the only thing visible when printing. Listed as a
+   group so any of them can appear anywhere in the DOM (e.g. inside a Radix
+   Dialog portal) — we don't rely on being a direct child of <body>. */
 @media print {
-  /* Hide everything except the receipt area */
-  body > *:not(#receipt-print-root) {
-    display: none !important;
+  /* Hide everything, then re-reveal only the print target and its
+     descendants. This works regardless of how deeply nested the target is
+     (unlike `body > *:not(#id)`, which breaks for anything portal-rendered). */
+  body * {
+    visibility: hidden !important;
   }
 
   /* Thermal paper: 80mm wide, no margins */
@@ -366,8 +371,19 @@ input[type="number"] {
     print-color-adjust: exact;
   }
 
-  #receipt-print-area {
+  #receipt-print-area,
+  #receipt-print-area *,
+  #quote-printable-invoice,
+  #quote-printable-invoice * {
+    visibility: visible !important;
+  }
+
+  #receipt-print-area,
+  #quote-printable-invoice {
     display: block !important;
+    position: fixed;
+    left: 0;
+    top: 0;
     width: 72mm;
     margin: 4mm auto;
     font-size: 11px;
@@ -376,8 +392,9 @@ input[type="number"] {
     background: white !important;
   }
 
-  /* Strip colours and shadows on receipt content */
-  #receipt-print-area * {
+  /* Strip colours and shadows on printed content */
+  #receipt-print-area *,
+  #quote-printable-invoice * {
     color: black !important;
     background: transparent !important;
     box-shadow: none !important;
@@ -386,12 +403,9 @@ input[type="number"] {
 
   /* Keep dividers visible as dashed lines */
   #receipt-print-area hr,
-  #receipt-print-area .receipt-divider {
+  #receipt-print-area .receipt-divider,
+  #quote-printable-invoice hr,
+  #quote-printable-invoice .receipt-divider {
     border-top: 1px dashed #000 !important;
   }
-}
-
-/* Portal root for the receipt so @media print can target it */
-#receipt-print-root {
-  display: contents;
 }

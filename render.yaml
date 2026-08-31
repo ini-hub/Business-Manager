@@ -24,6 +24,11 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
+      # Baked into the client bundle at build time, so it must be set here before
+      # the build runs. Optional: the branch geofence picker falls back to manual
+      # coordinates without it.
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        sync: false
 
   # Pings the app every 14 minutes to prevent Render free-tier spin-down
   - type: cron

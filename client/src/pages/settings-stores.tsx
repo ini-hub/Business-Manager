@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { useStore } from "@/lib/store-context";
-import { Building2, Store, ShieldCheck, Database, CreditCard, BookOpen, Pencil, MapPin, Phone } from "lucide-react";
+import { Building2, Store, ShieldCheck, Database, CreditCard, BookOpen, Pencil, MapPin, Phone, Clock } from "lucide-react";
 import { StoresManagementSection } from "./settings/components/stores-management";
 import { BusinessSettingsSection } from "./settings/components/business-settings";
 import { RolesPermissionsSection } from "./settings/components/roles-permissions";
 import { BulkOperationsSection } from "./settings/components/bulk-operations";
 import { StoreIntegrationsSection } from "./settings/components/store-integrations";
 import { BorrowBookSettingsSection } from "./settings/components/credit-sales-settings";
+import { AttendanceSettingsSection } from "./settings/components/attendance-settings";
 
 export default function SettingsStoresPage() {
   const [, setLocation] = useLocation();
@@ -36,6 +37,7 @@ export default function SettingsStoresPage() {
     { value: "bulk", label: "Bulk Operations", icon: <Database className="h-4 w-4" />, testId: "tab-bulk-operations" },
     { value: "payments", label: "Plugins & Integrations", icon: <CreditCard className="h-4 w-4" /> },
     { value: "credit-sales", label: "Credit Sales Reminders", icon: <BookOpen className="h-4 w-4" /> },
+    { value: "attendance", label: "Attendance & Clock-In", icon: <Clock className="h-4 w-4" />, testId: "tab-attendance-settings" },
   ];
 
   return (
@@ -152,6 +154,22 @@ export default function SettingsStoresPage() {
             </Card>
           ) : (
             <BorrowBookSettingsSection />
+          )}
+        </TabsContent>
+
+        <TabsContent value="attendance" className="space-y-6 mt-0">
+          {!currentStore || currentStore.id === "all" ? (
+            <Card className="p-8 border-dashed flex flex-col items-center justify-center text-center space-y-3">
+              <Clock className="h-10 w-10 text-muted-foreground/50" />
+              <div>
+                <CardTitle className="text-base font-semibold">No Active Store Location Selected</CardTitle>
+                <CardDescription className="max-w-sm mt-1">
+                  Clock-in is configured per branch — its location, opening time and off-days differ from one store to the next. Select a store under the <strong>Stores Management</strong> tab first.
+                </CardDescription>
+              </div>
+            </Card>
+          ) : (
+            <AttendanceSettingsSection />
           )}
         </TabsContent>
       </Tabs>

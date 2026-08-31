@@ -472,8 +472,8 @@ export default function StockTransfersPage() {
                       const maxStock = selectedInv ? selectedInv.quantity : 0;
 
                       return (
-                        <div key={index} className="flex gap-4 items-center bg-muted/40 p-3 rounded-lg border">
-                          <div className="flex-1 min-w-[200px]">
+                        <div key={index} className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center bg-muted/40 p-3 rounded-lg border">
+                          <div className="flex-1 sm:min-w-[200px]">
                             <Label className="text-xs text-muted-foreground">Select Product</Label>
                             <Select
                               value={item.inventoryId}
@@ -492,7 +492,7 @@ export default function StockTransfersPage() {
                             </Select>
                           </div>
 
-                          <div className="w-36">
+                          <div className="w-full sm:w-36">
                             <div className="flex justify-between items-center mb-1">
                               <Label className="text-xs text-muted-foreground">Transfer Qty</Label>
                               {selectedInv && (
@@ -527,7 +527,7 @@ export default function StockTransfersPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => removeItemRow(index)}
-                            className="text-red-500 hover:text-red-700 mt-5"
+                            className="text-red-500 hover:text-red-700 self-end sm:self-auto sm:mt-5"
                           >
                             <Trash className="h-4 w-4" />
                           </Button>

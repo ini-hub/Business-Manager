@@ -33,7 +33,7 @@ export default function Login() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [step, setStep] = useState<
-    "identifier" | "password" | "activation_code" | "create_password" | "verify_otp" | "org_select" | "almost_there"
+    "identifier" | "password" | "activation_code" | "create_password" | "verify_otp" | "org_select" | "almost_there" | "verify_email_change"
   >("identifier");
   const [identifier, setIdentifier] = useState("");
   const [identifierDisplay, setIdentifierDisplay] = useState("");
@@ -44,7 +44,18 @@ export default function Login() {
   const [otp, setOtp] = useState("");
   
   // Custom activation code states
-  const [activationCodeVal, setActivationCodeVal] = useState("");
+  // The invitation email links to /activate?code=XXXX-XXXX. Seed the field
+  // from it so the person only has to confirm their email address - we can't
+  // skip that step because the link deliberately carries no identifier.
+  const [activationCodeVal, setActivationCodeVal] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const raw = new URLSearchParams(window.location.search).get("code");
+    if (!raw) return "";
+    const clean = raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8);
+    return clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean;
+  });
+  const [codeCameFromLink] = useState(() =>
+    typeof window !== "undefined" && !!new URLSearchParams(window.location.search).get("code"));
   const [actCodeTouched, setActCodeTouched] = useState(false);
   const [actCodeError, setActCodeError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -156,11 +167,19 @@ export default function Login() {
           title: "Email verification required",
           description: "Please enter the 6-digit OTP code sent to your email to continue.",
         });
+      } else if (data.status === "email_change_verification_required") {
+        setStep("verify_email_change");
+        toast({
+          title: "Confirm your new email address",
+          description: "Your email was updated. Enter the 6-digit code we sent to your new address.",
+        });
       } else if (data.status === "pending_activation") {
         setStep("activation_code");
         toast({
           title: "Account Pending Activation",
-          description: data.message || "Please enter your invitation activation code.",
+          description: codeCameFromLink
+            ? "We've filled in the code from your email - just confirm and continue."
+            : (data.message || "Please enter your invitation activation code."),
         });
       } else if (data.status === "create_password_required") {
         setStep("almost_there");
@@ -193,7 +212,13 @@ export default function Login() {
       return response.json();
     },
     onSuccess: (data) => {
-      if (data.status === "email_verification_required") {
+      if (data.status === "email_change_verification_required") {
+        setStep("verify_email_change");
+        toast({
+          title: "Confirm your new email address",
+          description: "Your email was updated. Enter the 6-digit code we sent to your new address.",
+        });
+      } else if (data.status === "email_verification_required") {
         setStep("verify_otp");
         toast({
           title: "Email verification required",
@@ -314,6 +339,37 @@ export default function Login() {
       toast({
         title: "Error",
         description: errorData.error || "Unable to set password.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Confirm an email address a manager changed on this account. Unlike
+  // verifyOtpMutation below, this deliberately does NOT log the person in -
+  // the server hands back no session, so they still have to enter their
+  // password. That is what stops a manager who repointed the address at
+  // themselves from getting in.
+  const verifyEmailChangeMutation = useMutation({
+    mutationFn: async (otpVal: string) => {
+      const response = await apiRequest("POST", "/api/auth/verify-manager-email-change", {
+        emailOrPhone: identifier,
+        otp: otpVal,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setOtp("");
+      setStep("password");
+      toast({
+        title: "Email confirmed",
+        description: data.message || "Please sign in with your password.",
+      });
+    },
+    onError: (error: any) => {
+      const errorData = error.response?.data || error;
+      toast({
+        title: "Verification failed",
+        description: errorData.error || "Invalid verification code",
         variant: "destructive",
       });
     },
@@ -495,6 +551,7 @@ export default function Login() {
               : "Kowope Business Management System — sign in with your phone number")}
             {step === "password" && `Enter your password for ${identifierDisplay}`}
             {step === "verify_otp" && `Verify your email address for ${identifierDisplay}`}
+            {step === "verify_email_change" && "Confirm your new email address"}
             {step === "activation_code" && `Activate your staff invitation for ${identifierDisplay}`}
             {step === "create_password" && `Create a password for ${identifierDisplay}`}
             {step === "almost_there" && `Complete your Kowope registration for ${identifierDisplay}`}
@@ -911,6 +968,56 @@ export default function Login() {
           )}
 
           {/* Verify OTP Step */}
+          {step === "verify_email_change" && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Your email address was updated by your manager. Enter the 6-digit
+                code we sent to your new address to confirm it, then sign in with
+                your usual password.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  verifyEmailChangeMutation.mutate(otp.trim());
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-2">
+                  <label htmlFor="email-change-otp-input" className="text-sm font-medium text-foreground">
+                    Verification Code
+                  </label>
+                  <Input
+                    id="email-change-otp-input"
+                    placeholder="Enter 6-digit code"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
+                    data-testid="input-email-change-otp"
+                    className="text-center text-lg tracking-widest font-mono"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={otp.trim().length !== 6 || verifyEmailChangeMutation.isPending}
+                  data-testid="button-verify-email-change"
+                >
+                  {verifyEmailChangeMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    "Confirm Email"
+                  )}
+                </Button>
+              </form>
+              <p className="text-xs text-muted-foreground text-center pt-2 border-t">
+                Didn't get it? Ask your manager to save your email address again to send a new code.
+              </p>
+            </div>
+          )}
+
           {step === "verify_otp" && (
             <div className="space-y-4">
               <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">

@@ -17,11 +17,13 @@ import {
   AlertCircle
 } from "lucide-react";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
+import { commissionHeadline } from "@shared/commission-explainer";
 import { MetricCard } from "@/components/metric-card";
 import { MetricGrid } from "@/components/metric-grid";
 import { format, parseISO } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { ClockInCard } from "@/components/clock-in-card";
 import { Link } from "wouter";
 
 export default function StaffDashboard() {
@@ -64,14 +66,22 @@ export default function StaffDashboard() {
         description="Here's your performance and earnings summary"
       />
 
+      <ClockInCard />
+
       {/* Current Earnings Overview */}
       <MetricGrid>
+        {/* Take-home, not gross: showing the pre-deduction figure here made
+            staff expect more than they were handed on payday. */}
         <MetricCard
-          title="Est. Net Pay"
-          value={formatCurrency(summary?.earnings || 0)}
-          compactValue={formatCompact(summary?.earnings || 0)}
+          title="Est. Take-Home Pay"
+          value={formatCurrency(summary?.takeHomePay ?? summary?.earnings ?? 0)}
+          compactValue={formatCompact(summary?.takeHomePay ?? summary?.earnings ?? 0)}
           icon={<Wallet className="h-4 w-4 opacity-70" />}
-          description={`Current Period: ${summary?.period?.label || "None"}`}
+          description={
+            (summary?.deductionsTotal ?? 0) > 0
+              ? `Gross ${formatCurrency(summary.grossPay)} − deductions ${formatCurrency(summary.deductionsTotal)} · ${summary?.period?.label || "None"}`
+              : `Current Period: ${summary?.period?.label || "None"}`
+          }
           className="bg-primary text-primary-foreground [&_p]:text-primary-foreground/70 [&_.text-muted-foreground]:text-primary-foreground/70"
         />
         <MetricCard
@@ -79,7 +89,13 @@ export default function StaffDashboard() {
           value={formatCurrency(summary?.commission || 0)}
           compactValue={formatCompact(summary?.commission || 0)}
           icon={<TrendingUp className="h-4 w-4" />}
-          description="From services & products"
+          // A zero here is usually correct — transport already paid is an
+          // advance against commission — but only if it says so.
+          description={
+            summary?.commissionExplanation
+              ? commissionHeadline(summary.commissionExplanation, formatCurrency)
+              : "From services rendered"
+          }
         />
         <MetricCard
           title="Transport Allowance"
@@ -127,7 +143,13 @@ export default function StaffDashboard() {
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <div className="font-bold text-sm">{formatCurrency(item.netPay)}</div>
+                          {/* What was actually paid out on the day. */}
+                          <div className="font-bold text-sm">{formatCurrency(item.takeHomePay ?? item.netPay)}</div>
+                          {(item.deductionsTotal ?? 0) > 0 && (
+                            <div className="text-[10px] text-muted-foreground">
+                              gross {formatCurrency(item.grossPay ?? item.netPay)} − {formatCurrency(item.deductionsTotal)}
+                            </div>
+                          )}
                           <span className="text-[10px] text-green-600 font-medium">PAID</span>
                         </div>
                         <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />

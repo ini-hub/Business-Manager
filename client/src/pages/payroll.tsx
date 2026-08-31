@@ -51,7 +51,8 @@ import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallb
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
-import type { PayrollPeriod, PayrollEntryWithStaff, PayrollPeriodType } from "@shared/schema";
+import { explainCommission, commissionHeadline } from "@shared/commission-explainer";
+import type { PayrollPeriod, PayrollEntryWithPay, PayrollPeriodType } from "@shared/schema";
 
 const STATUS_CONFIG = {
   pending:  { label: "Pending",  variant: "secondary" as const, color: "text-amber-700 dark:text-amber-400",   bg: "bg-amber-50 dark:bg-amber-950 border-amber-200" },
@@ -96,7 +97,7 @@ export default function PayrollPage() {
 
   const [periodsPage, setPeriodsPage] = useUrlState("periodsPage", 1, Number);
   const [entriesPage, setEntriesPage] = useUrlState("entriesPage", 1, Number);
-  const [visiblePayrollEntries, setVisiblePayrollEntries] = useState<(PayrollEntryWithStaff & { staffName: string; netPay: number })[]>([]);
+  const [visiblePayrollEntries, setVisiblePayrollEntries] = useState<(PayrollEntryWithPay & { staffName: string; netPay: number })[]>([]);
 
   const storeCurrency = currentStore?.currency || "NGN";
   const fmt = (v: number) => formatCurrencyUtil(v, storeCurrency);
@@ -153,7 +154,7 @@ export default function PayrollPage() {
     enabled: !!selectedPeriodId && !!selectedPeriod && selectedPeriod.status !== "paid",
   });
 
-  const { data: entriesRaw = [], isLoading: entriesLoading } = useQuery<PayrollEntryWithStaff[]>({
+  const { data: entriesRaw = [], isLoading: entriesLoading } = useQuery<PayrollEntryWithPay[]>({
     queryKey: ["/api/payroll/periods/entries", selectedPeriodId],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/payroll/periods/${selectedPeriodId}/entries`);
@@ -240,22 +241,43 @@ export default function PayrollPage() {
     onError: (err: Error) => toast({ title: err.message || "Could not delete payroll", variant: "destructive" }),
   });
 
-  const grandTotal = entries.reduce((sum, e) => sum + (e.netPay || 0), 0);
+  // The cash actually payable, not the sum of gross earnings. Floored per
+  // person by the server, so one staff member's surplus never covers another's
+  // shortfall.
+  const totalGross = entries.reduce((sum, e) => sum + (e.grossPay ?? e.netPay ?? 0), 0);
+  const totalDeductions = entries.reduce((sum, e) => sum + (e.deductionsTotal ?? 0), 0);
+  // Why a commission figure is what it is — above all, why it is zero. Prefers
+  // the explanation snapshotted when the period was calculated, and derives one
+  // for entries that predate the snapshot.
+  const commissionNoteFor = (entry: PayrollEntryWithPay) => {
+    const details = (entry.calculationDetails ?? {}) as Record<string, any>;
+    const explanation = details.commissionExplanation
+      ?? explainCommission({ ...details, grossCommission: entry.grossCommission });
+    return commissionHeadline(explanation, fmt);
+  };
 
-  const exportCSV = (sourceEntries: PayrollEntryWithStaff[] = entries) => {
+  // The notes contain commas; every other cell here is a number or a staff name.
+  const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+
+  const grandTotal = entries.reduce((sum, e) => sum + (e.takeHomePay ?? e.netPay ?? 0), 0);
+
+  const exportCSV = (sourceEntries: PayrollEntryWithPay[] = entries) => {
     if (!sourceEntries.length || !selectedPeriod) return;
-    const scopedTotal = sourceEntries.reduce((sum, e) => sum + (e.netPay || 0), 0);
+    const scopedTotal = sourceEntries.reduce((sum, e) => sum + (e.takeHomePay ?? e.netPay ?? 0), 0);
     const rows = [
-      ["Staff", "Active Days", "Passive Days", "Total Transport", "Gross Commission", "Net Pay"],
+      ["Staff", "Active Days", "Passive Days", "Total Transport", "Gross Commission", "Commission Note", "Gross Pay", "Deductions", "Net Pay"],
       ...sourceEntries.map(e => [
         e.staff.name,
         e.activeDays || 0,
         e.passiveDays || 0,
         (e.totalTransport || 0).toFixed(2),
         (e.grossCommission || 0).toFixed(2),
-        (e.netPay || 0).toFixed(2),
+        csvCell(commissionNoteFor(e)),
+        (e.grossPay ?? e.netPay ?? 0).toFixed(2),
+        (e.deductionsTotal ?? 0).toFixed(2),
+        (e.takeHomePay ?? e.netPay ?? 0).toFixed(2),
       ]),
-      ["TOTAL", "", "", "", "", scopedTotal.toFixed(2)],
+      ["TOTAL", "", "", "", "", "", "", "", scopedTotal.toFixed(2)],
     ];
     const csv = rows.map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -291,7 +313,7 @@ export default function PayrollPage() {
         title="Payroll"
         description={`Hybrid payroll for ${currentStore.name}`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/advances")}>
               <Banknote className="mr-2 h-4 w-4" />
               Advances
@@ -569,7 +591,7 @@ export default function PayrollPage() {
                     {
                       key: "staffName",
                       header: "Staff",
-                      render: (entry: PayrollEntryWithStaff) => (
+                      render: (entry: PayrollEntryWithPay) => (
                         <div className="flex items-center gap-2 min-w-0">
                           <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
                             {entry.staff.name.charAt(0)}
@@ -590,7 +612,7 @@ export default function PayrollPage() {
                     {
                       key: "daysSummary",
                       header: "Active/Passive",
-                      render: (entry: PayrollEntryWithStaff) => (
+                      render: (entry: PayrollEntryWithPay) => (
                         <div className="text-center text-xs font-semibold">
                           <span className="text-emerald-600 dark:text-emerald-400" title="Active Days">{entry.activeDays}A</span>
                           <span className="text-muted-foreground"> / </span>
@@ -601,22 +623,46 @@ export default function PayrollPage() {
                     {
                       key: "totalTransport",
                       header: "Transport",
-                      render: (entry: PayrollEntryWithStaff) => <span className="font-mono text-sm">{fmt(entry.totalTransport)}</span>
+                      render: (entry: PayrollEntryWithPay) => <span className="font-mono text-sm">{fmt(entry.totalTransport)}</span>
                     },
                     {
                       key: "grossCommission",
                       header: "Commission",
-                      render: (entry: PayrollEntryWithStaff) => <span className="font-mono text-sm">{fmt(entry.grossCommission)}</span>
+                      render: (entry: PayrollEntryWithPay) => (
+                        <span className="font-mono text-sm" title={commissionNoteFor(entry)}>
+                          {fmt(entry.grossCommission)}
+                        </span>
+                      )
                     },
                     {
-                      key: "netPay",
+                      key: "grossPay",
+                      header: "Gross",
+                      render: (entry: PayrollEntryWithPay) => <span className="font-mono text-sm text-muted-foreground">{fmt(entry.grossPay ?? entry.netPay)}</span>
+                    },
+                    {
+                      key: "deductionsTotal",
+                      header: "Deductions",
+                      render: (entry: PayrollEntryWithPay) => (entry.deductionsTotal ?? 0) > 0
+                        ? <span className="font-mono text-sm text-destructive">-{fmt(entry.deductionsTotal)}</span>
+                        : <span className="text-muted-foreground text-sm">—</span>
+                    },
+                    {
+                      // The number the person handing out money acts on.
+                      key: "takeHomePay",
                       header: "Net Pay",
-                      render: (entry: PayrollEntryWithStaff) => <span className="font-mono font-bold text-sm text-primary">{fmt(entry.netPay)}</span>
+                      render: (entry: PayrollEntryWithPay) => (
+                        <div>
+                          <span className="font-mono font-bold text-sm text-primary">{fmt(entry.takeHomePay ?? entry.netPay)}</span>
+                          {(entry.shortfall ?? 0) > 0 && (
+                            <p className="text-[11px] text-destructive">{fmt(entry.shortfall)} carries forward</p>
+                          )}
+                        </div>
+                      )
                     },
                     {
                       key: "actions",
                       header: "",
-                      render: (entry: PayrollEntryWithStaff) => (
+                      render: (entry: PayrollEntryWithPay) => (
                         <Link href={appendReturnTo(`/payroll/${selectedPeriodId}/staff/${entry.staffId}`, location, search)}>
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs font-semibold text-primary">
                             Details
@@ -629,12 +675,16 @@ export default function PayrollPage() {
                   const tableData = entries.map((e) => ({
                     ...e,
                     staffName: e.staff.name,
-                    netPay: e.netPay || 0
+                    netPay: e.netPay || 0,
+                    grossPay: e.grossPay ?? e.netPay ?? 0,
+                    deductionsTotal: e.deductionsTotal ?? 0,
+                    takeHomePay: e.takeHomePay ?? e.netPay ?? 0
                   }));
 
                   const filterConfigs = [
                     { key: "staffName", label: "Staff", type: "select" as const },
-                    { key: "netPay", label: "Amount", type: "range" as const, currencySymbol: storeCurrency === "USD" ? "$" : "₦" }
+                    // Filters on what is payable — the column the manager reads.
+                    { key: "takeHomePay", label: "Amount", type: "range" as const, currencySymbol: storeCurrency === "USD" ? "$" : "₦" }
                   ];
 
                   return (
@@ -655,11 +705,23 @@ export default function PayrollPage() {
                           pageSize={5}
                           onVisibleDataChange={setVisiblePayrollEntries}
                           urlKey="entries"
+                          // 8 columns of pay figures never fit a normal desktop
+                          // width without the row scrolling sideways — and a
+                          // manager scanning payroll is the least likely person
+                          // to go looking for a hidden scrollbar. The card list
+                          // shows every figure at every screen width instead.
+                          forceCardView
                         />
                       </CardContent>
                       <Separator />
                       <CardFooter className="justify-between pt-4">
-                        <span className="font-semibold text-sm">Grand Total</span>
+                        <div>
+                          <span className="font-semibold text-sm">Total Payable</span>
+                          <p className="text-xs text-muted-foreground">
+                            Gross {fmt(totalGross)}
+                            {totalDeductions > 0 && <> − deductions {fmt(totalDeductions)}</>}
+                          </p>
+                        </div>
                         <span className="text-xl font-bold font-mono text-primary">{fmt(grandTotal)}</span>
                       </CardFooter>
                     </Card>

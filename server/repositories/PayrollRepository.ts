@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db, type DbExecutor } from "../db";
 import {
   payrollPeriods,
   payrollEntries,
@@ -36,7 +36,13 @@ export class PayrollRepository {
     return period;
   }
 
-  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string): Promise<PayrollPeriod | undefined> {
+  /**
+   * `exec` lets the mark-paid close (PayrollSettlementService) run this inside
+   * the same transaction as the ledger posting, so a crash between the two can
+   * never leave a posted-but-not-paid period behind. Ordinary callers omit it
+   * and get the pool directly, same as before.
+   */
+  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string, exec: DbExecutor = db): Promise<PayrollPeriod | undefined> {
     const setData: Partial<PayrollPeriod> = { status };
     if (status === "approved") {
       setData.approvedByUserId = userId;
@@ -45,10 +51,10 @@ export class PayrollRepository {
     if (status === "paid") {
       setData.paidAt = new Date();
 
-      const period = await this.getPayrollPeriod(id);
+      const [period] = await exec.select().from(payrollPeriods).where(eq(payrollPeriods.id, id));
       if (!period) throw new Error("Period not found");
 
-      const overlaps = await db.select()
+      const overlaps = await exec.select()
         .from(payrollPeriods)
         .where(and(
           eq(payrollPeriods.storeId, period.storeId),
@@ -61,7 +67,7 @@ export class PayrollRepository {
         throw new Error(`This period overlaps with an existing Paid period: ${overlaps[0].startDate} to ${overlaps[0].endDate}`);
       }
     }
-    const [updated] = await db.update(payrollPeriods).set(setData).where(eq(payrollPeriods.id, id)).returning();
+    const [updated] = await exec.update(payrollPeriods).set(setData).where(eq(payrollPeriods.id, id)).returning();
     return updated;
   }
 

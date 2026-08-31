@@ -33,11 +33,44 @@ import { STAFF_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
-import { insertStaffSchema, type Staff, type InsertStaff } from "@shared/schema";
-import { Mail, Shield } from "lucide-react";
+import { insertStaffSchema, type Staff, type InsertStaff, type StaffInviteStatus } from "@shared/schema";
+import { Mail, Shield, MailWarning, ShieldCheck, Send, Clock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
+
+// The API attaches inviteStatus to every staff row (derived server-side from
+// the linked account, without exposing its id). It answers "can this person
+// actually log in yet?", which signedContract never did.
+type StaffRow = Staff & { inviteStatus?: StaffInviteStatus; storeName?: string };
+
+function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
+  if (status === "active") {
+    return (
+      <Badge variant="default" className="gap-1">
+        <ShieldCheck className="h-3 w-3" />
+        Active
+      </Badge>
+    );
+  }
+  if (status === "partial") {
+    return (
+      <Badge variant="secondary" className="gap-1">
+        <Clock className="h-3 w-3" />
+        Code verified
+      </Badge>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400">
+        <MailWarning className="h-3 w-3" />
+        Invite pending
+      </Badge>
+    );
+  }
+  return <Badge variant="secondary" className="gap-1">Not invited</Badge>;
+}
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
@@ -56,11 +89,12 @@ export default function StaffPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isPermanentDeleteOpen, setIsPermanentDeleteOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
-  const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
+  const [selectedStaff, setSelectedStaff] = useState<StaffRow | null>(null);
+  const [isResendInviteOpen, setIsResendInviteOpen] = useState(false);
   const [transferTargetStoreId, setTransferTargetStoreId] = useState<string>("");
   const [activeTab, setActiveTab] = useUrlState<string>("tab", "active");
 
-  const { data: staffList = [], isLoading } = useQuery<Staff[]>({
+  const { data: staffList = [], isLoading } = useQuery<StaffRow[]>({
     queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
@@ -69,7 +103,7 @@ export default function StaffPage() {
             try {
               const res = await fetch(`/api/staff?storeId=${s.id}`);
               if (!res.ok) return [];
-              const list = await res.json() as Staff[];
+              const list = await res.json() as StaffRow[];
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -175,6 +209,28 @@ export default function StaffPage() {
     },
   });
 
+  // Until this existed, a mistyped invitation could only be recovered by the
+  // invitee - who by definition never received it.
+  const resendInviteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/staff/${id}/resend-invite`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/staff", currentStore?.id] });
+      toast({
+        title: "Invitation sent",
+        description: `A fresh activation code is on its way to ${selectedStaff?.email}.`,
+      });
+      setIsResendInviteOpen(false);
+      setSelectedStaff(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Couldn't Resend Invitation",
+        description: getUserFriendlyError(error),
+        variant: "destructive",
+      });
+    },
+  });
+
   const otherStores = stores.filter(s => s.id !== currentStore?.id);
   const storeCurrency = currentStore?.currency || "NGN";
   const currencyInfo = getCurrencyByCode(storeCurrency);
@@ -199,7 +255,7 @@ export default function StaffPage() {
       {
         key: "name",
         header: "Staff Member",
-        render: (staff: Staff) => {
+        render: (staff: StaffRow) => {
           const presenter = new StaffPresenter(staff);
           return <EntityDisplay presenter={presenter} />;
         },
@@ -207,7 +263,7 @@ export default function StaffPage() {
       {
         key: "email",
         header: "Email",
-        render: (staff: Staff) => (
+        render: (staff: StaffRow) => (
           <div className="flex items-center gap-2">
             <Mail className="h-3 w-3 text-muted-foreground" />
             <span className="text-sm">{staff.email || "-"}</span>
@@ -215,9 +271,14 @@ export default function StaffPage() {
         ),
       },
       {
+        key: "inviteStatus",
+        header: "Account",
+        render: (staff: StaffRow) => <InviteStatusBadge status={staff.inviteStatus} />,
+      },
+      {
         key: "mobileNumber",
         header: "Mobile",
-        render: (staff: Staff) => (
+        render: (staff: StaffRow) => (
           <div className="flex items-center gap-2">
             <Phone className="h-3 w-3 text-muted-foreground" />
             <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
@@ -235,7 +296,7 @@ export default function StaffPage() {
         {
           key: "role",
           header: "Role",
-          render: (staff: Staff) => (
+          render: (staff: StaffRow) => (
             <Badge variant={staff.role === "manager" ? "default" : "secondary"} className="gap-1 capitalize">
               <Shield className="h-3 w-3" />
               {staff.role || "Staff"}
@@ -245,7 +306,7 @@ export default function StaffPage() {
         {
           key: "paymentMethod",
           header: "Model",
-          render: (staff: Staff) => (
+          render: (staff: StaffRow) => (
             <div className="flex flex-col gap-0.5">
               <Badge variant="outline" className="capitalize w-fit">
                 {staff.overridePaymentMethod ? staff.paymentMethod : "Store Default"}
@@ -260,7 +321,7 @@ export default function StaffPage() {
         {
           key: "payPerMonth",
           header: "Monthly Pay",
-          render: (staff: Staff) => (
+          render: (staff: StaffRow) => (
             staff.overridePaymentMethod
               ? <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
               : <span className="text-xs text-muted-foreground italic">Store default</span>
@@ -269,7 +330,7 @@ export default function StaffPage() {
         {
           key: "signedContract",
           header: "Contract",
-          render: (staff: Staff) => (
+          render: (staff: StaffRow) => (
             <Badge variant={staff.signedContract ? "default" : "secondary"} className="gap-1">
               {staff.signedContract ? (
                 <>
@@ -279,7 +340,7 @@ export default function StaffPage() {
               ) : (
                 <>
                   <FileX className="h-3 w-3" />
-                  Pending
+                  Not signed
                 </>
               )}
             </Badge>
@@ -289,7 +350,7 @@ export default function StaffPage() {
           key: "actions",
           header: "",
           className: "w-32",
-          render: (staff: Staff) => (
+          render: (staff: StaffRow) => (
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
@@ -302,6 +363,21 @@ export default function StaffPage() {
               >
                 <Edit className="h-4 w-4" />
               </Button>
+              {staff.inviteStatus !== "active" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedStaff(staff);
+                    setIsResendInviteOpen(true);
+                  }}
+                  title="Resend invitation"
+                  data-testid={`button-resend-invite-${staff.id}`}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              )}
               {otherStores.length > 0 && (
                 <Button
                   variant="ghost"
@@ -341,7 +417,7 @@ export default function StaffPage() {
         key: "actions",
         header: "",
         className: "w-12",
-        render: (staff: Staff) => (
+        render: (staff: StaffRow) => (
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -372,7 +448,7 @@ export default function StaffPage() {
     {
       key: "name",
       header: "Staff Member",
-      render: (staff: Staff) => {
+      render: (staff: StaffRow) => {
         const presenter = new StaffPresenter(staff);
         return (
           <div className="flex items-center gap-2">
@@ -385,7 +461,7 @@ export default function StaffPage() {
     {
       key: "mobileNumber",
       header: "Mobile",
-      render: (staff: Staff) => (
+      render: (staff: StaffRow) => (
         <div className="flex items-center gap-2">
           <Phone className="h-3 w-3 text-muted-foreground" />
           <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
@@ -395,7 +471,7 @@ export default function StaffPage() {
     {
       key: "payPerMonth",
       header: "Monthly Pay",
-      render: (staff: Staff) => (
+      render: (staff: StaffRow) => (
         staff.overridePaymentMethod
           ? <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
           : <span className="text-xs text-muted-foreground italic">Store default</span>
@@ -405,7 +481,7 @@ export default function StaffPage() {
       key: "actions",
       header: "",
       className: "w-32",
-      render: (staff: Staff) => (
+      render: (staff: StaffRow) => (
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -656,6 +732,18 @@ export default function StaffPage() {
         isDestructive
         onConfirm={() => permanentDeleteMutation.mutate(selectedStaff!.id)}
         isLoading={permanentDeleteMutation.isPending}
+      />
+
+      {/* Confirmed rather than one-click: each send burns one of the three
+          activation emails an address is allowed per hour. */}
+      <ConfirmDialog
+        open={isResendInviteOpen}
+        onOpenChange={setIsResendInviteOpen}
+        title="Resend invitation?"
+        description={`Send a fresh activation code to ${selectedStaff?.email}. Any code sent earlier will stop working.`}
+        confirmText="Send invitation"
+        onConfirm={() => resendInviteMutation.mutate(selectedStaff!.id)}
+        isLoading={resendInviteMutation.isPending}
       />
 
       <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>

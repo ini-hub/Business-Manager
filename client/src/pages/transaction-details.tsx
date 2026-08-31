@@ -565,8 +565,8 @@ export default function TransactionDetailsPage() {
                       <ShoppingBag className="h-4 w-4 text-primary" />
                       Purchased Items
                     </h3>
-                    <div className="rounded-lg border bg-card overflow-hidden">
-                      <table className="w-full text-left border-collapse text-xs">
+                    <div className="rounded-lg border bg-card overflow-x-auto">
+                      <table className="w-full min-w-[480px] text-left border-collapse text-xs">
                         <thead>
                           <tr className="bg-muted/40 border-b border-muted/50 font-semibold text-muted-foreground">
                             <th className="p-3">Item</th>

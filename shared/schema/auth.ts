@@ -41,6 +41,18 @@ export const users = pgTable("users", {
   activationCodeExpiry: timestamp("activation_code_expiry"),
   activationCodeUsed: boolean("activation_code_used").notNull().default(false),
   createdByInvitation: boolean("created_by_invitation").notNull().default(false),
+
+  // Set when a manager overwrites this account's email from the staff form
+  // (PATCH /api/staff/:id). While non-null, password-reset OTPs are refused:
+  // otherwise a manager could repoint an active account's email at an address
+  // they control and then "forgot password" straight into it. Cleared by
+  // POST /api/auth/verify-manager-email-change once the account holder proves
+  // they can read the new address.
+  //
+  // Deliberately NOT gated on isEmailVerified - plenty of legacy rows have
+  // that false and would lose password reset entirely.
+  managerEmailChangedAt: timestamp("manager_email_changed_at"),
+
   otpCode: text("otp_code"),
   otpExpiry: timestamp("otp_expiry"),
   otpAttempts: integer("otp_attempts").notNull().default(0),

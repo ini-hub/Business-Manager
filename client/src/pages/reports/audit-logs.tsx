@@ -472,7 +472,7 @@ export default function AuditLogsPage() {
                   <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">
                     What changed ({selectedLog.changedFields.length} field{selectedLog.changedFields.length !== 1 ? "s" : ""})
                   </p>
-                  <div className="rounded-lg border overflow-hidden">
+                  <div className="rounded-lg border overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/60">
                         <tr>

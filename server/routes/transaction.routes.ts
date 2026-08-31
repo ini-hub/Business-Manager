@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { auditLogger } from "../audit";
 import { getUserId, getClientIp, checkBusinessAccess, getUserStores, verifyStoreAccess, broadcastChange, getAuditContext } from './helpers';
+import { staffCreditDeductionService } from "../services/StaffCreditDeductionService";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -259,6 +260,23 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         status: "success",
         details: { reason: reason.trim() },
       });
+
+      // The void may have cancelled a staff member's own debt (a checkout rung
+      // up as Credit against their linked customer profile). Re-clamp any open
+      // payroll proposal resting on it — best-effort, same as a repayment or a
+      // write-off: the void has already committed, so a failure here must not
+      // fail this response.
+      if (result.voidedStoreId && result.voidedCreditCustomerIds?.length) {
+        for (const customerId of result.voidedCreditCustomerIds) {
+          try {
+            await staffCreditDeductionService.syncOpenPeriodsForCustomer(result.voidedStoreId, customerId);
+          } catch (e) {
+            console.error("Failed to re-sync payroll after voiding a credit sale:", e);
+          }
+        }
+        broadcastChange(req, "credit", result.voidedStoreId, "updated");
+        broadcastChange(req, "payroll", result.voidedStoreId, "updated");
+      }
 
       broadcastChange(req, "sales", undefined, "voided");
       res.json({ success: true, message: result.message, payrollWarning: result.payrollWarning });

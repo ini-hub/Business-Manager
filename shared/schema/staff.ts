@@ -11,6 +11,18 @@ import { checkouts } from "./sales";
 export const staffRoleEnum = ["manager", "staff"] as const;
 export type StaffRole = typeof staffRoleEnum[number];
 
+// Whether this staff member can actually log in yet. Deliberately NOT a column:
+// the invite lifecycle lives on users (activationCode*) and organisation_members
+// (status), so this is a pure projection over those and cannot drift out of sync
+// the way a denormalised copy would. Computed by StaffInviteService and attached
+// to staff rows on the way out of the API.
+//   none    - no login account linked
+//   pending - invited, activation code outstanding
+//   partial - code verified, password not yet set
+//   active  - can log in
+export const staffInviteStatusEnum = ["none", "pending", "partial", "active"] as const;
+export type StaffInviteStatus = typeof staffInviteStatusEnum[number];
+
 // Staff table
 export const staff = pgTable("staff", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -42,10 +54,21 @@ export const staff = pgTable("staff", {
   payHolidayDaysOverride: boolean("pay_holiday_days_override").notNull().default(false),
   offDayRateOverride: numeric("off_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
   payOffDaysOverride: boolean("pay_off_days_override").notNull().default(false),
+  // Optional per-store second factor for clocking in, distinct from the login
+  // password. Staff share app passwords casually; a separate PIN means a shared
+  // password does not by itself let one person punch in the whole salon.
+  punchPinHash: text("punch_pin_hash"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   unique("staff_store_number_unique").on(table.storeId, table.staffNumber),
   unique("staff_email_unique").on(table.storeId, table.email),
+  // Mirrors staff_email_unique: mobileNumber becomes users.phone (a login
+  // credential, globally unique there) the moment a staff row is invited —
+  // see StaffInviteService.createInvitedUser. Scoping the DB constraint to
+  // (storeId, mobileNumber) matches email's scope; the cross-account clash
+  // (this number already belongs to a different user) is still caught
+  // separately via the users_phone_unique violation in the invite path.
+  unique("staff_store_mobile_unique").on(table.storeId, table.mobileNumber),
   index("idx_staff_store").on(table.storeId),
 ]);
 

@@ -6,7 +6,11 @@ import crypto from "crypto";
 import {
   sendActivationEmail,
   sendAddedToOrgEmail,
+  sendEmailVerificationOtpEmail,
+  sendEmailChangeNoticeToOldAddress,
 } from "../email";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { staffInviteService, type InviteOutcome } from "../services/StaffInviteService";
 
 const SALT_ROUNDS = 12;
 import {
@@ -54,6 +58,22 @@ export type RouteMiddlewares = {
 };
 
 export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+  // Stops one manager hammering the resend button. The per-invitee limit is a
+  // separate, DB-backed 3/hour on users.resendAttempts (shared with
+  // /api/auth/resend-activation) so a single mailbox can't be flooded from
+  // several manager sessions at once.
+  const inviteResendLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => {
+      const userId = req.user?.userId ?? req.user?.id;
+      return userId != null ? String(userId) : ipKeyGenerator(req.ip ?? "");
+    },
+    message: { error: "Too many invitation resends. Please wait a moment." },
+  });
+
   // ========== STAFF ==========
   app.get("/api/staff", isAuthenticated, async (req: any, res) => {
     try {
@@ -63,7 +83,18 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      // userId links a staff row to its login account; never expose it in list responses
+      // userId links a staff row to its login account; never expose it in list
+      // responses. inviteStatus is derived from it first, so the client can
+      // tell a stranded invitation from an activated account without ever
+      // seeing the account id itself.
+      const store = await storage.getStore(storeId);
+      const businessId = store?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
+      const attachInviteStatus = async (list: any[]) => {
+        const statuses = businessId
+          ? await staffInviteService.computeInviteStatuses(list, businessId)
+          : new Map();
+        list.forEach(s => { s.inviteStatus = statuses.get(s.id) ?? "none"; });
+      };
       const redactUserId = (list: any[]) => {
         list.forEach(s => { delete s.userId; });
       };
@@ -92,6 +123,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         if (req.user?.role === "staff") {
           redactWages(result.data);
         }
+        await attachInviteStatus(result.data);
         redactUserId(result.data);
         return res.json(result);
       }
@@ -100,6 +132,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (req.user?.role === "staff") {
         redactWages(staffList);
       }
+      await attachInviteStatus(staffList);
       redactUserId(staffList);
       res.json(staffList);
     } catch (error) {
@@ -129,6 +162,12 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         staffMember.holidayDayRateOverride = null;
         staffMember.offDayRateOverride = null;
       }
+
+      const singleStore = await storage.getStore(staffMember.storeId);
+      const singleBusinessId = singleStore?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
+      (staffMember as any).inviteStatus = singleBusinessId
+        ? await staffInviteService.computeInviteStatus(staffMember, singleBusinessId)
+        : "none";
 
       delete (staffMember as any).userId;
       res.json(staffMember);
@@ -200,104 +239,64 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const ctx = await getAuditContext(req, { storeId: data.storeId });
       auditLogger.logEvent(ctx, "CREATE", "staff", staffMember.id, "success", { newValues: staffMember });
 
-      // Staff invitation and activation email flow
+      // Invitation + activation. One call into StaffInviteService, which owns
+      // the new-user / existing-user branching and is the same code path used
+      // by the email-change fix and the manual resend, so the three cannot
+      // drift apart.
+      let outcome: InviteOutcome;
+      let resolvedBusinessId: string | undefined;
       try {
         const store = data.storeId ? await storage.getStore(data.storeId) : null;
-        const resolvedBusinessId = store?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
-        const business = resolvedBusinessId ? await storage.getBusinessById(resolvedBusinessId) : null;
-        const businessName = business ? business.name : "Business Workspace";
-
-        if (resolvedBusinessId && data.email) {
-          const emailLower = data.email.toLowerCase();
-          let user = await storage.getUserByIdentifier(emailLower);
-
-          if (user) {
-            // Existing platform user: add them to the business organisation if not already member
-            const member = await storage.getOrganisationMember(user.id, resolvedBusinessId);
-            if (!member) {
-              await storage.createOrganisationMember({
-                userId: user.id,
-                organisationId: resolvedBusinessId,
-                role: data.role || "staff",
-                staffId: staffMember.staffNumber,
-                status: "active",
-                activatedAt: new Date(),
-              });
-            }
-
-            // Link the staff record to the existing user
-            await storage.updateStaff(staffMember.id, { userId: user.id });
-
-            // Send notification email that they were added
-            const inviterName = (req as any).user?.name || "The Business Owner";
-            await sendAddedToOrgEmail(
-              emailLower,
-              staffMember.name,
-              businessName,
-              data.role || "staff",
-              inviterName
-            );
-          } else {
-            // New user account: generate a premium XXXX-XXXX activation code
-            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            let activationCode = "";
-            for (let i = 0; i < 4; i++) {
-              activationCode += chars.charAt(crypto.randomInt(0, chars.length));
-            }
-            activationCode += "-";
-            for (let i = 0; i < 4; i++) {
-              activationCode += chars.charAt(crypto.randomInt(0, chars.length));
-            }
-
-            const placeholderPassword = await bcrypt.hash(crypto.randomUUID(), SALT_ROUNDS);
-
-            // Create new platform user as pre-verified
-            const newUser = await storage.createUser({
-              email: emailLower,
-              password: placeholderPassword,
-              businessId: resolvedBusinessId,
-              role: data.role as "manager" | "staff",
-              isVerified: true,
-              activationCode,
-              activationCodeExpiry: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
-              activationCodeUsed: false,
-              createdByInvitation: true,
-              name: data.name,
-              phone: normalizedInvitePhone,
-            });
-
-            await storage.updateUser(newUser.id, {
-              passwordHash: placeholderPassword,
-            });
-
-            // Create pending organization membership record
-            await storage.createOrganisationMember({
-              userId: newUser.id,
-              organisationId: resolvedBusinessId,
-              role: data.role || "staff",
-              staffId: staffMember.staffNumber,
-              status: "pending",
-            });
-
-            // Link the staff record to the new user
-            await storage.updateStaff(staffMember.id, { userId: newUser.id });
-
-            // Send the activation email
-            await sendActivationEmail(
-              emailLower,
-              staffMember.name,
-              businessName,
-              data.role || "staff",
-              activationCode
-            );
-          }
-        }
+        resolvedBusinessId = store?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
+        outcome = await staffInviteService.inviteStaff({
+          staff: staffMember,
+          businessId: resolvedBusinessId,
+          email: data.email,
+          role: (data.role as "manager" | "staff") || "staff",
+          normalizedPhone: normalizedInvitePhone,
+          inviterName: (req as any).user?.name || "The Business Owner",
+          inviterUserId: getUserId(req),
+          reason: "create",
+          respectCooldown: false,
+          allowRelink: false,
+        });
       } catch (inviteError) {
+        // The staff row is already committed, so we still return 201 - but the
+        // manager is told, instead of this vanishing into the server log the
+        // way it used to.
         console.error("Failed to process invite/activation email for staff member:", inviteError);
+        outcome = { kind: "failed", reason: (inviteError as Error).message };
       }
 
+      auditLogger.logEvent(
+        ctx, "STAFF_INVITE_SENT", "staff", staffMember.id,
+        outcome.kind === "failed" ? "failure" : "success",
+        // Never the activation code itself - audit_logs is append-only and
+        // widely readable.
+        { details: { outcome: outcome.kind }, ...(outcome.kind === "failed" ? { errorMessage: outcome.reason } : {}) },
+      );
+
+      const inviteStatus = resolvedBusinessId
+        ? await staffInviteService.computeInviteStatus(
+            { id: staffMember.id, userId: (await storage.getStaff(staffMember.id))?.userId },
+            resolvedBusinessId,
+          )
+        : "none";
+
       broadcastChange(req, "staff", data.storeId, "created");
-      res.status(201).json(staffMember);
+      res.status(201).json({
+        ...staffMember,
+        inviteStatus,
+        // Collapsed deliberately: telling a manager whether an arbitrary email
+        // already had a platform account is an enumeration oracle.
+        inviteSent: outcome.kind === "activation_sent" || outcome.kind === "added_to_existing_user",
+        ...(outcome.kind === "failed"
+          ? { inviteWarning: "The staff member was saved, but we couldn't queue their invitation email. Use \u201cResend invitation\u201d on the staff list to try again." }
+          : {}),
+        ...(outcome.kind === "skipped" && outcome.reason === "no_business"
+          ? { inviteWarning: "The staff member was saved, but no invitation was sent because this store isn't linked to a business yet." }
+          : {}),
+      });
     } catch (error) {
       auditLogger.logDataModification("staff", undefined, getUserId(req), "CREATE", false, (error as Error).message);
       if (error instanceof z.ZodError) {
@@ -312,6 +311,11 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (constraint === "users_phone_unique") {
         return res.status(409).json({
           error: "This mobile number is already linked to another account. Please use a different number."
+        });
+      }
+      if (constraint === "staff_store_mobile_unique") {
+        return res.status(409).json({
+          error: "This mobile number is already assigned to another staff member in this store. Please use a different number."
         });
       }
       if (isUniqueViolation(error)) {
@@ -370,6 +374,137 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // Remove storeId to prevent cross-store migration via PATCH (use transfer endpoint instead)
       delete sanitizedBody.storeId;
       const data = insertStaffSchema.partial().parse(sanitizedBody);
+
+      // ── Email change ────────────────────────────────────────────────────
+      // staff.email and users.email are two different things: the first is the
+      // HR record, the second is a credential. Updating only the first (which
+      // is all this handler used to do) strands the invitation at the mistyped
+      // address with no way for either side to recover it.
+      const newEmail = data.email?.toLowerCase();
+      const emailChanged = !!newEmail && newEmail !== staffMember.email.toLowerCase();
+      let inviteAction: string | undefined;
+
+      if (emailChanged) {
+        const store = await storage.getStore(staffMember.storeId);
+        const businessId = store?.businessId;
+        const linkedUser = (staffMember.userId ? await storage.getUser(staffMember.userId) : null) ?? null;
+        const linkedMember = linkedUser && businessId
+          ? await storage.getOrganisationMember(linkedUser.id, businessId)
+          : null;
+        const newEmailOwner = await storage.getUserByIdentifier(newEmail!);
+        const linkedOrgs = linkedUser ? await storage.getOrganisationsByUserId(linkedUser.id) : [];
+
+        const plan = staffInviteService.planStaffEmailChange({
+          staffUserId: staffMember.userId ?? null,
+          linkedUser,
+          linkedMemberStatus: linkedMember?.status ?? null,
+          newEmailOwnerId: newEmailOwner?.id ?? null,
+          linkedOrgCount: linkedOrgs.length,
+          linkedIsOwner: linkedUser?.role === "owner" || linkedMember?.role === "owner",
+          linkedIsRequester: !!linkedUser && linkedUser.id === getUserId(req),
+        });
+
+        if (plan.action === "refuse") {
+          // Refuse before any write at all, so a rejected change leaves
+          // staff.email, users.email and the membership completely untouched.
+          const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+          auditLogger.logEvent(ctx, "STAFF_EMAIL_CHANGE_REFUSED", "staff", req.params.id, "failure", {
+            details: { reason: plan.reason },
+            errorMessage: plan.message,
+          });
+          return res.status(409).json({ error: plan.message });
+        }
+
+        const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+
+        if (plan.action === "reinvite" && linkedUser) {
+          // Pending invite: re-point the login email, then let the service
+          // mint a fresh code and send it to the corrected address.
+          await storage.updateUser(linkedUser.id, { email: newEmail!, isEmailVerified: false });
+          const outcome = await staffInviteService.inviteStaff({
+            staff: { ...staffMember, email: newEmail! },
+            businessId,
+            email: newEmail!,
+            role: (data.role as "manager" | "staff") || (staffMember.role as "manager" | "staff") || "staff",
+            inviterName: (req as any).user?.name,
+            inviterUserId: getUserId(req),
+            reason: "email_change",
+            respectCooldown: false,
+            allowRelink: false,
+          });
+          inviteAction = outcome.kind === "failed" ? "reinvite_failed" : "reinvited";
+          auditLogger.logEvent(ctx, "STAFF_INVITE_REISSUED", "staff", req.params.id,
+            outcome.kind === "failed" ? "failure" : "success", {
+              previousValues: { userEmail: linkedUser.email },
+              newValues: { userEmail: newEmail },
+              changedFields: ["users.email", "users.activationCode"],
+            });
+
+        } else if (plan.action === "overwrite_and_verify" && linkedUser) {
+          // Activated account. The overwrite is immediate (a product decision),
+          // which is exactly why managerEmailChangedAt is set: while it is
+          // non-null the password-reset endpoints refuse, so a manager cannot
+          // repoint an address to themselves and then reset their way in.
+          const otpCode = crypto.randomInt(100000, 1000000).toString();
+          await storage.updateUser(linkedUser.id, {
+            email: newEmail!,
+            isEmailVerified: false,
+            managerEmailChangedAt: new Date(),
+            otpCode,
+            otpExpiry: new Date(Date.now() + 10 * 60 * 1000),
+            otpAttempts: 0,
+            // A half-finished self-service change would otherwise resurrect the
+            // old address once its own OTP was confirmed.
+            pendingEmail: null,
+            pendingEmailOtp: null,
+            pendingEmailOtpExpiry: null,
+            pendingEmailOtpAttempts: 0,
+          });
+          await sendEmailVerificationOtpEmail(newEmail!, staffMember.name || newEmail!, otpCode);
+          if (linkedUser.email) {
+            await sendEmailChangeNoticeToOldAddress(linkedUser.email, staffMember.name || linkedUser.email, newEmail!);
+          }
+          inviteAction = "email_changed_verification_sent";
+          auditLogger.logEvent(ctx, "STAFF_EMAIL_OVERWRITE", "staff", req.params.id, "success", {
+            previousValues: { userEmail: linkedUser.email },
+            newValues: { userEmail: newEmail },
+            changedFields: ["users.email"],
+          });
+
+        } else if (plan.action === "relink" || plan.action === "invite") {
+          const outcome = await staffInviteService.inviteStaff({
+            staff: { ...staffMember, email: newEmail! },
+            businessId,
+            email: newEmail!,
+            role: (data.role as "manager" | "staff") || (staffMember.role as "manager" | "staff") || "staff",
+            inviterName: (req as any).user?.name,
+            inviterUserId: getUserId(req),
+            reason: "email_change",
+            respectCooldown: false,
+            allowRelink: true,
+          });
+          if (outcome.kind === "conflict") {
+            return res.status(409).json({
+              error: "That email already belongs to another account. Ask the staff member to change it from their own profile settings, or archive this record and add them again.",
+            });
+          }
+          inviteAction = outcome.kind === "relinked" ? "relinked"
+            : outcome.kind === "added_to_existing_user" ? "added_to_existing"
+            : outcome.kind === "failed" ? "invite_failed" : "invited";
+          if (outcome.kind === "relinked") {
+            auditLogger.logEvent(ctx, "STAFF_USER_RELINKED", "staff", req.params.id, "success", {
+              previousValues: { userId: staffMember.userId },
+              newValues: { userId: outcome.userId },
+              changedFields: ["staff.userId"],
+              details: { retiredUserId: outcome.retiredUserId },
+            });
+          }
+
+        } else if (plan.action === "sync") {
+          inviteAction = "synced";
+        }
+      }
+
       const updatedStaffMember = await storage.updateStaff(req.params.id, data);
       if (!updatedStaffMember) {
         return res.status(404).json({ error: "This staff member no longer exists. They may have been removed." });
@@ -384,10 +519,28 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         });
       }
       broadcastChange(req, "staff", staffMember.storeId, "updated");
-      res.json(updatedStaffMember);
+      res.json({ ...updatedStaffMember, ...(inviteAction ? { inviteAction } : {}) });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      // Previously unmapped here, so a duplicate email surfaced as a 500 even
+      // though the POST path already returned a clear 409 for the same clash.
+      const constraint = getViolatedConstraint(error);
+      if (constraint === "staff_email_unique") {
+        return res.status(409).json({ error: "Another staff member in this store already uses that email address." });
+      }
+      if (constraint === "users_email_unique") {
+        return res.status(409).json({ error: "That email address is already linked to another account." });
+      }
+      if (constraint === "users_phone_unique") {
+        return res.status(409).json({ error: "That mobile number is already linked to another account." });
+      }
+      if (constraint === "staff_store_mobile_unique") {
+        return res.status(409).json({ error: "Another staff member in this store already uses that mobile number." });
+      }
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "That change conflicts with an existing record. Please check the details and try again." });
       }
       res.status(500).json({ error: "We couldn't update this staff member right now. Please try again." });
     }
@@ -441,6 +594,77 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       res.json(restored);
     } catch (error) {
       res.status(500).json({ error: "We couldn't restore this staff member. Please try again." });
+    }
+  });
+
+  // Manager-side invitation resend. Until this existed the only resend was
+  // /api/auth/resend-activation, which the invitee drives themselves - useless
+  // when the invitation went to an address they never had access to.
+  app.post("/api/staff/:id/resend-invite", requireManagerOrOwner, inviteResendLimiter, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      if (staffMember.isArchived) {
+        return res.status(400).json({ error: "Restore this staff member before resending their invitation." });
+      }
+      if (!staffMember.email) {
+        return res.status(400).json({ error: "Add an email address for this staff member first." });
+      }
+
+      const store = await storage.getStore(staffMember.storeId);
+      const businessId = store?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ error: "This store isn't linked to a business yet, so invitations can't be sent." });
+      }
+
+      const outcome = await staffInviteService.inviteStaff({
+        staff: staffMember,
+        businessId,
+        email: staffMember.email,
+        role: (staffMember.role as "manager" | "staff") || "staff",
+        inviterName: (req as any).user?.name,
+        inviterUserId: getUserId(req),
+        reason: "manual_resend",
+        respectCooldown: true,
+        allowRelink: false,
+      });
+
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "STAFF_INVITE_RESENT", "staff", req.params.id,
+        outcome.kind === "activation_sent" || outcome.kind === "added_to_existing_user" ? "success" : "failure",
+        { details: { outcome: outcome.kind } });
+
+      if (outcome.kind === "already_active") {
+        return res.status(409).json({ error: "This staff member has already activated their account." });
+      }
+      if (outcome.kind === "cooldown") {
+        return res.status(429).json({
+          error: `Too many invitations sent to this address. Please try again in ${outcome.retryAfterMinutes} minutes.`,
+          retryAfterMinutes: outcome.retryAfterMinutes,
+        });
+      }
+      if (outcome.kind === "failed") {
+        return res.status(502).json({ error: "We couldn't queue the invitation email. Please try again." });
+      }
+      if (outcome.kind === "skipped" || outcome.kind === "conflict") {
+        return res.status(400).json({ error: "We couldn't send an invitation for this staff member." });
+      }
+
+      broadcastChange(req, "staff", staffMember.storeId, "updated");
+      res.json({
+        sent: true,
+        inviteStatus: await staffInviteService.computeInviteStatus(
+          { id: staffMember.id, userId: outcome.userId },
+          businessId,
+        ),
+      });
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't resend the invitation right now. Please try again." });
     }
   });
 

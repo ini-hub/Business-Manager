@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, unique, numeric, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { trimmedString, optionalTrimmedString } from "./_helpers";
@@ -121,6 +121,30 @@ export const settings = pgTable("settings", {
   // Loyalty Points program
   loyaltyPointsPerCurrency: integer("loyalty_points_per_currency").notNull().default(100), // 1 point earned per this much spent
   loyaltyPointValue: numeric("loyalty_point_value", { precision: 12, scale: 2 }).$type<number>().notNull().default(10), // value of 1 point on redemption, in the store's currency
+  // ── Attendance & Clock-In ──────────────────────────────────────────────────
+  // NOTE: every column below must also appear in the sanitizeSettings allowlist
+  // in server/routes/settings.routes.ts, or PUT /api/settings drops it silently
+  // and returns 200.
+  clockInEnabled: boolean("clock_in_enabled").notNull().default(false),
+  geofenceLatitude: numeric("geofence_latitude", { precision: 9, scale: 6 }).$type<number>(),
+  geofenceLongitude: numeric("geofence_longitude", { precision: 9, scale: 6 }).$type<number>(),
+  geofencePlaceLabel: text("geofence_place_label"),
+  geofenceRadiusMeters: integer("geofence_radius_meters").notNull().default(50),
+  // A fix reporting 80 m of error cannot prove a 50 m fence either way. Readings
+  // worse than this are rejected as unusable rather than treated as "outside".
+  geofenceMaxAccuracyMeters: integer("geofence_max_accuracy_meters").notNull().default(100),
+  openingTime: text("opening_time").notNull().default("09:00"), // HH:MM, store-local
+  lateGraceMinutes: integer("late_grace_minutes").notNull().default(0),
+  // Flat amount per late day, deliberately uncapped — it may exceed a day's
+  // transport. Where it exceeds the period's pay the existing mark-paid clamp
+  // carries the excess forward.
+  lateDeductionAmount: numeric("late_deduction_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  lateDeductionEnabled: boolean("late_deduction_enabled").notNull().default(false),
+  requirePunchPin: boolean("require_punch_pin").notNull().default(false),
+  maxOfflinePunchAgeMinutes: integer("max_offline_punch_age_minutes").notNull().default(720),
+  retroRequestMaxAgeDays: integer("retro_request_max_age_days").notNull().default(7),
+  // 0 = Sunday. Defaults to [0], reproducing the rule PayrollService hardcoded.
+  defaultWeeklyOffDays: jsonb("default_weekly_off_days").$type<number[]>().notNull().default(sql`'[0]'::jsonb`),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -141,6 +165,16 @@ export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true
   offDayRate: z.number().optional(),
   fixedBaseAmount: z.number().optional(),
   loyaltyPointValue: z.number().optional(),
+  geofenceLatitude: z.number().min(-90).max(90).nullable().optional(),
+  geofenceLongitude: z.number().min(-180).max(180).nullable().optional(),
+  geofenceRadiusMeters: z.number().int().min(10).max(5000).optional(),
+  geofenceMaxAccuracyMeters: z.number().int().min(10).max(1000).optional(),
+  openingTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Opening time must be HH:MM").optional(),
+  lateGraceMinutes: z.number().int().min(0).max(720).optional(),
+  lateDeductionAmount: z.number().min(0).optional(),
+  maxOfflinePunchAgeMinutes: z.number().int().min(0).max(10080).optional(),
+  retroRequestMaxAgeDays: z.number().int().min(0).max(90).optional(),
+  defaultWeeklyOffDays: z.array(z.number().int().min(0).max(6)).optional(),
 });
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Settings = typeof settings.$inferSelect;

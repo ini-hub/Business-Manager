@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
@@ -48,6 +48,7 @@ import {
   Plus,
   RefreshCw,
   XCircle,
+  RotateCcw,
 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
@@ -60,6 +61,7 @@ import { CREDIT_SALES_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
+import { WRITE_OFF_REASONS } from "@shared/schema";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
 
@@ -83,6 +85,7 @@ export default function CreditSalesPage() {
   const [previewMessage, setPreviewMessage] = useState("");
 
   const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [writeOffReason, setWriteOffReason] = useState("");
 
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -285,6 +288,26 @@ export default function CreditSalesPage() {
                 </DropdownMenuItem>
               </>
             )}
+
+            {/* Undoing a write-off. Shown disabled rather than hidden when it is
+                out of the window, so the absence never looks like a bug — the
+                tooltip carries the server's own reason. */}
+            {entry.status === "written_off" && user?.role === "owner" && (
+              <>
+                <Separator className="my-1" />
+                <DropdownMenuItem
+                  disabled={!entry.canRestore}
+                  title={entry.restoreBlockedReason ?? undefined}
+                  onClick={() => {
+                    setSelectedEntry(entry);
+                    setRestoreOpen(true);
+                  }}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Restore Debt
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -393,6 +416,32 @@ export default function CreditSalesPage() {
       toast({
         title: "Authorization Failed",
         description: err.message || "Only business owners can write off bad debts.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Undoes a write-off: the balance comes back reconstructed from what was
+  // owed less what was ever repaid, and any payroll line waived alongside it is
+  // proposed again. The server refuses this outside the current month, so a
+  // reported profit & loss cannot shift underneath anyone.
+  const restoreWriteOffMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/credit/entries/${selectedEntry.id}/restore-write-off`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Debt restored to the Borrow Book." });
+      setRestoreOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/credit/summary", storeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/credit/ledger", storeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll/deductions"] });
+      refetchLedger();
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not restore this debt",
+        description: err.message || "Only business owners can restore a written-off debt.",
         variant: "destructive",
       });
     },
@@ -786,7 +835,11 @@ export default function CreditSalesPage() {
 
           <div className="space-y-4 py-3">
             <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-lg text-xs text-rose-500 leading-relaxed font-medium">
-              ⚠️ WARNING: Writing off debt cancels the outstanding balance permanently. The balance will transfer to your Profit & Loss statement under Operational Expenses (Bad Debt). This action requires OWNER authentication.
+              ⚠️ WARNING: Writing off debt cancels the outstanding balance. The balance will transfer to your Profit &amp; Loss statement under Operational Expenses (Bad Debt). This action requires OWNER authentication.
+              <span className="block mt-1.5 text-muted-foreground font-normal">
+                It can be undone from this menu until the end of the current month, after which the
+                figure has been reported and the write-off becomes permanent.
+              </span>
             </div>
 
             <div className="space-y-1.5">
@@ -796,14 +849,7 @@ export default function CreditSalesPage() {
                   <SelectValue placeholder="Select a reason…" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Bad Debt — Customer Uncontactable">Bad Debt — Customer Uncontactable</SelectItem>
-                  <SelectItem value="Bad Debt — Customer Relocated / Moved Away">Bad Debt — Customer Relocated / Moved Away</SelectItem>
-                  <SelectItem value="Bad Debt — Customer Deceased">Bad Debt — Customer Deceased</SelectItem>
-                  <SelectItem value="Bad Debt — Business Closed">Bad Debt — Business Closed</SelectItem>
-                  <SelectItem value="Dispute Settled — Balance Forgiven">Dispute Settled — Balance Forgiven</SelectItem>
-                  <SelectItem value="Promotional Write-Off / Goodwill Gesture">Promotional Write-Off / Goodwill Gesture</SelectItem>
-                  <SelectItem value="Internal Adjustment / Data Correction">Internal Adjustment / Data Correction</SelectItem>
-                  <SelectItem value="Other — See Notes">Other — See Notes</SelectItem>
+                  {WRITE_OFF_REASONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -820,6 +866,48 @@ export default function CreditSalesPage() {
               onClick={() => isBulkWriteOff ? bulkWriteOffMutation.mutate(selectedIds as string[]) : writeOffMutation.mutate()}
             >
               {(isBulkWriteOff ? bulkWriteOffMutation.isPending : writeOffMutation.isPending) ? "Authorizing..." : "Confirm Write-Off"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restore Write-Off Dialog */}
+      <Dialog open={restoreOpen} onOpenChange={setRestoreOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-primary" />
+              Restore this debt?
+            </DialogTitle>
+            <DialogDescription>
+              {selectedEntry?.customer?.name}'s debt returns to the Borrow Book at the balance it had
+              before it was written off — what was owed, less anything already repaid.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-3 bg-muted/40 border rounded-lg text-xs leading-relaxed space-y-1.5">
+            <p>
+              The bad debt expense of{" "}
+              <span className="font-semibold">
+                {formatCurrency(
+                  Math.max(0, (selectedEntry?.amountOwed ?? 0) - (selectedEntry?.amountPaidUpfront ?? 0) - (selectedEntry?.totalRepayments ?? 0))
+                )}
+              </span>{" "}
+              is removed from this month's Profit &amp; Loss.
+            </p>
+            <p className="text-muted-foreground">
+              If a payroll deduction was waived alongside it, that line is proposed again on the open
+              period.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRestoreOpen(false)}>Cancel</Button>
+            <Button
+              disabled={restoreWriteOffMutation.isPending}
+              onClick={() => restoreWriteOffMutation.mutate()}
+            >
+              {restoreWriteOffMutation.isPending ? "Restoring…" : "Restore Debt"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -858,6 +946,15 @@ export default function CreditSalesPage() {
                         <span className="text-[10px] text-muted-foreground">
                           {isPayroll ? (rep.notes || "Recovered from payroll") : `Recorded by ${rep.recordedBy}`}
                         </span>
+                        {/* Back to the payslip this came off — the reverse of
+                            the receipt link the payslip shows on its deduction. */}
+                        {isPayroll && rep.payrollPeriodId && rep.payrollStaffId && (
+                          <Link href={`/payroll/${rep.payrollPeriodId}/staff/${rep.payrollStaffId}`}>
+                            <span className="text-[10px] font-semibold text-primary cursor-pointer hover:underline">
+                              View payslip
+                            </span>
+                          </Link>
+                        )}
                       </div>
                       <span className="text-muted-foreground">
                         {new Date(rep.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}

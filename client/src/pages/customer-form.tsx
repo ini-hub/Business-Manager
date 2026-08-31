@@ -241,12 +241,12 @@ export default function CustomerFormPage() {
                   <Phone className="h-3.5 w-3.5" />Contact
                 </div>
 
-                <div className="grid grid-cols-5 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <FormField
                     control={form.control}
                     name="countryCode"
                     render={({ field }) => (
-                      <FormItem className="col-span-2">
+                      <FormItem className="sm:col-span-2">
                         <FormLabel>Country</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value || "NG"}>
                           <FormControl>
@@ -270,7 +270,7 @@ export default function CustomerFormPage() {
                     control={form.control}
                     name="mobileNumber"
                     render={({ field }) => (
-                      <FormItem className="col-span-3">
+                      <FormItem className="sm:col-span-3">
                         <FormLabel>Mobile Number <span className="font-normal text-muted-foreground">(optional)</span></FormLabel>
                         <FormControl>
                           <Input placeholder="8012345678" className="h-11" {...field} />

@@ -1147,10 +1147,10 @@ export function AddVariantsSheet({
                         Leave blank to inherit the defaults above.
                       </p>
                     </div>
-                    <div className="rounded-lg border overflow-hidden">
+                    <div className="rounded-lg border overflow-x-auto">
                       {parentType === "product" ? (
                         <>
-                          <div className="grid grid-cols-[1fr_80px_80px_60px_48px_64px] gap-2 px-4 py-2 bg-muted/30 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          <div className="grid grid-cols-[1fr_80px_80px_60px_48px_64px] gap-2 px-4 py-2 bg-muted/30 border-b text-[11px] font-semibold text-muted-foreground uppercase tracking-wide min-w-[520px]">
                             <span>Variant</span>
                             <span>Cost</span>
                             <span>Sell</span>
@@ -1158,7 +1158,7 @@ export function AddVariantsSheet({
                             <span>Frac?</span>
                             <span>Unit</span>
                           </div>
-                          <div className="divide-y max-h-64 overflow-y-auto">
+                          <div className="divide-y max-h-64 overflow-y-auto min-w-[520px]">
                             {newCombos.map((combo) => {
                               const key = comboKey(combo);
                               const d = variantDetails[key] || {

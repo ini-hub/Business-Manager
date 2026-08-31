@@ -51,6 +51,7 @@ const StaffFormPage = lazy(() => import("@/pages/staff-form"));
 const AttendancePage = lazy(() => import("@/pages/attendance"));
 const StaffPerformancePage = lazy(() => import("@/pages/staff-performance"));
 const StaffDashboard = lazy(() => import("@/pages/staff-dashboard"));
+const StaffAttendancePage = lazy(() => import("@/pages/staff-attendance"));
 const InventoryPage = lazy(() => import("@/pages/inventory"));
 const InventoryDetails = lazy(() => import("@/pages/inventory-details"));
 const InventoryNewPage = lazy(() => import("@/pages/inventory-new"));
@@ -213,6 +214,12 @@ function Router() {
   return (
     <Switch>
       <Route path="/auth/login" component={Login} />
+      {/* The activation email links here (server/email.ts builds
+          ${APP_URL}/activate?code=...). Login owns the whole activation step
+          machine and reads the code off the query string, so it needs no page
+          of its own - it just needed a route, without which the button in
+          every invitation email fell through to NotFound. */}
+      <Route path="/activate" component={Login} />
       <Route path="/auth/signup" component={Signup} />
       <Route path="/auth/verify-otp" component={VerifyOtp} />
       <Route path="/auth/forgot-password" component={ForgotPassword} />
@@ -379,7 +386,9 @@ function AuthenticatedLayout() {
                   <Route path="/staff" component={StaffPage} />
                   <Route path="/staff/new" component={StaffFormPage} />
                   <Route path="/staff/:id/edit" component={StaffFormPage} />
-                  <Route path="/staff/attendance" component={AttendancePage} />
+                  <Route path="/staff/attendance">
+                    {user?.role === "staff" ? <StaffAttendancePage /> : <AttendancePage />}
+                  </Route>
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/new" component={InventoryNewPage} />
                   <Route path="/inventory/audits/new" component={InventoryAuditNewPage} />

@@ -463,7 +463,7 @@ export default function InventoryNewPage() {
                 <Label>
                   Type <span className="text-destructive">*</span>
                 </Label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {(["product", "service", "supply"] as const).map((t) => (
                     <button
                       key={t}

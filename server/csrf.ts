@@ -16,6 +16,8 @@ const EXEMPT_ROUTES = new Set([
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
   "/api/auth/set-activated-password",
+  // Reached pre-session, from the /continue and /login gate responses.
+  "/api/auth/verify-manager-email-change",
 ]);
 
 // Helper to parse cookies from headers

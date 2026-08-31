@@ -87,15 +87,30 @@ export function flushOnStartup(): void {
   flush().catch(() => undefined);
 }
 
-export function sendEmail(payload: { to: string; subject: string; html: string; replyTo?: string }): void {
-  db.insert(pendingEmails).values({
+export type EmailPayload = { to: string; subject: string; html: string; replyTo?: string };
+
+/**
+ * Awaitable enqueue. Resolves once the message is durably in pending_emails,
+ * rejects if it could not be persisted - which is the only delivery signal a
+ * caller can ever get here, since the actual send happens later in flush().
+ * Callers that surface an error to a user must word it as "couldn't queue",
+ * not "couldn't deliver".
+ *
+ * Used by the staff invite path, which needs to tell a manager when an
+ * invitation never made it into the queue at all.
+ */
+export async function enqueueEmail(payload: EmailPayload): Promise<void> {
+  await db.insert(pendingEmails).values({
     to: payload.to,
     subject: payload.subject,
     html: payload.html,
     replyTo: payload.replyTo,
-  }).then(() => {
-    flush().catch(() => undefined);
-  }).catch((err) => {
+  });
+  flush().catch(() => undefined);
+}
+
+export function sendEmail(payload: EmailPayload): void {
+  enqueueEmail(payload).catch((err) => {
     console.error("[EmailQueue] Failed to persist email to DB:", err);
   });
 }

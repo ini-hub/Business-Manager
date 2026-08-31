@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useUrlState } from "@/hooks/use-url-state";
-import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Edit, Printer, FileDown, PlusCircle, Trash, RefreshCw } from "lucide-react";
+import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Printer, Download, MessageCircle, RefreshCw, Package, ShoppingCart } from "lucide-react";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,10 @@ import { QUOTE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
+import { ProductGrid } from "@/pages/new-sale/ProductGrid";
+import { QuoteItemRow } from "@/pages/quotes/QuoteItemRow";
+import type { QuoteCartItem } from "@/pages/quotes/types";
+import { cn } from "@/lib/utils";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Quote, QuoteItem, Customer, Inventory } from "@shared/schema";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -58,7 +64,10 @@ export default function QuotesPage() {
   const [quoteRef, setQuoteRef] = useState<string>(`QT-${Date.now().toString().slice(-6)}`);
   const [notes, setNotes] = useState<string>("");
   const [validUntil, setValidUntil] = useState<string>("");
-  const [items, setItems] = useState<{ inventoryId: string; quantity: number; unitPrice: number }[]>([]);
+  const [quoteCart, setQuoteCart] = useState<QuoteCartItem[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  // Mobile-only pane switcher — mirrors the POS builder's Products/Cart tab bar.
+  const [builderView, setBuilderView] = useState<"items" | "review">("items");
 
   // Fetch Quotes
   const { data: quotes = [], isLoading: isLoadingQuotes } = useQuery<QuoteWithCustomer[]>({
@@ -80,8 +89,11 @@ export default function QuotesPage() {
     enabled: !!currentStore?.id,
   });
 
-  // Fetch Inventory items
-  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
+  // Fetch Inventory items. Unlike /api/products (manager/owner only, used by the
+  // POS's variant-grouped picker), this endpoint is open to any authenticated
+  // staff member, which the quote builder needs to keep — quoting isn't a
+  // manager-only action today and this rebuild must not make it one.
+  const { data: inventoryItems = [], isLoading: isLoadingInventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
@@ -89,6 +101,18 @@ export default function QuotesPage() {
     },
     enabled: !!currentStore?.id,
   });
+
+  // ProductGrid expects variant-grouped products; without the manager-gated
+  // /api/products endpoint, each inventory row becomes its own single-variant
+  // group so the same tile/search/popover UI still works for every role.
+  const productGroups = inventoryItems
+    .filter((inv) => inv.type !== "supply")
+    .map((inv) => ({
+      id: inv.id,
+      name: inv.name,
+      type: (inv.type === "service" ? "service" : "product") as "product" | "service",
+      variants: [inv],
+    }));
 
   // Fetch Single Quote details
   const { data: fullQuote, isLoading: isLoadingDetails } = useQuery<FullQuote>({
@@ -103,14 +127,18 @@ export default function QuotesPage() {
   // Create Quote mutation
   const createQuoteMutation = useMutation({
     mutationFn: async () => {
-      if (items.length === 0) throw new Error("At least one item is required.");
+      if (quoteCart.length === 0) throw new Error("At least one item is required.");
       const submission = {
         storeId: currentStore!.id,
         customerId: customerId || null,
         quoteRef,
         notes: notes || null,
         validUntil: validUntil || null,
-        items,
+        items: quoteCart.map((c) => ({
+          inventoryId: c.inventory.id,
+          quantity: c.quantity,
+          unitPrice: c.customPrice,
+        })),
       };
       await apiRequest("POST", "/api/quotes", submission);
     },
@@ -196,35 +224,81 @@ export default function QuotesPage() {
     setQuoteRef(`QT-${Date.now().toString().slice(-6)}`);
     setNotes("");
     setValidUntil("");
-    setItems([]);
+    setQuoteCart([]);
+    setProductSearch("");
+    setBuilderView("items");
   };
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
-  const addItemRow = () => {
-    setItems([...items, { inventoryId: "", quantity: 1, unitPrice: 0 }]);
-  };
-
-  const removeItemRow = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
-
-  const updateItemRow = (index: number, field: string, value: any) => {
-    const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
-
-    // Auto-populate price if inventory item is selected
-    if (field === "inventoryId") {
-      const inv = inventoryItems.find(i => i.id === value);
-      if (inv) {
-        updated[index].unitPrice = Number(inv.sellingPrice || inv.costPrice || 0);
+  // Cart mechanics mirror the POS builder (new-sale.tsx): tap a tile to add or
+  // bump quantity, then adjust quantity/price freely from the line item — a
+  // quote never touches stock, so there's no ceiling to enforce here.
+  const addToQuoteCart = (item: Inventory) => {
+    setQuoteCart((prev) => {
+      const existing = prev.find((c) => c.inventory.id === item.id);
+      const step = item.allowFractional ? 0.5 : 1;
+      if (existing) {
+        const newQty = Math.round((existing.quantity + step) * 100) / 100;
+        return prev.map((c) =>
+          c.inventory.id === item.id
+            ? { ...c, quantity: newQty, totalPrice: Math.round(newQty * c.customPrice * 100) / 100 }
+            : c
+        );
       }
-    }
-    setItems(updated);
+      const initialQty = item.allowFractional ? step : 1;
+      const price = Number(item.sellingPrice || item.costPrice || 0);
+      return [...prev, {
+        inventory: item,
+        quantity: initialQty,
+        customPrice: price,
+        totalPrice: Math.round(initialQty * price * 100) / 100,
+      }];
+    });
   };
 
-  const quoteTotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  const updateQuoteQuantity = (itemId: string, delta: number) => {
+    setQuoteCart((prev) =>
+      prev
+        .map((c) => {
+          if (c.inventory.id !== itemId) return c;
+          const newQty = Math.round((c.quantity + delta) * 10000) / 10000;
+          const minQty = c.inventory.allowFractional ? 0.01 : 1;
+          if (newQty < minQty) return null as unknown as QuoteCartItem;
+          return { ...c, quantity: newQty, totalPrice: Math.round(newQty * c.customPrice * 100) / 100 };
+        })
+        .filter(Boolean)
+    );
+  };
+
+  const setQuoteExactQuantity = (itemId: string, newQty: number) => {
+    setQuoteCart((prev) =>
+      prev.map((c) => {
+        if (c.inventory.id !== itemId) return c;
+        const minQty = c.inventory.allowFractional ? 0.01 : 1;
+        const validQty = Math.max(minQty, newQty);
+        return { ...c, quantity: validQty, totalPrice: Math.round(validQty * c.customPrice * 100) / 100 };
+      })
+    );
+  };
+
+  const updateQuoteItemPrice = (itemId: string, newPrice: number) => {
+    if (newPrice < 0) return;
+    setQuoteCart((prev) =>
+      prev.map((c) =>
+        c.inventory.id === itemId
+          ? { ...c, customPrice: newPrice, totalPrice: Math.round(c.quantity * newPrice * 100) / 100 }
+          : c
+      )
+    );
+  };
+
+  const removeFromQuoteCart = (itemId: string) => {
+    setQuoteCart((prev) => prev.filter((c) => c.inventory.id !== itemId));
+  };
+
+  const quoteTotal = quoteCart.reduce((sum, item) => sum + item.totalPrice, 0);
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
@@ -237,32 +311,50 @@ export default function QuotesPage() {
   };
 
   const handlePrint = () => {
+    if (!document.getElementById("quote-printable-invoice")) {
+      toast({ title: "Nothing to print", description: "The proposal hasn't finished loading yet.", variant: "destructive" });
+      return;
+    }
+    window.print();
+  };
+
+  const handleDownloadPdf = async () => {
     const printContent = document.getElementById("quote-printable-invoice");
-    if (!printContent) return;
-    const windowUrl = "about:blank";
-    const uniqueName = new Date().getTime();
-    const printWindow = window.open(windowUrl, uniqueName.toString(), "left=50000,top=50000,width=0,height=0");
-    if (!printWindow) return;
-    
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Quote #${fullQuote?.quoteRef}</title>
-          <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-          <style>
-            body { font-family: sans-serif; color: #111; padding: 40px; }
-            @media print {
-              body { padding: 0; }
-            }
-          </style>
-        </head>
-        <body onload="window.print();window.close();">
-          ${printContent.innerHTML}
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
+    if (!printContent) {
+      toast({ title: "Nothing to download", description: "The proposal hasn't finished loading yet.", variant: "destructive" });
+      return;
+    }
+    try {
+      const canvas = await html2canvas(printContent, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ unit: "mm", format: "a4" });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${fullQuote?.quoteRef ?? "quote"}.pdf`);
+    } catch (err) {
+      console.error("Quote PDF generation failed:", err);
+      toast({ title: "Download failed", description: "Could not generate the PDF. Please try again.", variant: "destructive" });
+    }
+  };
+
+  const handleWhatsAppShare = () => {
+    if (!fullQuote) {
+      toast({ title: "Nothing to share", description: "The proposal hasn't finished loading yet.", variant: "destructive" });
+      return;
+    }
+    const customerName = fullQuote.customer?.name ?? "Walk-in Customer";
+    const validUntil = fullQuote.validUntil ? new Date(fullQuote.validUntil).toLocaleDateString() : "N/A";
+    const msg = encodeURIComponent(
+      `*Proposal from ${currentStore?.name ?? "Business"}*\n` +
+      `Ref: ${fullQuote.quoteRef}\n` +
+      `Customer: ${customerName}\n` +
+      `Total: ${formatCurrency(fullQuote.totalPrice)}\n` +
+      `Status: ${fullQuote.status}\n` +
+      `Valid until: ${validUntil}\n\n` +
+      `Thank you for your business!`
+    );
+    window.open(`https://wa.me/?text=${msg}`, "_blank");
   };
 
   const columns = [
@@ -536,76 +628,82 @@ export default function QuotesPage() {
 
                 <div className="space-y-2">
                   <Label>Proposal Line Items</Label>
-                  <div className="space-y-3">
-                    {items.map((item, index) => (
-                      <div key={index} className="flex gap-4 items-center bg-muted/40 p-3 rounded-lg border">
-                        <div className="flex-1 min-w-[200px]">
-                          <Label className="text-xs text-muted-foreground">Select Product / Service</Label>
-                          <Select
-                            value={item.inventoryId}
-                            onValueChange={(val) => updateItemRow(index, "inventoryId", val)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choose inventory item" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {inventoryItems.map((inv) => (
-                                <SelectItem key={inv.id} value={inv.id}>
-                                  {inv.name} ({inv.id.substring(0, 8).toUpperCase()}) - Cost: {formatCurrency(inv.costPrice)}
-                                </SelectItem>
+
+                  {/* Mobile pane switcher — same pattern as the POS builder's Products/Cart tab bar */}
+                  <div className="flex lg:hidden rounded-lg border bg-muted/40 p-1 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setBuilderView("items")}
+                      className={cn(
+                        "flex-1 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors",
+                        builderView === "items" ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
+                      )}
+                    >
+                      <Package className="h-3.5 w-3.5" /> Items
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBuilderView("review")}
+                      className={cn(
+                        "flex-1 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors relative",
+                        builderView === "review" ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
+                      )}
+                    >
+                      <ShoppingCart className="h-3.5 w-3.5" /> Review
+                      {quoteCart.length > 0 && (
+                        <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">{quoteCart.length}</Badge>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+                    <div className={cn(builderView === "items" ? "block" : "hidden lg:block")}>
+                      <ProductGrid
+                        products={productGroups}
+                        isLoading={isLoadingInventory}
+                        cart={quoteCart}
+                        searchTerm={productSearch}
+                        onSearchChange={setProductSearch}
+                        onAddToCart={addToQuoteCart}
+                        formatCurrency={formatCurrency}
+                        allowOutOfStock
+                      />
+                    </div>
+
+                    <div className={cn(builderView === "review" ? "block" : "hidden lg:block")}>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base font-medium flex items-center gap-2">
+                            <ShoppingCart className="h-4 w-4" />
+                            Proposal Items ({quoteCart.length})
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {quoteCart.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-8 text-center">
+                              <ShoppingCart className="h-10 w-10 text-muted-foreground/50 mb-3" />
+                              <p className="text-sm text-muted-foreground">
+                                Pick a product or service to add it to the proposal
+                              </p>
+                            </div>
+                          ) : (
+                            <div id="quote-builder-cart" className="space-y-3">
+                              {quoteCart.map((item) => (
+                                <QuoteItemRow
+                                  key={item.inventory.id}
+                                  item={item}
+                                  formatCurrency={formatCurrency}
+                                  onUpdateQuantity={updateQuoteQuantity}
+                                  onSetExactQuantity={setQuoteExactQuantity}
+                                  onUpdatePrice={updateQuoteItemPrice}
+                                  onRemove={removeFromQuoteCart}
+                                />
                               ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="w-24">
-                          <Label className="text-xs text-muted-foreground font-mono">
-                            Qty{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}
-                          </Label>
-                          <Input
-                            type="number"
-                            min={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                            step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                            value={item.quantity}
-                            onChange={(e) => {
-                              const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
-                              updateItemRow(index, "quantity", isFrac ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1);
-                            }}
-                          />
-                        </div>
-
-                        <div className="w-32">
-                          <Label className="text-xs text-muted-foreground">Rate ({storeCurrency})</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.unitPrice}
-                            onChange={(e) => updateItemRow(index, "unitPrice", Number(e.target.value))}
-                          />
-                        </div>
-
-                        <div className="w-36 text-right">
-                          <Label className="text-xs text-muted-foreground block">Line Total</Label>
-                          <span className="font-mono font-medium block mt-2">
-                            {formatCurrency(item.quantity * item.unitPrice)}
-                          </span>
-                        </div>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeItemRow(index)}
-                          className="text-red-500 hover:text-red-700 mt-5"
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-
-                    <Button variant="outline" onClick={addItemRow} className="w-full gap-2">
-                      <PlusCircle className="h-4 w-4" /> Add Item Line
-                    </Button>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
                   </div>
                 </div>
 
@@ -628,7 +726,7 @@ export default function QuotesPage() {
                     <Button variant="ghost" onClick={resetForm}>Reset Form</Button>
                     <Button
                       onClick={() => createQuoteMutation.mutate()}
-                      disabled={createQuoteMutation.isPending || items.length === 0}
+                      disabled={createQuoteMutation.isPending || quoteCart.length === 0}
                       className="px-6"
                     >
                       Generate Estimate Proposal
@@ -650,6 +748,17 @@ export default function QuotesPage() {
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1">
                   <Printer className="h-4 w-4" /> Print Proforma
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleDownloadPdf} className="gap-1">
+                  <Download className="h-4 w-4" /> Download PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleWhatsAppShare}
+                  className="gap-1 text-green-600 border-green-300 hover:bg-green-50"
+                >
+                  <MessageCircle className="h-4 w-4" /> Share
                 </Button>
                 {fullQuote && ["draft", "sent"].includes(fullQuote.status) && (
                   <Button
@@ -743,7 +852,8 @@ export default function QuotesPage() {
                   </div>
                 </div>
 
-                <table className="w-full text-left text-sm border-collapse my-6">
+                <div className="overflow-x-auto my-6">
+                <table className="w-full min-w-[500px] text-left text-sm border-collapse">
                   <thead>
                     <tr className="border-b bg-gray-50 text-gray-500 font-semibold">
                       <th className="py-2 px-3">Item Description</th>
@@ -787,6 +897,7 @@ export default function QuotesPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
 
                 <div className="flex justify-between items-start mt-6 pt-6 border-t">
                   <div className="max-w-[400px]">

@@ -57,6 +57,8 @@ import {
   type RestockEvent,
   type CostStrategy,
   type AttendanceRecord,
+  type StaffSchedule,
+  type StaffScheduleException,
   type InsertAttendanceRecord,
   type AttendanceStatus,
   type PayrollPeriod,
@@ -65,6 +67,7 @@ import {
   type PayrollEntryWithStaff,
   type CommissionBreakdown,
   payrollDeductions,
+  payrollPostings,
   type PayrollDeduction,
   type InsertPayrollDeduction,
   payrollDisbursements,
@@ -112,9 +115,10 @@ import {
   type Product,
   type InsertProduct,
 } from "@shared/schema";
-import { db } from "./db";
+import { db, type DbExecutor } from "./db";
 import { eq, sql, desc, count, and, asc, or, inArray, ilike, gt, gte, lte } from "drizzle-orm";
 import { payrollService } from "./services/PayrollService";
+import { payrollPostingService } from "./services/PayrollPostingService";
 import { CommissionSplitCalculator as OOPCommissionSplitCalculator } from "./services/CommissionService";
 import { UserRepository } from "./repositories/UserRepository";
 import { InventoryRepository } from "./repositories/InventoryRepository";
@@ -133,11 +137,15 @@ import { BusinessRepository } from "./repositories/BusinessRepository";
 import { CustomerRepository } from "./repositories/CustomerRepository";
 import { StaffRepository } from "./repositories/StaffRepository";
 import { BookingRepository } from "./repositories/BookingRepository";
-import { TransactionRepository, type TransactionFilters } from "./repositories/TransactionRepository";
+import { TransactionRepository, type TransactionFilters, resolveTransactionIdsForCheckouts } from "./repositories/TransactionRepository";
+import { canRestoreWriteOff } from "./lib/creditBalance";
+import { reconstructAdvanceBalance, canRestoreManualRecovery } from "./lib/advanceBalance";
+import { getStoreTimezone } from "./lib/dateUtils";
 import { SalesRepository } from "./repositories/SalesRepository";
 import { AnalyticsRepository } from "./repositories/AnalyticsRepository";
 import { RestockRepository } from "./repositories/RestockRepository";
 import { AttendanceRepository } from "./repositories/AttendanceRepository";
+import { StaffScheduleRepository } from "./repositories/StaffScheduleRepository";
 import { PayrollRepository } from "./repositories/PayrollRepository";
 import { NotificationRepository } from "./repositories/NotificationRepository";
 
@@ -235,6 +243,13 @@ export interface IStorage {
   getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>>;
   getStaff(id: string): Promise<Staff | undefined>;
   getStaffByUserId(userId: string): Promise<Staff | undefined>;
+  getInviteProjection(userIds: string[], organisationId: string): Promise<Array<{
+    userId: string;
+    memberStatus: string | null;
+    createdByInvitation: boolean;
+    activationCodeUsed: boolean;
+    lastLoginAt: Date | null;
+  }>>;
   getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined>;
   createStaff(staffMember: InsertStaff & { userId?: string | null }): Promise<Staff>;
   updateStaff(id: string, staffMember: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined>;
@@ -247,6 +262,7 @@ export interface IStorage {
   // Products
   getProducts(storeId: string): Promise<any[]>;
   getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>>;
+  getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]>;
   getProduct(id: string): Promise<any>;
   getProductByName(storeId: string, name: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
@@ -434,7 +450,7 @@ export interface IStorage {
   }>;
 
   // Void
-  voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }>;
+  voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string; voidedCreditCustomerIds?: string[]; voidedStoreId?: string }>;
 
   processAddendum(data: {
     originalCheckoutId: string;
@@ -570,6 +586,7 @@ export class DatabaseStorage implements IStorage {
   private analyticsRepo: AnalyticsRepository;
   private restockRepo = new RestockRepository();
   private attendanceRepo = new AttendanceRepository();
+  private staffScheduleRepo = new StaffScheduleRepository();
   private payrollRepo = new PayrollRepository();
   private notificationRepo = new NotificationRepository();
 
@@ -819,6 +836,10 @@ export class DatabaseStorage implements IStorage {
     return this.staffRepo.getStaffByUserId(userId);
   }
 
+  async getInviteProjection(userIds: string[], organisationId: string) {
+    return this.staffRepo.getInviteProjection(userIds, organisationId);
+  }
+
   async getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined> {
     return this.staffRepo.getStaffByEmail(email);
   }
@@ -858,6 +879,10 @@ export class DatabaseStorage implements IStorage {
 
   async getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>> {
     return this.productRepo.getProductsPaginated(storeId, options);
+  }
+
+  async getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]> {
+    return this.productRepo.getTopSellingProductIds(storeId, days, limit);
   }
 
   async getProduct(id: string): Promise<any> {
@@ -1111,7 +1136,7 @@ export class DatabaseStorage implements IStorage {
     return this.salesRepo.processCheckout(data);
   }
 
-  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }> {
+  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string; voidedCreditCustomerIds?: string[]; voidedStoreId?: string }> {
     return this.salesRepo.voidCheckout(checkoutId, reason, voidedByUserId);
   }
 
@@ -1249,6 +1274,34 @@ export class DatabaseStorage implements IStorage {
     return this.attendanceRepo.getAttendanceSummary(storeId, staffId, startDate, endDate);
   }
 
+  // ─── Staff Schedule Repo Delegation ────────────────────────────────────────
+  async getStaffSchedules(storeId: string): Promise<StaffSchedule[]> {
+    return this.staffScheduleRepo.getSchedulesForStore(storeId);
+  }
+
+  async upsertStaffSchedule(storeId: string, staffId: string, weeklyOffDays: number[], updatedByUserId?: string): Promise<StaffSchedule> {
+    return this.staffScheduleRepo.upsertSchedule(storeId, staffId, weeklyOffDays, updatedByUserId);
+  }
+
+  async getStaffScheduleExceptions(storeId: string, startDate: string, endDate: string): Promise<StaffScheduleException[]> {
+    return this.staffScheduleRepo.getExceptionsInRange(storeId, startDate, endDate);
+  }
+
+  async upsertStaffScheduleException(data: {
+    storeId: string;
+    staffId: string;
+    date: string;
+    kind: "off" | "working";
+    reason?: string | null;
+    createdByUserId?: string | null;
+  }): Promise<StaffScheduleException> {
+    return this.staffScheduleRepo.upsertException(data);
+  }
+
+  async deleteStaffScheduleException(storeId: string, staffId: string, date: string): Promise<void> {
+    return this.staffScheduleRepo.deleteException(storeId, staffId, date);
+  }
+
   // ─── Payroll Repo Delegation ───────────────────────────────────────────────
   async getPayrollPeriods(storeId: string): Promise<PayrollPeriod[]> {
     return this.payrollRepo.getPayrollPeriods(storeId);
@@ -1262,8 +1315,8 @@ export class DatabaseStorage implements IStorage {
     return this.payrollRepo.createPayrollPeriod(data);
   }
 
-  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string): Promise<PayrollPeriod | undefined> {
-    return this.payrollRepo.updatePayrollPeriodStatus(id, status, userId);
+  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string, exec?: DbExecutor): Promise<PayrollPeriod | undefined> {
+    return this.payrollRepo.updatePayrollPeriodStatus(id, status, userId, exec);
   }
 
   async deletePayrollPeriod(id: string): Promise<boolean> {
@@ -1296,31 +1349,95 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Payroll Deductions ─────────────────────────────────────────────────────
-  async getPayrollDeductions(periodId: string, staffId?: string): Promise<PayrollDeduction[]> {
+
+  /**
+   * Waived lines are excluded by DEFAULT, and that default is the whole point.
+   *
+   * A waived line is one a manager explicitly excluded: it must never reach a
+   * money total. When callers had to remember `.filter(d => !d.isWaived)`
+   * themselves, every new consumer was one forgotten filter away from docking
+   * someone's pay for a debt that was waived. Summing callers now get the safe
+   * set without asking; only a caller that genuinely wants to *display* waived
+   * rows passes `includeWaived`.
+   */
+  private payrollDeductionConditions(periodId: string, staffId?: string, opts?: { includeWaived?: boolean }): any[] {
     const conditions: any[] = [eq(payrollDeductions.periodId, periodId)];
     if (staffId) conditions.push(eq(payrollDeductions.staffId, staffId));
-    return db.select().from(payrollDeductions).where(and(...conditions));
+    if (!opts?.includeWaived) conditions.push(eq(payrollDeductions.isWaived, false));
+    return conditions;
+  }
+
+  async getPayrollDeductions(periodId: string, staffId?: string, opts?: { includeWaived?: boolean }): Promise<PayrollDeduction[]> {
+    return db.select().from(payrollDeductions)
+      .where(and(...this.payrollDeductionConditions(periodId, staffId, opts)));
   }
 
   /**
    * Deductions joined to the debt they recover, so the payroll UI can show a
    * staff-credit line's receipt and what is still outstanding on it.
+   *
+   * The checkout join carries the receipt through: a deduction's label reads
+   * "Staff credit — Checkout Receipt #1042", and without `transactionId` the
+   * payslip could name the receipt but not open it. Resolved the same way the
+   * Borrow Book resolves it, so both link to the same transaction record.
+   *
+   * The repayment join answers "was this actually recovered?" — set only once
+   * the period is marked paid and `settle` has written the repayment.
    */
-  async getPayrollDeductionsWithCredit(periodId: string, staffId?: string): Promise<any[]> {
-    const conditions: any[] = [eq(payrollDeductions.periodId, periodId)];
-    if (staffId) conditions.push(eq(payrollDeductions.staffId, staffId));
+  async getPayrollDeductionsWithCredit(periodId: string, staffId?: string, opts?: { includeWaived?: boolean }): Promise<any[]> {
     const rows = await db
-      .select({ deduction: payrollDeductions, creditEntry: creditEntries })
+      .select({
+        deduction: payrollDeductions,
+        creditEntry: creditEntries,
+        checkout: checkouts,
+        repayment: repayments,
+        // System-tracked advance_recovery lines only (salaryAdvanceId set) —
+        // lets the UI show the advance's own remaining balance the way
+        // creditEntry lets it show the Borrow Book's.
+        salaryAdvance: salaryAdvances,
+      })
       .from(payrollDeductions)
       .leftJoin(creditEntries, eq(payrollDeductions.creditEntryId, creditEntries.id))
-      .where(and(...conditions));
-    return rows.map(r => ({ ...r.deduction, creditEntry: r.creditEntry }));
+      .leftJoin(checkouts, eq(creditEntries.linkedTransactionId, checkouts.id))
+      .leftJoin(repayments, eq(payrollDeductions.repaymentId, repayments.id))
+      .leftJoin(salaryAdvances, eq(payrollDeductions.salaryAdvanceId, salaryAdvances.id))
+      .where(and(...this.payrollDeductionConditions(periodId, staffId, opts)));
+
+    const txIdByCheckout = await resolveTransactionIdsForCheckouts(
+      rows.map(r => r.checkout?.id).filter((id): id is string => !!id)
+    );
+
+    // A line waived by writing the debt off can be undone from the payslip, but
+    // only inside the window canRestoreWriteOff defines. Resolved here so the
+    // button can be greyed out with the reason rather than silently missing.
+    const period = await this.getPayrollPeriod(periodId);
+    const tz = period ? await getStoreTimezone(period.storeId) : "Africa/Lagos";
+    const now = new Date();
+
+    return rows.map(r => {
+      const guard = r.creditEntry?.status === "written_off"
+        ? canRestoreWriteOff(r.creditEntry, { now, timezone: tz, linkedPeriodStatus: period?.status })
+        : null;
+      return {
+        ...r.deduction,
+        creditEntry: r.creditEntry && {
+          ...r.creditEntry,
+          canRestore: guard?.allowed ?? false,
+          restoreBlockedReason: guard && !guard.allowed ? guard.reason ?? null : null,
+        },
+        receiptNumber: r.checkout?.receiptNumber ?? null,
+        transactionId: r.checkout ? txIdByCheckout.get(r.checkout.id) ?? null : null,
+        repayment: r.repayment,
+        salaryAdvance: r.salaryAdvance,
+      };
+    });
   }
 
   async getPayrollDeduction(id: string): Promise<PayrollDeduction | undefined> {
     const [row] = await db.select().from(payrollDeductions).where(eq(payrollDeductions.id, id));
     return row;
   }
+
 
   async createPayrollDeduction(data: InsertPayrollDeduction): Promise<PayrollDeduction> {
     const [row] = await db.insert(payrollDeductions).values(data).returning();
@@ -1369,45 +1486,187 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Salary Advances ────────────────────────────────────────────────────────
-  async getSalaryAdvances(storeId: string, staffId?: string): Promise<SalaryAdvance[]> {
+  /**
+   * Joins the reserved-or-recovered-in period so the client can show WHY an
+   * advance isn't showing up as a proposal anywhere else — `recoveredPeriodId`
+   * doubles as a pre-settlement reservation (see SalaryAdvanceDeductionService),
+   * so an advance can sit "reserved" against an open period indefinitely if
+   * that period is never paid or deleted, with nothing in the raw column
+   * telling a manager that's what happened.
+   */
+  async getSalaryAdvances(storeId: string, staffId?: string): Promise<any[]> {
     const conditions: any[] = [eq(salaryAdvances.storeId, storeId)];
     if (staffId) conditions.push(eq(salaryAdvances.staffId, staffId));
-    return db.select().from(salaryAdvances).where(and(...conditions)).orderBy(desc(salaryAdvances.createdAt));
+    const rows = await db
+      .select({ advance: salaryAdvances, period: payrollPeriods })
+      .from(salaryAdvances)
+      .leftJoin(payrollPeriods, eq(salaryAdvances.recoveredPeriodId, payrollPeriods.id))
+      .where(and(...conditions))
+      .orderBy(desc(salaryAdvances.createdAt));
+
+    const tz = await getStoreTimezone(storeId);
+    const now = new Date();
+
+    return rows.map(r => {
+      const guard = canRestoreManualRecovery(r.advance, { now, timezone: tz });
+      return {
+        ...r.advance,
+        reservedPeriod: r.period && {
+          id: r.period.id,
+          startDate: r.period.startDate,
+          endDate: r.period.endDate,
+          status: r.period.status,
+        },
+        canRestoreManualRecovery: guard.allowed,
+        restoreManualRecoveryBlockedReason: guard.allowed ? null : guard.reason ?? null,
+      };
+    });
   }
 
-  async createSalaryAdvance(data: InsertSalaryAdvance): Promise<SalaryAdvance> {
-    const [row] = await db.insert(salaryAdvances).values(data).returning();
-    return row;
+  /**
+   * The one door a salary advance is created through — so outstandingBalance
+   * always starts equal to amount without every caller having to remember to
+   * set it, the same "one door" discipline the Consumables module uses for
+   * its cost invariant.
+   *
+   * Also books the disbursement's cash-out posting in the same transaction:
+   * "Record Salary Advance" reads as recording something that already
+   * happened, so the cash is treated as having left the moment this row is
+   * created — not deferred to approval, which is a separate workflow gate,
+   * not a cash-timing one.
+   */
+  async createSalaryAdvance(data: Omit<InsertSalaryAdvance, "outstandingBalance"> & { outstandingBalance?: number }): Promise<SalaryAdvance> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx.insert(salaryAdvances).values({
+        ...data,
+        outstandingBalance: data.outstandingBalance ?? data.amount,
+        recoveryStatus: data.recoveryStatus ?? "unrecovered",
+      }).returning();
+      await payrollPostingService.postAdvanceDisbursement(tx, row);
+      return row;
+    });
   }
 
-  async markAdvanceRecovered(advanceId: string, periodId: string): Promise<SalaryAdvance> {
-    const [row] = await db.update(salaryAdvances)
-      .set({ isRecovered: true, recoveredPeriodId: periodId })
-      .where(eq(salaryAdvances.id, advanceId))
-      .returning();
-    return row;
-  }
-
-  async updateSalaryAdvanceStatus(
-    advanceId: string,
-    status: "approved" | "rejected",
-    approvedByUserId: string | undefined,
-    rejectionReason?: string
-  ): Promise<SalaryAdvance> {
+  /**
+   * Manual-override recovery, outside the automatic payroll path — an advance
+   * repaid in cash, or written off. Always clears the advance in full:
+   * there's no payroll period backing a partial manual recovery, so this
+   * isn't the path for "we collected some of it in cash" — that still goes
+   * through payroll. `recoveredPeriodId` is deliberately left alone: it names
+   * the payroll period that recovered the advance, and there isn't one here.
+   */
+  async markAdvanceRecovered(advanceId: string, reason: string): Promise<SalaryAdvance> {
     const [row] = await db.update(salaryAdvances)
       .set({
-        status,
-        approvedByUserId,
-        approvedAt: new Date(),
-        rejectionReason: status === "rejected" ? (rejectionReason || null) : null,
+        isRecovered: true,
+        recoveryStatus: "recovered",
+        outstandingBalance: 0,
+        manualRecoveryReason: reason,
+        manualRecoveredAt: new Date(),
       })
       .where(eq(salaryAdvances.id, advanceId))
       .returning();
     return row;
   }
 
+  /**
+   * Undoes a manual recovery, restoring the balance it actually had —
+   * reconstructed from the real payroll settlement ledger (the sum of
+   * settled advance_recovery deductions), never a snapshot column, so a
+   * restore can never hand back a different number than what payroll itself
+   * already collected. Mirrors CreditRepository.restoreWrittenOffDebt.
+   *
+   * Caller (the route) is responsible for calling canRestoreManualRecovery
+   * first — this method trusts it was already checked.
+   */
+  async restoreManualRecovery(advanceId: string): Promise<SalaryAdvance | undefined> {
+    const [advance] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, advanceId));
+    if (!advance) return undefined;
+
+    const [recovered] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${payrollDeductions.amount}), 0)` })
+      .from(payrollDeductions)
+      .where(and(
+        eq(payrollDeductions.salaryAdvanceId, advanceId),
+        sql`${payrollDeductions.settledAt} IS NOT NULL`,
+      ));
+
+    const { outstandingBalance, recoveryStatus } = reconstructAdvanceBalance(advance, Number(recovered?.total ?? 0));
+
+    const [updated] = await db
+      .update(salaryAdvances)
+      .set({
+        isRecovered: false,
+        recoveryStatus,
+        outstandingBalance,
+        manualRecoveryReason: null,
+        manualRecoveredAt: null,
+      })
+      .where(eq(salaryAdvances.id, advanceId))
+      .returning();
+    return updated;
+  }
+
+  /**
+   * A rejected advance also reverses its disbursement posting — only
+   * reachable while `status === "pending"` (the route enforces this), which
+   * means it can never yet have a payroll_deductions reference, so there's
+   * no conflict with deleteSalaryAdvance's FK guard.
+   */
+  async updateSalaryAdvanceStatus(
+    advanceId: string,
+    status: "approved" | "rejected",
+    approvedByUserId: string | undefined,
+    rejectionReason?: string
+  ): Promise<SalaryAdvance> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx.update(salaryAdvances)
+        .set({
+          status,
+          approvedByUserId,
+          approvedAt: new Date(),
+          rejectionReason: status === "rejected" ? (rejectionReason || null) : null,
+        })
+        .where(eq(salaryAdvances.id, advanceId))
+        .returning();
+      if (status === "rejected") {
+        await payrollPostingService.reverseAdvanceDisbursement(tx, advanceId);
+      }
+      return row;
+    });
+  }
+
+  /**
+   * Refuses with a plain-language error instead of letting a manager hit the
+   * raw foreign-key violation: payroll_deductions.salary_advance_id has no
+   * ON DELETE clause (RESTRICT by default), so deleting an advance that's
+   * already proposed or settled in payroll would otherwise fail with an
+   * opaque 500 and no indication of why.
+   *
+   * The message doesn't offer "waive the line first" as a fix, because it
+   * isn't one: the delete-deductions route always waives (never hard-deletes)
+   * a system-tracked advance_recovery line, so a waived line still carries
+   * the same salaryAdvanceId reference and still blocks this. The only real
+   * remedy short of the advance settling naturally is deleting the whole
+   * payroll period it's proposed on.
+   */
   async deleteSalaryAdvance(id: string): Promise<void> {
-    await db.delete(salaryAdvances).where(eq(salaryAdvances.id, id));
+    const [existingDeduction] = await db.select().from(payrollDeductions)
+      .where(eq(payrollDeductions.salaryAdvanceId, id));
+    if (existingDeduction) {
+      throw new Error(
+        "This advance has a payroll deduction on record and can't be deleted. " +
+        "If it's still on an open payroll period, delete that period to release it — " +
+        "once payroll has settled it, the advance can no longer be deleted."
+      );
+    }
+    // The disbursement posting also references this advance (its own FK,
+    // same RESTRICT default) — reverse it first or the delete below fails
+    // the identical way, just on a different table.
+    await db.transaction(async (tx) => {
+      await payrollPostingService.reverseAdvanceDisbursement(tx, id);
+      await tx.delete(salaryAdvances).where(eq(salaryAdvances.id, id));
+    });
   }
 
   // ─── Unrecorded attendance days check ───────────────────────────────────────
@@ -1541,6 +1800,49 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpense(id: string): Promise<void> {
     return this.expenseRepo.deleteExpense(id);
+  }
+
+  /**
+   * Wages recognised in a window, read from the payroll ledger.
+   *
+   * Replaces getPaidPayrollExpenses as the P&L's source. That one selected
+   * periods by overlap and added each period's whole total, so a run crossing a
+   * month boundary landed in full in both months; postings carry wage_expense
+   * already apportioned to the months it was earned in.
+   */
+  async getPayrollWageExpenseDetail(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {
+    const conditions: any[] = [
+      eq(payrollPostings.storeId, storeId),
+      eq(payrollPostings.account, "wage_expense"),
+    ];
+    // effective_date is text YYYY-MM-DD, which sorts lexicographically.
+    if (startDate) conditions.push(gte(payrollPostings.effectiveDate, startDate));
+    if (endDate) conditions.push(lte(payrollPostings.effectiveDate, endDate));
+
+    const rows = await db
+      .select({
+        periodId: payrollPostings.periodId,
+        startDate: payrollPeriods.startDate,
+        endDate: payrollPeriods.endDate,
+        amount: payrollPostings.amount,
+      })
+      .from(payrollPostings)
+      .innerJoin(payrollPeriods, eq(payrollPostings.periodId, payrollPeriods.id))
+      .where(and(...conditions));
+
+    // One line per period, matching the shape the statement already renders.
+    // periodId is only nullable on an advance_disbursement posting, which
+    // never carries this account — and the INNER JOIN above drops any row
+    // without a matching period anyway, so a non-null id is guaranteed here.
+    const byPeriod = new Map<string, { label: string; amount: number }>();
+    for (const r of rows) {
+      const periodId = r.periodId!;
+      const label = `Payroll — ${new Date(r.startDate).toLocaleDateString()} to ${new Date(r.endDate).toLocaleDateString()}`;
+      const existing = byPeriod.get(periodId);
+      if (existing) existing.amount = Math.round((existing.amount + Number(r.amount)) * 100) / 100;
+      else byPeriod.set(periodId, { label, amount: Number(r.amount) });
+    }
+    return Array.from(byPeriod.values());
   }
 
   async getPaidPayrollExpenses(storeId: string, startDate?: string, endDate?: string): Promise<{ label: string; amount: number }[]> {

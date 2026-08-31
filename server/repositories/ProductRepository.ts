@@ -4,10 +4,12 @@ import {
   products,
   inventory,
   transactions,
+  orders,
+  checkouts,
   type Product,
   type InsertProduct,
 } from "@shared/schema";
-import { eq, and, or, ilike, asc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, or, ilike, asc, desc, gte, sql, count, inArray } from "drizzle-orm";
 
 export interface PaginationOptions {
   page: number;
@@ -101,6 +103,38 @@ export class ProductRepository extends BaseRepository<typeof products> {
       data: annotated,
       pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
     };
+  }
+
+  /** Product groups ranked best-selling first, for the POS quick-pick strip.
+   *
+   *  Ranked by how many sale lines the group appears in, not units moved: the
+   *  strip exists to save a cashier scrolling, so what matters is how often an
+   *  item gets rung up, not that one wholesale line once moved 500 sachets.
+   *  Units break ties. Voided and unpaid checkouts don't count, and a fully
+   *  returned line is dropped rather than rewarding the sale that bounced.
+   */
+  async getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]> {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const netUnits = sql<number>`sum(${orders.quantity}::numeric - ${orders.returnedQuantity}::numeric)`;
+
+    const rows = await db
+      .select({ productId: inventory.productId, lines: count(), units: netUnits })
+      .from(orders)
+      .innerJoin(checkouts, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(inventory.id, orders.inventoryId))
+      .where(and(
+        eq(orders.storeId, storeId),
+        eq(checkouts.paymentStatus, "completed"),
+        eq(checkouts.isVoided, false),
+        eq(inventory.isDeleted, false),
+        gte(checkouts.createdAt, since),
+        sql`${orders.quantity}::numeric > ${orders.returnedQuantity}::numeric`,
+      ))
+      .groupBy(inventory.productId)
+      .orderBy(desc(count()), desc(netUnits))
+      .limit(limit);
+
+    return rows.map((r) => r.productId).filter(Boolean) as string[];
   }
 
   async getProduct(id: string): Promise<any> {

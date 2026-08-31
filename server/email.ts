@@ -1,4 +1,4 @@
-import { sendEmail as queueEmail } from "./services/EmailQueue";
+import { sendEmail as queueEmail, enqueueEmail } from "./services/EmailQueue";
 import { escapeHtml } from "./sanitize";
 
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
@@ -90,7 +90,9 @@ export async function sendActivationEmail(
     </div>
   `;
 
-  sendEmail({
+  // Awaited (unlike most senders here) so the staff invite path can report a
+  // failure to queue back to the manager instead of silently dropping it.
+  await enqueueEmail({
     to,
     subject: `You've been added to ${businessName} — Activate your account`,
     html,
@@ -124,7 +126,8 @@ export async function sendAddedToOrgEmail(
     </div>
   `;
 
-  sendEmail({
+  // Awaited for the same reason as sendActivationEmail above.
+  await enqueueEmail({
     to,
     subject: `You've been added to ${businessName}`,
     html,

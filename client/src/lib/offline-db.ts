@@ -1,6 +1,11 @@
 const DB_NAME = "business_manager_offline";
-const DB_VERSION = 2;
+// v3 added the `punches` store. IMPORTANT: sw.js opens the same database and must
+// declare the identical set of stores at the same version — whichever context
+// opens it first runs the upgrade, and the other then gets a missing-store error
+// for the lifetime of the install.
+const DB_VERSION = 3;
 const STORE_NAME = "checkouts";
+const PUNCH_STORE = "punches";
 
 export type OfflineCheckoutStatus = "pending" | "syncing" | "failed" | "done";
 
@@ -24,6 +29,102 @@ function upgrade(db: IDBDatabase) {
     store.createIndex("sequence", "sequence", { unique: false });
     store.createIndex("status", "status", { unique: false });
   }
+  if (!db.objectStoreNames.contains(PUNCH_STORE)) {
+    const store = db.createObjectStore(PUNCH_STORE, { keyPath: "id" });
+    store.createIndex("status", "status", { unique: false });
+  }
+}
+
+export type OfflinePunchStatus = "pending" | "syncing" | "failed" | "done";
+
+export interface OfflinePunch {
+  id: string;              // also the clientPunchId — the server's replay guard
+  payload: any;
+  createdAt: number;
+  status: OfflinePunchStatus;
+  attempts: number;
+  lastError: string | null;
+  nextRetryAt: number | null;
+}
+
+/**
+ * Queues a clock-in taken while the phone had no data.
+ *
+ * GPS works without a network, so the geofence has already been checked on the
+ * device and the coordinates travel with the punch — the server re-checks them,
+ * so a tampered client still cannot punch in from home. What the server will not
+ * take on trust is the timestamp: the payload carries `queued: true` and the
+ * device's own clock, and the server decides whether to honour it.
+ */
+export async function saveOfflinePunch(payload: any): Promise<string> {
+  const db = await openOfflineDB();
+  const id: string = payload.clientPunchId ?? (crypto.randomUUID
+    ? crypto.randomUUID()
+    : `punch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
+
+  const record: OfflinePunch = {
+    id,
+    payload: { ...payload, clientPunchId: id, queued: true },
+    createdAt: Date.now(),
+    status: "pending",
+    attempts: 0,
+    lastError: null,
+    nextRetryAt: Date.now(),
+  };
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PUNCH_STORE, "readwrite");
+    const req = tx.objectStore(PUNCH_STORE).put(record);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      if ("serviceWorker" in navigator && "SyncManager" in window) {
+        navigator.serviceWorker.ready
+          .then((sw) => (sw as any).sync.register("punch-sync"))
+          .catch(() => undefined); // non-fatal; the foreground sync still runs
+      }
+      resolve(id);
+    };
+  });
+}
+
+export async function getOfflinePunches(): Promise<OfflinePunch[]> {
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PUNCH_STORE, "readonly");
+    const req = tx.objectStore(PUNCH_STORE).getAll();
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const all = (req.result ?? []) as OfflinePunch[];
+      resolve(all.filter(r => r.status !== "done").sort((a, b) => a.createdAt - b.createdAt));
+    };
+  });
+}
+
+export async function updateOfflinePunch(id: string, changes: Partial<OfflinePunch>): Promise<void> {
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PUNCH_STORE, "readwrite");
+    const store = tx.objectStore(PUNCH_STORE);
+    const getReq = store.get(id);
+    getReq.onerror = () => reject(getReq.error);
+    getReq.onsuccess = () => {
+      const existing = getReq.result;
+      if (!existing) { resolve(); return; }
+      const putReq = store.put({ ...existing, ...changes });
+      putReq.onerror = () => reject(putReq.error);
+      putReq.onsuccess = () => resolve();
+    };
+  });
+}
+
+export async function deleteOfflinePunch(id: string): Promise<void> {
+  const db = await openOfflineDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PUNCH_STORE, "readwrite");
+    const req = tx.objectStore(PUNCH_STORE).delete(id);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve();
+  });
 }
 
 // Monotonically increasing counter stored in localStorage per store

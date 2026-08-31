@@ -59,6 +59,8 @@ import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
 import { logFunnelEvent } from "./lib/funnel";
 import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "./lib/otp-cooldown";
+import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
+import { isManagerEmailChangePending } from "./lib/email-change-gate";
 import { bulkUploadService } from "./services/BulkUploadService";
 import { analyticsService } from "./services/AnalyticsService";
 import { initWebSocketServer, broadcastDataChange } from "./websocket";
@@ -247,6 +249,7 @@ export async function registerRoutes(
     return Math.min(LOCKOUT_TIME_MS * Math.pow(2, priorLockoutCount), LOCKOUT_MAX_MS);
   }
 
+
   // Single Entry point continue route
   app.post("/api/auth/continue", async (req: Request, res: Response) => {
     try {
@@ -292,6 +295,14 @@ export async function registerRoutes(
           phone: user.phone,
           message: "Please enter your activation code.",
         });
+      }
+
+      // A manager changed this account's email and it has not been confirmed
+      // yet. Checked before the generic unverified-email branch below, which
+      // would otherwise send a signup-style OTP down a path whose verify
+      // endpoint hands out a session.
+      if (isManagerEmailChangePending(user)) {
+        return res.json({ status: "email_change_verification_required", email: user.email });
       }
 
       // 3. If the account has no verified contact channel at all -> send OTP
@@ -521,6 +532,13 @@ export async function registerRoutes(
         return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
+      // Byte-identical to the branches above and below on purpose: a distinct
+      // response here would tell an attacker exactly which accounts are mid
+      // manager-email-change, which is the set they'd most want to find.
+      if (isManagerEmailChangePending(user)) {
+        return res.json({ message: "If account exists, an OTP code has been sent." });
+      }
+
       const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
       if (!cooldown.allowed) {
         // Same generic response as the "no such account" branch above - a
@@ -573,6 +591,11 @@ export async function registerRoutes(
 
       const user = await storage.getUserByIdentifier(emailOrPhone);
       if (!user) {
+        return res.json({ message: "If account exists, an OTP code has been sent." });
+      }
+
+      // See the same gate in /forgot-password: same generic body, deliberately.
+      if (isManagerEmailChangePending(user)) {
         return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
@@ -679,6 +702,13 @@ export async function registerRoutes(
       // Reset login attempts and lockout escalation on success
       await storage.updateUser(user.id, { loginAttempts: 0, lockedUntil: null, lockoutCount: 0, lastLoginAt: new Date() });
       auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "login");
+
+      // Placed after password verification so it leaks nothing to an
+      // unauthenticated caller: only someone who already knows the password
+      // learns that a change is pending.
+      if (isManagerEmailChangePending(user)) {
+        return res.json({ status: "email_change_verification_required", email: user.email });
+      }
 
       // Block unverified users who try to bypass /continue and call /login directly.
       // Applies regardless of which identifier was used to log in - phone is
@@ -993,9 +1023,10 @@ export async function registerRoutes(
         return res.status(400).json({ error: "invalid_code", message: "Invalid activation code. Please check the code in your email and try again." });
       }
 
-      // Normalise code (strip hyphens and uppercase)
-      const cleanInput = activationCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-      const cleanStored = user.activationCode ? user.activationCode.replace(/[^A-Za-z0-9]/g, "").toUpperCase() : "";
+      // Normalise code (strip hyphens and uppercase) - shared with the
+      // generator so both ends agree on one canonical form.
+      const cleanInput = normalizeActivationCode(activationCode);
+      const cleanStored = user.activationCode ? normalizeActivationCode(user.activationCode) : "";
 
       const codeMatch = cleanStored &&
         cleanInput.length === cleanStored.length &&
@@ -1043,6 +1074,62 @@ export async function registerRoutes(
 
   app.post("/api/auth/verify-activation-code", activateHandler);
   app.post("/api/auth/activate", activateHandler);
+
+  // Clears the manager-email-change gate. Reached from /continue and /login,
+  // which return status "email_change_verification_required" for a gated
+  // account.
+  app.post("/api/auth/verify-manager-email-change", async (req: Request, res: Response) => {
+    try {
+      const { emailOrPhone, otp } = req.body;
+      if (!emailOrPhone || !otp) {
+        return res.status(400).json({ error: "Identifier and verification code are required." });
+      }
+
+      const user = await storage.getUserByIdentifier(emailOrPhone);
+      if (!user || !user.managerEmailChangedAt) {
+        return res.status(400).json({ error: "No email change is pending for this account." });
+      }
+      if ((user.otpAttempts ?? 0) >= MAX_OTP_ATTEMPTS) {
+        return res.status(429).json({ error: "Too many incorrect attempts. Please ask your manager to resend the code." });
+      }
+      if (!user.otpCode) {
+        return res.status(400).json({ error: "Invalid or expired verification code." });
+      }
+
+      const otpMatch = otp.length === user.otpCode.length &&
+        crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(otp));
+      if (!otpMatch) {
+        await storage.updateUser(user.id, { otpAttempts: (user.otpAttempts ?? 0) + 1 });
+        return res.status(400).json({ error: "Invalid verification code." });
+      }
+      if (user.otpExpiry && new Date() > new Date(user.otpExpiry)) {
+        return res.status(400).json({ error: "This code has expired. Ask your manager to resend it." });
+      }
+
+      await storage.updateUser(user.id, {
+        isEmailVerified: true,
+        managerEmailChangedAt: null,
+        otpCode: null,
+        otpExpiry: null,
+        otpAttempts: 0,
+      });
+      auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "manager_email_change_verified");
+
+      // Deliberately NO jwt_token cookie here, and do not add one later.
+      // Reading the new mailbox proves the address works; it does not prove the
+      // holder is the staff member. Requiring the password afterwards is the
+      // whole reason a manager who repointed the address at themselves still
+      // cannot get in.
+      res.json({
+        success: true,
+        nextStep: "password",
+        message: "Email verified. Please sign in with your password.",
+      });
+    } catch (error) {
+      console.error("Verify manager email change error:", error);
+      res.status(500).json({ error: "Could not verify this email change." });
+    }
+  });
 
   // Resend Activation Code Endpoint
   app.post("/api/auth/resend-activation", async (req: Request, res: Response) => {
@@ -1094,20 +1181,11 @@ export async function registerRoutes(
         return res.status(429).json({ error: "too_many_attempts", message: "Too many resend attempts. Contact your manager to reset your activation code." });
       }
 
-      // Generate a new premium XXXX-XXXX activation code
-      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      let newCode = "";
-      for (let i = 0; i < 4; i++) {
-        newCode += chars.charAt(crypto.randomInt(0, chars.length));
-      }
-      newCode += "-";
-      for (let i = 0; i < 4; i++) {
-        newCode += chars.charAt(crypto.randomInt(0, chars.length));
-      }
+      const newCode = generateActivationCode();
 
       await storage.updateUser(user.id, {
         activationCode: newCode,
-        activationCodeExpiry: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
+        activationCodeExpiry: activationCodeExpiry(),
         activationCodeUsed: false,
         resendAttempts: currentAttempts + 1,
         resendWindowStart: windowStart && windowStart > oneHourAgo ? windowStart : now,
@@ -1229,6 +1307,17 @@ export async function registerRoutes(
       if (user.createdByInvitation) {
         return res.status(400).json({
           error: "This account uses an activation code, not a verification code. Please use the activation code sent to your email."
+        });
+      }
+
+      // This endpoint mints a session further down. Letting whoever holds the
+      // OTP through while a manager-initiated email change is unverified would
+      // BE the takeover, so route them to the dedicated endpoint instead - it
+      // clears the flag without handing out a session.
+      if (isManagerEmailChangePending(user)) {
+        return res.status(400).json({
+          error: "Please confirm this address using the code we emailed you, then sign in with your password.",
+          nextStep: "verify_email_change",
         });
       }
 
@@ -1487,6 +1576,15 @@ export async function registerRoutes(
       const user = await storage.getUserByIdentifier(data.emailOrPhone);
       if (!user) {
         return res.status(404).json({ error: "Account not found." });
+      }
+
+      // Defence in depth. The manager overwrite clears otpCode and the two
+      // OTP-issuing endpoints already refuse while the gate is set, so nothing
+      // resettable should exist here - but if a code were minted in the same
+      // instant, this is where it would otherwise be spendable.
+      if (isManagerEmailChangePending(user)) {
+        auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "reset-password");
+        return res.status(400).json({ error: "Invalid or expired OTP code." });
       }
 
       // NOTE: forgot-password/resend-otp write the OTP to user.otpCode/

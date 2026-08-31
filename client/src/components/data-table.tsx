@@ -39,6 +39,10 @@ export interface DataTableProps<T> {
   // list survives navigating to a detail page and back. Must be unique among tables rendered
   // on the same page.
   urlKey?: string;
+
+  // Always render the card list, even on desktop — for a table with enough
+  // columns that the desktop view would need horizontal scroll.
+  forceCardView?: boolean;
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -60,6 +64,7 @@ export function DataTable<T extends { id: string | number }>({
   emptyTitle,
   onVisibleDataChange,
   urlKey,
+  forceCardView,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -89,6 +94,7 @@ export function DataTable<T extends { id: string | number }>({
       emptyTitle={emptyTitle}
       onVisibleDataChange={onVisibleDataChange}
       urlKey={urlKey}
+      forceCardView={forceCardView}
     />
   );
 }

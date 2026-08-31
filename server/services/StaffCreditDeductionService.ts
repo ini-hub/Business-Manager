@@ -84,6 +84,27 @@ function outranksStaffCredit(type: string): boolean {
   return rank === -1 || rank < STAFF_CREDIT_RANK;
 }
 
+/**
+ * The staff-credit lines this period still owes a repayment for, row-locked.
+ *
+ * Exported so the integration suite can exercise the real query rather than a
+ * copy of it — a concurrency test that reasons about a re-typed query proves
+ * nothing about the one that actually runs.
+ *
+ * Two things protect against recovering a debt twice, and they are layered:
+ * `repayment_id IS NULL` filters out anything already settled, and `FOR UPDATE`
+ * closes the window where a second transaction reads the same not-yet-committed
+ * row. The lock only holds inside a transaction, which is why `settle` owns one.
+ */
+export function selectPendingStaffCreditForUpdate(exec: DbExecutor, periodId: string) {
+  return exec.select().from(payrollDeductions).where(and(
+    eq(payrollDeductions.periodId, periodId),
+    eq(payrollDeductions.type, "staff_credit"),
+    eq(payrollDeductions.isWaived, false),
+    isNull(payrollDeductions.repaymentId),
+  )).for("update");
+}
+
 export class StaffCreditDeductionService {
   /**
    * Rewrites this period's `staff_credit` proposals from the current state of
@@ -192,9 +213,17 @@ export class StaffCreditDeductionService {
 
         if (row) {
           if (Number(row.amount) !== alloc.amount || row.label !== label) {
+            // The extra repaymentId guard closes a narrow race: `row` came
+            // from a snapshot read at the top of this call, so a concurrent
+            // settle() (mark-paid running at the exact same moment, e.g.
+            // triggered by an unrelated sale's recalculation) could have
+            // settled this exact row in between. Without the guard this
+            // write would silently succeed anyway and overwrite a
+            // just-settled amount; with it, a settled row simply no longer
+            // matches and the write becomes a no-op.
             await db.update(payrollDeductions)
               .set({ amount: alloc.amount, label })
-              .where(eq(payrollDeductions.id, row.id));
+              .where(and(eq(payrollDeductions.id, row.id), isNull(payrollDeductions.repaymentId)));
           }
         } else {
           await db.insert(payrollDeductions).values({
@@ -212,25 +241,58 @@ export class StaffCreditDeductionService {
   }
 
   /**
-   * Turns this period's proposals into real repayments. Called inside the
-   * mark-paid transaction, after a final syncProposals, so the amounts settled
-   * are the ones the manager saw.
+   * A staff member's debt moved outside payroll — a cash repayment at the
+   * counter, or a write-off — so every open period's proposals are now stale.
+   *
+   * Without this, a part payment on a credit sale never reached payroll: the
+   * period kept proposing a deduction for money already collected, and only
+   * self-corrected at mark-paid (where `settle` re-clamps) or on the next
+   * recalculation. Managers saw, and could act on, a figure that was wrong.
+   *
+   * Paid periods are skipped — `syncProposals` refuses them anyway, since their
+   * deductions are settled against real repayments and must never be rewritten.
+   *
+   * Callers treat this as best-effort: the repayment has already committed by
+   * the time it runs, so a failure here must not fail their response.
    */
-  async settle(exec: DbExecutor, periodId: string): Promise<void> {
+  async syncOpenPeriodsForCustomer(storeId: string, customerId: string): Promise<void> {
+    // Only staff debt feeds payroll. An ordinary customer's repayment has no
+    // proposal to re-clamp, so this costs one indexed lookup and stops.
+    const [customer] = await db
+      .select({ staffId: customers.staffId })
+      .from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.storeId, storeId)));
+    if (!customer?.staffId) return;
+
+    const periods = await storage.getPayrollPeriods(storeId);
+    for (const period of periods) {
+      if (period.status === "paid") continue;
+      await this.syncProposals(period.id);
+    }
+  }
+
+  /**
+   * Turns this period's proposals into real repayments. Call after a final
+   * syncProposals, so the amounts settled are the ones the manager saw.
+   *
+   * Owns its transaction rather than accepting one. The `FOR UPDATE` below is
+   * what stops two concurrent mark-paid requests from each writing a repayment
+   * for the same debt, and a row lock only holds for the life of a
+   * transaction — taken on the pool directly it would be released immediately
+   * and silently buy nothing. Making the transaction internal means no caller
+   * can accidentally strip that protection.
+   */
+  async settle(periodId: string): Promise<void> {
+    await db.transaction(async (exec) => {
+      await this.settleWithin(exec, periodId);
+    });
+  }
+
+  private async settleWithin(exec: DbExecutor, periodId: string): Promise<void> {
     const [period] = await exec.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
     if (!period) return;
 
-    const pending = await exec.select().from(payrollDeductions).where(and(
-      eq(payrollDeductions.periodId, periodId),
-      eq(payrollDeductions.type, "staff_credit"),
-      eq(payrollDeductions.isWaived, false),
-      // The idempotency guard: a retried mark-paid finds nothing left to do.
-      isNull(payrollDeductions.repaymentId),
-    ))
-      // Lock the rows for the life of the transaction. Without this, two
-      // mark-paid requests racing each other would both read the same pending
-      // set and each write a repayment, recovering the debt twice.
-      .for("update");
+    const pending = await selectPendingStaffCreditForUpdate(exec, periodId);
 
     for (const deduction of pending) {
       if (!deduction.creditEntryId) continue;

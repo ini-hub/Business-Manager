@@ -18,6 +18,12 @@ import type { CubeSql } from "./types";
 // Expenses
 // ---------------------------------------------------------------------------
 
+// The `ec.name = 'Payroll'` guards in the measures below are a COMPATIBILITY
+// SHIM. Payroll no longer writes a mirror expense row, and migration 0040
+// soft-deletes the historical ones; these guards only still matter for a
+// database where 0040 has not run. Remove them (and the one in
+// AnalyticsService.getProfitLossSummary) once 0040 is applied everywhere —
+// removing them sooner would double count every historical payroll run.
 export const expensesCube: CubeSql = {
   id: "expenses",
 
@@ -189,18 +195,33 @@ export const attendanceCube: CubeSql = {
 export const payrollCube: CubeSql = {
   id: "payroll",
 
+  // Reads the payroll ledger for money, and payroll_entries for the operational
+  // measures that have no place in a ledger (days worked, headcount).
+  //
+  // net_pay used to come straight off pe.net_pay with the cube bucketing by
+  // pp.start_date and counting 'approved' periods the P&L never counted — two
+  // divergences from the statement for the same metric name. Both close by
+  // sourcing it from wage_expense postings, which exist only once a period is
+  // paid and are dated to the months the work was actually done in.
   buildFrom: () => sql`
     payroll_entries pe
       JOIN payroll_periods pp ON pp.id = pe.period_id
       JOIN stores s ON s.id = pe.store_id
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(pl.amount), 0) AS wage_expense
+          FROM payroll_postings pl
+         WHERE pl.period_id = pe.period_id
+           AND pl.staff_id = pe.staff_id
+           AND pl.account = 'wage_expense'
+      ) ledger ON true
   `,
 
   tenantColumn: sql`pe.store_id`,
-  basePredicate: sql`pp.status IN ('approved', 'paid')`,
+  basePredicate: sql`pp.status = 'paid'`,
   time: { column: sql`pp.start_date`, kind: "local_date_text" },
 
   measures: {
-    "payroll.net_pay": { kind: "agg", agg: sql`COALESCE(SUM(pe.net_pay), 0)` },
+    "payroll.net_pay": { kind: "agg", agg: sql`COALESCE(SUM(ledger.wage_expense), 0)` },
     "payroll.gross_commission": {
       kind: "agg",
       agg: sql`COALESCE(SUM(pe.gross_commission), 0)`,

@@ -9,10 +9,24 @@ import { withProductId } from "../utils/slug-resolver";
 import { toTitleCase, sanitizeString } from "../sanitize";
 import { broadcastChange } from "../routes/helpers";
 
+/** Quick-pick strip defaults. 30 days keeps the ranking current enough to follow
+ *  a seasonal swing without a slow week emptying the strip. */
+const TOP_SELLER_DEFAULT_DAYS = 30;
+const TOP_SELLER_DEFAULT_LIMIT = 8;
+const TOP_SELLER_MAX_LIMIT = 24;
+
+function clampInt(raw: unknown, fallback: number, min: number, max: number): number {
+  const n = parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 export class ProductController extends BaseController {
   public register(router: Router): void {
     router.get("/products", isAuthenticated, this.getProducts.bind(this));
     router.get("/products/archived", isAuthenticated, this.getArchivedProducts.bind(this));
+    // Before /products/:id, or the slug resolver swallows "top-sellers" as an id.
+    router.get("/products/top-sellers", isAuthenticated, this.getTopSellers.bind(this));
     router.get("/products/:id", isAuthenticated, withProductId, this.getProduct.bind(this));
     router.post("/products", isAuthenticated, this.createProduct.bind(this));
     router.patch("/products/:id", isAuthenticated, withProductId, this.updateProduct.bind(this));
@@ -80,6 +94,32 @@ export class ProductController extends BaseController {
       return this.ok(res, items);
     } catch (error: any) {
       return this.error(res, "We couldn't load your products. Please try again.");
+    }
+  }
+
+  /** Best-selling product-group ids for the POS quick-pick strip, ranked first.
+   *  Ids only — the POS already holds the full product list, so shipping names
+   *  and prices again would just be a second copy to keep in sync. */
+  private async getTopSellers(req: Request, res: Response): Promise<Response> {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) {
+        return this.badRequest(res, "Please select a store first.");
+      }
+      // "All stores" has no single till to speed up, and merging ranks across
+      // stores would recommend items the current one may not even carry.
+      if (storeId === "all") return this.ok(res, []);
+      if (!(await this.checkStoreAccess(storeId, req, res))) return res;
+
+      const days = clampInt(req.query.days, TOP_SELLER_DEFAULT_DAYS, 1, 365);
+      const limit = clampInt(req.query.limit, TOP_SELLER_DEFAULT_LIMIT, 1, TOP_SELLER_MAX_LIMIT);
+
+      const ids = await storage.getTopSellingProductIds(storeId, days, limit);
+      return this.ok(res, ids);
+    } catch (error: any) {
+      // A missing strip is a cosmetic loss, not a broken till — the full grid
+      // below it still sells everything.
+      return this.ok(res, []);
     }
   }
 

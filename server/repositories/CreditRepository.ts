@@ -7,6 +7,8 @@ import {
   customers,
   checkouts,
   staff,
+  payrollDeductions,
+  payrollPeriods,
   type CreditEntry,
   type InsertCreditEntry,
   type Repayment,
@@ -16,6 +18,41 @@ import {
 } from "@shared/schema";
 import { eq, and, gte, lte, or, desc, sql, inArray, asc } from "drizzle-orm";
 import { resolveTransactionIdsForCheckouts } from "./TransactionRepository";
+import { getStoreTimezone } from "../lib/dateUtils";
+import { reconstructBalance, canRestoreWriteOff } from "../lib/creditBalance";
+
+/**
+ * The payroll period each of these debts was waived on, if any, and whether it
+ * has been paid. Queried here rather than through `storage` because storage
+ * constructs this repository — routing it that way would close an import cycle.
+ */
+export async function staffCreditPeriodStatusFor(
+  creditEntryIds: string[],
+): Promise<Map<string, { deductionId: string; periodId: string; periodStatus: string }>> {
+  if (creditEntryIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      deductionId: payrollDeductions.id,
+      creditEntryId: payrollDeductions.creditEntryId,
+      periodId: payrollPeriods.id,
+      periodStatus: payrollPeriods.status,
+    })
+    .from(payrollDeductions)
+    .innerJoin(payrollPeriods, eq(payrollDeductions.periodId, payrollPeriods.id))
+    .where(inArray(payrollDeductions.creditEntryId, creditEntryIds));
+
+  const byEntry = new Map<string, { deductionId: string; periodId: string; periodStatus: string }>();
+  for (const r of rows) {
+    if (!r.creditEntryId) continue;
+    // A paid period is the binding one: if any period locked this debt, that is
+    // what blocks the restore, so it wins over an open one.
+    if (byEntry.get(r.creditEntryId)?.periodStatus === "paid") continue;
+    byEntry.set(r.creditEntryId, {
+      deductionId: r.deductionId, periodId: r.periodId, periodStatus: r.periodStatus,
+    });
+  }
+  return byEntry;
+}
 
 export class CreditRepository extends BaseRepository<typeof creditEntries> {
   constructor() {
@@ -216,10 +253,26 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       repaymentTotals.map((r) => [r.creditEntryId, parseFloat(String(r.total || 0))])
     );
 
-    return mapped.map((item) => ({
-      ...item,
-      totalRepayments: repaidByEntry.get(item.id) || 0,
-    }));
+    // Whether each written-off row can still be undone, resolved here so the
+    // Borrow Book can grey out the ones it cannot and say why, rather than the
+    // action silently vanishing. Only written-off rows need the payroll lookup.
+    const writtenOffIds = mapped.filter(m => m.status === "written_off").map(m => m.id);
+    const linkedByEntry = await staffCreditPeriodStatusFor(writtenOffIds);
+    const tz = await getStoreTimezone(storeId);
+
+    return mapped.map((item) => {
+      const guard = item.status === "written_off"
+        ? canRestoreWriteOff(item, {
+            now, timezone: tz, linkedPeriodStatus: linkedByEntry.get(item.id)?.periodStatus,
+          })
+        : { allowed: false, reason: undefined };
+      return {
+        ...item,
+        totalRepayments: repaidByEntry.get(item.id) || 0,
+        canRestore: guard.allowed,
+        restoreBlockedReason: guard.allowed ? null : guard.reason ?? null,
+      };
+    });
   }
 
   async createCreditEntry(data: InsertCreditEntry): Promise<CreditEntry> {
@@ -318,20 +371,65 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
     return updated;
   }
 
+  /**
+   * Undoes a write-off, putting the debt back the way it was.
+   *
+   * Possible only because `writeOffDebt` zeroes `outstanding_balance` but leaves
+   * `amount_owed` and `amount_paid_upfront` alone, and repayments live in their
+   * own rows — so nothing about the original position is actually lost.
+   *
+   * Bad debt is derived, never journaled: the P&L computes it on the fly from
+   * `status = 'written_off'` (AnalyticsService.getWrittenOffBadDebtTotal), so
+   * flipping the status back removes the expense with no reversing entry. That
+   * is also why the caller must check the write-off is still in the current
+   * month — see canRestoreWriteOff.
+   */
+  async restoreWrittenOffDebt(id: string): Promise<CreditEntry | undefined> {
+    const [entry] = await db.select().from(creditEntries).where(eq(creditEntries.id, id));
+    if (!entry) return undefined;
+
+    const [repaid] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${repayments.amountReceived}), 0)` })
+      .from(repayments)
+      .where(eq(repayments.creditEntryId, id));
+
+    const { balance, status } = reconstructBalance(entry, Number(repaid?.total ?? 0));
+
+    const [updated] = await db
+      .update(creditEntries)
+      .set({
+        status,
+        writeOffReason: null,
+        outstandingBalance: balance,
+        updatedAt: new Date(),
+      })
+      .where(eq(creditEntries.id, id))
+      .returning();
+    return updated;
+  }
+
   async getRepayments(creditEntryId: string): Promise<any[]> {
     const rows = await db
       .select({
         repayment: repayments,
         staff: staff,
+        deduction: payrollDeductions,
       })
       .from(repayments)
       .leftJoin(staff, eq(repayments.recordedByStaffId, staff.id))
+      // A repayment withheld from salary was written by payroll settlement and
+      // is pointed at by the deduction line that recovered it. Carrying the
+      // period back here lets the Borrow Book link to the payslip it came off,
+      // which is the reverse of the receipt link on the payslip itself.
+      .leftJoin(payrollDeductions, eq(payrollDeductions.repaymentId, repayments.id))
       .where(eq(repayments.creditEntryId, creditEntryId))
       .orderBy(asc(repayments.createdAt));
 
     return rows.map((r) => ({
       ...r.repayment,
       recordedBy: r.staff?.name || "System/Owner",
+      payrollPeriodId: r.deduction?.periodId ?? null,
+      payrollStaffId: r.deduction?.staffId ?? null,
     }));
   }
 

@@ -8,11 +8,13 @@ import {
   inventory,
   transactions,
   attendanceRecords,
+  users,
+  organisationMembers,
   type Staff,
   type InsertStaff,
   type Store,
 } from "@shared/schema";
-import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull } from "drizzle-orm";
+import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull, inArray } from "drizzle-orm";
 import { commissionService } from "../services/CommissionService";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 
@@ -126,6 +128,43 @@ export class StaffRepository {
   async getStaffByUserId(userId: string): Promise<Staff | undefined> {
     const [result] = await db.select().from(staff).where(eq(staff.userId, userId));
     return result;
+  }
+
+  /**
+   * Raw material for the inviteStatus projection, fetched for a whole page of
+   * staff in one query so the list route stays O(1) in DB round-trips.
+   *
+   * Joins on organisation_members.user_id, NOT staff_id: that column holds the
+   * staffNumber ("EXB-001"), not staff.id, so it is useless as a join key here.
+   * The left join keeps users whose membership row is missing entirely, which
+   * is a real state - an invite that crashed between createUser and
+   * createOrganisationMember - and one that resend is expected to repair.
+   */
+  async getInviteProjection(userIds: string[], organisationId: string): Promise<Array<{
+    userId: string;
+    memberStatus: string | null;
+    createdByInvitation: boolean;
+    activationCodeUsed: boolean;
+    lastLoginAt: Date | null;
+  }>> {
+    if (userIds.length === 0) return [];
+    return db
+      .select({
+        userId: users.id,
+        memberStatus: organisationMembers.status,
+        createdByInvitation: users.createdByInvitation,
+        activationCodeUsed: users.activationCodeUsed,
+        lastLoginAt: users.lastLoginAt,
+      })
+      .from(users)
+      .leftJoin(
+        organisationMembers,
+        and(
+          eq(organisationMembers.userId, users.id),
+          eq(organisationMembers.organisationId, organisationId),
+        ),
+      )
+      .where(inArray(users.id, userIds));
   }
 
   async getStaffByEmail(email: string): Promise<(Staff & { store: Store }) | undefined> {

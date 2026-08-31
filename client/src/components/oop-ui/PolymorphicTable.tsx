@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -22,11 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -43,10 +37,10 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Filter,
   PackageOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DropdownFilter, MobileFilterChip } from "./PolymorphicTableFilters";
 
 const getNestedValue = (obj: any, path: string): any => {
   let val = obj;
@@ -134,289 +128,13 @@ export interface PolymorphicTableProps<T> {
   // list survives navigating to a detail page and back. Must be unique among tables rendered
   // on the same page.
   urlKey?: string;
-}
 
-interface DropdownFilterProps {
-  config: TableFilterConfig;
-  data: any[];
-  value: any;
-  onChange: (val: any) => void;
-}
-
-export function DropdownFilter({ config, data, value, onChange }: DropdownFilterProps) {
-  const [open, setOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState("");
-  
-  // Local state for range inputs to apply on blur
-  const [minInput, setMinInput] = useState("");
-  const [maxInput, setMaxInput] = useState("");
-  const [rangeError, setRangeError] = useState("");
-
-  // Sync range values when external change or clear occurs
-  useEffect(() => {
-    if (config.type === "range" || config.type === "date-range") {
-      const minVal = value?.min !== undefined ? String(value.min) : "";
-      const maxVal = value?.max !== undefined ? String(value.max) : "";
-      setMinInput(minVal);
-      setMaxInput(maxVal);
-      setRangeError("");
-    }
-  }, [value, config.type]);
-
-  if (config.type === "select") {
-    // Dynamic option extraction from actual data in the table
-    const options = React.useMemo(() => {
-      const uniqueVals = new Set<string>();
-      data.forEach((item) => {
-        const val = getNestedValue(item, config.key);
-        if (val !== undefined && val !== null && val !== "") {
-          const mapped = config.valueMapper ? config.valueMapper(val) : String(val);
-          uniqueVals.add(mapped);
-        }
-      });
-      return Array.from(uniqueVals).sort((a, b) => a.localeCompare(b));
-    }, [data, config.key, config.valueMapper]);
-
-    const selectedOptions = (value as string[]) || [];
-    const hasSearch = options.length > 10;
-    
-    const filteredOptions = options.filter((opt) =>
-      opt.toLowerCase().includes(searchValue.toLowerCase())
-    );
-
-    const handleSelectOption = (opt: string) => {
-      const next = selectedOptions.includes(opt)
-        ? selectedOptions.filter((o) => o !== opt)
-        : [...selectedOptions, opt];
-      onChange(next.length > 0 ? next : null);
-    };
-
-    const count = selectedOptions.length;
-    const isActive = count > 0;
-
-    return (
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant={isActive ? "secondary" : "outline"}
-            size="sm"
-            className={cn(
-              "h-9 px-3 text-xs font-semibold gap-1.5 border transition-all",
-              isActive && "bg-primary/5 border-primary/30 text-primary shadow-xs"
-            )}
-          >
-            <span>{config.label}</span>
-            {isActive && <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded-full text-[10px] font-bold">{count}</span>}
-            <span className="text-[10px] opacity-60">▾</span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-56 p-2" align="start">
-          <div className="space-y-2">
-            {hasSearch && (
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder={`Search ${config.label.toLowerCase()}...`}
-                  value={searchValue}
-                  onChange={(e) => setSearchValue(e.target.value)}
-                  className="pl-8 h-8 text-xs"
-                />
-              </div>
-            )}
-            <div className="max-h-56 overflow-y-auto space-y-1 py-1">
-              {filteredOptions.length === 0 ? (
-                <div className="text-[11px] text-muted-foreground p-2 text-center">No options found</div>
-              ) : (
-                filteredOptions.map((opt) => {
-                  const isChecked = selectedOptions.includes(opt);
-                  return (
-                    <label
-                      key={opt}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/60 cursor-pointer text-xs font-medium transition-colors"
-                    >
-                      <Checkbox
-                        checked={isChecked}
-                        onCheckedChange={() => handleSelectOption(opt)}
-                      />
-                      <span className="truncate">{opt}</span>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    );
-  }
-
-  if (config.type === "range") {
-    const isActive = (value?.min !== undefined && value?.min !== "") || (value?.max !== undefined && value?.max !== "");
-    
-    const handleBlur = () => {
-      const minNum = minInput !== "" ? Number(minInput) : "";
-      const maxNum = maxInput !== "" ? Number(maxInput) : "";
-
-      if (minNum !== "" && maxNum !== "" && minNum > maxNum) {
-        setRangeError("Min cannot be greater than Max");
-        return;
-      }
-      
-      setRangeError("");
-      onChange(minNum !== "" || maxNum !== "" ? { min: minNum, max: maxNum } : null);
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        handleBlur();
-      }
-    };
-
-    return (
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant={isActive ? "secondary" : "outline"}
-            size="sm"
-            className={cn(
-              "h-9 px-3 text-xs font-semibold gap-1.5 border transition-all",
-              isActive && "bg-primary/5 border-primary/30 text-primary shadow-xs"
-            )}
-          >
-            <span>{config.label}</span>
-            {isActive && (
-              <span className="text-[10px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                {minInput || "0"}-{maxInput || "∞"}
-              </span>
-            )}
-            <span className="text-[10px] opacity-60">▾</span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 p-4 space-y-3" align="start">
-          <div className="space-y-1">
-            <h4 className="text-xs font-bold text-foreground">{config.label} Range</h4>
-            <p className="text-[10px] text-muted-foreground">Press Enter or click outside to apply</p>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label className="text-[10px]">Min {config.currencySymbol || ""}</Label>
-              <Input
-                type="number"
-                min="0"
-                step="1"
-                placeholder="Min"
-                value={minInput}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "" || Number(val) >= 0) {
-                    setMinInput(val);
-                  }
-                }}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">Max {config.currencySymbol || ""}</Label>
-              <Input
-                type="number"
-                min="0"
-                step="1"
-                placeholder="Max"
-                value={maxInput}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "" || Number(val) >= 0) {
-                    setMaxInput(val);
-                  }
-                }}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-          </div>
-          {rangeError && (
-            <p className="text-[10px] font-semibold text-destructive animate-pulse">{rangeError}</p>
-          )}
-        </PopoverContent>
-      </Popover>
-    );
-  }
-
-  if (config.type === "date-range") {
-    const isActive = (value?.min !== undefined && value?.min !== "") || (value?.max !== undefined && value?.max !== "");
-
-    const handleBlur = () => {
-      const minDate = minInput || "";
-      const maxDate = maxInput || "";
-
-      if (minDate && maxDate && new Date(minDate) > new Date(maxDate)) {
-        setRangeError("Min cannot be greater than Max");
-        return;
-      }
-
-      setRangeError("");
-      onChange(minDate || maxDate ? { min: minDate, max: maxDate } : null);
-    };
-
-    return (
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant={isActive ? "secondary" : "outline"}
-            size="sm"
-            className={cn(
-              "h-9 px-3 text-xs font-semibold gap-1.5 border transition-all",
-              isActive && "bg-primary/5 border-primary/30 text-primary shadow-xs"
-            )}
-          >
-            <span>{config.label}</span>
-            {isActive && (
-              <span className="text-[10px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                Date Range
-              </span>
-            )}
-            <span className="text-[10px] opacity-60">▾</span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 p-4 space-y-3" align="start">
-          <div className="space-y-1">
-            <h4 className="text-xs font-bold text-foreground">{config.label} Range</h4>
-            <p className="text-[10px] text-muted-foreground">Select date bounds to filter</p>
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <div className="space-y-1">
-              <Label className="text-[10px]">From Date</Label>
-              <Input
-                type="date"
-                value={minInput}
-                onChange={(e) => setMinInput(e.target.value)}
-                onBlur={handleBlur}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[10px]">To Date</Label>
-              <Input
-                type="date"
-                value={maxInput}
-                onChange={(e) => setMaxInput(e.target.value)}
-                onBlur={handleBlur}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-          </div>
-          {rangeError && (
-            <p className="text-[10px] font-semibold text-destructive animate-pulse">{rangeError}</p>
-          )}
-        </PopoverContent>
-      </Popover>
-    );
-  }
-
-  return null;
+  // Always render the card list, never the spreadsheet-style table — even on desktop.
+  // For a table with enough columns that the desktop view would need horizontal
+  // scroll to see the rest, a scroll bar most people never notice they can use is
+  // worse than a layout that fits: the card list shows every column's value with
+  // nothing to discover, at any width.
+  forceCardView?: boolean;
 }
 
 export function PolymorphicTable<T extends { id: string | number }>({
@@ -444,6 +162,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
 
   onVisibleDataChange,
   urlKey,
+  forceCardView = false,
 }: PolymorphicTableProps<T>) {
   const [initialUrlState] = useState(() => readTableStateFromUrl(urlKey));
   const [location, setLocation] = useLocation();
@@ -456,7 +175,6 @@ export function PolymorphicTable<T extends { id: string | number }>({
 
   // Advanced filters state
   const [activeFilters, setActiveFilters] = useState<Record<string, any>>(initialUrlState?.f ?? {});
-  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [mobileDetailItem, setMobileDetailItem] = useState<T | null>(null);
 
   // Uncontrolled fallback for multiselect
@@ -799,28 +517,29 @@ export function PolymorphicTable<T extends { id: string | number }>({
             </div>
           )}
           
-          {/* Mobile Filter Trigger Button */}
+          {/* Mobile Filters: one chip per filter, mirroring the desktop toolbar above —
+              tapping a chip opens a bottom sheet scoped to just that filter, instead of
+              one combined form covering every filter at once. */}
           {filterConfigs.length > 0 && (
-            <div className="md:hidden flex items-center gap-2 w-full sm:w-auto">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsMobileFiltersOpen(true)}
-                className={cn(
-                  "h-9 px-3 gap-2 text-xs font-semibold w-full sm:w-auto justify-center",
-                  hasActiveFilters && "bg-primary/5 border-primary/30 text-primary"
-                )}
-              >
-                <Filter className="h-3.5 w-3.5" />
-                Filters {hasActiveFilters && `(${Object.keys(activeFilters).length})`} ▾
-              </Button>
-              
+            <div className="md:hidden flex items-center gap-2 w-full">
+              <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5">
+                {filterConfigs.map((config) => (
+                  <MobileFilterChip
+                    key={config.key}
+                    config={config}
+                    data={data}
+                    value={activeFilters[config.key]}
+                    onChange={(val) => handleFilterChange(config.key, val)}
+                  />
+                ))}
+              </div>
+
               {hasActiveFilters && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={clearAllFilters}
-                  className="text-xs text-muted-foreground px-2 h-9"
+                  className="text-xs text-muted-foreground px-2 h-9 flex-shrink-0"
                 >
                   Clear All
                 </Button>
@@ -835,7 +554,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
         </div>
       </div>
 
-      <div className="hidden lg:block rounded-md border bg-card text-card-foreground overflow-x-auto max-w-full">
+      <div className={cn(forceCardView ? "hidden" : "hidden lg:block", "rounded-md border bg-card text-card-foreground overflow-x-auto max-w-full")}>
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30">
@@ -943,8 +662,8 @@ export function PolymorphicTable<T extends { id: string | number }>({
         </Table>
       </div>
 
-      {/* Mobile / Tablet View: Beautiful Card List */}
-      <div className="lg:hidden space-y-4">
+      {/* Mobile / Tablet View: Beautiful Card List. Also used at every width when forceCardView is set. */}
+      <div className={cn(forceCardView ? "block" : "lg:hidden", "space-y-4")}>
         {paginatedData.length === 0 ? (
           <div className="rounded-xl border bg-card p-12 text-center shadow-xs border-muted/80">
             {hasActiveFilters || searchTerm ? (
@@ -970,7 +689,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
             )}
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 w-full min-w-0">
+          <div className={cn("grid gap-4 sm:grid-cols-2 w-full min-w-0", forceCardView && "xl:grid-cols-3")}>
             {paginatedData.map((item) => {
               const isSelected = currentSelectedIds.includes(item.id);
               const actionsCol = columns.find(col => col.key === "actions");
@@ -1147,152 +866,6 @@ export function PolymorphicTable<T extends { id: string | number }>({
           </div>
         )}
       </div>
-
-      {/* Mobile Filters Sheet/Dialog */}
-      <Dialog open={isMobileFiltersOpen} onOpenChange={setIsMobileFiltersOpen}>
-        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Filter className="h-5 w-5 text-primary" />
-              Table Filters
-            </DialogTitle>
-            <DialogDescription>
-              Narrow down results using criteria filters below.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-5 py-4">
-            {filterConfigs.map((config) => {
-              const value = activeFilters[config.key];
-              return (
-                <div key={`mobile-${config.key}`} className="space-y-2 border-b pb-4 last:border-0 last:pb-0">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{config.label}</h4>
-                  
-                  {config.type === "select" ? (
-                    <div className="space-y-2">
-                      {(() => {
-                        const uniqueVals = new Set<string>();
-                        data.forEach((item) => {
-                          const val = getNestedValue(item, config.key);
-                          if (val !== undefined && val !== null && val !== "") {
-                            const mapped = config.valueMapper ? config.valueMapper(val) : String(val);
-                            uniqueVals.add(mapped);
-                          }
-                        });
-                        const options = Array.from(uniqueVals).sort((a, b) => a.localeCompare(b));
-                        const selectedOptions = (value as string[]) || [];
-
-                        return (
-                          <div className="grid grid-cols-2 gap-2">
-                            {options.map((opt) => {
-                              const isChecked = selectedOptions.includes(opt);
-                              return (
-                                <label
-                                  key={opt}
-                                  className={cn(
-                                    "flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-all text-xs font-semibold cursor-pointer",
-                                    isChecked
-                                      ? "bg-primary/5 border-primary/30 text-primary shadow-xs"
-                                      : "bg-background border-muted/50 text-muted-foreground hover:bg-muted/10"
-                                  )}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => {
-                                      const next = isChecked
-                                        ? selectedOptions.filter((o) => o !== opt)
-                                        : [...selectedOptions, opt];
-                                      handleFilterChange(config.key, next.length > 0 ? next : null);
-                                    }}
-                                    className="rounded border-muted text-primary focus:ring-primary h-4 w-4"
-                                  />
-                                  <span className="truncate">{opt}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  ) : config.type === "range" ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">Min {config.currencySymbol || ""}</Label>
-                        <Input
-                          type="number"
-                          placeholder="Min"
-                          value={value?.min !== undefined ? value.min : ""}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === "" || Number(val) >= 0) {
-                              const nextMax = value?.max !== undefined ? value.max : "";
-                              handleFilterChange(config.key, val !== "" || nextMax !== "" ? { min: val === "" ? "" : Number(val), max: nextMax } : null);
-                            }
-                          }}
-                          className="h-9 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">Max {config.currencySymbol || ""}</Label>
-                        <Input
-                          type="number"
-                          placeholder="Max"
-                          value={value?.max !== undefined ? value.max : ""}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === "" || Number(val) >= 0) {
-                              const nextMin = value?.min !== undefined ? value.min : "";
-                              handleFilterChange(config.key, nextMin !== "" || val !== "" ? { min: nextMin, max: val === "" ? "" : Number(val) } : null);
-                            }
-                          }}
-                          className="h-9 text-xs"
-                        />
-                      </div>
-                    </div>
-                  ) : config.type === "date-range" ? (
-                    <div className="grid grid-cols-1 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">From Date</Label>
-                        <Input
-                          type="date"
-                          value={value?.min !== undefined ? value.min : ""}
-                          onChange={(e) => {
-                            const nextMax = value?.max !== undefined ? value.max : "";
-                            handleFilterChange(config.key, e.target.value || nextMax ? { min: e.target.value, max: nextMax } : null);
-                          }}
-                          className="h-9 text-xs font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">To Date</Label>
-                        <Input
-                          type="date"
-                          value={value?.max !== undefined ? value.max : ""}
-                          onChange={(e) => {
-                            const nextMin = value?.min !== undefined ? value.min : "";
-                            handleFilterChange(config.key, nextMin || e.target.value ? { min: nextMin, max: e.target.value } : null);
-                          }}
-                          className="h-9 text-xs font-mono"
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            {hasActiveFilters && (
-              <Button variant="outline" onClick={clearAllFilters} className="text-xs">
-                Clear Filters
-              </Button>
-            )}
-            <Button onClick={() => setIsMobileFiltersOpen(false)} className="text-xs min-w-[100px]">
-              Apply Filters
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

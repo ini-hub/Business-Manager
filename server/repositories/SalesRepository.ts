@@ -979,11 +979,17 @@ export class SalesRepository {
   }
 
   // ─── voidCheckout ─────────────────────────────────────────────────────────
-  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string }> {
+  async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string; voidedCreditCustomerIds?: string[]; voidedStoreId?: string }> {
     try {
       let voidedStoreId = "";
       let voidedReceiptNumber = "";
       let checkoutCreatedAt: Date | null = null;
+      // A checkout can carry its own credit entry (checked out as "Owe"). Voiding
+      // the sale must void that debt with it — otherwise it keeps aging in the
+      // Borrow Book, gets garnished from a staff member's pay, and shows up on a
+      // customer statement for a sale that never happened. Collected here so the
+      // caller can re-sync any payroll proposal that was resting on it.
+      const voidedCreditCustomerIds = new Set<string>();
 
       await db.transaction(async (tx) => {
         const [primaryCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, checkoutId));
@@ -1002,6 +1008,20 @@ export class SalesRepository {
           await tx.update(checkouts)
             .set({ isVoided: true, voidedAt: new Date(), voidedByUserId, voidReason: reason })
             .where(eq(checkouts.id, checkout.id));
+
+          // Void any still-open debt this checkout created. Already settled,
+          // written-off, or previously-voided entries are left alone — this only
+          // catches the one status a voided sale's debt should never keep.
+          const linkedDebts = await tx.select().from(creditEntries).where(and(
+            eq(creditEntries.linkedTransactionId, checkout.id),
+            inArray(creditEntries.status, ["owing", "partial", "overdue"]),
+          ));
+          for (const debt of linkedDebts) {
+            await tx.update(creditEntries)
+              .set({ status: "void", outstandingBalance: 0, updatedAt: new Date() })
+              .where(eq(creditEntries.id, debt.id));
+            voidedCreditCustomerIds.add(debt.customerId);
+          }
 
           const [order] = await tx.select().from(orders).where(eq(orders.id, checkout.orderId));
           if (!order) continue;
@@ -1062,7 +1082,13 @@ export class SalesRepository {
         }
       }
 
-      return { success: true, message: "Transaction voided successfully.", payrollWarning };
+      return {
+        success: true,
+        message: "Transaction voided successfully.",
+        payrollWarning,
+        voidedCreditCustomerIds: voidedCreditCustomerIds.size > 0 ? Array.from(voidedCreditCustomerIds) : undefined,
+        voidedStoreId: voidedCreditCustomerIds.size > 0 ? voidedStoreId : undefined,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not void transaction.";
       return { success: false, message };

@@ -88,6 +88,12 @@ const managementItems: MenuItem[] = [
     allowedRoles: ["owner", "manager"],
   },
   {
+    title: "My Attendance",
+    url: "/staff/attendance",
+    icon: CalendarDays,
+    allowedRoles: ["staff"],
+  },
+  {
     title: "Inventory",
     url: "/inventory",
     icon: Package,

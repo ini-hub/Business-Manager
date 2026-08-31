@@ -46,9 +46,11 @@ export default function PayrollReportPage() {
 
   if (!currentStore) return <StoreRequiredAlert />;
 
-  const totalPaid = report.filter(r => r.status === "paid").reduce((s, r) => s + r.totalNetPay, 0);
+  // "Paid" means cash that left the business, so this totals take-home rather
+  // than gross — summing totalNetPay overstated it by every deduction ever made.
+  const totalPaid = report.filter(r => r.status === "paid").reduce((s, r) => s + (r.totalTakeHome ?? r.totalNetPay), 0);
   const totalStaff = report.reduce((s, r) => s + r.staffCount, 0);
-  const visibleTotalPaid = visibleReport.filter((r) => r.status === "paid").reduce((s, r) => s + r.totalNetPay, 0);
+  const visibleTotalPaid = visibleReport.filter((r) => r.status === "paid").reduce((s, r) => s + (r.totalTakeHome ?? r.totalNetPay), 0);
   const visibleTotalStaff = visibleReport.reduce((s, r) => s + r.staffCount, 0);
 
   const exportColumns = [
@@ -60,7 +62,8 @@ export default function PayrollReportPage() {
     { key: "totalGrossCommission", header: "Commission" },
     { key: "totalTransport", header: "Transport" },
     { key: "totalDeductions", header: "Deductions" },
-    { key: "totalNetPay", header: "Net Pay" },
+    { key: "totalNetPay", header: "Gross" },
+    { key: "totalTakeHome", header: "Net Pay" },
     { key: "paidAt", header: "Paid At" },
   ];
 
@@ -110,8 +113,13 @@ export default function PayrollReportPage() {
     },
     {
       key: "totalNetPay",
+      header: "Gross",
+      render: (r: any) => <span className="font-mono text-sm text-muted-foreground">{fmt(r.totalNetPay)}</span>,
+    },
+    {
+      key: "totalTakeHome",
       header: "Net Pay",
-      render: (r: any) => <span className="font-mono font-bold text-sm text-primary">{fmt(r.totalNetPay)}</span>,
+      render: (r: any) => <span className="font-mono font-bold text-sm text-primary">{fmt(r.totalTakeHome ?? r.totalNetPay)}</span>,
     },
     {
       key: "paidAt",
@@ -150,10 +158,10 @@ export default function PayrollReportPage() {
                 columns: [
                   { key: "periodType", header: "Type" },
                   { key: "status", header: "Status" },
-                  { key: "totalNetPay", header: "Net Pay", align: "right" as const, format: (r: Record<string, unknown>) => fmt(r.totalNetPay as number) },
+                  { key: "totalTakeHome", header: "Net Pay", align: "right" as const, format: (r: Record<string, unknown>) => fmt((r.totalTakeHome ?? r.totalNetPay) as number) },
                 ],
                 rows: report as unknown as Record<string, unknown>[],
-                amountKey: "totalNetPay",
+                amountKey: "totalTakeHome",
                 formatAmount: fmt,
                 statusKey: "status",
                 unitLabel: "periods",
@@ -170,10 +178,10 @@ export default function PayrollReportPage() {
                 columns: [
                   { key: "periodType", header: "Type" },
                   { key: "status", header: "Status" },
-                  { key: "totalNetPay", header: "Net Pay", align: "right" as const, format: (r: Record<string, unknown>) => fmt(r.totalNetPay as number) },
+                  { key: "totalTakeHome", header: "Net Pay", align: "right" as const, format: (r: Record<string, unknown>) => fmt((r.totalTakeHome ?? r.totalNetPay) as number) },
                 ],
                 rows: visibleReport as unknown as Record<string, unknown>[],
-                amountKey: "totalNetPay",
+                amountKey: "totalTakeHome",
                 formatAmount: fmt,
                 statusKey: "status",
                 unitLabel: "periods",

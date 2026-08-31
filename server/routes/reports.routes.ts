@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
+import { getStoreTimezone, toUtcStart, toUtcEnd, storeToday } from "../lib/dateUtils";
 import { formatInTimeZone } from "date-fns-tz";
 import { storage } from "../storage";
+import { attendanceService } from "../services/AttendanceService";
 import { isAuthenticated } from "../auth";
 import {
   insertBusinessSchema,
@@ -36,6 +37,7 @@ import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitize
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
+import { payrollPostingService } from "../services/PayrollPostingService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
@@ -259,6 +261,374 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
+  // ── Staff rosters ─────────────────────────────────────────────────────────
+  // Which days each staff member is off. Replaces the rule the payroll engine
+  // used to hardcode ("Sundays are off-days"), which no salon actually follows.
+
+  app.get("/api/attendance/schedules", isAuthenticated, async (req, res) => {
+    try {
+      const { storeId, startDate, endDate } = req.query as Record<string, string>;
+      if (!storeId) return res.status(400).json({ error: "Store ID required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const settings = await storage.getSettings(storeId);
+      const [schedules, exceptions] = await Promise.all([
+        storage.getStaffSchedules(storeId),
+        startDate && endDate
+          ? storage.getStaffScheduleExceptions(storeId, startDate, endDate)
+          : Promise.resolve([]),
+      ]);
+
+      res.json({
+        defaultWeeklyOffDays: settings?.defaultWeeklyOffDays ?? [0],
+        schedules,
+        exceptions,
+      });
+    } catch (error) {
+      console.error("Load schedules error:", error);
+      res.status(500).json({ error: "Could not load staff schedules." });
+    }
+  });
+
+  app.put("/api/attendance/schedules/:staffId", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { storeId, weeklyOffDays } = req.body;
+      if (!storeId) return res.status(400).json({ error: "storeId is required." });
+      if (!Array.isArray(weeklyOffDays)) {
+        return res.status(400).json({ error: "weeklyOffDays must be an array of day numbers (0 = Sunday)." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const days = Array.from(new Set(
+        weeklyOffDays
+          .map((d: unknown) => Math.round(Number(d)))
+          .filter((d: number) => Number.isInteger(d) && d >= 0 && d <= 6),
+      )).sort((a, b) => a - b);
+
+      const userId = (req as any).user?.id;
+      const schedule = await storage.upsertStaffSchedule(storeId, req.params.staffId, days, userId);
+
+      // A roster change re-types every unmarked day in the open period, so the
+      // pending payroll has to be recomputed even though no single date changed.
+      triggerAutoRecalculate(storeId, await storeToday(storeId)).catch(console.error);
+      broadcastChange(req, "attendance", storeId, "updated");
+
+      res.json(schedule);
+    } catch (error) {
+      console.error("Save schedule error:", error);
+      res.status(500).json({ error: "Could not save the staff schedule." });
+    }
+  });
+
+  app.post("/api/attendance/schedule-exceptions", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { storeId, staffId, date, kind, reason } = req.body;
+      if (!storeId || !staffId || !date || !kind) {
+        return res.status(400).json({ error: "storeId, staffId, date and kind are required." });
+      }
+      if (kind !== "off" && kind !== "working") {
+        return res.status(400).json({ error: "kind must be either 'off' or 'working'." });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: "date must be in YYYY-MM-DD format." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const exception = await storage.upsertStaffScheduleException({
+        storeId, staffId, date, kind, reason: reason ?? null,
+        createdByUserId: (req as any).user?.id ?? null,
+      });
+
+      triggerAutoRecalculate(storeId, date).catch(console.error);
+      broadcastChange(req, "attendance", storeId, "updated");
+
+      res.status(201).json(exception);
+    } catch (error) {
+      console.error("Save schedule exception error:", error);
+      res.status(500).json({ error: "Could not save the schedule exception." });
+    }
+  });
+
+  // ── Self-service clock-in ─────────────────────────────────────────────────
+  // These routes never read staffId or storeId from the body. The caller's own
+  // staff record is the only identity that counts — same rule as
+  // GET /api/payroll/my-summary, and the reason a staff member cannot punch in
+  // a colleague by editing a request.
+
+  const resolveOwnStaff = async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const staffRecord = await storage.getStaffByUserId(user.id);
+    if (!staffRecord) {
+      res.status(404).json({ error: "No staff record is linked to your account. Ask your manager to link it." });
+      return null;
+    }
+    return staffRecord;
+  };
+
+  app.get("/api/attendance/today", isAuthenticated, async (req, res) => {
+    try {
+      const staffRecord = await resolveOwnStaff(req, res);
+      if (!staffRecord) return;
+      res.json(await attendanceService.getTodayContext(staffRecord.storeId, staffRecord.id));
+    } catch (error) {
+      console.error("Clock-in context error:", error);
+      res.status(500).json({ error: "Could not load your attendance for today." });
+    }
+  });
+
+  app.post("/api/attendance/punch", isAuthenticated, async (req, res) => {
+    try {
+      const staffRecord = await resolveOwnStaff(req, res);
+      if (!staffRecord) return;
+
+      const { kind, latitude, longitude, accuracyMeters, deviceId, clientPunchId, clientCapturedAt, queued } = req.body;
+      if (kind !== "clock_in" && kind !== "clock_out") {
+        return res.status(400).json({ error: "kind must be either 'clock_in' or 'clock_out'." });
+      }
+
+      const result = await attendanceService.recordPunch({
+        storeId: staffRecord.storeId,
+        staffId: staffRecord.id,
+        kind,
+        source: queued ? "offline_replay" : "self",
+        latitude: latitude ?? null,
+        longitude: longitude ?? null,
+        accuracyMeters: accuracyMeters ?? null,
+        deviceId: deviceId ?? null,
+        userAgent: req.get("user-agent") ?? null,
+        ipAddress: req.ip ?? null,
+        clientPunchId: clientPunchId ?? null,
+        clientCapturedAt: clientCapturedAt ? new Date(clientCapturedAt) : null,
+        queued: !!queued,
+        recordedByUserId: (req as any).user?.id ?? null,
+      });
+
+      if (!result.ok) {
+        // Object form so throwIfResNotOk surfaces `code` to the client — the UI
+        // has to tell "you are 180 m away" apart from "your GPS is too vague".
+        return res.status(result.status).json({
+          error: {
+            message: result.message,
+            code: result.code,
+            distanceMeters: result.distanceMeters,
+            radiusMeters: result.radiusMeters,
+          },
+        });
+      }
+
+      triggerAutoRecalculate(staffRecord.storeId, result.localDate).catch(console.error);
+      broadcastChange(req, "attendance", staffRecord.storeId, "updated");
+
+      res.status(result.replayed ? 200 : 201).json(result);
+    } catch (error) {
+      console.error("Punch error:", error);
+      res.status(500).json({ error: "Could not record your clock-in." });
+    }
+  });
+
+  // The manager's safety valve: a phone that died, a staff member with no
+  // smartphone at all. Reason is mandatory so the audit trail says why.
+  app.post("/api/attendance/punch/proxy", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { storeId, staffId, kind, reason, effectiveAt } = req.body;
+      if (!storeId || !staffId) return res.status(400).json({ error: "storeId and staffId are required." });
+      if (kind !== "clock_in" && kind !== "clock_out") {
+        return res.status(400).json({ error: "kind must be either 'clock_in' or 'clock_out'." });
+      }
+      if (typeof reason !== "string" || reason.trim().length === 0) {
+        return res.status(400).json({ error: "A reason is required when clocking in on someone's behalf." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const result = await attendanceService.recordPunch({
+        storeId,
+        staffId,
+        kind,
+        source: "manager_proxy",
+        skipGeofence: true,
+        effectiveAtOverride: effectiveAt ? new Date(effectiveAt) : null,
+        reason: reason.trim(),
+        recordedByUserId: (req as any).user?.id ?? null,
+      });
+
+      if (!result.ok) return res.status(result.status).json({ error: { message: result.message, code: result.code } });
+
+      triggerAutoRecalculate(storeId, result.localDate).catch(console.error);
+      broadcastChange(req, "attendance", storeId, "updated");
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Proxy punch error:", error);
+      res.status(500).json({ error: "Could not record the clock-in." });
+    }
+  });
+
+  app.get("/api/attendance/punches", isAuthenticated, async (req, res) => {
+    try {
+      const { storeId, startDate, endDate } = req.query as Record<string, string>;
+      if (!storeId || !startDate || !endDate) {
+        return res.status(400).json({ error: "storeId, startDate and endDate are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      res.json(await attendanceService.listPunches(storeId, startDate, endDate));
+    } catch (error) {
+      res.status(500).json({ error: "Could not load the clock-in log." });
+    }
+  });
+
+  // ── Retro-requests ────────────────────────────────────────────────────────
+
+  app.post("/api/attendance/retro-requests", isAuthenticated, async (req, res) => {
+    try {
+      const staffRecord = await resolveOwnStaff(req, res);
+      if (!staffRecord) return;
+
+      const { date, requestedKind, requestedAt, reason } = req.body;
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: "date must be in YYYY-MM-DD format." });
+      }
+      if (typeof reason !== "string" || reason.trim().length === 0) {
+        return res.status(400).json({ error: "Tell your manager what happened." });
+      }
+
+      const result = await attendanceService.createRetroRequest({
+        storeId: staffRecord.storeId,
+        staffId: staffRecord.id,
+        date,
+        requestedKind: requestedKind === "clock_out" ? "clock_out" : "clock_in",
+        requestedAt: requestedAt ? new Date(requestedAt) : new Date(`${date}T09:00:00Z`),
+        reason: reason.trim(),
+      });
+
+      if (!result.ok) return res.status(result.status).json({ error: result.message });
+
+      broadcastChange(req, "attendance", staffRecord.storeId, "updated");
+      res.status(201).json(result.request);
+    } catch (error: any) {
+      // The partial unique index is the real guard against duplicate open requests.
+      if (String(error?.code) === "23505") {
+        return res.status(409).json({ error: "You already have an open request for that date." });
+      }
+      console.error("Retro request error:", error);
+      res.status(500).json({ error: "Could not submit your request." });
+    }
+  });
+
+  app.get("/api/attendance/retro-requests", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const status = req.query.status as string | undefined;
+
+      // Staff see only their own; managers and owners see the store's queue.
+      if (user?.role === "staff") {
+        const staffRecord = await resolveOwnStaff(req, res);
+        if (!staffRecord) return;
+        return res.json(await attendanceService.listRetroRequests(staffRecord.storeId, { staffId: staffRecord.id, status }));
+      }
+
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      res.json(await attendanceService.listRetroRequests(storeId, { status }));
+    } catch (error) {
+      res.status(500).json({ error: "Could not load missed clock-in requests." });
+    }
+  });
+
+  app.post("/api/attendance/retro-requests/:id/approve", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { clearsLateFlag, note } = req.body ?? {};
+      const result = await attendanceService.approveRetroRequest(
+        req.params.id,
+        (req as any).user?.id ?? null,
+        !!clearsLateFlag,
+        note,
+      );
+      if (!result.ok) return res.status(result.status).json({ error: result.message });
+
+      const request = result.request!;
+      triggerAutoRecalculate(request.storeId, request.date).catch(console.error);
+      broadcastChange(req, "attendance", request.storeId, "updated");
+      res.json(result);
+    } catch (error) {
+      console.error("Approve retro request error:", error);
+      res.status(500).json({ error: "Could not approve the request." });
+    }
+  });
+
+  app.post("/api/attendance/retro-requests/:id/reject", requireManagerOrOwner, async (req, res) => {
+    try {
+      const note = req.body?.note;
+      if (typeof note !== "string" || note.trim().length === 0) {
+        return res.status(400).json({ error: "Give a reason so the staff member knows why." });
+      }
+      const result = await attendanceService.rejectRetroRequest(req.params.id, (req as any).user?.id ?? null, note.trim());
+      if (!result.ok) return res.status(result.status).json({ error: result.message });
+
+      broadcastChange(req, "attendance", result.request!.storeId, "updated");
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not reject the request." });
+    }
+  });
+
+  // ── Devices ───────────────────────────────────────────────────────────────
+  // One phone that clocked in several people is the one thing the geofence
+  // cannot see, because everybody involved really is at the salon.
+
+  app.get("/api/attendance/devices", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      res.json(await attendanceService.listDevices(storeId));
+    } catch (error) {
+      res.status(500).json({ error: "Could not load clock-in devices." });
+    }
+  });
+
+  app.post("/api/attendance/devices/:id/approve", requireManagerOrOwner, async (req, res) => {
+    try {
+      const device = await attendanceService.setDeviceApproval(req.params.id, (req as any).user?.id ?? null, false);
+      if (!device) return res.status(404).json({ error: "Device not found." });
+      broadcastChange(req, "attendance", device.storeId, "updated");
+      res.json(device);
+    } catch (error) {
+      res.status(500).json({ error: "Could not approve the device." });
+    }
+  });
+
+  app.post("/api/attendance/devices/:id/revoke", requireManagerOrOwner, async (req, res) => {
+    try {
+      const device = await attendanceService.setDeviceApproval(req.params.id, null, true);
+      if (!device) return res.status(404).json({ error: "Device not found." });
+      broadcastChange(req, "attendance", device.storeId, "updated");
+      res.json(device);
+    } catch (error) {
+      res.status(500).json({ error: "Could not revoke the device." });
+    }
+  });
+
+  app.delete("/api/attendance/schedule-exceptions", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { storeId, staffId, date } = req.query as Record<string, string>;
+      if (!storeId || !staffId || !date) {
+        return res.status(400).json({ error: "storeId, staffId and date are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      await storage.deleteStaffScheduleException(storeId, staffId, date);
+
+      triggerAutoRecalculate(storeId, date).catch(console.error);
+      broadcastChange(req, "attendance", storeId, "updated");
+
+      res.status(204).end();
+    } catch (error) {
+      console.error("Delete schedule exception error:", error);
+      res.status(500).json({ error: "Could not remove the schedule exception." });
+    }
+  });
+
   app.post("/api/expenses/bulk", requireManagerOrOwner, async (req, res) => {
     try {
       const storeId = req.body.storeId;
@@ -373,7 +743,18 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       let operatingExpensesCashOut = 0;
       let operatingExpensesNonCashOut = 0;
 
+      // Payroll is excluded here and taken from the ledger below. It used to
+      // reach this statement as a mirror row in `expenses`, which forced every
+      // reader of that table to know about a fake row and forced payroll cash
+      // to be reported as "cash" whatever it was actually paid by.
+      const payrollCategoryIds = new Set(
+        (await storage.getExpenseCategories(storeId))
+          .filter(c => c.isSystem && c.name === "Payroll")
+          .map(c => c.id)
+      );
+
       for (const exp of expensesList) {
+        if (exp.categoryId && payrollCategoryIds.has(exp.categoryId)) continue;
         if (exp.paymentMethod === "cash") {
           operatingExpensesCashOut += exp.amount;
         } else if (exp.paymentMethod === "split" && exp.splitPayments) {
@@ -384,6 +765,10 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
           operatingExpensesNonCashOut += exp.amount;
         }
       }
+
+      // Payroll cash, straight from the ledger: net of every deduction, dated
+      // the day the period was paid.
+      operatingExpensesCashOut += await payrollPostingService.getCashOut(storeId, startStr, endStr);
 
       // Cash Drawer Float discrepancy / Drops
       const sessionDrops = await db

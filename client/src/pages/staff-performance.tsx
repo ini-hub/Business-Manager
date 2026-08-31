@@ -504,8 +504,8 @@ export default function StaffPerformancePage() {
                 {breakdownData?.services.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">No services in this period.</p>
                 ) : (
-                  <div className="rounded-md border text-xs overflow-hidden">
-                    <table className="w-full">
+                  <div className="rounded-md border text-xs overflow-x-auto">
+                    <table className="w-full min-w-[480px]">
                       <thead className="bg-muted/50">
                         <tr>
                           <th className="text-left px-3 py-2 font-medium">Service</th>
@@ -560,8 +560,8 @@ export default function StaffPerformancePage() {
                 {breakdownData?.products.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">No products in this period.</p>
                 ) : (
-                  <div className="rounded-md border text-xs overflow-hidden">
-                    <table className="w-full">
+                  <div className="rounded-md border text-xs overflow-x-auto">
+                    <table className="w-full min-w-[480px]">
                       <thead className="bg-muted/50">
                         <tr>
                           <th className="text-left px-3 py-2 font-medium">Product</th>

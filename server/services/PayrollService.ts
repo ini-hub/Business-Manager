@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
+import { getStoreTimezone, toUtcStart, toUtcEnd, storeLocalDate } from "../lib/dateUtils";
 import { eq, and, gte, lte, gt, inArray } from "drizzle-orm";
 import {
   payrollPeriods,
@@ -10,15 +10,21 @@ import {
   orders,
   inventory,
   attendanceRecords,
-  transactions,
   type Settings,
   type PayrollEntryWithStaff,
   type DailySummaryLine,
   type CommissionBreakdown,
+  type CommissionReconciliation,
+  type PayrollDrilldown,
 } from "@shared/schema";
+import { explainCommission, formulaLabel } from "@shared/commission-explainer";
 import { storage } from "../storage";
-import { CommissionSplitCalculator } from "./CommissionService";
+import { classifyDay, transportForDay } from "./attendance/dayTyping";
+import { buildScheduleResolver, exceptionKey, type ScheduleResolver } from "./attendance/scheduleResolver";
 import { staffCreditDeductionService } from "./StaffCreditDeductionService";
+import { salaryAdvanceDeductionService } from "./SalaryAdvanceDeductionService";
+import { lateArrivalDeductionService } from "./LateArrivalDeductionService";
+import { commissionForFormula } from "./payroll/commissionFormula";
 
 export class PayrollService {
   /**
@@ -31,8 +37,6 @@ export class PayrollService {
 
     const store = await storage.getStore(period.storeId);
     if (!store) throw new Error("Store not found");
-    const business = await storage.getBusinessById(store.businessId);
-    const splitCalculator = new CommissionSplitCalculator(business, store);
 
     // Fetch store settings snapshot or current settings
     const storeSettings = await storage.getSettings(period.storeId);
@@ -83,6 +87,8 @@ export class PayrollService {
       }
     }
 
+    const timezone = await getStoreTimezone(period.storeId);
+
     // Fetch all checkouts in period date range
     const periodCheckouts = await db.select({
       checkout: checkouts,
@@ -95,8 +101,8 @@ export class PayrollService {
       .where(and(
         eq(checkouts.storeId, period.storeId),
         eq(checkouts.isVoided, false),
-        gte(checkouts.createdAt, toUtcStart(period.startDate, await getStoreTimezone(period.storeId))),
-        lte(checkouts.createdAt, toUtcEnd(period.endDate, await getStoreTimezone(period.storeId))),
+        gte(checkouts.createdAt, toUtcStart(period.startDate, timezone)),
+        lte(checkouts.createdAt, toUtcEnd(period.endDate, timezone)),
       ));
 
     // Fetch attendance records in period date range
@@ -108,10 +114,20 @@ export class PayrollService {
         lte(attendanceRecords.date, period.endDate),
       ));
 
-    // Group checkouts by discrete local date string YYYY-MM-DD
+    // Rosters, so an unmarked day can be told apart from an absence. Two queries,
+    // loaded once before the day loop rather than per staff per day.
+    const scheduledOff = await this.loadScheduleResolver(period.storeId, period.startDate, period.endDate, storeSettings);
+
+    // Group checkouts by discrete local date string YYYY-MM-DD.
+    //
+    // Store-local, not UTC. The window above is store-local and `dateRange`
+    // below is store-local, so a UTC bucket key silently misses: in
+    // Africa/Lagos (UTC+1) a sale at 00:30 local is 23:30Z the previous day,
+    // and on the period's first day that key is not in `dateRange` at all —
+    // the sale vanished from both the revenue total and the active-day typing.
     const checkoutsByDate = new Map<string, typeof periodCheckouts>();
     for (const row of periodCheckouts) {
-      const dateStr = row.checkout.createdAt.toISOString().split("T")[0];
+      const dateStr = storeLocalDate(row.checkout.createdAt, timezone);
       if (!checkoutsByDate.has(dateStr)) checkoutsByDate.set(dateStr, []);
       checkoutsByDate.get(dateStr)!.push(row);
     }
@@ -272,7 +288,6 @@ export class PayrollService {
       absentDays: number;
       serviceRevenueContribution: number;
       serviceCountWorked: number;
-      checkoutsBreakdown: CommissionBreakdown[];
     }>();
 
     for (const s of activeStaffList) {
@@ -285,7 +300,6 @@ export class PayrollService {
         absentDays: 0,
         serviceRevenueContribution: 0,
         serviceCountWorked: 0,
-        checkoutsBreakdown: [],
       });
     }
 
@@ -308,30 +322,19 @@ export class PayrollService {
       // Record daily attendance categories for each staff member
       for (const s of activeStaffList) {
         const totals = staffTotals.get(s.id)!;
-        const isAssigned = dailyActiveStaffIds.has(s.id);
-        const status = dayAttendance.get(s.id);
+        const classification = classifyDay({
+          isAssignedToService: dailyActiveStaffIds.has(s.id),
+          attendanceStatus: dayAttendance.get(s.id),
+          scheduledOff: scheduledOff(s.id, dateStr),
+        });
 
-        if (isAssigned) {
-          totals.activeDays++;
-        } else if (status === "present") {
-          totals.passiveDays++;
-        } else if (status === "leave") {
-          totals.leaveDays++;
-        } else if (status === "holiday") {
-          totals.holidayDays++;
-        } else if (status === "off_day") {
-          totals.offDays++;
-        } else if (status === "absent") {
-          totals.absentDays++;
-        } else {
-          // If no marked attendance record, treat Sundays as off-days
-          const dayOfWeek = new Date(dateStr + "T00:00:00").getDay();
-          if (dayOfWeek === 0) {
-            totals.offDays++;
-          } else {
-            // Default non-marked days to absent
-            totals.absentDays++;
-          }
+        switch (classification) {
+          case "active":  totals.activeDays++;  break;
+          case "passive": totals.passiveDays++; break;
+          case "leave":   totals.leaveDays++;   break;
+          case "holiday": totals.holidayDays++; break;
+          case "off":     totals.offDays++;     break;
+          case "absent":  totals.absentDays++;  break;
         }
       }
 
@@ -363,64 +366,21 @@ export class PayrollService {
           }
         }
 
-        const serviceRate = splitCalculator.getStaffRate(row.inventoryItem);
-        const totalPool = effectivePrice * serviceRate;
-
-        // Allocate lead
-        if (staffTotals.has(leadId)) {
-          const totals = staffTotals.get(leadId)!;
-          totals.serviceRevenueContribution += effectivePrice * leadShare;
+        // Each participant banks their slice of the service price. That slice
+        // is the commission base — the formula below decides what fraction of
+        // it becomes pay. The per-line detail is rebuilt on demand by
+        // getPayrollDrillDown rather than accumulated here.
+        const allocate = (staffId: string | null, share: number) => {
+          if (!staffId) return;
+          const totals = staffTotals.get(staffId);
+          if (!totals) return;
+          totals.serviceRevenueContribution += effectivePrice * share;
           totals.serviceCountWorked++;
-          totals.checkoutsBreakdown.push({
-            checkoutId: row.checkout.id,
-            receiptNumber: row.checkout.receiptNumber,
-            transactionDate: row.checkout.createdAt.toISOString(),
-            inventoryName: row.inventoryItem.name,
-            inventoryType: "service",
-            serviceAmount: effectivePrice,
-            commissionPool: totalPool,
-            role: "lead",
-            share: leadShare,
-            earned: totalPool * leadShare,
-          });
-        }
+        };
 
-        // Allocate assistants
-        if (assistants.length > 0 && staffTotals.has(assistants[0])) {
-          const totals = staffTotals.get(assistants[0])!;
-          totals.serviceRevenueContribution += effectivePrice * asst1Share;
-          totals.serviceCountWorked++;
-          totals.checkoutsBreakdown.push({
-            checkoutId: row.checkout.id,
-            receiptNumber: row.checkout.receiptNumber,
-            transactionDate: row.checkout.createdAt.toISOString(),
-            inventoryName: row.inventoryItem.name,
-            inventoryType: "service",
-            serviceAmount: effectivePrice,
-            commissionPool: totalPool,
-            role: "assistant_1",
-            share: asst1Share,
-            earned: totalPool * asst1Share,
-          });
-        }
-
-        if (assistants.length > 1 && staffTotals.has(assistants[1])) {
-          const totals = staffTotals.get(assistants[1])!;
-          totals.serviceRevenueContribution += effectivePrice * asst2Share;
-          totals.serviceCountWorked++;
-          totals.checkoutsBreakdown.push({
-            checkoutId: row.checkout.id,
-            receiptNumber: row.checkout.receiptNumber,
-            transactionDate: row.checkout.createdAt.toISOString(),
-            inventoryName: row.inventoryItem.name,
-            inventoryType: "service",
-            serviceAmount: effectivePrice,
-            commissionPool: totalPool,
-            role: "assistant_2",
-            share: asst2Share,
-            earned: totalPool * asst2Share,
-          });
-        }
+        allocate(leadId, leadShare);
+        if (assistants.length > 0) allocate(assistants[0], asst1Share);
+        if (assistants.length > 1) allocate(assistants[1], asst2Share);
       }
     }
 
@@ -458,55 +418,44 @@ export class PayrollService {
         grossCommission = 0;
         formulaSteps.push(`Step 3: Applied FIXED SALARY model. Base salary ₦${comp.baseSalary}${period.periodType !== "monthly" ? ` (prorated from ₦${comp.monthlyBaseSalary}/month for ${period.periodType} period)` : ""} — services worked: ${totals.serviceCountWorked}, attendance transport not applicable.`);
       } else {
-        // Commissionable or Hybrid calculation
-        if (comp.commissionFormula === "formula_a") {
-          // Present days paid at a single rate (activeDayRate) deducted
-          attendanceDeduction = (totals.activeDays + totals.passiveDays) * comp.activeDayRate;
-          commissionableRevenue = totals.serviceRevenueContribution - attendanceDeduction;
-          grossCommission = Math.max(0, commissionableRevenue) * comp.commissionRate;
+        // Commissionable or Hybrid calculation.
+        // The money comes from commissionForFormula so the branches cannot
+        // drift apart; each one below only narrates its own step.
+        ({ attendanceDeduction, commissionableRevenue, grossCommission } = commissionForFormula(
+          comp.commissionFormula,
+          {
+            serviceRevenueContribution: totals.serviceRevenueContribution,
+            serviceCountWorked: totals.serviceCountWorked,
+            commissionRate: comp.commissionRate,
+            commissionFixedAmount: comp.commissionFixedAmount,
+            activeDays: totals.activeDays,
+            passiveDays: totals.passiveDays,
+            activeDayRate: comp.activeDayRate,
+            activePay, passivePay, leavePay, holidayPay,
+          },
+        ));
 
+        if (comp.commissionFormula === "formula_a") {
           formulaSteps.push(`Step 3: Compiled service revenue contribution (₦${totals.serviceRevenueContribution.toFixed(2)} from ${totals.serviceCountWorked} services worked)`);
           formulaSteps.push(`Step 4: Applied FORMULA A deduction (Active+Passive days multiplied by active rate: ₦${attendanceDeduction}. Commissionable Revenue: ₦${totals.serviceRevenueContribution.toFixed(2)} - ₦${attendanceDeduction} = ₦${commissionableRevenue.toFixed(2)}, floored at ₦0)`);
           formulaSteps.push(`Step 5: Multiplied commission rate (${(comp.commissionRate * 100).toFixed(0)}% * ₦${Math.max(0, commissionableRevenue).toFixed(2)} = ₦${grossCommission.toFixed(2)} gross commission)`);
         } else if (comp.commissionFormula === "formula_b") {
-          // Active & Passive separate rates deducted
-          attendanceDeduction = activePay + passivePay;
-          commissionableRevenue = totals.serviceRevenueContribution - attendanceDeduction;
-          grossCommission = Math.max(0, commissionableRevenue) * comp.commissionRate;
-
           formulaSteps.push(`Step 3: Compiled service revenue contribution (₦${totals.serviceRevenueContribution.toFixed(2)} from ${totals.serviceCountWorked} services worked)`);
           formulaSteps.push(`Step 4: Applied FORMULA B deduction (Active transport ₦${activePay} + Passive transport ₦${passivePay} = ₦${attendanceDeduction}. Commissionable Revenue: ₦${totals.serviceRevenueContribution.toFixed(2)} - ₦${attendanceDeduction} = ₦${commissionableRevenue.toFixed(2)}, floored at ₦0)`);
           formulaSteps.push(`Step 5: Multiplied commission rate (${(comp.commissionRate * 100).toFixed(0)}% * ₦${Math.max(0, commissionableRevenue).toFixed(2)} = ₦${grossCommission.toFixed(2)} gross commission)`);
         } else if (comp.commissionFormula === "formula_c") {
-          // Active, Passive, Leave & Holiday paid rates deducted
-          attendanceDeduction = activePay + passivePay + leavePay + holidayPay;
-          commissionableRevenue = totals.serviceRevenueContribution - attendanceDeduction;
-          grossCommission = Math.max(0, commissionableRevenue) * comp.commissionRate;
-
           formulaSteps.push(`Step 3: Compiled service revenue contribution (₦${totals.serviceRevenueContribution.toFixed(2)} from ${totals.serviceCountWorked} services worked)`);
           formulaSteps.push(`Step 4: Applied FORMULA C deduction (Active ₦${activePay} + Passive ₦${passivePay} + Leaves ₦${leavePay} + Holidays ₦${holidayPay} = ₦${attendanceDeduction}. Commissionable Revenue: ₦${totals.serviceRevenueContribution.toFixed(2)} - ₦${attendanceDeduction} = ₦${commissionableRevenue.toFixed(2)}, floored at ₦0)`);
           formulaSteps.push(`Step 5: Multiplied commission rate (${(comp.commissionRate * 100).toFixed(0)}% * ₦${Math.max(0, commissionableRevenue).toFixed(2)} = ₦${grossCommission.toFixed(2)} gross commission)`);
         } else if (comp.commissionFormula === "formula_d") {
-          // Pure Commission (No attendance deductions)
-          commissionableRevenue = totals.serviceRevenueContribution;
-          grossCommission = commissionableRevenue * comp.commissionRate;
-
           formulaSteps.push(`Step 3: Compiled service revenue contribution (₦${totals.serviceRevenueContribution.toFixed(2)} from ${totals.serviceCountWorked} services worked)`);
           formulaSteps.push(`Step 4: Applied FORMULA D (Pure commission - no attendance costs deducted. Commissionable Revenue: ₦${commissionableRevenue.toFixed(2)})`);
           formulaSteps.push(`Step 5: Multiplied commission rate (${(comp.commissionRate * 100).toFixed(0)}% * ₦${commissionableRevenue.toFixed(2)} = ₦${grossCommission.toFixed(2)} gross commission)`);
         } else if (comp.commissionFormula === "formula_f") {
-          // Fixed Per Service worked
-          commissionableRevenue = totals.serviceCountWorked;
-          grossCommission = totals.serviceCountWorked * comp.commissionFixedAmount;
-
           formulaSteps.push(`Step 3: Counted distinct services worked (total: ${totals.serviceCountWorked} service items)`);
           formulaSteps.push(`Step 4: Applied FORMULA F (Fixed amount per service: ₦${comp.commissionFixedAmount})`);
           formulaSteps.push(`Step 5: Multiplied flat amount (${totals.serviceCountWorked} * ₦${comp.commissionFixedAmount} = ₦${grossCommission.toFixed(2)} gross commission)`);
         } else {
-          // Fallback to standard Formula B
-          attendanceDeduction = activePay + passivePay;
-          commissionableRevenue = totals.serviceRevenueContribution - attendanceDeduction;
-          grossCommission = Math.max(0, commissionableRevenue) * comp.commissionRate;
           formulaSteps.push(`Step 3: Applied standard fallback Formula B calculation.`);
         }
 
@@ -520,6 +469,18 @@ export class PayrollService {
           formulaSteps.push(`Step 6: Added commission components (Attendance Pay: ₦${totalAttendancePay} + Gross Commission: ₦${grossCommission.toFixed(2)} = ₦${netPay.toFixed(2)} Net Pay)`);
         }
       }
+
+      const commissionInputs = {
+        paymentMethod: comp.paymentMethod,
+        commissionFormula: comp.commissionFormula,
+        commissionRate: comp.commissionRate,
+        commissionFixedAmount: comp.commissionFixedAmount,
+        serviceCountWorked: totals.serviceCountWorked,
+        totalServiceRevenueContribution: totals.serviceRevenueContribution,
+        attendanceDeduction,
+        commissionableRevenue,
+        grossCommission,
+      };
 
       const calculationDetailsSnapshot = {
         paymentMethod: comp.paymentMethod,
@@ -546,14 +507,16 @@ export class PayrollService {
         attendanceDeduction,
         commissionableRevenue,
         commissionRate: comp.commissionRate,
+        // Inputs the commission explainer needs. Snapshotted rather than
+        // re-resolved at read time so a paid period, which can never be
+        // recalculated, keeps the explanation that matches its figures.
+        commissionFixedAmount: comp.commissionFixedAmount,
+        serviceCountWorked: totals.serviceCountWorked,
+        commissionExplanation: explainCommission(commissionInputs),
         grossCommission,
         netPay,
         formulaSteps,
-        formulaName: comp.commissionFormula === "formula_a" ? "Formula A" :
-                     comp.commissionFormula === "formula_b" ? "Formula B" :
-                     comp.commissionFormula === "formula_c" ? "Formula C" :
-                     comp.commissionFormula === "formula_d" ? "Formula D" :
-                     comp.commissionFormula === "formula_f" ? "Formula F" : "Hybrid Standard"
+        formulaName: formulaLabel(comp.commissionFormula),
       };
 
       // G2: Fixed-salary staff have no transport component in their netPay.
@@ -615,10 +578,33 @@ export class PayrollService {
       results.push({ ...entry, staff: staffMember });
     }
 
+    // Propose a charge for any day attendance flagged late — late_arrival
+    // outranks both advance_recovery and staff_credit in DEDUCTION_PRIORITY, and
+    // their own headroom calcs read whatever is already on the period, so this
+    // has to run first. Failure here must not lose a completed calculation —
+    // the proposals are re-derived on the next sync.
+    try {
+      await lateArrivalDeductionService.syncProposals(periodId);
+    } catch (e) {
+      console.error("Failed to sync late-arrival deductions:", e);
+    }
+
+    // Propose recovery of any approved, unrecovered salary advances next —
+    // advance_recovery outranks staff_credit in DEDUCTION_PRIORITY, and staff
+    // credit's own headroom calc reads whatever advance_recovery amount is
+    // already on the period, so it has to be written first. Failure here must
+    // not lose a completed calculation — the proposals are re-derived on the
+    // next sync.
+    try {
+      await salaryAdvanceDeductionService.syncProposals(periodId);
+    } catch (e) {
+      console.error("Failed to sync salary advance deductions:", e);
+    }
+
     // Propose recovery of any shop debt owed by staff-linked customer profiles.
-    // Runs last because the allocation is capped against the netPay just
-    // written above. Failure here must not lose a completed calculation — the
-    // proposals are re-derived on the next sync.
+    // Runs last because the allocation is capped against whatever pay
+    // advance_recovery left behind. Failure here must not lose a completed
+    // calculation — the proposals are re-derived on the next sync.
     try {
       await staffCreditDeductionService.syncProposals(periodId);
     } catch (e) {
@@ -629,12 +615,47 @@ export class PayrollService {
   }
 
   /**
-   * Option 4 Hybrid Model Drill-down for one staff member
+   * Builds the roster lookup for a period. Deliberately shared by the payroll
+   * calculation and the drill-down: those two used to classify days with separate
+   * copies of the same logic, and had already drifted apart once.
    */
-  public async getPayrollDrillDown(periodId: string, staffId: string): Promise<{
-    dailySummary: DailySummaryLine[];
-    transactions: CommissionBreakdown[];
-  }> {
+  private async loadScheduleResolver(
+    storeId: string,
+    startDate: string,
+    endDate: string,
+    storeSettings: Settings,
+  ): Promise<ScheduleResolver> {
+    const [schedules, exceptions] = await Promise.all([
+      storage.getStaffSchedules(storeId),
+      storage.getStaffScheduleExceptions(storeId, startDate, endDate),
+    ]);
+
+    return buildScheduleResolver({
+      // A period calculated before this feature has a settingsSnapshot with no
+      // roster field. Falling back to [0] reproduces the Sunday rule that was in
+      // force when that period was computed, rather than silently reclassifying
+      // its Sundays as absences.
+      defaultWeeklyOffDays: storeSettings.defaultWeeklyOffDays ?? [0],
+      schedulesByStaff: new Map(schedules.map(r => [r.staffId, r.weeklyOffDays ?? []])),
+      exceptionsByStaffDate: new Map(
+        exceptions.map(e => [exceptionKey(e.staffId, e.date), e.kind as "off" | "working"]),
+      ),
+    });
+  }
+
+  /**
+   * Option 4 Hybrid Model drill-down for one staff member.
+   *
+   * A *view* of the stored entry, never a rival calculation of it. The
+   * per-line figure is `revenueShare` — the staff member's slice of the service
+   * price, which is what the commission formula consumes — and the
+   * reconciliation block is read straight off `payroll_entries`. These rows
+   * used to report a second commission model entirely (`price ×
+   * commissionSplitStaffShare × role share`, no transport offset, no rate, no
+   * fixed-salary gate), so the drill-down total and the "Gross Commission" card
+   * on the same screen disagreed by 3-5x.
+   */
+  public async getPayrollDrillDown(periodId: string, staffId: string): Promise<PayrollDrilldown> {
     const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, periodId));
     if (!period) throw new Error("Payroll period not found");
 
@@ -643,8 +664,6 @@ export class PayrollService {
     if (!staffMember) throw new Error("Staff member not found");
     const store = await storage.getStore(period.storeId);
     if (!store) throw new Error("Store not found");
-    const business = await storage.getBusinessById(store.businessId);
-    const splitCalculator = new CommissionSplitCalculator(business, store);
 
     // G1: Prorate base salary for drill-down view — mirrors calculatePayrollForPeriod logic exactly.
     // monthly → full amount, biweekly → ÷ 2, weekly → × 7/30
@@ -682,22 +701,27 @@ export class PayrollService {
       baseSalary: drilldownProrateBase(monthlyBaseSalaryForDrilldown),
     };
 
-    // Fetch period checkouts and orders
+    const timezone = await getStoreTimezone(period.storeId);
+
+    // Fetch period checkouts and orders.
+    //
+    // Joins exactly what calculatePayrollForPeriod joins. It used to also
+    // innerJoin `transactions`, which quietly dropped any checkout without a
+    // matching transaction row from the drill-down while it still counted
+    // toward the stored gross_commission.
     const periodCheckouts = await db.select({
       checkout: checkouts,
       order: orders,
       inventoryItem: inventory,
-      txn: transactions,
     })
       .from(checkouts)
       .innerJoin(orders, eq(checkouts.orderId, orders.id))
       .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
-      .innerJoin(transactions, eq(transactions.checkoutId, checkouts.id))
       .where(and(
         eq(checkouts.storeId, period.storeId),
         eq(checkouts.isVoided, false),
-        gte(checkouts.createdAt, toUtcStart(period.startDate, await getStoreTimezone(period.storeId))),
-        lte(checkouts.createdAt, toUtcEnd(period.endDate, await getStoreTimezone(period.storeId))),
+        gte(checkouts.createdAt, toUtcStart(period.startDate, timezone)),
+        lte(checkouts.createdAt, toUtcEnd(period.endDate, timezone)),
       ));
 
     // Fetch attendance records in period date range for this staff member
@@ -710,12 +734,14 @@ export class PayrollService {
         lte(attendanceRecords.date, period.endDate),
       ));
 
-    const attendanceMap = new Map(attendanceList.map(a => [a.date, a.status]));
+    const attendanceMap = new Map(attendanceList.map(a => [a.date, a]));
 
-    // Group checkouts by date
+    const scheduledOff = await this.loadScheduleResolver(period.storeId, period.startDate, period.endDate, storeSettings);
+
+    // Group checkouts by store-local date, matching calculatePayrollForPeriod.
     const checkoutsByDate = new Map<string, typeof periodCheckouts>();
     for (const row of periodCheckouts) {
-      const dateStr = row.checkout.createdAt.toISOString().split("T")[0];
+      const dateStr = storeLocalDate(row.checkout.createdAt, timezone);
       if (!checkoutsByDate.has(dateStr)) checkoutsByDate.set(dateStr, []);
       checkoutsByDate.get(dateStr)!.push(row);
     }
@@ -796,38 +822,15 @@ export class PayrollService {
       }
 
       const isAssigned = dailyActiveStaffIds.has(staffId);
-      const status = attendanceMap.get(dateStr);
 
-      let dayType: "Active" | "Passive" | "Absent" = "Absent";
-      let transport = 0;
+      const classification = classifyDay({
+        isAssignedToService: isAssigned,
+        attendanceStatus: attendanceMap.get(dateStr)?.status,
+        scheduledOff: scheduledOff(staffId, dateStr),
+      });
+      const { transport, dayType } = transportForDay(classification, comp);
 
-      if (isAssigned) {
-        dayType = "Active";
-        transport = comp.activeDayRate;
-      } else if (status === "present") {
-        dayType = "Passive";
-        transport = comp.passiveDayRate;
-      } else if (status === "leave") {
-        dayType = comp.payLeaveDays ? "Passive" : "Absent";
-        transport = comp.payLeaveDays ? comp.leaveDayRate : 0;
-      } else if (status === "holiday") {
-        dayType = comp.payHolidayDays ? "Passive" : "Absent";
-        transport = comp.payHolidayDays ? comp.holidayDayRate : 0;
-      } else if (status === "off_day") {
-        dayType = comp.payOffDays ? "Passive" : "Absent";
-        transport = comp.payOffDays ? comp.offDayRate : 0;
-      } else {
-        const dayOfWeek = new Date(dateStr + "T00:00:00").getDay();
-        if (dayOfWeek === 0) {
-          dayType = comp.payOffDays ? "Passive" : "Absent";
-          transport = comp.payOffDays ? comp.offDayRate : 0;
-        } else {
-          dayType = "Absent";
-          transport = 0;
-        }
-      }
-
-      let commissionEarned = 0;
+      let dayRevenueShare = 0;
       const servicesWorkedNames: string[] = [];
 
       if (isAssigned) {
@@ -864,9 +867,6 @@ export class PayrollService {
             }
           }
 
-          const serviceRate = splitCalculator.getStaffRate(row.inventoryItem);
-          const totalPool = effectivePrice * serviceRate;
-
           let role: "lead" | "assistant_1" | "assistant_2" = "lead";
           let share = 0;
 
@@ -884,14 +884,11 @@ export class PayrollService {
             servicesWorkedNames.push(`${row.inventoryItem.name} (Asst 2)`);
           }
 
-          let earned = 0;
-          if (comp.commissionFormula === "formula_f") {
-            earned = comp.commissionFixedAmount;
-          } else {
-            earned = totalPool * share;
-          }
-
-          commissionEarned += earned;
+          // The same quantity calculatePayrollForPeriod banks into
+          // serviceRevenueContribution — so these rows sum to the figure the
+          // formula actually consumed, and the reconciliation below closes.
+          const revenueShare = effectivePrice * share;
+          dayRevenueShare += revenueShare;
 
           breakdownList.push({
             checkoutId: row.checkout.id,
@@ -900,27 +897,73 @@ export class PayrollService {
             inventoryName: row.inventoryItem.name,
             inventoryType: "service",
             serviceAmount: effectivePrice,
-            commissionPool: totalPool,
             role,
             share,
-            earned,
+            revenueShare,
           });
         }
       }
+
+      const attendanceRecord = attendanceMap.get(dateStr);
+      const isLate = attendanceRecord?.isLate ?? false;
+      // Mirrors LateArrivalDeductionService: a flat amount per late day, and only
+      // while the store has the charge switched on.
+      const lateDeduction = isLate && storeSettings.lateDeductionEnabled
+        ? Number(storeSettings.lateDeductionAmount)
+        : 0;
 
       dailySummaryLines.push({
         date: dateStr,
         dayType,
         transport,
         servicesWorked: servicesWorkedNames.length > 0 ? servicesWorkedNames.join(", ") : "—",
-        commissionEarned,
-        dailyTotal: transport + commissionEarned,
+        revenueShare: dayRevenueShare,
+        clockInAt: attendanceRecord?.firstClockInAt?.toISOString() ?? null,
+        isLate,
+        lateDeduction,
       });
     }
 
     return {
       dailySummary: dailySummaryLines.sort((a, b) => a.date.localeCompare(b.date)),
       transactions: breakdownList.sort((a, b) => a.transactionDate.localeCompare(b.transactionDate)),
+      reconciliation: await this.commissionReconciliation(periodId, staffId),
+    };
+  }
+
+  /**
+   * How the drill-down's revenue shares became the commission on the entry.
+   *
+   * Read from `payroll_entries`, never recomputed — the drill-down must agree
+   * with what was paid even when the settings have since changed. Null when the
+   * period has never been calculated, so the UI can say so rather than showing
+   * a total nobody has approved.
+   */
+  private async commissionReconciliation(
+    periodId: string,
+    staffId: string,
+  ): Promise<CommissionReconciliation | null> {
+    const [entry] = await db.select().from(payrollEntries).where(and(
+      eq(payrollEntries.periodId, periodId),
+      eq(payrollEntries.staffId, staffId),
+    ));
+    if (!entry) return null;
+
+    const details = (entry.calculationDetails ?? {}) as Record<string, any>;
+
+    return {
+      totalRevenueShare: Number(details.totalServiceRevenueContribution ?? 0),
+      attendanceDeduction: Number(details.attendanceDeduction ?? 0),
+      commissionableRevenue: Number(details.commissionableRevenue ?? 0),
+      commissionRate: Number(details.commissionRate ?? 0),
+      grossCommission: Number(entry.grossCommission ?? 0),
+      formulaName: details.formulaName ?? formulaLabel(details.commissionFormula),
+      // Entries calculated before the explanation was snapshotted still get one,
+      // derived from the details they do carry.
+      explanation: details.commissionExplanation ?? explainCommission({
+        ...details,
+        grossCommission: Number(entry.grossCommission ?? 0),
+      }),
     };
   }
 }

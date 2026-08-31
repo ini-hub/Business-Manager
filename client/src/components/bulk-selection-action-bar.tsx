@@ -28,12 +28,12 @@ export function BulkSelectionActionBar({ count, unitLabel = "item", onClear, act
   if (count === 0) return null;
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 gap-3">
+    <div className="flex items-center justify-between flex-wrap rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 gap-3">
       <div className="flex items-center gap-2 text-sm font-medium">
         <CheckSquare className="h-4 w-4 text-primary" />
         <span>{count} {unitLabel}{count !== 1 ? "s" : ""} selected</span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button size="sm" variant="outline" onClick={onClear} className="h-7 text-xs" data-testid="button-bulk-clear-selection">
           Clear
         </Button>
