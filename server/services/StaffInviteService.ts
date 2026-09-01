@@ -13,10 +13,31 @@ const SALT_ROUNDS = 12;
 
 export type InviteReason = "create" | "email_change" | "manual_resend";
 
+/**
+ * One other staff row a matched account was already linked to, surfaced as
+ * a heads-up when attachExistingUser/relinkAndRetire silently reuse someone's
+ * existing login rather than blocking.
+ *
+ * businessId is included ONLY so callers can decide what's safe to show: the
+ * invite form is a deliberate enumeration-oracle blind spot (see the
+ * "Collapsed deliberately" comment in staff.routes.ts) - a manager must never
+ * learn that an email they typed belongs to a name/store in ANOTHER
+ * business. Callers must filter to businessId === the current invite's
+ * business before putting anything from this array in front of the
+ * requesting manager (API response OR this business's own audit log), and
+ * must not reveal even the existence of an other-business link.
+ */
+export interface ExistingLink {
+  staffId: string;
+  storeId: string;
+  businessId: string | null;
+  name: string;
+}
+
 export type InviteOutcome =
   | { kind: "activation_sent"; userId: string }
-  | { kind: "added_to_existing_user"; userId: string }
-  | { kind: "relinked"; userId: string; retiredUserId: string }
+  | { kind: "added_to_existing_user"; userId: string; existingLinks?: ExistingLink[] }
+  | { kind: "relinked"; userId: string; retiredUserId: string; existingLinks?: ExistingLink[] }
   | { kind: "already_active"; userId: string }
   | { kind: "skipped"; reason: "no_email" | "no_business" | "archived" }
   | { kind: "cooldown"; retryAfterMinutes: number }
@@ -290,6 +311,13 @@ export class StaffInviteService {
   ): Promise<InviteOutcome> {
     const { staff, businessId, user, role, inviterName, inviterUserId, businessName } = p;
 
+    // Matching by email alone can't tell "same person, second job" (the
+    // intended use of this branch) apart from "manager typo'd someone else's
+    // address" - both look identical here. Rather than guess, surface what
+    // this account is already linked to and let the caller decide whether to
+    // warn; see the callers in staff.routes.ts.
+    const existingLinks = await this.getExistingLinks(user.id);
+
     await this.ensureMember(user.id, businessId!, role, staff.staffNumber, "active", inviterUserId);
     await storage.updateStaff(staff.id, { userId: user.id });
 
@@ -298,7 +326,7 @@ export class StaffInviteService {
         p.email.toLowerCase(), staff.name, businessName, role,
         inviterName || "The Business Owner",
       ),
-      { kind: "added_to_existing_user", userId: user.id },
+      { kind: "added_to_existing_user", userId: user.id, existingLinks },
     );
   }
 
@@ -308,6 +336,10 @@ export class StaffInviteService {
     p: InviteParams & { newUser: User; placeholder: User; businessName: string },
   ): Promise<InviteOutcome> {
     const { staff, businessId, newUser, placeholder, role, inviterName, inviterUserId, businessName } = p;
+
+    // Same rationale as attachExistingUser above: don't block, but tell the
+    // caller what this account was already linked to before we add another.
+    const existingLinks = await this.getExistingLinks(newUser.id);
 
     const staleMember = await storage.getOrganisationMember(placeholder.id, businessId!);
     const existingMember = await storage.getOrganisationMember(newUser.id, businessId!);
@@ -351,8 +383,20 @@ export class StaffInviteService {
         p.email.toLowerCase(), staff.name, businessName, role,
         inviterName || "The Business Owner",
       ),
-      { kind: "relinked", userId: newUser.id, retiredUserId: placeholder.id },
+      { kind: "relinked", userId: newUser.id, retiredUserId: placeholder.id, existingLinks },
     );
+  }
+
+  /**
+   * Every staff row (any business) a platform user is currently linked to,
+   * businessId included so callers can filter - see ExistingLink's docstring.
+   */
+  private async getExistingLinks(userId: string): Promise<ExistingLink[]> {
+    const rows = await storage.getAllStaffByUserId(userId);
+    return Promise.all(rows.map(async (r) => {
+      const store = await storage.getStore(r.storeId);
+      return { staffId: r.id, storeId: r.storeId, businessId: store?.businessId ?? null, name: r.name };
+    }));
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

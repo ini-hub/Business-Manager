@@ -139,6 +139,14 @@ export class StaffRepository {
     return result;
   }
 
+  // Unlike getStaffByUserId above, this deliberately returns every row: it
+  // backs IdentitySync, which mirrors a login account's name/email onto ALL
+  // of that person's staff records (they may work more than one store/
+  // business), not just whichever one Postgres would return first.
+  async getAllStaffByUserId(userId: string): Promise<Staff[]> {
+    return db.select().from(staff).where(and(eq(staff.userId, userId), eq(staff.isArchived, false)));
+  }
+
   /**
    * Raw material for the inviteStatus projection, fetched for a whole page of
    * staff in one query so the list route stays O(1) in DB round-trips.

@@ -9,6 +9,7 @@ import { validateEmailFormat } from "../sanitize";
 import { sendEmailVerificationOtpEmail, sendEmailChangeNoticeToOldAddress, sendSMS } from "../email";
 import { getViolatedConstraint } from "../db-errors";
 import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "../lib/otp-cooldown";
+import { syncUserIdentityToLinkedStaff } from "../services/IdentitySync";
 import type { User } from "@shared/schema";
 
 const SALT_ROUNDS = 12;
@@ -47,6 +48,14 @@ export class AuthController extends BaseController {
       const updates: Partial<User> = { name, profilePhotoUrl };
 
       const updated = await storage.updateUser(userId, updates);
+
+      // Keep every staff row this account is linked to in step - see
+      // IdentitySync. Only when the caller actually sent a name: an
+      // undefined name here means "leave it alone", not "clear it".
+      if (name !== undefined) {
+        await syncUserIdentityToLinkedStaff(userId, { name });
+      }
+
       return this.ok(res, serializeUser(updated));
     } catch (error) {
       return this.error(res, "Could not update profile.");
@@ -181,6 +190,11 @@ export class AuthController extends BaseController {
         pendingEmailOtpExpiry: null,
         pendingEmailOtpAttempts: 0,
       });
+
+      // Keep every staff row this account is linked to in step - see
+      // IdentitySync. Without this, self-servicing a login email here would
+      // leave staff.email (the HR record) permanently stale.
+      await syncUserIdentityToLinkedStaff(userId, { email: user.pendingEmail });
 
       return this.ok(res, serializeUser(updated));
     } catch (error) {

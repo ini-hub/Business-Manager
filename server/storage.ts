@@ -243,6 +243,7 @@ export interface IStorage {
   getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>>;
   getStaff(id: string): Promise<Staff | undefined>;
   getStaffByUserId(userId: string, storeId?: string): Promise<Staff | undefined>;
+  getAllStaffByUserId(userId: string): Promise<Staff[]>;
   getInviteProjection(userIds: string[], organisationId: string): Promise<Array<{
     userId: string;
     memberStatus: string | null;
@@ -834,6 +835,10 @@ export class DatabaseStorage implements IStorage {
 
   async getStaffByUserId(userId: string, storeId?: string): Promise<Staff | undefined> {
     return this.staffRepo.getStaffByUserId(userId, storeId);
+  }
+
+  async getAllStaffByUserId(userId: string): Promise<Staff[]> {
+    return this.staffRepo.getAllStaffByUserId(userId);
   }
 
   async getInviteProjection(userIds: string[], organisationId: string) {

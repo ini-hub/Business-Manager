@@ -5,7 +5,7 @@ vi.mock("../storage", () => ({ storage: {
   createUser: vi.fn(), updateUser: vi.fn(), updateStaff: vi.fn(),
   getOrganisationMember: vi.fn(), createOrganisationMember: vi.fn(),
   updateOrganisationMemberStatus: vi.fn(), deleteOrganisationMember: vi.fn(),
-  getOrganisationsByUserId: vi.fn(), getStaffByUserId: vi.fn(),
+  getOrganisationsByUserId: vi.fn(), getStaffByUserId: vi.fn(), getAllStaffByUserId: vi.fn(), getStore: vi.fn(),
   getInviteProjection: vi.fn(),
 } }));
 vi.mock("../email", () => ({ sendActivationEmail: vi.fn(), sendAddedToOrgEmail: vi.fn() }));
@@ -47,6 +47,8 @@ beforeEach(() => {
   S.getOrganisationMember.mockResolvedValue(undefined);
   S.getOrganisationsByUserId.mockResolvedValue([{ organisationId: "biz-1" }]);
   S.getStaffByUserId.mockResolvedValue(undefined);
+  S.getAllStaffByUserId.mockResolvedValue([]);
+  S.getStore.mockResolvedValue({ id: "store-9", businessId: "biz-9" });
   S.updateUser.mockResolvedValue({});
   S.updateStaff.mockResolvedValue({});
 });
@@ -193,10 +195,29 @@ describe("inviteStaff - existing platform user", () => {
     S.createOrganisationMember.mockResolvedValue({ id: "m1", status: "active" });
 
     const out = await service.inviteStaff(params());
-    expect(out).toEqual({ kind: "added_to_existing_user", userId: "other-user" });
+    expect(out).toEqual({ kind: "added_to_existing_user", userId: "other-user", existingLinks: [] });
     // They already have a password - an activation code would be nonsense.
     expect(sendAddedToOrgEmail).toHaveBeenCalledOnce();
     expect(sendActivationEmail).not.toHaveBeenCalled();
+    expect(S.updateStaff).toHaveBeenCalledWith("staff-1", { userId: "other-user" });
+  });
+
+  it("surfaces the account's other staff links instead of blocking the attach", async () => {
+    S.getUserByIdentifier.mockResolvedValue({ id: "other-user", email: "jane@example.com" });
+    S.createOrganisationMember.mockResolvedValue({ id: "m1", status: "active" });
+    S.getAllStaffByUserId.mockResolvedValue([
+      { id: "staff-9", storeId: "store-9", name: "Jane at Ikeja Branch" },
+    ]);
+
+    const out = await service.inviteStaff(params());
+    // Still links - matching by email can't distinguish "same person, second
+    // job" from "manager typo'd someone else's address", so this stays
+    // permissive - but the caller now gets enough to warn the manager.
+    expect(out).toEqual({
+      kind: "added_to_existing_user",
+      userId: "other-user",
+      existingLinks: [{ staffId: "staff-9", storeId: "store-9", businessId: "biz-9", name: "Jane at Ikeja Branch" }],
+    });
     expect(S.updateStaff).toHaveBeenCalledWith("staff-1", { userId: "other-user" });
   });
 
@@ -220,10 +241,17 @@ describe("inviteStaff - existing platform user", () => {
       .mockResolvedValueOnce({ id: "m-old", status: "pending" })  // the stale row
       .mockResolvedValueOnce(undefined);                          // target has none yet
 
+    S.getAllStaffByUserId.mockResolvedValue([
+      { id: "staff-9", storeId: "store-9", name: "Jane at Ikeja Branch" },
+    ]);
+
     const out = await service.inviteStaff(params({
       staff: staffRow({ userId: "placeholder" }) as any, allowRelink: true,
     }));
-    expect(out).toMatchObject({ kind: "relinked", userId: "other-user", retiredUserId: "placeholder" });
+    expect(out).toMatchObject({
+      kind: "relinked", userId: "other-user", retiredUserId: "placeholder",
+      existingLinks: [{ staffId: "staff-9", storeId: "store-9", businessId: "biz-9", name: "Jane at Ikeja Branch" }],
+    });
 
     const writes = (db as any).__writes;
     expect(writes.some((w: any) => w.op === "delete")).toBe(true);

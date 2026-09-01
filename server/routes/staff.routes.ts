@@ -10,7 +10,23 @@ import {
   sendEmailChangeNoticeToOldAddress,
 } from "../email";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { staffInviteService, type InviteOutcome } from "../services/StaffInviteService";
+import { staffInviteService, type InviteOutcome, type ExistingLink } from "../services/StaffInviteService";
+import { syncStaffNameToLinkedUser } from "../services/IdentitySync";
+
+// The invite form is a deliberate enumeration-oracle blind spot (see the
+// "Collapsed deliberately" comment below): a manager must never learn that
+// an email they typed belongs to a name/store in ANOTHER business, not even
+// that such a link exists. So this is the one place existingLinks (from
+// attachExistingUser/relinkAndRetire) gets read, and it drops every link
+// outside the current invite's own business before anything - API response
+// or this business's own audit log - sees it.
+function sameBusinessExistingLinks(
+  outcome: InviteOutcome,
+  businessId: string | undefined,
+): ExistingLink[] {
+  if (!("existingLinks" in outcome) || !outcome.existingLinks || !businessId) return [];
+  return outcome.existingLinks.filter((l) => l.businessId === businessId);
+}
 
 const SALT_ROUNDS = 12;
 import {
@@ -268,12 +284,16 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         outcome = { kind: "failed", reason: (inviteError as Error).message };
       }
 
+      const sameBusinessLinks = sameBusinessExistingLinks(outcome, resolvedBusinessId);
       auditLogger.logEvent(
         ctx, "STAFF_INVITE_SENT", "staff", staffMember.id,
         outcome.kind === "failed" ? "failure" : "success",
         // Never the activation code itself - audit_logs is append-only and
-        // widely readable.
-        { details: { outcome: outcome.kind }, ...(outcome.kind === "failed" ? { errorMessage: outcome.reason } : {}) },
+        // widely readable. existingLinks is pre-filtered to this business only.
+        {
+          details: { outcome: outcome.kind, ...(sameBusinessLinks.length ? { existingLinks: sameBusinessLinks } : {}) },
+          ...(outcome.kind === "failed" ? { errorMessage: outcome.reason } : {}),
+        },
       );
 
       const inviteStatus = resolvedBusinessId
@@ -295,6 +315,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           : {}),
         ...(outcome.kind === "skipped" && outcome.reason === "no_business"
           ? { inviteWarning: "The staff member was saved, but no invitation was sent because this store isn't linked to a business yet." }
+          : {}),
+        // Only ever the same-business subset - see sameBusinessExistingLinks.
+        ...(sameBusinessLinks.length
+          ? { existingStaffLinks: sameBusinessLinks.map(({ staffId, storeId, name }) => ({ staffId, storeId, name })) }
           : {}),
       });
     } catch (error) {
@@ -383,6 +407,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const newEmail = data.email?.toLowerCase();
       const emailChanged = !!newEmail && newEmail !== staffMember.email.toLowerCase();
       let inviteAction: string | undefined;
+      let existingStaffLinks: ExistingLink[] = [];
 
       if (emailChanged) {
         const store = await storage.getStore(staffMember.storeId);
@@ -491,12 +516,15 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           inviteAction = outcome.kind === "relinked" ? "relinked"
             : outcome.kind === "added_to_existing_user" ? "added_to_existing"
             : outcome.kind === "failed" ? "invite_failed" : "invited";
+          existingStaffLinks = sameBusinessExistingLinks(outcome, businessId);
           if (outcome.kind === "relinked") {
             auditLogger.logEvent(ctx, "STAFF_USER_RELINKED", "staff", req.params.id, "success", {
               previousValues: { userId: staffMember.userId },
               newValues: { userId: outcome.userId },
               changedFields: ["staff.userId"],
-              details: { retiredUserId: outcome.retiredUserId },
+              // existingStaffLinks is pre-filtered to this business only -
+              // see sameBusinessExistingLinks.
+              details: { retiredUserId: outcome.retiredUserId, ...(existingStaffLinks.length ? { existingLinks: existingStaffLinks } : {}) },
             });
           }
 
@@ -509,6 +537,15 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (!updatedStaffMember) {
         return res.status(404).json({ error: "This staff member no longer exists. They may have been removed." });
       }
+
+      // Keep the linked login account's own name in step - see IdentitySync.
+      // (The email side of this is already handled above by the
+      // reinvite/overwrite_and_verify/relink branches; name has no such
+      // branch since it never needs re-verification, just a mirrored write.)
+      if (data.name !== undefined && data.name !== staffMember.name && staffMember.userId) {
+        await syncStaffNameToLinkedUser(staffMember.id, staffMember.userId, updatedStaffMember.name);
+      }
+
       const changedFields = Object.keys(data).filter((key) => JSON.stringify((staffMember as any)[key]) !== JSON.stringify((updatedStaffMember as any)[key]));
       if (changedFields.length > 0) {
         const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
@@ -519,7 +556,14 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         });
       }
       broadcastChange(req, "staff", staffMember.storeId, "updated");
-      res.json({ ...updatedStaffMember, ...(inviteAction ? { inviteAction } : {}) });
+      res.json({
+        ...updatedStaffMember,
+        ...(inviteAction ? { inviteAction } : {}),
+        // Only ever the same-business subset - see sameBusinessExistingLinks.
+        ...(existingStaffLinks.length
+          ? { existingStaffLinks: existingStaffLinks.map(({ staffId, storeId, name }) => ({ staffId, storeId, name })) }
+          : {}),
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -635,9 +679,11 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       });
 
       const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      const sameBusinessLinks = sameBusinessExistingLinks(outcome, businessId);
       auditLogger.logEvent(ctx, "STAFF_INVITE_RESENT", "staff", req.params.id,
         outcome.kind === "activation_sent" || outcome.kind === "added_to_existing_user" ? "success" : "failure",
-        { details: { outcome: outcome.kind } });
+        // existingLinks is pre-filtered to this business only - see sameBusinessExistingLinks.
+        { details: { outcome: outcome.kind, ...(sameBusinessLinks.length ? { existingLinks: sameBusinessLinks } : {}) } });
 
       if (outcome.kind === "already_active") {
         return res.status(409).json({ error: "This staff member has already activated their account." });
