@@ -1057,6 +1057,11 @@ export async function registerRoutes(
       const pendingMember = members.find(m => m.status === "pending");
       if (pendingMember) {
         await storage.updateOrganisationMemberStatus(pendingMember.memberId || pendingMember.id, "partial");
+        // Not authenticated yet at this point (no req.user), so broadcastChange's
+        // req-based businessId lookup would no-op - go straight to broadcastDataChange
+        // with the membership's own organisationId instead.
+        const activatingStaff = await storage.getStaffByUserId(user.id);
+        broadcastDataChange(pendingMember.organisationId, "staff", activatingStaff?.storeId, "updated");
       }
 
       res.json({
@@ -1239,8 +1244,9 @@ export async function registerRoutes(
 
       const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
+      const trimmedName = name?.trim();
       const updatePayload: Record<string, any> = { passwordHash: hashedPassword };
-      if (name?.trim()) updatePayload.name = name.trim();
+      if (trimmedName) updatePayload.name = trimmedName;
       await storage.updateUser(user.id, updatePayload);
 
       // Fetch and activate workspace membership
@@ -1253,6 +1259,17 @@ export async function registerRoutes(
       if (targetMember.status !== "active") {
         targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "active", new Date());
       }
+
+      // users.name is the login account's name; staff.name is what the manager's
+      // Staff list actually reads (StaffRepository.getStaffList). Activation used
+      // to update only the former, so a name entered here never showed up there.
+      const activatedStaff = await storage.getStaffByUserId(user.id);
+      if (activatedStaff && trimmedName) {
+        await storage.updateStaff(activatedStaff.id, { name: trimmedName });
+      }
+      // Not authenticated yet (no req.user), so use broadcastDataChange directly
+      // rather than the req-based broadcastChange helper.
+      broadcastDataChange(targetMember.organisationId, "staff", activatedStaff?.storeId, "updated");
 
       const org = await storage.getBusinessById(targetMember.organisationId);
 

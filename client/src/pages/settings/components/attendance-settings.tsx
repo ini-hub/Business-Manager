@@ -57,7 +57,6 @@ export function AttendanceSettingsSection() {
   const [graceMinutes, setGraceMinutes] = useState(0);
   const [lateDeductionEnabled, setLateDeductionEnabled] = useState(false);
   const [lateDeductionAmount, setLateDeductionAmount] = useState(0);
-  const [requirePunchPin, setRequirePunchPin] = useState(false);
   const [maxOfflineAgeMinutes, setMaxOfflineAgeMinutes] = useState(720);
   const [retroMaxAgeDays, setRetroMaxAgeDays] = useState(7);
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([0]);
@@ -76,7 +75,6 @@ export function AttendanceSettingsSection() {
     setGraceMinutes(settingsData.lateGraceMinutes ?? 0);
     setLateDeductionEnabled(!!settingsData.lateDeductionEnabled);
     setLateDeductionAmount(settingsData.lateDeductionAmount ?? 0);
-    setRequirePunchPin(!!settingsData.requirePunchPin);
     setMaxOfflineAgeMinutes(settingsData.maxOfflinePunchAgeMinutes ?? 720);
     setRetroMaxAgeDays(settingsData.retroRequestMaxAgeDays ?? 7);
     setWeeklyOffDays(Array.isArray(settingsData.defaultWeeklyOffDays) ? settingsData.defaultWeeklyOffDays : [0]);
@@ -115,7 +113,6 @@ export function AttendanceSettingsSection() {
       lateGraceMinutes: graceMinutes,
       lateDeductionEnabled,
       lateDeductionAmount,
-      requirePunchPin,
       maxOfflinePunchAgeMinutes: maxOfflineAgeMinutes,
       retroRequestMaxAgeDays: retroMaxAgeDays,
       defaultWeeklyOffDays: weeklyOffDays,
@@ -322,22 +319,12 @@ export function AttendanceSettingsSection() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="require-pin">Require a clock-in PIN</Label>
-              <p className="text-sm text-muted-foreground">
-                A short PIN each staff member sets, separate from their login password, so a shared
-                password alone does not let one person clock in everybody.
-              </p>
-            </div>
-            <Switch
-              id="require-pin"
-              data-testid="switch-require-punch-pin"
-              checked={requirePunchPin}
-              onCheckedChange={setRequirePunchPin}
-            />
-          </div>
-
+          {/* "Require a clock-in PIN" is intentionally not exposed here yet: the
+              setting, punch_pin_hash column and pin_required rejection code exist
+              server-side, but nothing sets or verifies a PIN, so surfacing the
+              toggle would tell a manager it protects clock-in when it does not.
+              Re-add once server/services/AttendanceService.ts actually checks a
+              PIN in recordPunch(). */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="offline-age">Accept offline clock-ins up to (minutes old)</Label>

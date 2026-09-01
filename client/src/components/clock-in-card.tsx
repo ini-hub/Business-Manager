@@ -13,10 +13,12 @@ import { useGeofence, type GeofenceCentre } from "@/hooks/useGeofence";
 import { getDeviceId, newPunchId } from "@/lib/device-id";
 import { saveOfflinePunch } from "@/lib/offline-db";
 import { CheckCircle2, Clock, LogOut, MapPin, Loader2, TriangleAlert, CalendarClock } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 
 type TodayContext = {
   localDate: string;
+  timezone: string;
   clockInEnabled: boolean;
   openingTime: string | null;
   graceMinutes: number;
@@ -211,14 +213,14 @@ export function ClockInCard() {
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                 <span>
                   Clocked in at{" "}
-                  <span className="font-medium">{format(parseISO(today.clockedInAt!), "h:mm a")}</span>
+                  <span className="font-medium">{formatInTimeZone(parseISO(today.clockedInAt!), today.timezone, "h:mm a")}</span>
                 </span>
               </div>
 
               {alreadyOut ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <LogOut className="h-4 w-4" />
-                  Clocked out at {format(parseISO(today.clockedOutAt!), "h:mm a")}
+                  Clocked out at {formatInTimeZone(parseISO(today.clockedOutAt!), today.timezone, "h:mm a")}
                 </div>
               ) : (
                 <Button

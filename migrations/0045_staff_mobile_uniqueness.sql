@@ -1,4 +1,4 @@
--- 0044_staff_mobile_uniqueness.sql
+-- 0045_staff_mobile_uniqueness.sql
 --
 -- Adds the (store_id, mobile_number) unique constraint that
 -- shared/schema/staff.ts now declares, mirroring staff_email_unique. A

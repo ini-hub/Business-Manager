@@ -18,7 +18,7 @@ export type PunchRejection = {
     | "fence_not_configured"
     | "weak_gps"
     | "outside_fence"
-    | "pin_required"
+    | "pin_required" // reserved: recordPunch() never returns this yet — see requirePunchPin below
     | "already_punched"
     | "no_clock_in";
   message: string;
@@ -372,6 +372,9 @@ export class AttendanceService {
       clockInEnabled: !!settings?.clockInEnabled,
       openingTime: settings?.openingTime ?? null,
       graceMinutes: settings?.lateGraceMinutes ?? 0,
+      // Not yet enforced anywhere (recordPunch never checks it, no client sends a
+      // PIN) and its settings-page toggle is hidden for that reason. Still
+      // reported here so a client that adds a PIN prompt later has it for free.
       requirePunchPin: !!settings?.requirePunchPin,
       // Sent so the button can enable itself without a round trip per GPS tick.
       // The server re-validates every punch regardless; this is only for the UI.

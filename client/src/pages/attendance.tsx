@@ -49,31 +49,49 @@ const STATUS_DOT: Record<AttendanceStatus, string> = {
   leave:   "bg-blue-400",
 };
 
-function StatusBadge({ status, isActive }: { status: AttendanceStatus; isActive?: boolean }) {
+function LateBadge({ lateMinutes }: { lateMinutes?: number | null }) {
+  return (
+    <Badge variant="outline" className="gap-1 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800 border">
+      <AlertCircle className="h-3 w-3" />
+      Late{lateMinutes ? ` by ${lateMinutes} min` : ""}
+    </Badge>
+  );
+}
+
+function StatusBadge({ status, isActive, isLate, lateMinutes }: { status: AttendanceStatus; isActive?: boolean; isLate?: boolean; lateMinutes?: number | null }) {
   if (status === "present") {
     if (isActive) {
       return (
-        <Badge variant="outline" className="gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 border">
-          <CheckCircle2 className="h-3 w-3" />
-          Present (Active)
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline" className="gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 border">
+            <CheckCircle2 className="h-3 w-3" />
+            Present (Active)
+          </Badge>
+          {isLate && <LateBadge lateMinutes={lateMinutes} />}
+        </div>
       );
     } else {
       return (
-        <Badge variant="outline" className="gap-1 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950 border-violet-200 dark:border-violet-800 border">
-          <CheckCircle2 className="h-3 w-3" />
-          Present (Passive)
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline" className="gap-1 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950 border-violet-200 dark:border-violet-800 border">
+            <CheckCircle2 className="h-3 w-3" />
+            Present (Passive)
+          </Badge>
+          {isLate && <LateBadge lateMinutes={lateMinutes} />}
+        </div>
       );
     }
   }
   const cfg = STATUS_CONFIG[status];
   const Icon = cfg.icon;
   return (
-    <Badge variant="outline" className={`gap-1 ${cfg.color} ${cfg.bg} border`}>
-      <Icon className="h-3 w-3" />
-      {cfg.label}
-    </Badge>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Badge variant="outline" className={`gap-1 ${cfg.color} ${cfg.bg} border`}>
+        <Icon className="h-3 w-3" />
+        {cfg.label}
+      </Badge>
+      {isLate && <LateBadge lateMinutes={lateMinutes} />}
+    </div>
   );
 }
 
@@ -319,7 +337,7 @@ export default function AttendancePage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t sm:border-0 pt-2 sm:pt-0">
-                        {status ? <StatusBadge status={status} isActive={isActive} /> : (
+                        {status ? <StatusBadge status={status} isActive={isActive} isLate={rec?.isLate} lateMinutes={rec?.lateMinutes} /> : (
                           <span className="text-xs text-muted-foreground italic">Not marked</span>
                         )}
                         {canEdit && (

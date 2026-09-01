@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search, Package, WifiOff, ChevronDown, Layers, Flame } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,17 @@ const MIN_TOP_SELLERS = 3;
 const MIN_CATALOGUE_SURPLUS = 3;
 
 const COLLAPSE_KEY = "pos.topSellers.collapsed";
+
+// "All items" is paged rather than rendered in full — a catalogue of a few
+// hundred products turns into an endless tile grid otherwise. Search still
+// searches the whole catalogue; this only caps what's drawn before that.
+// The page size scales with how many columns the auto-fill grid below
+// actually renders — 5 tiles per column, so a single mobile column gets a
+// page of 5, two columns get 10, and so on — these two numbers must match
+// the grid's own track/gap sizing.
+const GRID_MIN_TILE_WIDTH = 190;
+const GRID_GAP = 12;
+const ITEMS_PER_COLUMN = 5;
 
 // Shape returned by /api/products
 interface ProductGroup {
@@ -99,6 +110,25 @@ export function ProductGrid({
   // variant popover should open.
   const [openPopoverKey, setOpenPopoverKey] = useState<string | null>(null);
   const [topCollapsed, setTopCollapsed] = useState(readCollapsed);
+  // Measured off resultsRef below, which sits at the same width the "all
+  // items" grid renders at (so column math done here matches its actual
+  // auto-fill layout) whether or not the grid itself is currently mounted.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [pageSize, setPageSize] = useState(ITEMS_PER_COLUMN);
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_COLUMN);
+
+  useEffect(() => {
+    const el = resultsRef.current;
+    if (!el) return;
+    const applyWidth = (width: number) => {
+      const columns = Math.max(1, Math.floor((width + GRID_GAP) / (GRID_MIN_TILE_WIDTH + GRID_GAP)));
+      setPageSize(columns * ITEMS_PER_COLUMN);
+    };
+    applyWidth(el.clientWidth);
+    const observer = new ResizeObserver((entries) => applyWidth(entries[0].contentRect.width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const available = allowOutOfStock ? products : products.filter(isAvailable);
 
@@ -111,6 +141,16 @@ export function ProductGrid({
         );
       })
     : available;
+
+  // Narrowing the search (or clearing it), or the column count changing
+  // (rotating the device, resizing the window), should always start back at
+  // one page rather than staying wherever "Load more" had gotten to.
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [searchTerm, pageSize]);
+
+  const visible = filtered.slice(0, visibleCount);
+  const remaining = filtered.length - visible.length;
 
   // Ranked order comes from the server; the lookup keeps it while dropping
   // anything now out of stock or archived since the ranking was computed.
@@ -311,62 +351,81 @@ export function ProductGrid({
           </span>
         </div>
 
-        {isLoading ? (
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="p-4 rounded-lg border animate-pulse">
-                <div className="h-4 w-32 bg-muted rounded mb-2" />
-                <div className="h-3 w-20 bg-muted rounded" />
+        {/* Ref target for column-count measurement — a plain full-width block
+            so its clientWidth always matches whatever the "all items" grid
+            below renders at, whether or not that grid is currently mounted. */}
+        <div ref={resultsRef}>
+          {isLoading ? (
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="p-4 rounded-lg border animate-pulse">
+                  <div className="h-4 w-32 bg-muted rounded mb-2" />
+                  <div className="h-3 w-20 bg-muted rounded" />
+                </div>
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Package className="h-10 w-10 text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                {searchTerm ? "No items found" : "No items available for sale"}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {showTopSellers && (
+                <div className="space-y-3" data-testid="section-top-sellers">
+                  <div className="flex items-center gap-2">
+                    <Flame className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Top sellers
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/70">Last 30 days</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto h-6 px-2 text-[11px] text-muted-foreground"
+                      onClick={toggleTopSellers}
+                      data-testid="button-toggle-top-sellers"
+                    >
+                      {topCollapsed ? "Show" : "Hide"}
+                    </Button>
+                  </div>
+                  {!topCollapsed && (
+                    <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+                      {topSellers.map((product) => renderTile(product, "top"))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      All items
+                    </span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
+                {visible.map((product) => renderTile(product, "all"))}
               </div>
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Package className="h-10 w-10 text-muted-foreground/50 mb-3" />
-            <p className="text-sm text-muted-foreground">
-              {searchTerm ? "No items found" : "No items available for sale"}
-            </p>
-          </div>
-        ) : (
-          <>
-            {showTopSellers && (
-              <div className="space-y-3" data-testid="section-top-sellers">
-                <div className="flex items-center gap-2">
-                  <Flame className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400" />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Top sellers
-                  </span>
-                  <span className="text-[10px] text-muted-foreground/70">Last 30 days</span>
+
+              {remaining > 0 && (
+                <div className="flex justify-center pt-1">
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="ml-auto h-6 px-2 text-[11px] text-muted-foreground"
-                    onClick={toggleTopSellers}
-                    data-testid="button-toggle-top-sellers"
+                    onClick={() => setVisibleCount((prev) => prev + pageSize)}
+                    data-testid="button-load-more-items"
                   >
-                    {topCollapsed ? "Show" : "Hide"}
+                    Load {Math.min(remaining, pageSize)} more ({remaining} left)
                   </Button>
                 </div>
-                {!topCollapsed && (
-                  <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
-                    {topSellers.map((product) => renderTile(product, "top"))}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    All items
-                  </span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              </div>
-            )}
-
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
-              {filtered.map((product) => renderTile(product, "all"))}
+              )}
             </div>
-          </>
-        )}
+          )}
+        </div>
       </CardContent>
     </Card>
   );

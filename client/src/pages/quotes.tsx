@@ -4,6 +4,7 @@ import { useUrlState } from "@/hooks/use-url-state";
 import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Printer, Download, MessageCircle, RefreshCw, Package, ShoppingCart } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
+import { printWithFormat } from "@/lib/print-utils";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -315,7 +316,7 @@ export default function QuotesPage() {
       toast({ title: "Nothing to print", description: "The proposal hasn't finished loading yet.", variant: "destructive" });
       return;
     }
-    window.print();
+    printWithFormat("a4-document");
   };
 
   const handleDownloadPdf = async () => {
@@ -325,7 +326,16 @@ export default function QuotesPage() {
       return;
     }
     try {
-      const canvas = await html2canvas(printContent, { scale: 2, useCORS: true });
+      // Force a desktop-width layout for the capture regardless of the
+      // device's actual viewport — on a narrow phone the invoice card (and
+      // the wide item table inside it) renders cramped/scrolled, and
+      // html2canvas otherwise screenshots exactly that cramped state,
+      // clipping whatever didn't fit.
+      const canvas = await html2canvas(printContent, {
+        scale: 2,
+        useCORS: true,
+        windowWidth: 900,
+      });
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -717,17 +727,19 @@ export default function QuotesPage() {
                   />
                 </div>
 
-                <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg border">
+                {/* Sticky on mobile so the total and action buttons stay reachable
+                    without scrolling past the full item grid/review list to find them. */}
+                <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:items-center sm:justify-between lg:static lg:mx-0 lg:mb-0 lg:rounded-lg lg:border lg:bg-muted/20 lg:backdrop-blur-none">
                   <div>
                     <span className="text-sm text-muted-foreground">Proposal Total</span>
                     <h2 className="text-2xl font-bold font-mono text-primary mt-1">{formatCurrency(quoteTotal)}</h2>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" onClick={resetForm}>Reset Form</Button>
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                    <Button variant="ghost" onClick={resetForm} className="w-full sm:w-auto">Reset Form</Button>
                     <Button
                       onClick={() => createQuoteMutation.mutate()}
                       disabled={createQuoteMutation.isPending || quoteCart.length === 0}
-                      className="px-6"
+                      className="w-full px-6 sm:w-auto"
                     >
                       Generate Estimate Proposal
                     </Button>
@@ -741,11 +753,22 @@ export default function QuotesPage() {
 
       {/* View Quote Details dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-w-3xl border border-border bg-background/90 backdrop-blur-lg">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto border border-border bg-background/90 backdrop-blur-lg">
           <DialogHeader>
-            <DialogTitle className="flex justify-between items-center w-full pr-6">
-              <span>Proposal Detailed View</span>
-              <div className="flex gap-2">
+            <DialogTitle>Proposal Detailed View</DialogTitle>
+          </DialogHeader>
+
+          {isLoadingDetails ? (
+            <div className="py-12 flex justify-center items-center">
+              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : !fullQuote ? (
+            <p className="text-center text-muted-foreground py-8">Quote proposal not found.</p>
+          ) : (
+            <div className="space-y-6">
+              {/* Action buttons — wrap onto multiple lines on narrow screens
+                  instead of overflowing off the edge of the dialog. */}
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1">
                   <Printer className="h-4 w-4" /> Print Proforma
                 </Button>
@@ -760,7 +783,7 @@ export default function QuotesPage() {
                 >
                   <MessageCircle className="h-4 w-4" /> Share
                 </Button>
-                {fullQuote && ["draft", "sent"].includes(fullQuote.status) && (
+                {["draft", "sent"].includes(fullQuote.status) && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -770,7 +793,7 @@ export default function QuotesPage() {
                     <CheckCircle className="h-4 w-4" /> Accept
                   </Button>
                 )}
-                {fullQuote && ["draft", "sent"].includes(fullQuote.status) && (
+                {["draft", "sent"].includes(fullQuote.status) && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -780,7 +803,7 @@ export default function QuotesPage() {
                     <XCircle className="h-4 w-4" /> Decline
                   </Button>
                 )}
-                {fullQuote && fullQuote.status === "accepted" && (
+                {fullQuote.status === "accepted" && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -790,7 +813,7 @@ export default function QuotesPage() {
                     <RefreshCw className="h-4 w-4" /> Convert to Sale
                   </Button>
                 )}
-                {user?.role === "owner" && fullQuote?.status === "draft" && (
+                {user?.role === "owner" && fullQuote.status === "draft" && (
                   <Button
                     variant="destructive"
                     size="sm"
@@ -801,22 +824,12 @@ export default function QuotesPage() {
                   </Button>
                 )}
               </div>
-            </DialogTitle>
-          </DialogHeader>
 
-          {isLoadingDetails ? (
-            <div className="py-12 flex justify-center items-center">
-              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : !fullQuote ? (
-            <p className="text-center text-muted-foreground py-8">Quote proposal not found.</p>
-          ) : (
-            <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-2">
               {/* Detailed Invoice Card */}
-              <div id="quote-printable-invoice" className="bg-white text-black p-8 rounded-lg border shadow-sm">
-                <div className="flex justify-between items-start border-b pb-6">
+              <div id="quote-printable-invoice" className="bg-white text-black p-4 sm:p-8 rounded-lg border shadow-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start border-b pb-6">
                   <div>
-                    <h1 className="text-3xl font-extrabold tracking-tight text-primary uppercase">{currentStore?.name}</h1>
+                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-primary uppercase">{currentStore?.name}</h1>
                     <p className="text-xs text-gray-500 mt-1">PROFORMA ESTIMATE proposal</p>
                     <p className="text-sm font-semibold text-gray-700 mt-2">Ref: {fullQuote.quoteRef}</p>
                   </div>
@@ -831,7 +844,7 @@ export default function QuotesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6 my-6 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 my-6 text-sm">
                   <div>
                     <p className="text-xs text-gray-400 uppercase font-semibold">Prepared By</p>
                     <p className="font-bold text-gray-800">{currentStore?.name}</p>

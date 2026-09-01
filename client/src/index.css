@@ -356,10 +356,12 @@ input[type="number"] {
     visibility: hidden !important;
   }
 
-  /* Thermal paper: 80mm wide, no margins */
+  /* Fallback page size if a print job somehow skips print-utils.ts's
+     printWithFormat() step, which writes the real @page rule (80mm thermal
+     roll vs A4 document) into #dynamic-print-page-style before printing. */
   @page {
-    size: 80mm auto;
-    margin: 0;
+    size: auto;
+    margin: 12mm;
   }
 
   body {
@@ -378,8 +380,8 @@ input[type="number"] {
     visibility: visible !important;
   }
 
-  #receipt-print-area,
-  #quote-printable-invoice {
+  /* Thermal receipt: narrow roll paper, monospace, no colour */
+  #receipt-print-area {
     display: block !important;
     position: fixed;
     left: 0;
@@ -391,21 +393,30 @@ input[type="number"] {
     color: black !important;
     background: white !important;
   }
-
-  /* Strip colours and shadows on printed content */
-  #receipt-print-area *,
-  #quote-printable-invoice * {
+  #receipt-print-area * {
     color: black !important;
     background: transparent !important;
     box-shadow: none !important;
     border-color: #000 !important;
   }
-
-  /* Keep dividers visible as dashed lines */
   #receipt-print-area hr,
-  #receipt-print-area .receipt-divider,
-  #quote-printable-invoice hr,
-  #quote-printable-invoice .receipt-divider {
+  #receipt-print-area .receipt-divider {
     border-top: 1px dashed #000 !important;
+  }
+
+  /* Proforma / quote proposal: a normal full-width document on the printed
+     page, not a receipt — it was previously forced into the same 72mm
+     monospace box as a thermal receipt, which clipped most of the content. */
+  #quote-printable-invoice {
+    display: block !important;
+    position: static;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  #quote-printable-invoice * {
+    box-shadow: none !important;
   }
 }

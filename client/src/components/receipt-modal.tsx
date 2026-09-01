@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ReceiptView, useReceiptPayload } from "@/components/receipt-view";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
+import { printWithFormat } from "@/lib/print-utils";
 
 interface ReceiptModalProps {
   checkoutId: string | null | undefined;
@@ -20,7 +21,7 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
   const { data: payload, isLoading, error } = useReceiptPayload(open ? checkoutId : null);
 
   const handlePrint = () => {
-    window.print();
+    printWithFormat("receipt-80mm");
   };
 
   const handleDownloadPDF = async () => {
@@ -40,23 +41,52 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
     }
   };
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = async () => {
     if (!payload) return;
     const receiptNum = payload.checkout?.receiptNumber ?? "N/A";
-    const total = payload.checkout?.totalCharged ?? 0;
+    // A receipt can span multiple checkout rows (one per line item) sharing the
+    // same receiptNumber; payload.checkout is only the primary (oldest) row, so
+    // its totalCharged is just that one item's charge. Sum across items to match
+    // the "TOTAL CHARGED" shown on the printed receipt (see receipt-view.tsx).
+    const total = payload.items?.length
+      ? payload.items.reduce((sum, it) => sum + (it.checkout?.totalCharged ?? 0), 0)
+      : payload.checkout?.totalCharged ?? 0;
     const currency = payload.store?.currency ?? "NGN";
     const itemName = payload.items?.map(it => it.inventory?.name).filter(Boolean).join(", ") || "Service";
     const businessName = payload.business?.name ?? "Business";
 
     const fmt = new Intl.NumberFormat("en-NG", { style: "currency", currency }).format(total);
-    const msg = encodeURIComponent(
+    const text =
       `*Receipt from ${businessName}*\n` +
       `Receipt #: ${receiptNum}\n` +
       `Item: ${itemName}\n` +
       `Total: ${fmt}\n\n` +
-      `Thank you for your patronage!`
-    );
-    window.open(`https://wa.me/?text=${msg}`, "_blank");
+      `Thank you for your patronage!`;
+
+    // Prefer sharing an actual PNG of the receipt via the native share sheet
+    // (Android/iOS only — wa.me has no attachment param, so this is the only
+    // way to get a real file into the chat instead of text-only). Desktop and
+    // unsupported browsers fall through to the text-only wa.me link below.
+    try {
+      const printContent = document.getElementById("receipt-print-area");
+      const canShareFiles = printContent && typeof navigator.share === "function" && typeof navigator.canShare === "function";
+      if (canShareFiles) {
+        const canvas = await html2canvas(printContent!, { scale: 2, useCORS: true });
+        const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (blob) {
+          const file = new File([blob], `${receiptNum}.png`, { type: "image/png" });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], text, title: `Receipt ${receiptNum}` });
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return; // user dismissed the share sheet
+      console.error("Receipt image share failed, falling back to text link:", err);
+    }
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
 
   return (
