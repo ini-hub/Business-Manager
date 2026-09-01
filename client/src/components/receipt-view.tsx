@@ -167,12 +167,15 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
 
       <div className="border-t border-dashed border-gray-400 my-2" />
 
-      {/* Items header */}
-      <div className="grid grid-cols-12 text-xs font-bold mb-1">
-        <div className="col-span-5">Item</div>
-        <div className="col-span-2 text-center">Qty</div>
-        <div className="col-span-2 text-right">Unit</div>
-        <div className="col-span-3 text-right">Total</div>
+      {/* Items header
+          NOTE: flex, not CSS grid — html2canvas (used for the WhatsApp/PDF
+          snapshot) mis-measures grid rows and overlaps their cells, which
+          previously rendered the item name on top of other text. */}
+      <div className="flex text-xs font-bold mb-1">
+        <div className="w-5/12">Item</div>
+        <div className="w-2/12 text-center">Qty</div>
+        <div className="w-2/12 text-right">Unit</div>
+        <div className="w-3/12 text-right">Total</div>
       </div>
 
       {/* Items */}
@@ -186,11 +189,15 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
         const displayQty = parseFloat(Number(qty).toFixed(4));
         return (
           <div key={idx} className="mb-2">
-            <div className="grid grid-cols-12 text-xs">
-              <div className="col-span-5 truncate">{item.inventory?.name ?? "Unknown Item"}</div>
-              <div className="col-span-2 text-center">{displayQty}{unit ? ` ${unit}` : ""}</div>
-              <div className="col-span-2 text-right">{fmt(unitPrice)}</div>
-              <div className="col-span-3 text-right">{fmt(totalPrice)}</div>
+            <div className="flex text-xs">
+              {/* No `truncate` (text-overflow: ellipsis) — html2canvas mis-renders
+                  CSS ellipsis truncation as a garbled/strikethrough-looking mess
+                  in the captured image. Wrapping is safe here since the column
+                  has a fixed width. */}
+              <div className="w-5/12 break-words pr-1">{item.inventory?.name ?? "Unknown Item"}</div>
+              <div className="w-2/12 text-center">{displayQty}{unit ? ` ${unit}` : ""}</div>
+              <div className="w-2/12 text-right">{fmt(unitPrice)}</div>
+              <div className="w-3/12 text-right">{fmt(totalPrice)}</div>
             </div>
             {isPromo && (
               <div className="text-[10px] text-gray-500 pl-2 italic">

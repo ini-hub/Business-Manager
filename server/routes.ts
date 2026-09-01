@@ -201,11 +201,15 @@ export async function registerRoutes(
       return false;
     }
 
-    // Staff members are restricted to their own assigned store
+    // Staff members are restricted to their own assigned store. Scoping the
+    // lookup itself (rather than fetching one arbitrary row and comparing) is
+    // what makes this correct for a staff record linked to rows in more than
+    // one store: a miss here means "not assigned to *this* store", not "has
+    // no staff record at all".
     const userRole = req.user?.role;
     if (userRole === "staff") {
-      const staffRecord = await storage.getStaffByUserId(userId);
-      if (staffRecord && staffRecord.storeId !== storeId) {
+      const staffRecord = await storage.getStaffByUserId(userId, storeId);
+      if (!staffRecord) {
         res.status(403).json({ error: "Staff members can only access their assigned store." });
         return false;
       }
@@ -1766,12 +1770,13 @@ export async function registerRoutes(
     if (!store) return false;
     if (store.businessId !== user.businessId) return false;
 
-    // Strict isolation: if role is staff, restrict to their assigned storeId branch
+    // Strict isolation: if role is staff, restrict to their assigned storeId
+    // branch. Scoping the lookup (rather than fetching one arbitrary row and
+    // comparing) is what makes this correct for a staff record linked to rows
+    // in more than one store.
     if (user.role === "staff") {
-      const staffRecord = await storage.getStaffByUserId(user.id);
-      if (staffRecord && staffRecord.storeId !== storeId) {
-        return false;
-      }
+      const staffRecord = await storage.getStaffByUserId(user.id, storeId);
+      if (!staffRecord) return false;
     }
     return true;
   };

@@ -73,12 +73,13 @@ export abstract class BaseController {
     if (!store) return false;
     if (store.businessId !== user.businessId) return false;
 
-    // Strict isolation: if role is staff, restrict to their assigned storeId branch
+    // Strict isolation: if role is staff, restrict to their assigned storeId
+    // branch. Scoping the lookup (rather than fetching one arbitrary row and
+    // comparing) is what makes this correct for a staff record linked to rows
+    // in more than one store.
     if (user.role === "staff") {
-      const staffRecord = await storage.getStaffByUserId(user.id);
-      if (staffRecord && staffRecord.storeId !== storeId) {
-        return false;
-      }
+      const staffRecord = await storage.getStaffByUserId(user.id, storeId);
+      if (!staffRecord) return false;
     }
     return true;
   }

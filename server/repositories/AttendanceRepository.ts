@@ -10,11 +10,14 @@ import { eq, and, gte, lte, asc, inArray, sql } from "drizzle-orm";
 export class AttendanceRepository {
   async getAttendanceRecords(storeId: string, options: {
     staffId?: string;
+    /** Multiple staff at once — the manager "group" view. staffId wins if both are given. */
+    staffIds?: string[];
     startDate?: string;
     endDate?: string;
   } = {}): Promise<AttendanceRecord[]> {
     const conditions: any[] = [eq(attendanceRecords.storeId, storeId)];
     if (options.staffId) conditions.push(eq(attendanceRecords.staffId, options.staffId));
+    else if (options.staffIds && options.staffIds.length > 0) conditions.push(inArray(attendanceRecords.staffId, options.staffIds));
     if (options.startDate) conditions.push(gte(attendanceRecords.date, options.startDate));
     if (options.endDate) conditions.push(lte(attendanceRecords.date, options.endDate));
 

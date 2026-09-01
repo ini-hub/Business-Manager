@@ -9,6 +9,7 @@ import { resolvePunchTime } from "./attendance/punchTime";
 import { detectSharedDevice, detectRapidSuccession } from "./attendance/collusion";
 import { buildScheduleResolver, exceptionKey } from "./attendance/scheduleResolver";
 import type { AttendancePunch, Settings } from "@shared/schema";
+import { startOfISOWeek, endOfISOWeek, format, parseISO } from "date-fns";
 
 export type PunchRejection = {
   ok: false;
@@ -37,6 +38,45 @@ export type PunchAcceptance = {
 };
 
 export type PunchResult = PunchAcceptance | PunchRejection;
+
+export type AttendanceLogPunch = {
+  id: string;
+  kind: "clock_in" | "clock_out";
+  source: string;
+  effectiveAt: string;
+  distanceMeters: number | null;
+  withinGeofence: boolean | null;
+  deviceTrusted: boolean;
+  sharedDeviceFlagged: boolean;
+  timeDivergenceFlagged: boolean;
+  reason: string | null;
+};
+
+export type AttendanceLogDay = {
+  date: string;
+  status: string;
+  isLate: boolean;
+  lateMinutes: number | null;
+  firstClockInAt: string | null;
+  lastClockOutAt: string | null;
+  punches: AttendanceLogPunch[];
+};
+
+export type AttendanceLogGroup = {
+  staffId: string;
+  staffName: string;
+  weekStart: string;
+  weekEnd: string;
+  summary: { present: number; late: number; absent: number; offDay: number; holiday: number; leave: number };
+  days: AttendanceLogDay[];
+};
+
+export type AttendanceLogResult = {
+  groups: AttendanceLogGroup[];
+  page: number;
+  pageSize: number;
+  totalGroups: number;
+};
 
 export type RecordPunchInput = {
   storeId: string;
@@ -265,11 +305,18 @@ export class AttendanceService {
         ok: false,
         status: 400,
         code: "fence_not_configured",
-        message: "This branch has no clock-in location set yet. Ask your manager to set it in Settings.",
+        message: "This branch has no clock-in/out location set yet. Ask your manager to set it in Settings.",
       };
     }
 
-    if (!isValidLatitude(Number(input.latitude)) || !isValidLongitude(Number(input.longitude))) {
+    // Checked before the Number() coercion below on purpose: Number(null) and
+    // Number(undefined pass through a truthy-looking value) collapse to 0,
+    // which is a valid latitude/longitude (0, 0) — so a missing fix from the
+    // client was silently treated as "at null island" and compared against the
+    // real branch, producing a false "you are 5,000+ km away" rejection instead
+    // of the "couldn't read your location" one actually meant here.
+    if (input.latitude == null || input.longitude == null
+      || !isValidLatitude(Number(input.latitude)) || !isValidLongitude(Number(input.longitude))) {
       return {
         ok: false,
         status: 422,
@@ -300,7 +347,7 @@ export class AttendanceService {
         ok: false,
         status: 403,
         code: "outside_fence",
-        message: `You are about ${Math.round(distanceMeters)} m from the branch. Clock-in only works within ${radiusMeters} m.`,
+        message: `You are about ${Math.round(distanceMeters)} m from the branch. Clocking ${input.kind === "clock_out" ? "out" : "in"} only works within ${radiusMeters} m.`,
         distanceMeters: Math.round(distanceMeters),
         radiusMeters,
       };
@@ -400,6 +447,119 @@ export class AttendanceService {
     return this.punchRepo.getPunchesInRange(storeId, startDate, endDate);
   }
 
+  /**
+   * The attendance log: day-status rows joined with their raw punches, grouped by
+   * ISO week per staff member, and paginated over those (staff × week) groups.
+   *
+   * `staffIds` empty/omitted means "every staff member in the store" — the caller
+   * (the route) is responsible for narrowing that to a single id for a staff-role
+   * caller before this ever runs; this method does not re-check who is allowed to
+   * see whom.
+   */
+  async getAttendanceLog(query: {
+    storeId: string;
+    staffIds?: string[];
+    startDate: string;
+    endDate: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<AttendanceLogResult> {
+    const page = Math.max(1, query.page ?? 1);
+    // Capped well above the UI's own page size (6) so an export request — which
+    // asks for everything in one page rather than paginating — can still get a
+    // full store's worth of (staff × week) groups in one round trip.
+    const pageSize = Math.min(500, Math.max(1, query.pageSize ?? 6));
+
+    const allStaff = await storage.getStaffList(query.storeId);
+    // An explicit list may name an archived staff member on purpose (e.g. pulling
+    // a former employee's history for a dispute); the "everyone" default must not
+    // — a manager narrowing the store-wide view only ever sees active staff to pick
+    // from, so the unfiltered default should match what that picker shows.
+    const staffIds = query.staffIds && query.staffIds.length > 0
+      ? query.staffIds
+      : allStaff.filter(s => !s.isArchived).map(s => s.id);
+    if (staffIds.length === 0) return { groups: [], page, pageSize, totalGroups: 0 };
+
+    const nameById = new Map(allStaff.map(s => [s.id, s.name]));
+
+    const [records, punches] = await Promise.all([
+      this.recordRepo.getAttendanceRecords(query.storeId, { staffIds, startDate: query.startDate, endDate: query.endDate }),
+      this.punchRepo.getPunchesInRangeForStaff(query.storeId, staffIds, query.startDate, query.endDate),
+    ]);
+
+    const punchesByStaffDate = new Map<string, AttendanceLogPunch[]>();
+    for (const p of punches) {
+      const key = `${p.staffId}|${p.localDate}`;
+      const list = punchesByStaffDate.get(key) ?? [];
+      list.push({
+        id: p.id,
+        kind: p.kind as "clock_in" | "clock_out",
+        source: p.source,
+        effectiveAt: p.effectiveAt.toISOString(),
+        distanceMeters: p.distanceMeters ?? null,
+        withinGeofence: p.withinGeofence ?? null,
+        deviceTrusted: p.deviceTrusted,
+        sharedDeviceFlagged: p.sharedDeviceFlagged,
+        timeDivergenceFlagged: p.timeDivergenceFlagged,
+        reason: p.reason ?? null,
+      });
+      punchesByStaffDate.set(key, list);
+    }
+
+    type Bucket = { staffId: string; weekStart: string; weekEnd: string; days: AttendanceLogDay[] };
+    const buckets = new Map<string, Bucket>();
+    for (const r of records) {
+      const dayDate = parseISO(r.date);
+      const weekStart = format(startOfISOWeek(dayDate), "yyyy-MM-dd");
+      const weekEnd = format(endOfISOWeek(dayDate), "yyyy-MM-dd");
+      const key = `${r.staffId}|${weekStart}`;
+      const bucket = buckets.get(key) ?? { staffId: r.staffId, weekStart, weekEnd, days: [] };
+      bucket.days.push({
+        date: r.date,
+        status: r.status as AttendanceLogDay["status"],
+        isLate: r.isLate,
+        lateMinutes: r.lateMinutes,
+        firstClockInAt: r.firstClockInAt ? r.firstClockInAt.toISOString() : null,
+        lastClockOutAt: r.lastClockOutAt ? r.lastClockOutAt.toISOString() : null,
+        punches: punchesByStaffDate.get(`${r.staffId}|${r.date}`) ?? [],
+      });
+      buckets.set(key, bucket);
+    }
+
+    const groups: AttendanceLogGroup[] = Array.from(buckets.values()).map((b) => {
+      // Most recent day first within the week.
+      b.days.sort((a, c) => (a.date < c.date ? 1 : a.date > c.date ? -1 : 0));
+      const summary = { present: 0, late: 0, absent: 0, offDay: 0, holiday: 0, leave: 0 };
+      for (const d of b.days) {
+        if (d.status === "present") summary.present++;
+        else if (d.status === "absent") summary.absent++;
+        else if (d.status === "off_day") summary.offDay++;
+        else if (d.status === "holiday") summary.holiday++;
+        else if (d.status === "leave") summary.leave++;
+        if (d.isLate) summary.late++;
+      }
+      return {
+        staffId: b.staffId,
+        staffName: nameById.get(b.staffId) ?? "Unknown",
+        weekStart: b.weekStart,
+        weekEnd: b.weekEnd,
+        summary,
+        days: b.days,
+      };
+    });
+
+    // By staff name, then most recent week first within each staff member.
+    groups.sort((a, c) => {
+      const byName = a.staffName.localeCompare(c.staffName);
+      if (byName !== 0) return byName;
+      return a.weekStart < c.weekStart ? 1 : a.weekStart > c.weekStart ? -1 : 0;
+    });
+
+    const totalGroups = groups.length;
+    const offset = (page - 1) * pageSize;
+    return { groups: groups.slice(offset, offset + pageSize), page, pageSize, totalGroups };
+  }
+
   listDevices(storeId: string) {
     return this.punchRepo.getDevicesForStore(storeId);
   }
@@ -453,6 +613,13 @@ export class AttendanceService {
     return { ok: true, request };
   }
 
+  // Self-approval check for the retro-request queue: is the person deciding
+  // this request the same person who filed it?
+  private async isOwnRequest(requestStaffId: string, decidingUserId: string): Promise<boolean> {
+    const requestStaff = await storage.getStaff(requestStaffId);
+    return !!requestStaff && requestStaff.userId === decidingUserId;
+  }
+
   private async isDateInPaidPeriod(storeId: string, date: string): Promise<boolean> {
     const periods = await storage.getPayrollPeriods(storeId);
     const covering = periods.find(p => p.startDate <= date && p.endDate >= date);
@@ -473,6 +640,12 @@ export class AttendanceService {
     if (!request) return { ok: false as const, status: 404, message: "Request not found." };
     if (request.status !== "pending") {
       return { ok: false as const, status: 409, message: "That request has already been decided." };
+    }
+
+    // Nobody decides their own request, manager or owner included — ask a
+    // different manager or the owner to review it.
+    if (await this.isOwnRequest(request.staffId, decidedByUserId)) {
+      return { ok: false as const, status: 403, message: "You can't approve your own request. Ask another manager or the owner to review it." };
     }
 
     // The period may have been paid between the request being filed and being
@@ -523,6 +696,9 @@ export class AttendanceService {
     if (!request) return { ok: false as const, status: 404, message: "Request not found." };
     if (request.status !== "pending") {
       return { ok: false as const, status: 409, message: "That request has already been decided." };
+    }
+    if (await this.isOwnRequest(request.staffId, decidedByUserId)) {
+      return { ok: false as const, status: 403, message: "You can't reject your own request. Ask another manager or the owner to review it." };
     }
     const updated = await this.punchRepo.decideRetroRequest(id, {
       status: "rejected",

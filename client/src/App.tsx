@@ -50,8 +50,10 @@ const StaffPage = lazy(() => import("@/pages/staff"));
 const StaffFormPage = lazy(() => import("@/pages/staff-form"));
 const AttendancePage = lazy(() => import("@/pages/attendance"));
 const StaffPerformancePage = lazy(() => import("@/pages/staff-performance"));
+const MyPerformancePage = lazy(() => import("@/pages/my-performance"));
 const StaffDashboard = lazy(() => import("@/pages/staff-dashboard"));
 const StaffAttendancePage = lazy(() => import("@/pages/staff-attendance"));
+const NotAuthorized = lazy(() => import("@/components/not-authorized"));
 const InventoryPage = lazy(() => import("@/pages/inventory"));
 const InventoryDetails = lazy(() => import("@/pages/inventory-details"));
 const InventoryNewPage = lazy(() => import("@/pages/inventory-new"));
@@ -383,11 +385,28 @@ function AuthenticatedLayout() {
                   <Route path="/customers/new" component={CustomerFormPage} />
                   <Route path="/customers/:id/edit" component={CustomerFormPage} />
                   <Route path="/customers/:id" component={CustomerDetails} />
-                  <Route path="/staff" component={StaffPage} />
-                  <Route path="/staff/new" component={StaffFormPage} />
-                  <Route path="/staff/:id/edit" component={StaffFormPage} />
-                  <Route path="/staff/attendance">
-                    {user?.role === "staff" ? <StaffAttendancePage /> : <AttendancePage />}
+                  {/* Singular /staff/* = personal, identical for staff, manager, and
+                      owner alike — no role branching, it's always "your own record".
+                      Plural /staffs/* = admin (the roster, and every staff member's
+                      attendance/performance), manager/owner only: a staff account
+                      hitting one of these gets an in-page "not authorized" card, not
+                      a redirect — the URL never bounces. */}
+                  <Route path="/staff/attendance" component={StaffAttendancePage} />
+                  <Route path="/staff/performance" component={MyPerformancePage} />
+                  <Route path="/staffs">
+                    {user?.role === "staff" ? <NotAuthorized /> : <StaffPage />}
+                  </Route>
+                  <Route path="/staffs/new">
+                    {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
+                  </Route>
+                  <Route path="/staffs/:id/edit">
+                    {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
+                  </Route>
+                  <Route path="/staffs/attendance">
+                    {user?.role === "staff" ? <NotAuthorized /> : <AttendancePage />}
+                  </Route>
+                  <Route path="/staffs/performance">
+                    {user?.role === "staff" ? <NotAuthorized /> : <StaffPerformancePage />}
                   </Route>
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/new" component={InventoryNewPage} />
@@ -408,7 +427,6 @@ function AuthenticatedLayout() {
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
                   <Route path="/bookings/:id" component={BookingDetailsPage} />
                   <Route path="/bookings" component={BookingsPage} />
-                  <Route path="/reports/staff-performance" component={StaffPerformancePage} />
                   <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/payroll/new" component={PayrollNewPage} />

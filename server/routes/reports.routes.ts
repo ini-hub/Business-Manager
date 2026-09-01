@@ -38,7 +38,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { payrollPostingService } from "../services/PayrollPostingService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -148,6 +148,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
               existing.productsCount += s.productsCount;
               existing.presentDays += s.presentDays;
               existing.absentDays += s.absentDays;
+              existing.lateDays += s.lateDays;
             } else {
               mergedMap.set(key, { ...s });
             }
@@ -185,6 +186,97 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
+  // A staff member's own performance — their personal record. staffId comes
+  // from the authenticated user's staff record, never from the client, so
+  // nobody can page through a colleague's numbers by editing the URL. storeId
+  // DOES come from the client (the currently selected store) because the same
+  // user can be linked to a staff row in more than one store — the scoped
+  // lookup below is itself the access check: a miss means "not staff at that
+  // store", not "no staff record at all".
+  app.get("/api/reports/my-performance", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const storeId = req.query.storeId as string | undefined;
+      const staffMember = await storage.getStaffByUserId(user.id, storeId);
+      if (!staffMember) return res.status(404).json({ error: "Staff record not found for this user." });
+
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+
+      const data = await storage.getStaffPerformance(staffMember.storeId, startDate, endDate);
+      const own = data.find(s => s.id === staffMember.id);
+      res.json(own ?? {
+        id: staffMember.id,
+        name: staffMember.name,
+        email: staffMember.email,
+        role: staffMember.role,
+        totalRevenue: 0,
+        servicesCount: 0,
+        productsCount: 0,
+        presentDays: 0,
+        absentDays: 0,
+        lateDays: 0,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Could not fetch your performance data." });
+    }
+  });
+
+  app.get("/api/reports/my-performance/breakdown", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const storeId = req.query.storeId as string | undefined;
+      const staffMember = await storage.getStaffByUserId(user.id, storeId);
+      if (!staffMember) return res.status(404).json({ error: "Staff record not found for this user." });
+
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+
+      const data = await storage.getStaffBreakdown(staffMember.id, staffMember.storeId, startDate, endDate);
+      res.json(data);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Could not fetch your performance breakdown." });
+    }
+  });
+
+  // A staff account reading attendance may only ever see its own — `checkStoreAccess`
+  // confirms membership of the store, not whose records are being asked for, and a
+  // staff-role caller must never be trusted to supply the right `staffId` (or none at
+  // all, which would otherwise mean "everyone"). A manager/owner keeps whatever
+  // `requestedStaffId` they passed (including none, for "everyone").
+  async function resolveAttendanceStaffScope(
+    req: Request,
+    res: Response,
+    requestedStaffId: string | undefined,
+    storeId?: string,
+  ): Promise<{ ok: true; staffId: string | undefined } | { ok: false }> {
+    const userRole = (req as any).user?.role;
+    if (userRole !== "staff") return { ok: true, staffId: requestedStaffId };
+
+    const userId = (req as any).user?.id;
+    const ownStaff = await storage.getStaffByUserId(userId, storeId);
+    if (!ownStaff) {
+      res.status(404).json({ error: "No staff record is linked to your account. Ask your manager to link it." });
+      return { ok: false };
+    }
+    return { ok: true, staffId: ownStaff.id };
+  }
+
+  // A manager/owner can write anyone's attendance EXCEPT their own — that path
+  // has to go through the same punch/geofence flow (or a retro request) as
+  // everyone else, so it can't be used to wave yourself in as present. Returns
+  // null when the caller has no linked staff record at all, in which case there
+  // is no "own record" to collide with.
+  async function getOwnStaffId(req: Request, storeId?: string): Promise<string | null> {
+    const userId = (req as any).user?.id;
+    if (!userId) return null;
+    const staffRecord = await storage.getStaffByUserId(userId, storeId);
+    return staffRecord?.id ?? null;
+  }
+  const SELF_MARK_ERROR = "You can't set your own attendance this way — clock in yourself, or file a missed clock-in request if you weren't able to.";
+
   // Get attendance records
   app.get("/api/attendance", isAuthenticated, async (req, res) => {
     try {
@@ -192,8 +284,14 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      // A staff account may only ever read its own attendance — never a colleague's
+      // by name, and never the whole store's by omitting staffId. The query param is
+      // not trusted; the caller's own linked staff record decides it here.
+      const scope = await resolveAttendanceStaffScope(req, res, req.query.staffId as string | undefined, storeId);
+      if (!scope.ok) return; // response already sent
+
       const records = await storage.getAttendanceRecords(storeId, {
-        staffId: req.query.staffId as string | undefined,
+        staffId: scope.staffId,
         startDate: req.query.startDate as string | undefined,
         endDate: req.query.endDate as string | undefined,
       });
@@ -212,8 +310,18 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const ownStaffId = await getOwnStaffId(req, storeId);
+      if (ownStaffId && staffId === ownStaffId) {
+        return res.status(403).json({ error: SELF_MARK_ERROR });
+      }
+
       const userId = (req as any).user?.id;
       const record = await storage.upsertAttendanceRecord({ storeId, staffId, date, status, notes, markedByUserId: userId });
+
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_MARK", "attendance_record", record.id, "success", {
+        newValues: { staffId, date, status, notes: notes ?? null },
+      });
 
       triggerAutoRecalculate(storeId, date).catch(console.error);
       broadcastChange(req, "attendance", storeId, "updated");
@@ -233,8 +341,18 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const ownStaffId = await getOwnStaffId(req, storeId);
+      if (ownStaffId && staffIds.includes(ownStaffId)) {
+        return res.status(403).json({ error: SELF_MARK_ERROR });
+      }
+
       const userId = (req as any).user?.id;
       const records = await storage.bulkMarkAttendance(storeId, date, status, staffIds, userId);
+
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_BULK_MARK", "attendance_record", undefined, "success", {
+        newValues: { date, status, staffIds },
+      });
 
       triggerAutoRecalculate(storeId, date).catch(console.error);
       broadcastChange(req, "attendance", storeId, "updated");
@@ -254,10 +372,62 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "storeId, staffId, startDate, and endDate are required." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const summary = await storage.getAttendanceSummary(storeId, staffId, startDate, endDate);
+
+      const scope = await resolveAttendanceStaffScope(req, res, staffId, storeId);
+      if (!scope.ok) return;
+
+      const summary = await storage.getAttendanceSummary(storeId, scope.staffId!, startDate, endDate);
       res.json(summary);
     } catch (error) {
       res.status(500).json({ error: "Could not load attendance summary." });
+    }
+  });
+
+  // The attendance log: punches joined onto their day, grouped by ISO week per staff
+  // member, paginated over those groups. Powers both "My Attendance" (self, forced
+  // below) and the manager Log tab (one person, a chosen group, or the whole store).
+  app.get("/api/attendance/log", isAuthenticated, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      if (!storeId || !startDate || !endDate) {
+        return res.status(400).json({ error: "storeId, startDate and endDate are required." });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const requested = req.query.staffId;
+      const requestedIds = Array.isArray(requested)
+        ? (requested as string[])
+        : typeof requested === "string" && requested.length > 0
+          ? requested.split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
+
+      // A staff caller can only ever request their own single id — same rule as
+      // GET /api/attendance, applied here instead of via resolveAttendanceStaffScope
+      // because this endpoint accepts a *list*, not a single optional staffId. A
+      // manager/owner viewing their OWN "My Attendance" page passes `self=1`
+      // explicitly — without it, no staffId means "the whole store" for them,
+      // which is the Log tab's default and must stay untouched.
+      const userRole = (req as any).user?.role;
+      const wantsSelf = userRole === "staff" || req.query.self === "1" || req.query.self === "true";
+      let staffIds = requestedIds;
+      if (wantsSelf) {
+        const ownStaff = await storage.getStaffByUserId((req as any).user?.id, storeId);
+        if (!ownStaff) {
+          return res.status(404).json({ error: "No staff record is linked to your account. Ask your manager to link it." });
+        }
+        staffIds = [ownStaff.id];
+      }
+
+      const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
+      const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : undefined;
+
+      const log = await attendanceService.getAttendanceLog({ storeId, staffIds, startDate, endDate, page, pageSize });
+      res.json(log);
+    } catch (error) {
+      console.error("Attendance log error:", error);
+      res.status(500).json({ error: "Could not load the attendance log." });
     }
   });
 
@@ -350,14 +520,16 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // ── Self-service clock-in ─────────────────────────────────────────────────
-  // These routes never read staffId or storeId from the body. The caller's own
-  // staff record is the only identity that counts — same rule as
+  // These routes never read staffId from the body. The caller's own staff
+  // record is the only identity that counts — same rule as
   // GET /api/payroll/my-summary, and the reason a staff member cannot punch in
-  // a colleague by editing a request.
-
-  const resolveOwnStaff = async (req: Request, res: Response) => {
+  // a colleague by editing a request. storeId DOES come from the client (the
+  // currently selected store): the same user can be linked to a staff row in
+  // more than one store, so it's needed to pick the right one — see
+  // getStaffByUserId.
+  const resolveOwnStaff = async (req: Request, res: Response, storeId?: string) => {
     const user = (req as any).user;
-    const staffRecord = await storage.getStaffByUserId(user.id);
+    const staffRecord = await storage.getStaffByUserId(user.id, storeId);
     if (!staffRecord) {
       res.status(404).json({ error: "No staff record is linked to your account. Ask your manager to link it." });
       return null;
@@ -367,7 +539,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
   app.get("/api/attendance/today", isAuthenticated, async (req, res) => {
     try {
-      const staffRecord = await resolveOwnStaff(req, res);
+      const staffRecord = await resolveOwnStaff(req, res, req.query.storeId as string | undefined);
       if (!staffRecord) return;
       res.json(await attendanceService.getTodayContext(staffRecord.storeId, staffRecord.id));
     } catch (error) {
@@ -378,7 +550,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
   app.post("/api/attendance/punch", isAuthenticated, async (req, res) => {
     try {
-      const staffRecord = await resolveOwnStaff(req, res);
+      const staffRecord = await resolveOwnStaff(req, res, req.body?.storeId as string | undefined);
       if (!staffRecord) return;
 
       const { kind, latitude, longitude, accuracyMeters, deviceId, clientPunchId, clientCapturedAt, queued } = req.body;
@@ -440,6 +612,11 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
+      const ownStaffId = await getOwnStaffId(req, storeId);
+      if (ownStaffId && staffId === ownStaffId) {
+        return res.status(403).json({ error: "You can't proxy-punch yourself in — use your own clock-in card, which also keeps the geofence check intact." });
+      }
+
       const result = await attendanceService.recordPunch({
         storeId,
         staffId,
@@ -452,6 +629,11 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       });
 
       if (!result.ok) return res.status(result.status).json({ error: { message: result.message, code: result.code } });
+
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_PROXY_PUNCH", "attendance_punch", result.punch.id, "success", {
+        newValues: { staffId, kind, reason: reason.trim(), effectiveAt: effectiveAt ?? null },
+      });
 
       triggerAutoRecalculate(storeId, result.localDate).catch(console.error);
       broadcastChange(req, "attendance", storeId, "updated");
@@ -480,7 +662,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
   app.post("/api/attendance/retro-requests", isAuthenticated, async (req, res) => {
     try {
-      const staffRecord = await resolveOwnStaff(req, res);
+      const staffRecord = await resolveOwnStaff(req, res, req.body?.storeId as string | undefined);
       if (!staffRecord) return;
 
       const { date, requestedKind, requestedAt, reason } = req.body;
@@ -518,15 +700,20 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     try {
       const user = (req as any).user;
       const status = req.query.status as string | undefined;
+      const storeId = req.query.storeId as string | undefined;
 
-      // Staff see only their own; managers and owners see the store's queue.
-      if (user?.role === "staff") {
-        const staffRecord = await resolveOwnStaff(req, res);
+      // Staff always see only their own. The personal "My Attendance" page
+      // sends `self=1` explicitly (it needs storeId now too, to pick the
+      // right one of a multi-store user's staff rows, so "no storeId" can no
+      // longer double as the self signal — same convention as
+      // GET /api/attendance/log). The manager queue never sends `self=1`.
+      const wantsSelf = user?.role === "staff" || req.query.self === "1" || req.query.self === "true";
+      if (wantsSelf) {
+        const staffRecord = await resolveOwnStaff(req, res, storeId);
         if (!staffRecord) return;
         return res.json(await attendanceService.listRetroRequests(staffRecord.storeId, { staffId: staffRecord.id, status }));
       }
 
-      const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
       res.json(await attendanceService.listRetroRequests(storeId, { status }));
@@ -544,9 +731,17 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         !!clearsLateFlag,
         note,
       );
-      if (!result.ok) return res.status(result.status).json({ error: result.message });
+      if (!result.ok) {
+        const ctx = await getAuditContext(req);
+        auditLogger.logEvent(ctx, "ATTENDANCE_RETRO_APPROVE", "attendance_retro_request", req.params.id, "failure", { errorMessage: result.message });
+        return res.status(result.status).json({ error: result.message });
+      }
 
       const request = result.request!;
+      const ctx = await getAuditContext(req, { storeId: request.storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_RETRO_APPROVE", "attendance_retro_request", request.id, "success", {
+        newValues: { status: request.status, clearsLateFlag: !!clearsLateFlag, note: note ?? null },
+      });
       triggerAutoRecalculate(request.storeId, request.date).catch(console.error);
       broadcastChange(req, "attendance", request.storeId, "updated");
       res.json(result);
@@ -563,9 +758,18 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "Give a reason so the staff member knows why." });
       }
       const result = await attendanceService.rejectRetroRequest(req.params.id, (req as any).user?.id ?? null, note.trim());
-      if (!result.ok) return res.status(result.status).json({ error: result.message });
+      if (!result.ok) {
+        const ctx = await getAuditContext(req);
+        auditLogger.logEvent(ctx, "ATTENDANCE_RETRO_REJECT", "attendance_retro_request", req.params.id, "failure", { errorMessage: result.message });
+        return res.status(result.status).json({ error: result.message });
+      }
 
-      broadcastChange(req, "attendance", result.request!.storeId, "updated");
+      const request = result.request!;
+      const ctx = await getAuditContext(req, { storeId: request.storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_RETRO_REJECT", "attendance_retro_request", request.id, "success", {
+        newValues: { status: request.status, note: note.trim() },
+      });
+      broadcastChange(req, "attendance", request.storeId, "updated");
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Could not reject the request." });

@@ -125,8 +125,17 @@ export class StaffRepository {
     return staffMember;
   }
 
-  async getStaffByUserId(userId: string): Promise<Staff | undefined> {
-    const [result] = await db.select().from(staff).where(eq(staff.userId, userId));
+  // Unscoped, this can return the wrong row: a user linked to staff rows in
+  // more than one store (the common shape for an owner/manager who is "the
+  // manager" at several branches) gets back whichever row Postgres happens to
+  // return first, regardless of which store they're actually working in.
+  // Callers that know which store they mean MUST pass storeId; it's optional
+  // only for genuinely store-agnostic callers (pre-auth activation flows,
+  // cross-store uniqueness checks — see call sites) that predate this and
+  // still want "any one row for this user."
+  async getStaffByUserId(userId: string, storeId?: string): Promise<Staff | undefined> {
+    const condition = storeId ? and(eq(staff.userId, userId), eq(staff.storeId, storeId)) : eq(staff.userId, userId);
+    const [result] = await db.select().from(staff).where(condition);
     return result;
   }
 
@@ -361,6 +370,9 @@ export class StaffRepository {
       const staffAttendance = attendanceList.filter(a => a.staffId === s.id);
       const presentDays = staffAttendance.filter(a => a.status === "present").length;
       const absentDays = staffAttendance.filter(a => a.status === "absent").length;
+      // Late is a flag on top of "present", not a separate status — a late day is
+      // still counted in presentDays above, so this is a subset count, not additive.
+      const lateDays = staffAttendance.filter(a => a.isLate).length;
 
       return {
         id: s.id,
@@ -372,6 +384,7 @@ export class StaffRepository {
         productsCount,
         presentDays,
         absentDays,
+        lateDays,
       };
     });
   }

@@ -8,11 +8,18 @@ import {
   inventoryRestockEvents,
   orders,
   checkouts,
+  orderConsumables,
   type ServiceConsumable,
+  type OrderConsumable,
 } from "@shared/schema";
 import { eq, and, inArray, desc, gt, lte, sql } from "drizzle-orm";
 import { isMeteredSupply } from "../services/SupplyCostingService";
 import { deriveCalibration } from "../services/ConsumablesService";
+
+/** Round to 2dp the way money is stored, without the float drift of toFixed chains. */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
 
 export type RecipeRow = ServiceConsumable & {
   supplyName: string;
@@ -177,6 +184,103 @@ export class ConsumablesRepository {
       : null;
 
     return { row, warning };
+  }
+
+  /**
+   * Records that a supply was used delivering an already-sold service, off the
+   * automatic recipe (a one-off, or a top-up beyond what the recipe predicted).
+   * This is NOT a sale — no cart/checkout guard applies here, only the same cost
+   * invariants a recipe enforces: only a `metered` supply can release cost this
+   * way, because an `expensed` one was already charged in full on purchase.
+   *
+   * Writes straight to `order_consumables`, the same ledger recipes expand into.
+   * A row already exists for this (order, supply) when the recipe already fired
+   * at checkout — order_consumables is UNIQUE(order, supply), so this tops that
+   * row up rather than conflicting, blending unitCostAtSale into a weighted
+   * average so the stored total stays exact.
+   */
+  async logManualUsage(input: {
+    storeId: string;
+    orderId: string;
+    supplyInventoryId: string;
+    quantityUsed: number;
+  }): Promise<{ row: OrderConsumable }> {
+    if (!(input.quantityUsed >= 0.0001)) {
+      throw new RecipeValidationError("Enter an amount of at least 0.0001.");
+    }
+
+    return db.transaction(async (tx) => {
+      const [order] = await tx.select().from(orders).where(eq(orders.id, input.orderId));
+      if (!order) throw new RecipeValidationError("That sale no longer exists.");
+      if (order.storeId !== input.storeId) {
+        throw new RecipeValidationError("That sale belongs to a different store.");
+      }
+
+      const [supply] = await tx.select().from(inventory)
+        .where(eq(inventory.id, input.supplyInventoryId))
+        .for("update");
+      if (!supply) throw new RecipeValidationError("That supply no longer exists.");
+      if (supply.storeId !== input.storeId) {
+        throw new RecipeValidationError("That supply belongs to a different store.");
+      }
+      if (supply.type !== "supply") {
+        throw new RecipeValidationError(`"${supply.name}" is not a back-bar supply.`);
+      }
+      if (!isMeteredSupply(supply)) {
+        throw new RecipeValidationError(
+          `"${supply.name}" is charged when you buy it, so usage isn't released per service — ` +
+          `that would count the cost twice. Switch it to "metered" first if you want to log usage.`,
+        );
+      }
+
+      const unitCost = Number(supply.costPrice);
+      const addedCost = round2(input.quantityUsed * unitCost);
+
+      // Draw down stock directly, same as the automatic recipe path — supplies
+      // carry no expiry batches, and a sale must never be blocked by this, so a
+      // negative result is logged, not refused.
+      const newQty = Number(supply.quantity) - input.quantityUsed;
+      await tx.update(inventory).set({ quantity: newQty }).where(eq(inventory.id, supply.id));
+      if (newQty < 0) {
+        console.warn(
+          `[consumables] supply "${supply.name}" went negative (${newQty}) in store ${input.storeId} ` +
+          `after a manual usage log. Record the purchases that were missed.`,
+        );
+      }
+
+      const [existing] = await tx.select().from(orderConsumables).where(and(
+        eq(orderConsumables.orderId, input.orderId),
+        eq(orderConsumables.supplyInventoryId, input.supplyInventoryId),
+      ));
+
+      let row: OrderConsumable;
+      if (existing) {
+        const newQuantityUsed = Number(existing.quantityUsed) + input.quantityUsed;
+        const newTotalCost = round2(Number(existing.totalCost) + addedCost);
+        [row] = await tx.update(orderConsumables)
+          .set({
+            quantityUsed: newQuantityUsed,
+            totalCost: newTotalCost,
+            // Blended so unitCostAtSale x quantityUsed still reconciles to the
+            // stored total even though the two additions may have priced the
+            // supply differently.
+            unitCostAtSale: round2(newTotalCost / newQuantityUsed),
+          })
+          .where(eq(orderConsumables.id, existing.id))
+          .returning();
+      } else {
+        [row] = await tx.insert(orderConsumables).values({
+          storeId: input.storeId,
+          orderId: input.orderId,
+          supplyInventoryId: input.supplyInventoryId,
+          quantityUsed: input.quantityUsed,
+          unitCostAtSale: unitCost,
+          totalCost: addedCost,
+        }).returning();
+      }
+
+      return { row };
+    });
   }
 
   /** Every item whose active recipe draws on this supply. */

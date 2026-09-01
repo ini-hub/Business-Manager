@@ -79,7 +79,11 @@ export function AddendumDialog({
       if (itemSearch) params.set("search", itemSearch);
       const res = await apiRequest("GET", `/api/inventory?${params}`);
       const data = await res.json();
-      return Array.isArray(data) ? data : (data.items ?? []);
+      const items = Array.isArray(data) ? data : (data.items ?? []);
+      // Back-bar supplies are never sold — checkout and this addendum path both
+      // reject them. Keep them out of the picker entirely rather than let staff
+      // pick one and hit that rejection.
+      return items.filter((item: any) => item.type !== "supply");
     },
     enabled: open && !!storeId,
   });

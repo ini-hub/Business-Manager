@@ -77,21 +77,28 @@ const managementItems: MenuItem[] = [
   },
   {
     title: "Staff",
-    url: "/staff",
+    url: "/staffs",
     icon: UserCog,
     allowedRoles: ["owner", "manager"],
   },
   {
     title: "Attendance",
-    url: "/staff/attendance",
+    url: "/staffs/attendance",
     icon: CalendarDays,
     allowedRoles: ["owner", "manager"],
   },
+  // The personal view — one entry, same URL, for every role.
   {
     title: "My Attendance",
     url: "/staff/attendance",
     icon: CalendarDays,
-    allowedRoles: ["staff"],
+    allowedRoles: ["owner", "manager", "staff"],
+  },
+  {
+    title: "My Performance",
+    url: "/staff/performance",
+    icon: TrendingUp,
+    allowedRoles: ["owner", "manager", "staff"],
   },
   {
     title: "Inventory",
@@ -170,7 +177,7 @@ const reportsItems: MenuItem[] = [
   },
   {
     title: "Staff Performance",
-    url: "/reports/staff-performance",
+    url: "/staffs/performance",
     icon: Users,
     allowedRoles: ["owner", "manager"],
   },

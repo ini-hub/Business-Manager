@@ -91,7 +91,10 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      {/* print: resets undo the fixed-position, height-capped, scrollable
+          dialog chrome — see quotes.tsx's Proposal Detailed View dialog for
+          the same fix and the reasoning. */}
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto print:static print:max-h-none print:overflow-visible print:translate-x-0 print:translate-y-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>Receipt</span>

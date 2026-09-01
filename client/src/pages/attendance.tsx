@@ -31,7 +31,9 @@ import { Link } from "wouter";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { AttendanceSchedules } from "@/components/attendance-schedules";
 import { AttendanceExceptions } from "@/components/attendance-exceptions";
+import { AttendanceLog } from "@/components/attendance-log";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
+import { formatDurationCompact } from "@/lib/duration-utils";
 
 const STATUS_CONFIG: Record<AttendanceStatus, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
   present:  { label: "Present",  color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800",  icon: CheckCircle2 },
@@ -53,7 +55,7 @@ function LateBadge({ lateMinutes }: { lateMinutes?: number | null }) {
   return (
     <Badge variant="outline" className="gap-1 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800 border">
       <AlertCircle className="h-3 w-3" />
-      Late{lateMinutes ? ` by ${lateMinutes} min` : ""}
+      Late{lateMinutes ? ` by ${formatDurationCompact(lateMinutes)}` : ""}
     </Badge>
   );
 }
@@ -102,7 +104,7 @@ export default function AttendancePage() {
   const userRole = user?.role || "staff";
   const canEdit = userRole === "manager" || userRole === "owner";
 
-  const [view, setView] = useState<"daily" | "monthly" | "sixmonth" | "yearly" | "schedules" | "exceptions">("daily");
+  const [view, setView] = useState<"daily" | "monthly" | "sixmonth" | "yearly" | "schedules" | "exceptions" | "log">("daily");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>("present");
 
@@ -330,7 +332,7 @@ export default function AttendancePage() {
                           {s.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <EntityLink href={`/staff/${s.id}/edit`} className="font-medium text-sm truncate">
+                          <EntityLink href={`/staffs/${s.id}/edit`} className="font-medium text-sm truncate">
                             {s.name}
                           </EntityLink>
                           <p className="text-xs text-muted-foreground font-mono truncate">{s.staffNumber}</p>
@@ -390,7 +392,7 @@ export default function AttendancePage() {
                     <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
                       {s.name.charAt(0)}
                     </div>
-                    <EntityLink href={`/staff/${s.id}/edit`}>{s.name}</EntityLink>
+                    <EntityLink href={`/staffs/${s.id}/edit`}>{s.name}</EntityLink>
                     <span className="font-mono text-xs text-muted-foreground">{s.staffNumber}</span>
                   </CardTitle>
                   <div className="flex flex-wrap gap-2.5 text-xs font-medium">
@@ -505,7 +507,7 @@ export default function AttendancePage() {
                             {s.name.charAt(0)}
                           </div>
                           <div>
-                            <EntityLink href={`/staff/${s.id}/edit`} className="font-medium">
+                            <EntityLink href={`/staffs/${s.id}/edit`} className="font-medium">
                               {s.name}
                             </EntityLink>
                             <p className="text-xs text-muted-foreground font-mono">{s.staffNumber}</p>
@@ -583,6 +585,7 @@ export default function AttendancePage() {
             <TabsTrigger value="yearly">Yearly</TabsTrigger>
             <TabsTrigger value="schedules" data-testid="tab-schedules">Schedules</TabsTrigger>
             <TabsTrigger value="exceptions" data-testid="tab-exceptions">Clock-In</TabsTrigger>
+            <TabsTrigger value="log" data-testid="tab-log">Log</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-2 flex-wrap">
@@ -599,6 +602,7 @@ export default function AttendancePage() {
       {(view === "sixmonth" || view === "yearly") && SummaryView()}
       {view === "schedules" && <AttendanceSchedules storeId={currentStore.id} staff={activeStaff} />}
       {view === "exceptions" && <AttendanceExceptions storeId={currentStore.id} staff={activeStaff} />}
+      {view === "log" && <AttendanceLog storeId={currentStore.id} staff={activeStaff} />}
     </div>
   );
 }

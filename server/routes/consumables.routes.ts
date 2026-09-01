@@ -6,6 +6,8 @@ import { auditLogger } from "../audit";
 import { getUserId, verifyRecordStoreAccess, broadcastChange } from "./helpers";
 import { withInventoryId } from "../utils/slug-resolver";
 import { db } from "../db";
+import { orders } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { getStoreTimezone } from "../lib/dateUtils";
 import { switchCostingMode, localDateString } from "../services/SupplyCostingService";
 
@@ -205,6 +207,41 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
       });
     } catch (error) {
       res.status(500).json({ error: "Could not change the costing mode." });
+    }
+  });
+
+  // Log that a supply was used delivering an already-sold service — off the
+  // automatic recipe, and never through the checkout/addendum cart-item path,
+  // which exists to price a SALE and rejects supplies outright. This writes
+  // straight to the consumption ledger those paths also write to.
+  app.post("/api/orders/:orderId/consumables", isAuthenticated, async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+      if (!order) return res.status(404).json({ error: "That sale no longer exists." });
+      if (!(await verifyRecordStoreAccess(req, order.storeId))) {
+        return res.status(403).json({ error: "You don't have access to this sale." });
+      }
+
+      const supplyInventoryId = String(req.body.supplyInventoryId || "");
+      const quantityUsed = sanitizeNumber(req.body.quantityUsed);
+      if (!supplyInventoryId) return res.status(400).json({ error: "Pick a supply." });
+
+      const { row } = await consumablesRepo.logManualUsage({
+        storeId: order.storeId,
+        orderId,
+        supplyInventoryId,
+        quantityUsed,
+      });
+
+      auditLogger.logDataModification("order_consumables", row.id, getUserId(req), "UPDATE", true);
+      broadcastChange(req, "inventory", order.storeId, "updated");
+      res.json({ row });
+    } catch (error) {
+      if (error instanceof RecipeValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Could not log the supply usage." });
     }
   });
 

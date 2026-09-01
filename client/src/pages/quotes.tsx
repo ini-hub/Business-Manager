@@ -42,7 +42,6 @@ import type { QuoteCartItem } from "@/pages/quotes/types";
 import { cn } from "@/lib/utils";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Quote, QuoteItem, Customer, Inventory } from "@shared/schema";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type QuoteWithCustomer = Quote & { customer: Customer | null };
 type FullQuote = Quote & { customer: Customer | null; items: (QuoteItem & { inventory: Inventory })[] };
@@ -339,8 +338,25 @@ export default function QuotesPage() {
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ unit: "mm", format: "a4" });
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      const pdfPageHeight = pdf.internal.pageSize.getHeight();
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      // A quote with enough line items renders taller than one A4 page.
+      // addImage doesn't paginate on its own — without slicing across pages,
+      // everything past the first page's worth of height is silently cut
+      // off the exported file. Draw the full-height image repeatedly, each
+      // time shifted up by one page height, and add a new page per slice.
+      let heightLeft = imgHeight;
+      let position = 0;
+      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+      heightLeft -= pdfPageHeight;
+      while (heightLeft > 0) {
+        position -= pdfPageHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+        heightLeft -= pdfPageHeight;
+      }
+
       pdf.save(`${fullQuote?.quoteRef ?? "quote"}.pdf`);
     } catch (err) {
       console.error("Quote PDF generation failed:", err);
@@ -354,14 +370,30 @@ export default function QuotesPage() {
       return;
     }
     const customerName = fullQuote.customer?.name ?? "Walk-in Customer";
+    const createdDate = new Date(fullQuote.createdAt).toLocaleDateString();
     const validUntil = fullQuote.validUntil ? new Date(fullQuote.validUntil).toLocaleDateString() : "N/A";
+
+    // Mirror the printable proforma line-by-line so a recipient gets the full
+    // grasp of the quote from the WhatsApp message alone, not just a total.
+    const itemLines = fullQuote.items
+      .map((item) => {
+        const name = item.inventory?.name ?? "Item";
+        const type = item.inventory?.type ? ` (${item.inventory.type})` : "";
+        return `• ${name}${type} — ${item.quantity} x ${formatCurrency(item.unitPrice)} = ${formatCurrency(item.totalPrice)}`;
+      })
+      .join("\n");
+
     const msg = encodeURIComponent(
-      `*Proposal from ${currentStore?.name ?? "Business"}*\n` +
+      `*${currentStore?.name ?? "Business"}*\n` +
+      `PROFORMA ESTIMATE PROPOSAL\n\n` +
       `Ref: ${fullQuote.quoteRef}\n` +
-      `Customer: ${customerName}\n` +
-      `Total: ${formatCurrency(fullQuote.totalPrice)}\n` +
-      `Status: ${fullQuote.status}\n` +
+      `Status: ${fullQuote.status.toUpperCase()}\n` +
+      `Date: ${createdDate}\n` +
       `Valid until: ${validUntil}\n\n` +
+      `*Client:* ${customerName}${fullQuote.customer?.mobileNumber ? ` (${fullQuote.customer.mobileNumber})` : ""}\n\n` +
+      `*Items:*\n${itemLines}\n\n` +
+      `*Terms & Notes:*\n${fullQuote.notes || "Standard proforma conditions apply."}\n\n` +
+      `*Aggregated Quote Value: ${formatCurrency(fullQuote.totalPrice)}*\n\n` +
       `Thank you for your business!`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
@@ -753,7 +785,12 @@ export default function QuotesPage() {
 
       {/* View Quote Details dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto border border-border bg-background/90 backdrop-blur-lg">
+        {/* print: resets undo the fixed-position, height-capped, scrollable
+            dialog chrome for the print path — window.print() lays out
+            content inside whatever box it's still sitting in, so without
+            this only the portion scrolled into view at print-time would
+            make it onto the page instead of the full proposal. */}
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto border border-border bg-background/90 backdrop-blur-lg print:static print:max-h-none print:overflow-visible print:translate-x-0 print:translate-y-0 print:border-none print:bg-white print:backdrop-blur-none">
           <DialogHeader>
             <DialogTitle>Proposal Detailed View</DialogTitle>
           </DialogHeader>
@@ -834,7 +871,7 @@ export default function QuotesPage() {
                     <p className="text-sm font-semibold text-gray-700 mt-2">Ref: {fullQuote.quoteRef}</p>
                   </div>
                   <div className="text-right">
-                    <span className="px-3 py-1 bg-indigo-50 border text-indigo-700 rounded-full font-bold text-xs uppercase tracking-wide">
+                    <span className="inline-flex items-center justify-center leading-none px-3 py-1.5 bg-indigo-50 border text-indigo-700 rounded-full font-bold text-xs uppercase tracking-wide">
                       {fullQuote.status}
                     </span>
                     <p className="text-xs text-gray-400 mt-2">Date: {new Date(fullQuote.createdAt).toLocaleDateString()}</p>
@@ -865,7 +902,38 @@ export default function QuotesPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto my-6">
+                {/* Mobile: stacked cards instead of squeezing a 4-column table into a
+                    phone width — the table's horizontal scroll hid Quantity/Rate/Total
+                    off-screen and required sideways scrolling per row to read them. */}
+                <div className="sm:hidden my-6 space-y-3">
+                  {fullQuote.items.map((item, idx) => (
+                    <div key={idx} className="rounded-lg border p-3 text-sm text-gray-700">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col items-start gap-1 min-w-0">
+                          {item.inventory?.id ? (
+                            <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`} className="block">
+                              <p className="font-medium text-gray-800">{item.inventory.name}</p>
+                            </EntityLink>
+                          ) : (
+                            <p className="font-medium text-gray-800">{item.inventory.name}</p>
+                          )}
+                          <Badge variant="outline" className={`text-[10px] leading-none capitalize ${
+                            item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
+                            : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-sky-50 text-sky-700 border-sky-200"}`}>
+                            {item.inventory.type}
+                          </Badge>
+                        </div>
+                        <p className="font-mono font-semibold text-gray-800 whitespace-nowrap">{formatCurrency(item.totalPrice)}</p>
+                      </div>
+                      <div className="mt-2 flex justify-between text-xs text-gray-500 font-mono">
+                        <span>{item.quantity} × {formatCurrency(item.unitPrice)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="hidden sm:block overflow-x-auto my-6">
                 <table className="w-full min-w-[500px] text-left text-sm border-collapse">
                   <thead>
                     <tr className="border-b bg-gray-50 text-gray-500 font-semibold">
@@ -879,29 +947,29 @@ export default function QuotesPage() {
                     {fullQuote.items.map((item, idx) => (
                       <tr key={idx} className="border-b text-gray-700">
                         <td className="py-3 px-3">
-                          {item.inventory?.id ? (
-                            <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <p className="font-medium text-gray-800 truncate max-w-[220px]">{item.inventory.name}</p>
-                                </TooltipTrigger>
-                                <TooltipContent>{item.inventory.name}</TooltipContent>
-                              </Tooltip>
-                            </EntityLink>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <p className="font-medium text-gray-800 truncate max-w-[220px]">{item.inventory.name}</p>
-                              </TooltipTrigger>
-                              <TooltipContent>{item.inventory.name}</TooltipContent>
-                            </Tooltip>
-                          )}
-                          <Badge variant="outline" className={`text-[10px] capitalize mt-1 ${
-                            item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
-                            : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-sky-50 text-sky-700 border-sky-200"}`}>
-                            {item.inventory.type}
-                          </Badge>
+                          {/* Explicit column stack — EntityLink renders an inline <span>
+                              wrapping a block <p>, which otherwise lets the badge below
+                              render tucked into/overlapping the name instead of under it. */}
+                          {/* No `truncate` (text-overflow: ellipsis) on the name — html2canvas
+                              (used for the PDF download) mis-renders CSS ellipsis truncation as
+                              a garbled/strikethrough-looking mess in the captured image. Wrapping
+                              within max-w is safe and reads fine on screen too, so the Tooltip
+                              (only useful for hidden overflow) is dropped along with it. */}
+                          <div className="flex flex-col items-start gap-1">
+                            {item.inventory?.id ? (
+                              <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`} className="block max-w-[220px]">
+                                <p className="font-medium text-gray-800 break-words">{item.inventory.name}</p>
+                              </EntityLink>
+                            ) : (
+                              <p className="font-medium text-gray-800 break-words max-w-[220px]">{item.inventory.name}</p>
+                            )}
+                            <Badge variant="outline" className={`text-[10px] leading-none capitalize ${
+                              item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
+                              : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-sky-50 text-sky-700 border-sky-200"}`}>
+                              {item.inventory.type}
+                            </Badge>
+                          </div>
                         </td>
                         <td className="py-3 px-3 text-right font-mono">{item.quantity}</td>
                         <td className="py-3 px-3 text-right font-mono">{formatCurrency(item.unitPrice)}</td>

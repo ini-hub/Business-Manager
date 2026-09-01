@@ -133,8 +133,8 @@ export async function verifyStoreAccess(req: any, storeId: string): Promise<bool
   if (!store) return false;
   if (store.businessId !== user.businessId) return false;
   if (user.role === "staff") {
-    const staffRecord = await storage.getStaffByUserId(user.id);
-    if (staffRecord && staffRecord.storeId !== storeId) return false;
+    const staffRecord = await storage.getStaffByUserId(user.id, storeId);
+    if (!staffRecord) return false;
   }
   return true;
 }

@@ -500,7 +500,7 @@ export default function BookingDetailsPage() {
                   </div>
                   <div>
                     {booking.leadStaff.id ? (
-                      <EntityLink href={`/staff/${booking.leadStaff.id}/edit`} className="font-medium">
+                      <EntityLink href={`/staffs/${booking.leadStaff.id}/edit`} className="font-medium">
                         {booking.leadStaff.name}
                       </EntityLink>
                     ) : (

@@ -63,7 +63,7 @@ const localStaffSchema = z.object({
 export default function StaffFormPage() {
   const { id } = useParams<{ id?: string }>();
   const [, setLocation] = useLocation();
-  const { backHref } = useReturnTo("/staff");
+  const { backHref } = useReturnTo("/staffs");
   const { toast } = useToast();
   const { currentStore, stores } = useStore();
   const { user } = useAuth();

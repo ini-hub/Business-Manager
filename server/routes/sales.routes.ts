@@ -512,7 +512,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       // Staff with a linked profile can only ring up sales under their own name;
       // shared/unlinked staff logins fall back to the old free-pick behavior.
       if ((req as any).user?.role === "staff") {
-        const ownStaffRecord = await storage.getStaffByUserId(getUserId(req)!);
+        const ownStaffRecord = await storage.getStaffByUserId(getUserId(req)!, data.storeId);
         if (ownStaffRecord && ownStaffRecord.id !== data.staffId) {
           return res.status(403).json({ error: "You can only check out sales under your own staff profile." });
         }

@@ -31,14 +31,17 @@ export default function StaffDashboard() {
   const { currentStore } = useStore();
   const currency = currentStore?.currency || "NGN";
 
+  // storeId matters here, not just for reads: the same login can be linked to
+  // a staff row in more than one store, so it disambiguates which one's
+  // payroll is being asked for — see getStaffByUserId server-side.
   const { data: summary, isLoading: isSummaryLoading } = useQuery<any>({
-    queryKey: ["/api/payroll/my-summary"],
-    enabled: !!user,
+    queryKey: ["/api/payroll/my-summary", currentStore?.id],
+    enabled: !!user && !!currentStore?.id,
   });
 
   const { data: history = [], isLoading: isHistoryLoading } = useQuery<any[]>({
-    queryKey: ["/api/payroll/my-history"],
-    enabled: !!user,
+    queryKey: ["/api/payroll/my-history", currentStore?.id],
+    enabled: !!user && !!currentStore?.id,
   });
 
   const { data: bookingsData, isLoading: isBookingsLoading } = useQuery<any>({
@@ -180,6 +183,11 @@ export default function StaffDashboard() {
                 </div>
               </div>
               <Separator />
+              <Button variant="outline" className="w-full justify-start text-xs h-9" asChild>
+                <Link href="/staff/performance">
+                  <TrendingUp className="mr-2 h-3 w-3" /> My Performance
+                </Link>
+              </Button>
               <Button variant="outline" className="w-full justify-start text-xs h-9" asChild>
                 <Link href="/profile">
                   <UserCheck className="mr-2 h-3 w-3" /> Edit Profile

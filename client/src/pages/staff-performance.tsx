@@ -199,6 +199,9 @@ export default function StaffPerformancePage() {
           <div className="flex items-center gap-2 text-xs">
             <Badge variant="secondary" className="h-4 px-1 text-[10px]">Present: {row.presentDays}</Badge>
             <Badge variant="outline" className="h-4 px-1 text-[10px] text-red-600">Absent: {row.absentDays}</Badge>
+            {row.lateDays > 0 && (
+              <Badge variant="outline" className="h-4 px-1 text-[10px] text-amber-600">Late: {row.lateDays}</Badge>
+            )}
           </div>
         </div>
       ),
@@ -246,6 +249,7 @@ export default function StaffPerformancePage() {
     { key: "totalRevenue", header: "Revenue Share" },
     { key: "presentDays", header: "Days Present" },
     { key: "absentDays", header: "Days Absent" },
+    { key: "lateDays", header: "Days Late" },
   ];
 
   type PerfReportRow = {
@@ -256,6 +260,7 @@ export default function StaffPerformancePage() {
     totalRevenue: number;
     presentDays: number;
     absentDays: number;
+    lateDays: number;
     performanceLabel: string;
   };
 
@@ -274,6 +279,7 @@ export default function StaffPerformancePage() {
           totalRevenue: r.totalRevenue || 0,
           presentDays: r.presentDays || 0,
           absentDays: r.absentDays || 0,
+          lateDays: r.lateDays || 0,
           performanceLabel: avgDaily > 5000 ? "Above Avg" : "Below Avg",
         };
       })
@@ -313,6 +319,7 @@ export default function StaffPerformancePage() {
       { key: "performanceLabel", header: "Performance" },
       { key: "presentDays", header: "Present Days", align: "right" as const },
       { key: "absentDays", header: "Absent Days", align: "right" as const },
+      { key: "lateDays", header: "Late Days", align: "right" as const },
     ],
     rows: pdfRows,
     amountKey: "totalRevenue",

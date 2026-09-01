@@ -97,7 +97,10 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   app.get("/api/payroll/my-summary", isAuthenticated, async (req, res) => {
     try {
       const user = (req as any).user;
-      const staff = await storage.getStaffByUserId(user.id);
+      // storeId comes from the client (currently selected store): the same
+      // user can be linked to a staff row in more than one store, so it's
+      // needed to pick the right one — see getStaffByUserId.
+      const staff = await storage.getStaffByUserId(user.id, req.query.storeId as string | undefined);
       if (!staff) return res.status(404).json({ error: "Staff record not found for this user." });
 
       const storeId = staff.storeId;
@@ -149,7 +152,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   app.get("/api/payroll/my-history", isAuthenticated, async (req, res) => {
     try {
       const user = (req as any).user;
-      const staff = await storage.getStaffByUserId(user.id);
+      const staff = await storage.getStaffByUserId(user.id, req.query.storeId as string | undefined);
       if (!staff) return res.status(404).json({ error: "Staff record not found for this user." });
 
       const periods = await storage.getPayrollPeriods(staff.storeId);

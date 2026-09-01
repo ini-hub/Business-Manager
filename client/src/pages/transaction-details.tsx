@@ -19,6 +19,7 @@ import {
   Tag,
   ChevronRight,
   Plus,
+  Droplet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +56,7 @@ import { Label } from "@/components/ui/label";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { AddendumDialog } from "@/components/AddendumDialog";
+import { LogSupplyUsageDialog } from "@/components/log-supply-usage-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useReturnTo } from "@/lib/return-to";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
@@ -99,6 +101,9 @@ export default function TransactionDetailsPage() {
 
   // Addendum Dialog State
   const [isAddendumOpen, setIsAddendumOpen] = useState(false);
+
+  // Log Supply Usage Dialog State — which order line it's being logged against
+  const [logUsageTarget, setLogUsageTarget] = useState<{ orderId: string; serviceName: string } | null>(null);
 
   // Return Dialog State
   const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
@@ -451,7 +456,7 @@ export default function TransactionDetailsPage() {
                   <div>
                     <p className="text-sm text-muted-foreground">Billed By</p>
                     {tx.checkout?.staff?.id ? (
-                      <EntityLink href={`/staff/${tx.checkout.staff.id}/edit`} className="font-semibold text-primary">
+                      <EntityLink href={`/staffs/${tx.checkout.staff.id}/edit`} className="font-semibold text-primary">
                         {tx.checkout.staff.name}
                       </EntityLink>
                     ) : (
@@ -574,6 +579,7 @@ export default function TransactionDetailsPage() {
                             <th className="p-3 text-right">Unit Price</th>
                             <th className="p-3 text-right">Total</th>
                             <th className="p-3 text-center">Returned</th>
+                            {canManage && !isVoided && <th className="p-3 text-center">Supplies</th>}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-muted/40">
@@ -619,6 +625,28 @@ export default function TransactionDetailsPage() {
                                     <span className="text-muted-foreground/50">-</span>
                                   )}
                                 </td>
+                                {canManage && !isVoided && (
+                                  <td className="p-3 text-center">
+                                    {item.inventory?.type === "service" && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                            onClick={() => setLogUsageTarget({
+                                              orderId: item.order.id,
+                                              serviceName: item.inventory.name,
+                                            })}
+                                          >
+                                            <Droplet className="h-3.5 w-3.5" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Log supply used for this service</TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                  </td>
+                                )}
                               </tr>
                             );
                           })}
@@ -668,7 +696,7 @@ export default function TransactionDetailsPage() {
                           <>
                             {" by "}
                             {log.staff.id ? (
-                              <EntityLink href={`/staff/${log.staff.id}/edit`}>{log.staff.name}</EntityLink>
+                              <EntityLink href={`/staffs/${log.staff.id}/edit`}>{log.staff.name}</EntityLink>
                             ) : (
                               log.staff.name
                             )}
@@ -1018,6 +1046,17 @@ export default function TransactionDetailsPage() {
             queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
             setIsAddendumOpen(false);
           }}
+        />
+      )}
+
+      {/* Log Supply Usage Dialog */}
+      {logUsageTarget && (
+        <LogSupplyUsageDialog
+          open={!!logUsageTarget}
+          onOpenChange={(v) => { if (!v) setLogUsageTarget(null); }}
+          orderId={logUsageTarget.orderId}
+          storeId={receiptDetails?.checkout?.storeId ?? currentStore?.id ?? ""}
+          serviceName={logUsageTarget.serviceName}
         />
       )}
 

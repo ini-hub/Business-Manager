@@ -357,7 +357,7 @@ export default function StaffPage() {
                 size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLocation(appendReturnTo(`/staff/${staff.id}/edit`, location, search));
+                  setLocation(appendReturnTo(`/staffs/${staff.id}/edit`, location, search));
                 }}
                 title="Edit staff member"
               >
@@ -424,7 +424,7 @@ export default function StaffPage() {
               size="icon"
               onClick={(e) => {
                 e.stopPropagation();
-                setLocation(`/staff/${staff.id}/edit`);
+                setLocation(`/staffs/${staff.id}/edit`);
               }}
             >
               <Edit className="h-4 w-4" />
@@ -631,7 +631,7 @@ export default function StaffPage() {
               showImportOption={userRole !== "staff"}
             />
             {isOwner && (
-              <Link href="/staff/new">
+              <Link href="/staffs/new">
                 <Button data-testid="button-add-staff">
                   <Plus className="mr-2 h-4 w-4" />
                   Add Staff
@@ -682,7 +682,7 @@ export default function StaffPage() {
                   emptyMessage="Add your first staff member to start tracking attendance, payroll, and commissions."
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyAction={
-                    <Link href="/staff/new">
+                    <Link href="/staffs/new">
                       <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />Add Staff Member</Button>
                     </Link>
                   }
@@ -787,7 +787,7 @@ export default function StaffPage() {
             {
               label: "Add Staff",
               icon: <UserPlus className="h-5 w-5" />,
-              onClick: () => setLocation("/staff/new"),
+              onClick: () => setLocation("/staffs/new"),
               testId: "fab-add-staff",
             },
           ]}

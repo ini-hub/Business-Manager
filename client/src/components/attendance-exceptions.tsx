@@ -39,6 +39,7 @@ type RetroRequest = {
   reason: string;
   status: "pending" | "approved" | "rejected";
   requestedAt: string;
+  requestedKind: "clock_in" | "clock_out";
 };
 
 type Device = {
@@ -125,7 +126,15 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
       apiRequest("POST", "/api/attendance/punch/proxy", {
         storeId, staffId: proxy!.staffId, kind: "clock_in", reason: proxy!.reason,
       }),
-    onSuccess: () => { setProxy(null); refresh(); toast({ title: "Clock-in recorded" }); },
+    onSuccess: () => {
+      setProxy(null);
+      // A plain clock-in never touches retro-requests or devices — only its own
+      // punch and the day-status it projects onto — so this refetches just those
+      // two instead of reusing refresh()'s full four-query sweep.
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/punches", storeId, startDate, endDate] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance"] });
+      toast({ title: "Clock-in recorded" });
+    },
     onError: (e: any) => toast({ title: "Could not record", description: e?.message, variant: "destructive" }),
   });
 
@@ -155,7 +164,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
         <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-3">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
-              <UserCheck className="h-4 w-4" /> Missed clock-in requests
+              <UserCheck className="h-4 w-4" /> Attendance requests
             </CardTitle>
             <CardDescription>{pending.length} waiting for a decision</CardDescription>
           </div>
@@ -171,7 +180,12 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
               {requests.map((req) => (
                 <div key={req.id} className="flex items-start justify-between gap-3 py-3" data-testid={`row-request-${req.id}`}>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{name(req.staffId)} · {format(parseISO(req.date), "EEE d MMM")}</p>
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      {name(req.staffId)} · {format(parseISO(req.date), "EEE d MMM")}
+                      <Badge variant="outline" className="text-[10px] font-normal">
+                        {req.requestedKind === "clock_out" ? "Clock-out" : "Clock-in"}
+                      </Badge>
+                    </p>
                     <p className="text-xs text-muted-foreground">{req.reason}</p>
                   </div>
                   {req.status === "pending" ? (
@@ -285,7 +299,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
             </DialogDescription>
           </DialogHeader>
 
-          {decision?.approve && (
+          {decision?.approve && decision.request.requestedKind !== "clock_out" && (
             <div className="flex items-start gap-2 rounded-md border p-3">
               <Checkbox
                 id="clears-late"

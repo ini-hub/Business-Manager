@@ -63,6 +63,18 @@ export class AttendancePunchRepository {
     )).orderBy(desc(attendancePunches.effectiveAt));
   }
 
+  /** Same as {@link getPunchesInRange}, narrowed to one or more staff — the log view. */
+  async getPunchesInRangeForStaff(storeId: string, staffIds: string[], startDate: string, endDate: string): Promise<AttendancePunch[]> {
+    if (staffIds.length === 0) return [];
+    return await db.select().from(attendancePunches).where(and(
+      eq(attendancePunches.storeId, storeId),
+      inArray(attendancePunches.staffId, staffIds),
+      gte(attendancePunches.localDate, startDate),
+      lte(attendancePunches.localDate, endDate),
+      isNull(attendancePunches.voidedAt),
+    )).orderBy(asc(attendancePunches.effectiveAt));
+  }
+
   async flagSharedDevice(punchIds: string[]): Promise<void> {
     if (punchIds.length === 0) return;
     await db.update(attendancePunches)

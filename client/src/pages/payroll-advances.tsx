@@ -252,7 +252,7 @@ export default function PayrollAdvancesPage() {
       key: "staffName",
       header: "Staff",
       render: (a: any) => (
-        <EntityLink href={`/staff/${a.staffId}/edit`} className="font-medium">
+        <EntityLink href={`/staffs/${a.staffId}/edit`} className="font-medium">
           {staffList.find(s => s.id === a.staffId)?.name || a.staffId}
         </EntityLink>
       ),

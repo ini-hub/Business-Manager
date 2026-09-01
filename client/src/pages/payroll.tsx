@@ -559,7 +559,7 @@ export default function PayrollPage() {
                   <AlertDescription className="text-amber-800 dark:text-amber-300">
                     <strong>{unrecordedDays.length} staff member{unrecordedDays.length !== 1 ? "s have" : " has"} unrecorded attendance days</strong> in this period.
                     Unrecorded days default to absent and will reduce pay.{" "}
-                    <Link href="/staff/attendance" className="underline font-medium">Mark attendance →</Link>
+                    <Link href="/staffs/attendance" className="underline font-medium">Mark attendance →</Link>
                   </AlertDescription>
                 </Alert>
               )}
@@ -598,7 +598,7 @@ export default function PayrollPage() {
                           </div>
                           <div className="min-w-0">
                             {entry.staffId ? (
-                              <EntityLink href={`/staff/${entry.staffId}/edit`} className="font-medium text-sm truncate">
+                              <EntityLink href={`/staffs/${entry.staffId}/edit`} className="font-medium text-sm truncate">
                                 {entry.staff.name}
                               </EntityLink>
                             ) : (

@@ -440,7 +440,7 @@ export default function Transactions() {
         <div className="flex items-center gap-1.5">
           <User className="h-3 w-3 text-muted-foreground shrink-0" />
           {tx.checkout?.staff?.id ? (
-            <EntityLink href={`/staff/${tx.checkout.staff.id}/edit`}>
+            <EntityLink href={`/staffs/${tx.checkout.staff.id}/edit`}>
               <span className="text-sm">{tx.checkout.staff.name}</span>
             </EntityLink>
           ) : (

@@ -47,7 +47,7 @@ export function GettingStartedChecklist() {
         </div>
         <div className="flex gap-3 shrink-0">
           {missingStaff && (
-            <Link href="/staff/new" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+            <Link href="/staffs/new" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
               <Users className="h-3.5 w-3.5" /> Add staff <ArrowRight className="h-3 w-3" />
             </Link>
           )}

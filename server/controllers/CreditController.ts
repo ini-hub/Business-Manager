@@ -217,7 +217,7 @@ export class CreditController extends BaseController {
         return this.badRequest(res, `Amount exceeds outstanding balance of ₦${entry.outstandingBalance.toLocaleString()}`);
       }
 
-      const staffMember = await storage.getStaffByUserId((req as any).user?.userId || (req as any).user?.id);
+      const staffMember = await storage.getStaffByUserId((req as any).user?.userId || (req as any).user?.id, entry.storeId);
 
       const repayment = await storage.creditRepo.createRepayment({
         creditEntryId: id,

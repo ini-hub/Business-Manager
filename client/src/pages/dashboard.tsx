@@ -207,7 +207,7 @@ export default function Dashboard() {
           value={stats?.totalStaff ?? 0}
           icon={<UserCog className="h-4 w-4" />}
           isLoading={isLoading}
-          href="/staff"
+          href="/staffs"
         />
         <MetricCard
           title="Inventory Items"
@@ -441,7 +441,7 @@ export default function Dashboard() {
           </Link>
         </Card>
         <Card className="hover-elevate">
-          <Link href="/staff">
+          <Link href="/staffs">
             <CardContent className="flex flex-col items-center justify-center py-6">
               <UserCog className="h-8 w-8 text-primary mb-3" />
               <p className="font-medium">Manage Staff</p>

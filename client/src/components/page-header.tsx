@@ -173,7 +173,7 @@ const PAGE_GUIDES: Record<string, GuideContent> = {
       "Outstanding balances can be partially paid or completely cleared directly inside the customer details card."
     ]
   },
-  "/staff": {
+  "/staffs": {
     title: "Staff & Attendance roster",
     badge: "Employees & Operations",
     steps: [
@@ -213,7 +213,7 @@ const PAGE_GUIDES: Record<string, GuideContent> = {
       "Leverage the Credit Sales Reminder panel under Settings to configure automatic bilingual notification schedules."
     ]
   },
-  "/reports/staff-performance": {
+  "/staffs/performance": {
     title: "Staff Commissions & Performance",
     badge: "Analytics & Incentives",
     steps: [
@@ -301,10 +301,15 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
   if (location.startsWith("/sales/new")) guidePath = "/new-sale";
   if (location.startsWith("/settings/stores")) guidePath = "/settings-stores";
   if (location.startsWith("/customers/")) guidePath = "/customers";
-  if (location.startsWith("/staff/")) guidePath = "/staff";
+  // /staffs/* is the admin roster+attendance area; /staffs/performance gets
+  // its own, more specific guide below and must be checked after this one so
+  // it wins. /staff/* (singular, personal attendance/performance) has no
+  // dedicated guide — same as before this rename, when it fell outside the
+  // "/staff/" prefix's own guide too.
+  if (location === "/staffs" || location.startsWith("/staffs/")) guidePath = "/staffs";
   if (location.startsWith("/settings/taxes")) guidePath = "/settings/taxes";
   if (location.startsWith("/settings/promotions")) guidePath = "/settings/promotions";
-  if (location.startsWith("/reports/staff-performance")) guidePath = "/reports/staff-performance";
+  if (location.startsWith("/staffs/performance")) guidePath = "/staffs/performance";
   if (location.startsWith("/reports/service-profitability")) guidePath = "/reports/service-profitability";
 
   const guide = PAGE_GUIDES[guidePath];

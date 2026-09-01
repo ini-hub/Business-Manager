@@ -39,7 +39,7 @@ const REPORT_SECTIONS = [
     title: "Staff Performance",
     description: "Compare commission earnings, attendance, and sales output across your team.",
     icon: Users,
-    href: "/reports/staff-performance",
+    href: "/staffs/performance",
     roles: ["owner", "manager"],
   },
   {
