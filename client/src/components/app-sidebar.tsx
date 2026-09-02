@@ -101,6 +101,12 @@ const managementItems: MenuItem[] = [
     allowedRoles: ["owner", "manager", "staff"],
   },
   {
+    title: "My Payroll",
+    url: "/staff/payroll",
+    icon: DollarSign,
+    allowedRoles: ["owner", "manager", "staff"],
+  },
+  {
     title: "Inventory",
     url: "/inventory",
     icon: Package,
@@ -311,7 +317,7 @@ export function AppSidebar() {
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
-                      isActive={location === item.url}
+                      isActive={item.title === "My Payroll" ? location.startsWith(item.url) : location === item.url}
                       className="gap-3 w-full"
                     >
                       <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick} className="flex items-center w-full justify-between">

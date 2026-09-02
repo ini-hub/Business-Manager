@@ -165,6 +165,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         return {
           id: p.id,
           label: `${p.startDate} to ${p.endDate} (${p.periodType})`,
+          periodType: p.periodType,
           startDate: p.startDate,
           endDate: p.endDate,
           netPay: entry?.netPay || 0,
@@ -178,6 +179,45 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       res.json(history.filter(h => h.grossPay > 0));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch history." });
+    }
+  });
+
+  // Full remuneration breakdown for one period — the self-service mirror of
+  // the manager drill-down (entries/:staffId/drilldown + deductions), scoped
+  // to the caller's own staff record so no ownership check needs threading
+  // through code that otherwise assumes "caller may see the whole store".
+  app.get("/api/payroll/my-breakdown/:periodId", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const staffMember = await storage.getStaffByUserId(user.id, req.query.storeId as string | undefined);
+      if (!staffMember) return res.status(404).json({ error: "Staff record not found for this user." });
+
+      const period = await storage.getPayrollPeriod(req.params.periodId);
+      if (!period || period.storeId !== staffMember.storeId) {
+        return res.status(404).json({ error: "Payroll period not found." });
+      }
+
+      const entries = await storage.getPayrollEntries(period.id);
+      const entry = entries.find(e => e.staffId === staffMember.id);
+      // includeWaived so a reversed deduction still shows (struck through by
+      // the client) instead of silently disappearing from the caller's view.
+      const deductions = await storage.getPayrollDeductionsWithCredit(period.id, staffMember.id, { includeWaived: true });
+      const drilldown = await storage.getPayrollDrillDown(period.id, staffMember.id);
+
+      const activeTotal = deductions.filter((d: any) => !d.isWaived).reduce((s: number, d: any) => s + Number(d.amount), 0);
+      const split = splitPay(entry?.netPay || 0, activeTotal);
+
+      res.json({
+        period: { ...period, label: `${period.startDate} to ${period.endDate} (${period.periodType})` },
+        entry: entry ?? null,
+        deductions,
+        drilldown,
+        commissionExplanation: commissionExplanationFor(entry),
+        ...split,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Could not load payroll breakdown." });
     }
   });
   // ========== PAYROLL ==========
@@ -994,7 +1034,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // ── Payslip document registration (generates a verifiable UUID) ──────────────
-  app.post("/api/payroll/payslips/register", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/payslips/register", isAuthenticated, async (req, res) => {
     try {
       const user = (req as any).user;
       const { storeId, periodId, staffId, grossPay, netPay } = req.body;
@@ -1002,6 +1042,15 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "storeId, periodId, and staffId are required" });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+      // Manager/owner may register a payslip for anyone in the store; a staff
+      // caller may only register their own — checkStoreAccess alone doesn't
+      // stop them requesting a co-worker's staffId.
+      if (user?.role === "staff") {
+        const ownStaff = await storage.getStaffByUserId(user.id, storeId);
+        if (!ownStaff || ownStaff.id !== staffId) {
+          return res.status(403).json({ error: "Not authorized to register a payslip for this staff member." });
+        }
+      }
       const record = await storage.registerPayslip({
         storeId,
         periodId,

@@ -51,6 +51,8 @@ const StaffFormPage = lazy(() => import("@/pages/staff-form"));
 const AttendancePage = lazy(() => import("@/pages/attendance"));
 const StaffPerformancePage = lazy(() => import("@/pages/staff-performance"));
 const MyPerformancePage = lazy(() => import("@/pages/my-performance"));
+const MyPayrollPage = lazy(() => import("@/pages/my-payroll"));
+const MyPayrollDetailPage = lazy(() => import("@/pages/my-payroll-detail"));
 const StaffDashboard = lazy(() => import("@/pages/staff-dashboard"));
 const StaffAttendancePage = lazy(() => import("@/pages/staff-attendance"));
 const NotAuthorized = lazy(() => import("@/components/not-authorized"));
@@ -393,6 +395,8 @@ function AuthenticatedLayout() {
                       a redirect — the URL never bounces. */}
                   <Route path="/staff/attendance" component={StaffAttendancePage} />
                   <Route path="/staff/performance" component={MyPerformancePage} />
+                  <Route path="/staff/payroll" component={MyPayrollPage} />
+                  <Route path="/staff/payroll/:periodId" component={MyPayrollDetailPage} />
                   <Route path="/staffs">
                     {user?.role === "staff" ? <NotAuthorized /> : <StaffPage />}
                   </Route>

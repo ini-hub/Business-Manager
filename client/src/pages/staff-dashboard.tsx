@@ -86,6 +86,7 @@ export default function StaffDashboard() {
               : `Current Period: ${summary?.period?.label || "None"}`
           }
           className="bg-primary text-primary-foreground [&_p]:text-primary-foreground/70 [&_.text-muted-foreground]:text-primary-foreground/70"
+          href={summary?.period?.id ? `/staff/payroll/${summary.period.id}` : undefined}
         />
         <MetricCard
           title="Commission Earned"
@@ -137,27 +138,29 @@ export default function StaffDashboard() {
               ) : (
                 <div className="divide-y">
                   {history.map((item: any) => (
-                    <div key={item.id} className="py-4 flex items-center justify-between group hover:bg-muted/50 transition-colors px-2 rounded-lg">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-sm">{item.label}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {format(parseISO(item.startDate), "MMM d")} - {format(parseISO(item.endDate), "MMM d, yyyy")}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          {/* What was actually paid out on the day. */}
-                          <div className="font-bold text-sm">{formatCurrency(item.takeHomePay ?? item.netPay)}</div>
-                          {(item.deductionsTotal ?? 0) > 0 && (
-                            <div className="text-[10px] text-muted-foreground">
-                              gross {formatCurrency(item.grossPay ?? item.netPay)} − {formatCurrency(item.deductionsTotal)}
-                            </div>
-                          )}
-                          <span className="text-[10px] text-green-600 font-medium">PAID</span>
+                    <Link key={item.id} href={`/staff/payroll/${item.id}`}>
+                      <div className="py-4 flex items-center justify-between group hover:bg-muted/50 transition-colors px-2 rounded-lg cursor-pointer">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-sm">{item.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {format(parseISO(item.startDate), "MMM d")} - {format(parseISO(item.endDate), "MMM d, yyyy")}
+                          </span>
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            {/* What was actually paid out on the day. */}
+                            <div className="font-bold text-sm">{formatCurrency(item.takeHomePay ?? item.netPay)}</div>
+                            {(item.deductionsTotal ?? 0) > 0 && (
+                              <div className="text-[10px] text-muted-foreground">
+                                gross {formatCurrency(item.grossPay ?? item.netPay)} − {formatCurrency(item.deductionsTotal)}
+                              </div>
+                            )}
+                            <span className="text-[10px] text-green-600 font-medium">PAID</span>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -183,6 +186,11 @@ export default function StaffDashboard() {
                 </div>
               </div>
               <Separator />
+              <Button variant="outline" className="w-full justify-start text-xs h-9" asChild>
+                <Link href="/staff/payroll">
+                  <Wallet className="mr-2 h-3 w-3" /> My Payroll
+                </Link>
+              </Button>
               <Button variant="outline" className="w-full justify-start text-xs h-9" asChild>
                 <Link href="/staff/performance">
                   <TrendingUp className="mr-2 h-3 w-3" /> My Performance
