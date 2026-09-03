@@ -3,9 +3,10 @@ import { bookings, customers, stores } from "@shared/schema";
 import { eq, and, gte, lt, isNull, inArray } from "drizzle-orm";
 import { sendEmail } from "../email";
 import { sendSMS } from "../email";
+import { getAppUrl } from "../lib/appUrl";
 
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Excellent Bolujo";
-const APP_URL = process.env.APP_URL || "http://localhost:5000";
+const APP_URL = getAppUrl();
 
 // Check every 15 minutes, remind 24 h before the booking
 const POLL_INTERVAL_MS = 15 * 60 * 1000;

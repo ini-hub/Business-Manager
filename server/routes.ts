@@ -2,7 +2,10 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken } from "./auth";
+import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken, generateContractPendingToken } from "./auth";
+import { staffContractService } from "./services/StaffContractService";
+import { registerContractRoutes } from "./routes/contract.routes";
+import { registerEmailWebhookRoutes } from "./routes/email-webhooks.routes";
 import { setupAdminAuth } from "./auth-admin";
 import { adminRouter } from "./routes-admin";
 import {
@@ -57,6 +60,7 @@ import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
 import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
+import { getConfiguredTrialDays } from "./lib/platformConfig";
 import { logFunnelEvent } from "./lib/funnel";
 import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "./lib/otp-cooldown";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
@@ -287,6 +291,7 @@ export async function registerRoutes(
           status: "create_password_required",
           email: user.email,
           phone: user.phone,
+          name: user.name,
           message: "You have already verified your activation code. Please create your password to continue."
         });
       }
@@ -380,13 +385,17 @@ export async function registerRoutes(
       // Hash password
       const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
 
-      // Create organisation - starts a free trial immediately, no card required
+      // Create organisation - starts a free trial immediately, no card required.
+      // Trial length is admin-configurable (Super Admin > Platform Settings);
+      // this only affects new signups, never recalculated for an org already
+      // mid-trial (requirements plan §2).
+      const trialDays = await getConfiguredTrialDays();
       const organisation = await storage.createOrganisation({
         name: data.businessName,
         slug: data.businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         receiptPrefix: data.businessName.substring(0, 3).toUpperCase(),
         status: "trialing",
-        trialEndsAt: computeTrialEndsAt(),
+        trialEndsAt: computeTrialEndsAt(new Date(), trialDays),
       });
 
       // Generate a 6-digit OTP code for email verification
@@ -424,7 +433,7 @@ export async function registerRoutes(
       // Send the verification OTP email
       await sendEmailVerificationOtpEmail(
         normalizedEmail,
-        normalizedEmail,
+        data.ownerName || normalizedEmail,
         otpCode,
         data.businessName
       );
@@ -744,6 +753,49 @@ export async function registerRoutes(
       const activeMembers = members.filter(m => m.status === "active");
 
       if (activeMembers.length === 0) {
+        // Before the generic "no active organisation" 403: this account's
+        // password is already set (we got this far), but a membership is
+        // sitting in "contract_pending" - see set-activated-password. Covers
+        // "closed the tab after setting the password, came back and logged
+        // in normally" rather than dead-ending them.
+        const contractPendingMember = members.find(m => m.status === "contract_pending");
+        if (contractPendingMember) {
+          const allStaff = await storage.getAllStaffByUserId(user.id);
+          let staffForOrg;
+          for (const s of allStaff) {
+            const store = await storage.getStore(s.storeId);
+            if (store?.businessId === contractPendingMember.organisationId) {
+              staffForOrg = s;
+              break;
+            }
+          }
+          const contract = staffForOrg ? await staffContractService.getContractByStaffId(staffForOrg.id) : undefined;
+
+          if (contract?.status === "declined") {
+            // Distinct from the generic message below on purpose - a
+            // declined contract needs the manager's attention, not another
+            // login attempt.
+            return res.status(403).json({
+              error: "You declined this contract. Your manager has been notified — contact them to proceed.",
+              status: "contract_declined",
+            });
+          }
+          if (contract?.status === "pending_signature") {
+            const pendingToken = generateContractPendingToken(user.id, contract.id);
+            res.cookie("contract_pending_token", pendingToken, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === "production",
+              maxAge: 60 * 60 * 1000,
+              sameSite: "lax",
+            });
+            return res.json({
+              status: "contract_signature_required",
+              nextStep: "sign-contract",
+              message: "Please review and sign your contract to continue.",
+            });
+          }
+        }
+
         return res.status(403).json({ error: "Your account is not associated with any active organisation." });
       }
 
@@ -1073,6 +1125,11 @@ export async function registerRoutes(
         message: "Activation code verified successfully. Please proceed to create your password.",
         email: user.email,
         phone: user.phone,
+        // Seeded from staff.name by StaffInviteService at invite time - shown
+        // read-only on the create-password screen instead of asking the
+        // person to (re)type it, so staff.name stays exclusively
+        // manager/owner-controlled (see set-activated-password below).
+        name: user.name,
         nextStep: "create-password",
       });
     } catch (error) {
@@ -1164,6 +1221,7 @@ export async function registerRoutes(
         return res.json({
           success: true,
           nextStep: "create-password",
+          name: user.name,
           message: "Your activation code was already verified. Let's create your password to complete setup.",
         });
       }
@@ -1226,7 +1284,7 @@ export async function registerRoutes(
   // Set password for activated staff
   app.post("/api/auth/set-activated-password", async (req: Request, res: Response) => {
     try {
-      const { emailOrPhone, password, name } = req.body;
+      const { emailOrPhone, password } = req.body;
       if (!emailOrPhone || !password) {
         return res.status(400).json({ error: "Identifier and password are required." });
       }
@@ -1247,30 +1305,79 @@ export async function registerRoutes(
       }
 
       const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+      await storage.updateUser(user.id, { passwordHash: hashedPassword });
 
-      const trimmedName = name?.trim();
-      const updatePayload: Record<string, any> = { passwordHash: hashedPassword };
-      if (trimmedName) updatePayload.name = trimmedName;
-      await storage.updateUser(user.id, updatePayload);
-
-      // Fetch and activate workspace membership
+      // Fetch workspace membership
       const members = await storage.getOrganisationsByUserId(user.id);
-      let targetMember = members.find(m => m.status === "partial") || members.find(m => m.status === "pending") || members.find(m => m.status === "active");
+      let targetMember = members.find(m => m.status === "partial") || members.find(m => m.status === "pending")
+        || members.find(m => m.status === "contract_pending") || members.find(m => m.status === "active");
       if (!targetMember) {
         return res.status(400).json({ error: "No workspace association found." });
+      }
+
+      // Both users.name and staff.name are seeded from the manager's own
+      // input at invite time (StaffInviteService.createInvitedUser) and are
+      // deliberately NOT writable from here. staff.name in particular is
+      // otherwise editable only via PATCH /api/staff/:id, gated to
+      // managers/owners - this self-service, pre-session endpoint used to
+      // carry its own `name` field and overwrite both, letting a staff
+      // member silently rename themselves on the HR record moments before
+      // signing a contract (and rendering any later name-match check on the
+      // signature meaningless, since they'd control both sides of it).
+      const activatedStaff = await storage.getStaffByUserId(user.id);
+
+      // If this staff member has a contract, this is a first-time activation
+      // (targetMember has never been "active" before), so the gate applies -
+      // see migrations/0046_staff_contract_signing.sql. Password is set
+      // (above) regardless of what happens next; only the SESSION is gated
+      // on contract state. Checked here via the unfiltered getContractByStaffId
+      // (not getPendingContract, which only returns pending_signature rows
+      // and therefore looks identical to "no contract" for a declined one) -
+      // this endpoint must handle 'declined' explicitly, the same way
+      // POST /api/auth/login already does, or a declined contract can be
+      // silently bypassed: this is exactly the request path a manager's
+      // "Resend invitation" used to walk a declined staff member back
+      // through (a fresh activation code does not touch staff_contracts at
+      // all), landing here with activationCodeUsed freshly true and no
+      // record of the decline ever having been checked.
+      const contract = activatedStaff && targetMember.status !== "active"
+        ? await staffContractService.getContractByStaffId(activatedStaff.id)
+        : undefined;
+
+      if (contract?.status === "declined") {
+        // Nothing to review - the same content was already declined. Stay
+        // exactly where /api/auth/login already parks a declined member:
+        // no jwt_token, no contract_pending_token, no status change. Only a
+        // manager attaching a new contract (which creates a fresh version
+        // and flips status back to pending_signature) moves this forward.
+        return res.status(403).json({
+          error: "You declined this contract. Your manager has been notified — contact them to proceed.",
+          status: "contract_declined",
+        });
+      }
+
+      if (contract?.status === "pending_signature") {
+        targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "contract_pending");
+        broadcastDataChange(targetMember.organisationId, "staff", activatedStaff?.storeId, "updated");
+
+        const pendingToken = generateContractPendingToken(user.id, contract.id);
+        res.cookie("contract_pending_token", pendingToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 60 * 60 * 1000,
+          sameSite: "lax",
+        });
+
+        return res.json({
+          message: "Password set. Please review and sign your contract to continue.",
+          nextStep: "sign-contract",
+        });
       }
 
       if (targetMember.status !== "active") {
         targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "active", new Date());
       }
 
-      // users.name is the login account's name; staff.name is what the manager's
-      // Staff list actually reads (StaffRepository.getStaffList). Activation used
-      // to update only the former, so a name entered here never showed up there.
-      const activatedStaff = await storage.getStaffByUserId(user.id);
-      if (activatedStaff && trimmedName) {
-        await storage.updateStaff(activatedStaff.id, { name: trimmedName });
-      }
       // Not authenticated yet (no req.user), so use broadcastDataChange directly
       // rather than the req-based broadcastChange helper.
       broadcastDataChange(targetMember.organisationId, "staff", activatedStaff?.storeId, "updated");
@@ -1793,6 +1900,15 @@ export async function registerRoutes(
     requireManagerOrOwner,
     checkStoreAccess,
   };
+
+  // Self-service contract review/sign/decline - gated by its own
+  // contract_pending_token, not the normal auth middlewares, so it is
+  // registered standalone rather than through routeMiddlewares.
+  registerContractRoutes(app);
+
+  // Resend delivery webhook - signature-verified, not session-based, so it
+  // is registered standalone like registerContractRoutes above.
+  registerEmailWebhookRoutes(app);
 
   registerBusinessRoutes(app, routeMiddlewares);
   registerCustomerRoutes(app, routeMiddlewares);

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { PlanPicker } from "@/components/billing/PlanPicker";
+import { FeatureAddOns } from "@/components/billing/FeatureAddOns";
 import { SupportChatPanel } from "@/components/support/SupportChatPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -85,14 +85,17 @@ function SwitchBusinessPanel({ currentBusinessId }: { currentBusinessId: string 
 }
 
 /**
- * Full-screen lock for owners once a trial has expired (or the account is
- * suspended for non-payment) with no active subscription. Only ever shown to
- * organisations created by the trial flow, or manually suspended by an admin -
- * every pre-existing organisation stays "active" and never sees this.
+ * Full-screen lock, shown only for an admin-suspended organisation - a trial
+ * simply ending, with nothing purchased, is no longer a whole-org lock (see
+ * client/src/lib/trial.ts's isOrgLocked and the requirements plan this
+ * changed under). The `non_payment` case (a real subscription's renewal
+ * charge failed) is the only reachable branch that still needs a way to pay:
+ * it reuses the same feature-catalog checkout as everywhere else in the app,
+ * never a separate plan-tier picker.
  */
 export function Paywall({ business }: { business: Business | null | undefined }) {
   const { logout } = useAuth();
-  const isSuspended = business?.status === "suspended";
+  const isNonPayment = business?.suspensionReason === "non_payment";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
@@ -102,24 +105,16 @@ export function Paywall({ business }: { business: Business | null | undefined })
             <Lock className="h-6 w-6 text-destructive" />
           </div>
           <h1 className="text-2xl font-bold">
-            {isSuspended
-              ? business?.suspensionReason === "non_payment"
-                ? "Your subscription payment failed"
-                : "This account has been suspended"
-              : "Your free trial has ended"}
+            {isNonPayment ? "Your subscription payment failed" : "This account has been suspended"}
           </h1>
           <p className="text-muted-foreground max-w-md">
-            {isSuspended && business?.suspensionReason !== "non_payment"
-              ? "Send a message to our support team below and we'll help resolve this and restore your access."
-              : "Pick a plan below to keep using this business account without interruption."}
+            {isNonPayment
+              ? "Confirm your features below to resume payment and restore your access."
+              : "Send a message to our support team below and we'll help resolve this and restore your access."}
           </p>
         </div>
 
-        {!isSuspended || business?.suspensionReason === "non_payment" ? (
-          <PlanPicker />
-        ) : (
-          <SupportChatPanel />
-        )}
+        {isNonPayment ? <FeatureAddOns /> : <SupportChatPanel />}
 
         <SwitchBusinessPanel currentBusinessId={business?.id} />
 

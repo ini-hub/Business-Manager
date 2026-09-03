@@ -158,17 +158,17 @@ export default function UsersList() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-white tracking-tight font-outfit">Users Directory</h1>
-        <p className="text-slate-400 text-sm mt-1">Audit merchant team structures, override forgotten credentials, and check anomalous login indicators.</p>
+        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Users Directory</h1>
+        <p className="text-muted-foreground text-sm mt-1">Audit merchant team structures, override forgotten credentials, and check anomalous login indicators.</p>
       </div>
 
       <Tabs defaultValue="directory" className="space-y-6">
-        <TabsList className="bg-slate-900 border border-slate-800 rounded-2xl p-1 gap-1">
-          <TabsTrigger value="directory" className="rounded-xl text-xs font-bold data-[state=active]:bg-slate-800 data-[state=active]:text-white">Active Roster</TabsTrigger>
-          <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-slate-800 data-[state=active]:text-white flex items-center gap-1.5">
+        <TabsList className="bg-muted border border-border rounded-2xl p-1 gap-1">
+          <TabsTrigger value="directory" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">Active Roster</TabsTrigger>
+          <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground flex items-center gap-1.5">
             Flagged Inspector
             {flaggedData?.flagged && flaggedData.flagged.length > 0 && (
-              <Badge className="bg-rose-500 text-white border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[9px] font-bold">
+              <Badge className="bg-destructive text-destructive-foreground border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[9px] font-bold">
                 {flaggedData.flagged.length}
               </Badge>
             )}
@@ -178,15 +178,15 @@ export default function UsersList() {
         {/* Directory Tab */}
         <TabsContent value="directory" className="space-y-6 animate-in fade-in duration-300">
           {/* Query Filters */}
-          <div className="bg-slate-900/40 backdrop-blur border border-slate-800/80 rounded-3xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="bg-card backdrop-blur border border-card-border rounded-3xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Search Name/Email/Company</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Search Name/Email/Company</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   type="text"
                   placeholder="Filter users..."
-                  className="bg-slate-950/60 border-slate-800 text-white pl-9 rounded-xl focus:border-emerald-500/80"
+                  className="pl-9 rounded-xl"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -194,12 +194,12 @@ export default function UsersList() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Merchant Role</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Merchant Role</Label>
               <Select value={role} onValueChange={setRole}>
-                <SelectTrigger className="bg-slate-950/60 border-slate-800 text-white rounded-xl focus:border-emerald-500/80">
+                <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder="All Roles" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="owner">Owner</SelectItem>
                   <SelectItem value="manager">Manager</SelectItem>
@@ -209,12 +209,12 @@ export default function UsersList() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Account Status</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Account Status</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="bg-slate-950/60 border-slate-800 text-white rounded-xl focus:border-emerald-500/80">
+                <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder="All Statuses" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="deactivated">Deactivated</SelectItem>
@@ -225,7 +225,7 @@ export default function UsersList() {
 
             <Button
               variant="outline"
-              className="border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white rounded-xl h-11"
+              className="border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground rounded-xl h-11"
               onClick={() => {
                 setSearch("");
                 setRole("all");
@@ -240,25 +240,25 @@ export default function UsersList() {
           {/* Table */}
           {usersLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : usersError || !usersData ? (
-            <div className="p-6 bg-rose-500/15 border border-rose-500/20 rounded-2xl text-rose-300 flex items-center gap-3">
+            <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 rounded-2xl text-rose-700 dark:text-rose-400 flex items-center gap-3">
               <AlertCircle className="h-5 w-5 shrink-0" />
               <span>Error compiling user roster. Please verify connection.</span>
             </div>
           ) : usersData.users.length === 0 ? (
-            <div className="text-center py-16 bg-slate-900/20 border border-slate-800/80 rounded-3xl">
-              <User className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <h3 className="font-bold text-white text-base">No Users Found</h3>
-              <p className="text-xs text-slate-500 mt-1">Adjust search parameters or check administrative sync filters.</p>
+            <div className="text-center py-16 bg-muted/40 border border-border rounded-3xl">
+              <User className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <h3 className="font-bold text-foreground text-base">No Users Found</h3>
+              <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or check administrative sync filters.</p>
             </div>
           ) : (
-            <div className="bg-slate-900/40 backdrop-blur border border-slate-800/80 rounded-3xl overflow-hidden">
+            <div className="bg-card border border-card-border rounded-3xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-800 bg-slate-950/40 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <tr className="border-b border-border bg-muted text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       <th className="px-6 py-4">Full Name / Details</th>
                       <th className="px-6 py-4">Security Role</th>
                       <th className="px-6 py-4">Linked Business</th>
@@ -268,32 +268,32 @@ export default function UsersList() {
                       <th className="px-6 py-4 text-center">Overrides</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800 text-xs font-semibold text-slate-300">
+                  <tbody className="divide-y divide-border text-xs font-semibold text-muted-foreground">
                     {usersData.users.map((u: any) => (
-                      <tr key={u.id} className="hover:bg-slate-900/20 transition-colors">
+                      <tr key={u.id} className="hover:bg-muted/40 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-slate-850 border border-slate-700 rounded-lg flex items-center justify-center shrink-0 font-bold text-emerald-400">
+                            <div className="w-8 h-8 bg-muted border border-border rounded-lg flex items-center justify-center shrink-0 font-bold text-primary">
                               {u.name[0]}
                             </div>
                             <div>
-                              <span className="block font-bold text-white text-sm">{u.name}</span>
-                              <span className="block text-[10px] text-slate-500 font-mono select-all">{u.email}</span>
+                              <span className="block font-bold text-foreground text-sm">{u.name}</span>
+                              <span className="block text-[10px] text-muted-foreground font-mono select-all">{u.email}</span>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-slate-800 text-slate-300">
+                          <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-muted text-muted-foreground">
                             {u.role}
                           </Badge>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="block text-slate-200 text-sm truncate max-w-[150px]">{u.business}</span>
+                          <span className="block text-foreground text-sm truncate max-w-[150px]">{u.business}</span>
                         </td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-slate-500">
+                        <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
                           {formatDate(u.registered)}
                         </td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-slate-500">
+                        <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
                           {formatDate(u.lastLogin)}
                         </td>
                         <td className="px-6 py-4">
@@ -301,10 +301,10 @@ export default function UsersList() {
                             variant="outline"
                             className={`border-none font-bold uppercase text-[9px] ${
                               u.status === "active"
-                                ? "bg-emerald-500/10 text-emerald-400"
+                                ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
                                 : u.status === "locked"
-                                ? "bg-amber-500/10 text-amber-400"
-                                : "bg-rose-500/10 text-rose-400"
+                                ? "bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400"
+                                : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"
                             }`}
                           >
                             {u.status || "active"}
@@ -315,7 +315,7 @@ export default function UsersList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg text-xs"
+                              className="border-border text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg text-xs"
                               onClick={() => handleOpenPassword(u.id, u.email)}
                               title="Reset Password"
                             >
@@ -326,7 +326,7 @@ export default function UsersList() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="border-slate-800 text-rose-400 hover:text-white hover:bg-rose-950/40 rounded-lg text-xs"
+                                className="border-border text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded-lg text-xs"
                                 onClick={() => handleOpenSuspend(u.id)}
                                 title="Lock Account"
                               >
@@ -336,7 +336,7 @@ export default function UsersList() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="border-slate-800 text-emerald-400 hover:text-white hover:bg-emerald-950/40 rounded-lg text-xs"
+                                className="border-border text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/40 rounded-lg text-xs"
                                 onClick={() => toggleSuspendMutation.mutate({ id: u.id, reason: "" })}
                                 title="Unlock Account"
                               >
@@ -358,44 +358,44 @@ export default function UsersList() {
         <TabsContent value="flagged" className="space-y-6 animate-in fade-in duration-300">
           {flaggedLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : !flaggedData?.flagged || flaggedData.flagged.length === 0 ? (
-            <div className="text-center py-16 bg-slate-900/20 border border-slate-800/80 rounded-3xl">
-              <Shield className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <h3 className="font-bold text-white text-base">No Flagged Accounts Scanned</h3>
-              <p className="text-xs text-slate-500 mt-1">Excellent! No account logins meet security audit alarm triggers.</p>
+            <div className="text-center py-16 bg-muted/40 border border-border rounded-3xl">
+              <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <h3 className="font-bold text-foreground text-base">No Flagged Accounts Scanned</h3>
+              <p className="text-xs text-muted-foreground mt-1">Excellent! No account logins meet security audit alarm triggers.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {flaggedData.flagged.map((f: any, idx: number) => (
-                <Card key={idx} className="bg-slate-900/40 border-slate-800/80 rounded-3xl overflow-hidden hover:border-rose-500/20 transition-all duration-300 shadow-xl flex flex-col justify-between">
-                  <CardHeader className="bg-slate-950/20 p-4 border-b border-slate-800/40 flex flex-row items-center justify-between gap-3">
+                <Card key={idx} className="rounded-3xl overflow-hidden hover:border-rose-500/30 transition-all duration-300 shadow-xl flex flex-col justify-between">
+                  <CardHeader className="bg-muted/40 p-4 border-b border-border flex flex-row items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
-                      <CardTitle className="text-sm font-extrabold text-white truncate">{f.name}</CardTitle>
+                      <AlertTriangle className="h-4 w-4 text-rose-500 dark:text-rose-400 shrink-0" />
+                      <CardTitle className="text-sm font-extrabold text-foreground truncate">{f.name}</CardTitle>
                     </div>
-                    <Badge variant="outline" className="bg-rose-500/10 text-rose-400 border-none text-[9px] font-bold uppercase shrink-0">
+                    <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[9px] font-bold uppercase shrink-0">
                       {f.flag}
                     </Badge>
                   </CardHeader>
-                  <CardContent className="p-5 space-y-4 text-xs font-semibold text-slate-300 flex-1 flex flex-col justify-between">
+                  <CardContent className="p-5 space-y-4 text-xs font-semibold text-muted-foreground flex-1 flex flex-col justify-between">
                     <div className="space-y-3">
-                      <div className="p-3 bg-slate-950/60 border border-slate-850 rounded-2xl text-[11px] text-slate-400 leading-relaxed font-medium">
-                        <span className="font-bold text-white block mb-0.5">Anomaly Trigger:</span>
+                      <div className="p-3 bg-muted border border-border rounded-2xl text-[11px] text-muted-foreground leading-relaxed font-medium">
+                        <span className="font-bold text-foreground block mb-0.5">Anomaly Trigger:</span>
                         "{f.trigger}"
                       </div>
                       <div className="flex items-center gap-2.5 text-[10px]">
-                        <Mail className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                        <span className="text-slate-400 truncate select-all font-mono">{f.email}</span>
+                        <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-muted-foreground truncate select-all font-mono">{f.email}</span>
                       </div>
                     </div>
 
-                    <div className="pt-4 border-t border-slate-800/40 flex gap-2">
+                    <div className="pt-4 border-t border-border flex gap-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 border-slate-800 text-rose-400 hover:bg-rose-950/40 rounded-xl"
+                        className="flex-1 border-border text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded-xl"
                         onClick={() => handleOpenSuspend(f.id)}
                       >
                         Lock Account
@@ -403,7 +403,7 @@ export default function UsersList() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="flex-1 border-slate-800 text-slate-400 hover:text-white rounded-xl"
+                        className="flex-1 border-border text-muted-foreground hover:text-foreground rounded-xl"
                         onClick={() => handleOpenPassword(f.id, f.email)}
                       >
                         Override PW
@@ -419,25 +419,25 @@ export default function UsersList() {
 
       {/* Password Reset Override Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
-        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-300 max-w-sm rounded-3xl p-6">
+        <DialogContent className="max-w-sm rounded-3xl p-6">
           <DialogHeader className="space-y-3">
-            <div className="mx-auto w-12 h-12 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-center">
-              <KeyRound className="h-6 w-6 text-emerald-400" />
+            <div className="mx-auto w-12 h-12 bg-muted border border-border rounded-2xl flex items-center justify-center">
+              <KeyRound className="h-6 w-6 text-primary" />
             </div>
-            <DialogTitle className="text-center text-lg font-bold text-white">
+            <DialogTitle className="text-center text-lg font-bold text-foreground">
               Password Override
             </DialogTitle>
-            <DialogDescription className="text-center text-xs text-slate-400">
-              Directly rewrite the password hash in the database. Enter a new password for account: <strong className="text-slate-200 block mt-1 break-all">{selectedUserEmail}</strong>
+            <DialogDescription className="text-center text-xs text-muted-foreground">
+              Directly rewrite the password hash in the database. Enter a new password for account: <strong className="text-foreground block mt-1 break-all">{selectedUserEmail}</strong>
             </DialogDescription>
           </DialogHeader>
 
           <div className="my-4 space-y-1">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">New Password (Min 8 characters)</Label>
+            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">New Password (Min 8 characters)</Label>
             <Input
               type="password"
               placeholder="••••••••"
-              className="bg-slate-950 border-slate-800 text-white rounded-xl focus:border-emerald-500/80"
+              className="rounded-xl"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
@@ -446,13 +446,13 @@ export default function UsersList() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              className="rounded-xl border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded-xl border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               onClick={() => setShowPasswordDialog(false)}
             >
               Cancel
             </Button>
             <Button
-              className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold"
+              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
               onClick={handleConfirmPassword}
               disabled={resetPasswordMutation.isPending}
             >
@@ -464,25 +464,25 @@ export default function UsersList() {
 
       {/* Suspend Specific User Dialog */}
       <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
-        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-300 max-w-sm rounded-3xl p-6">
+        <DialogContent className="max-w-sm rounded-3xl p-6">
           <DialogHeader className="space-y-3">
-            <div className="mx-auto w-12 h-12 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center justify-center">
-              <Ban className="h-6 w-6 text-rose-400" />
+            <div className="mx-auto w-12 h-12 bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 rounded-2xl flex items-center justify-center">
+              <Ban className="h-6 w-6 text-rose-500 dark:text-rose-400" />
             </div>
-            <DialogTitle className="text-center text-lg font-bold text-white">
+            <DialogTitle className="text-center text-lg font-bold text-foreground">
               Suspend User Account
             </DialogTitle>
-            <DialogDescription className="text-center text-xs text-slate-400">
+            <DialogDescription className="text-center text-xs text-muted-foreground">
               This will lock standard dashboard access for this individual user without suspending the entire business organization.
             </DialogDescription>
           </DialogHeader>
 
           <div className="my-4 space-y-1">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Audit Suspension Reason</Label>
+            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Audit Suspension Reason</Label>
             <Input
               type="text"
               placeholder="e.g. Suspected credential sharing"
-              className="bg-slate-950 border-slate-800 text-white rounded-xl focus:border-rose-500/80"
+              className="rounded-xl"
               value={suspensionReason}
               onChange={(e) => setSuspensionReason(e.target.value)}
             />
@@ -491,13 +491,13 @@ export default function UsersList() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              className="rounded-xl border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded-xl border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               onClick={() => setShowSuspendDialog(false)}
             >
               Cancel
             </Button>
             <Button
-              className="rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold"
+              className="rounded-xl bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
               onClick={() => toggleSuspendMutation.mutate({ id: selectedUserId!, reason: suspensionReason })}
               disabled={toggleSuspendMutation.isPending}
             >

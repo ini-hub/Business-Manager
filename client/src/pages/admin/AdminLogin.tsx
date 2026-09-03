@@ -112,34 +112,30 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 overflow-hidden font-sans">
-      {/* Decorative Orbs */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
-
+    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] overflow-hidden font-sans">
       <div className="w-full max-w-md p-8 relative z-10">
         <div className="text-center mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
-          <div className="inline-flex items-center justify-center p-3 bg-slate-900/60 border border-slate-800 rounded-2xl mb-4 shadow-xl">
-            <Shield className="h-10 w-10 text-emerald-400 animate-pulse" />
+          <div className="inline-flex items-center justify-center p-3 bg-card border border-border rounded-2xl mb-4 shadow-xl">
+            <Shield className="h-10 w-10 text-primary animate-pulse" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white font-outfit">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground font-outfit">
             Business Manager
           </h1>
-          <p className="text-sm text-slate-400 mt-1">Super Admin Operations Center</p>
+          <p className="text-sm text-muted-foreground mt-1">Super Admin Operations Center</p>
         </div>
 
-        <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+        <div className="bg-card border border-border rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500">
           {step === 1 ? (
             <form onSubmit={handleStep1Submit} className="space-y-5">
               <div className="space-y-1">
-                <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Admin Email Address
                 </Label>
                 <Input
                   id="email"
                   type="email"
                   placeholder="admin@businessmanager.com"
-                  className="bg-slate-950/60 border-slate-800 text-white placeholder-slate-600 focus:border-emerald-500/80 focus:ring-emerald-500/20 transition-all rounded-xl py-6"
+                  className="rounded-xl py-6"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
@@ -147,20 +143,20 @@ export default function AdminLogin() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Access Password
                 </Label>
                 <Input
                   id="password"
                   type="password"
                   placeholder="••••••••••••"
-                  className="bg-slate-950/60 border-slate-800 text-white placeholder-slate-600 focus:border-emerald-500/80 focus:ring-emerald-500/20 transition-all rounded-xl py-6"
+                  className="rounded-xl py-6"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
                 />
                 <div className="text-right">
-                  <Link href="/super-admin/forgot-password" className="text-xs text-slate-400 hover:text-emerald-400 transition-colors">
+                  <Link href="/super-admin/forgot-password" className="text-xs text-muted-foreground hover:text-primary transition-colors">
                     Forgot password?
                   </Link>
                 </div>
@@ -169,7 +165,7 @@ export default function AdminLogin() {
               <Button
                 type="submit"
                 disabled={loading}
-                className="w-full py-6 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98]"
+                className="w-full py-6 rounded-xl font-bold transition-all duration-300 active:scale-[0.98]"
               >
                 {loading ? (
                   <RefreshCw className="h-5 w-5 animate-spin" />
@@ -184,24 +180,27 @@ export default function AdminLogin() {
           ) : (
             <form onSubmit={handleStep2Submit} className="space-y-6">
               <div className="text-center mb-4">
-                <div className="inline-flex items-center justify-center p-2.5 bg-slate-950/60 border border-slate-800 rounded-xl mb-3">
-                  <KeyRound className="h-6 w-6 text-emerald-400" />
+                <div className="inline-flex items-center justify-center p-2.5 bg-muted border border-border rounded-xl mb-3">
+                  <KeyRound className="h-6 w-6 text-primary" />
                 </div>
-                <h3 className="text-lg font-semibold text-white">MFA Authentication</h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <h3 className="text-lg font-semibold text-foreground">MFA Authentication</h3>
+                <p className="text-xs text-muted-foreground mt-1">
                   Secure operation credentials require a secondary 6-digit TOTP key.
                 </p>
               </div>
 
               {!mfaConfigured && qrUrl && (
-                <div className="bg-slate-950/80 p-5 rounded-2xl border border-slate-800/80 flex flex-col items-center space-y-4 animate-in fade-in slide-in-from-bottom-2">
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
+                <div className="bg-muted p-5 rounded-2xl border border-border flex flex-col items-center space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                  <span className="text-xs font-bold text-primary uppercase tracking-widest">
                     First-Time MFA Registration
                   </span>
-                  
+
                   {/* Since we can't easily display a SVG QR code natively without qrcode.react,
                       let's display the text key in a beautiful copyable element and give a placeholder visual */}
                   <div className="w-40 h-40 bg-white p-2 rounded-xl flex items-center justify-center relative overflow-hidden shadow-inner">
+                    {/* bg-white is intentional here regardless of theme: it's the physical
+                        quiet-zone behind a scanned QR code, not decorative chrome - a dark
+                        background would break scanning in dark mode. */}
                     <img
                       src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrUrl)}`}
                       alt="Authenticator QR Code"
@@ -212,10 +211,10 @@ export default function AdminLogin() {
                       }}
                     />
                   </div>
-                  
+
                   <div className="text-center space-y-1 w-full">
-                    <p className="text-[10px] text-slate-400">Can't scan the code? Enter this secret manually:</p>
-                    <code className="block p-2 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-emerald-300 select-all tracking-wider break-all">
+                    <p className="text-[10px] text-muted-foreground">Can't scan the code? Enter this secret manually:</p>
+                    <code className="block p-2 bg-card border border-border rounded-lg text-xs font-mono text-primary select-all tracking-wider break-all">
                       {mfaSecret}
                     </code>
                   </div>
@@ -223,7 +222,7 @@ export default function AdminLogin() {
               )}
 
               <div className="space-y-1">
-                <Label htmlFor="totp" className="text-xs font-semibold uppercase tracking-wider text-slate-400 block text-center mb-2">
+                <Label htmlFor="totp" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block text-center mb-2">
                   6-Digit Authenticator Code
                 </Label>
                 <Input
@@ -233,7 +232,7 @@ export default function AdminLogin() {
                   inputMode="numeric"
                   maxLength={6}
                   placeholder="000000"
-                  className="bg-slate-950/60 border-slate-800 text-white placeholder-slate-600 focus:border-emerald-500/80 focus:ring-emerald-500/20 transition-all rounded-xl py-6 text-center font-mono text-2xl tracking-[0.4em] pl-6"
+                  className="rounded-xl py-6 text-center font-mono text-2xl tracking-[0.4em] pl-6"
                   value={totpCode}
                   onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9]/g, ""))}
                   disabled={loading}
@@ -244,7 +243,7 @@ export default function AdminLogin() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="flex-1 py-6 rounded-xl border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="flex-1 py-6 rounded-xl"
                   onClick={() => setStep(1)}
                   disabled={loading}
                 >
@@ -253,7 +252,7 @@ export default function AdminLogin() {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="flex-[2] py-6 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold transition-all duration-300"
+                  className="flex-[2] py-6 rounded-xl font-bold transition-all duration-300"
                 >
                   {loading ? <RefreshCw className="h-5 w-5 animate-spin" /> : "Verify Identity"}
                 </Button>

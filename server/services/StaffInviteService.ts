@@ -39,6 +39,14 @@ export type InviteOutcome =
   | { kind: "added_to_existing_user"; userId: string; existingLinks?: ExistingLink[] }
   | { kind: "relinked"; userId: string; retiredUserId: string; existingLinks?: ExistingLink[] }
   | { kind: "already_active"; userId: string }
+  // The member already has a password set and is blocked solely on their
+  // staff_contracts state (still pending_signature, or declined) - re-arming
+  // the activation code here would be a no-op at best (see the comment on
+  // resendToLinkedUser's contract_pending check below) and, before that
+  // check existed, was the exact hole that let a declined-contract staff
+  // member regain access by going through activation again. Resolving this
+  // means attaching/replacing their contract, not resending an invite.
+  | { kind: "contract_pending_not_applicable"; userId: string }
   | { kind: "skipped"; reason: "no_email" | "no_business" | "archived" }
   | { kind: "cooldown"; retryAfterMinutes: number }
   | { kind: "conflict"; reason: "email_belongs_to_active_account" }
@@ -266,6 +274,21 @@ export class StaffInviteService {
       );
     }
     if (member?.status === "active") return { kind: "already_active", userId: user.id };
+
+    // A password already exists at this point (that's what contract_pending
+    // means - see migrations/0046_staff_contract_signing.sql), so re-arming
+    // the activation code below is not just useless, it's dangerous: doing
+    // so and then walking back through /api/auth/activate ->
+    // set-activated-password used to hand out a full session regardless of
+    // whether the staff_contracts row was still pending_signature or even
+    // declined, because neither of those endpoints has ever known how to
+    // update or check a contract_pending member. set-activated-password now
+    // guards against that directly (see server/routes.ts), but this member
+    // was never stuck on their activation code in the first place, so
+    // resend is simply the wrong tool - refuse rather than pretend to help.
+    if (member?.status === "contract_pending") {
+      return { kind: "contract_pending_not_applicable", userId: user.id };
+    }
 
     if (respectCooldown) {
       const cooldown = checkResendCooldown(user.resendAttempts, user.resendWindowStart);
@@ -503,7 +526,13 @@ export class StaffInviteService {
         continue;
       }
       if (p.memberStatus === "pending") result.set(row.id, "pending");
-      else if (p.memberStatus === "partial") result.set(row.id, "partial");
+      // "contract_pending" (password set, staff_contracts still awaiting a
+      // signature - see migrations/0046_staff_contract_signing.sql) folds
+      // into "partial" here: this enum has no room for a 5th state, and from
+      // the manager's "can this person log in yet" perspective it is the
+      // same answer as partial - not yet. StaffContractService.
+      // computeContractStatus is the separate, precise signal for why.
+      else if (p.memberStatus === "partial" || p.memberStatus === "contract_pending") result.set(row.id, "partial");
       else result.set(row.id, "active");
     }
     return result;

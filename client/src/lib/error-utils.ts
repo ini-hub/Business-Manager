@@ -47,8 +47,13 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
     }
   }
 
-  // Handle email already in use errors
-  if (message.toLowerCase().includes("email") && 
+  // Handle email already in use errors. Matches on "email address" rather
+  // than the bare word "email" - a conflict message about something else
+  // entirely (e.g. a mobile number) can still mention "email" in passing
+  // ("...or check if this staff member already has an account under a
+  // different email"), which used to get wrongly reclassified as an email
+  // conflict here instead of showing its own, correct message.
+  if (message.toLowerCase().includes("email address") &&
       (message.toLowerCase().includes("already") || message.toLowerCase().includes("in use") || message.toLowerCase().includes("exists"))) {
     if (context === "staff") {
       return "This email address is already in use. Please use a different email.";
@@ -88,6 +93,16 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
 
   if (message.toLowerCase().includes("cannot be sold for ₦0") || message.toLowerCase().includes("only active promotions can apply")) {
     return "Items cannot be priced at ₦0 during checkout unless covered by an active promotion.";
+  }
+
+  // Last resort before genericizing: this app's own route handlers already
+  // write complete, user-facing guidance for expected conflicts (e.g. "...
+  // Please use a different number."), which is a shape opaque driver/DB
+  // errors never take. Showing that verbatim beats replacing a specific,
+  // actionable message with a generic one just because it didn't match any
+  // pattern above.
+  if (/\bplease\b/i.test(message) && message.length < 300) {
+    return message;
   }
 
   if (context) {

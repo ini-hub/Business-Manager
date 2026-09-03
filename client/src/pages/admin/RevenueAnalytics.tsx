@@ -42,8 +42,8 @@ export default function RevenueAnalytics() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-400 mx-auto" />
-          <p className="text-slate-400 text-sm font-medium">Aggregating platform revenue logs...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground text-sm font-medium">Aggregating platform revenue logs...</p>
         </div>
       </div>
     );
@@ -51,10 +51,10 @@ export default function RevenueAnalytics() {
 
   if (error || !data) {
     return (
-      <div className="p-8 bg-rose-500/10 border border-rose-500/20 rounded-3xl text-rose-300 max-w-xl mx-auto flex gap-4">
+      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-3xl text-rose-700 dark:text-rose-300 max-w-xl mx-auto flex gap-4">
         <AlertCircle className="h-8 w-8 shrink-0" />
         <div>
-          <h3 className="font-bold text-white">Revenue Stream Offline</h3>
+          <h3 className="font-bold text-foreground">Revenue Stream Offline</h3>
           <p className="text-sm mt-1">Failed to query platform financial indicators. Check ledger logs.</p>
         </div>
       </div>
@@ -82,47 +82,47 @@ export default function RevenueAnalytics() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-white tracking-tight font-outfit">Platform Financials</h1>
-        <p className="text-slate-400 text-sm mt-1">Audit platform Monthly Recurring Revenue (MRR), ARR ratios, subscriber conversions, and top performers.</p>
+        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Platform Financials</h1>
+        <p className="text-muted-foreground text-sm mt-1">Audit platform Monthly Recurring Revenue (MRR), ARR ratios, subscriber conversions, and top performers.</p>
       </div>
 
       {/* Summary Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Card className="bg-slate-900/40 backdrop-blur border-slate-800/80 rounded-2xl overflow-hidden hover:border-slate-700/80 transition-all duration-300">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Monthly Recurring Revenue (MRR)</CardTitle>
-            <DollarSign className="h-5 w-5 text-emerald-400" />
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Monthly Recurring Revenue (MRR)</CardTitle>
+            <DollarSign className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent className="space-y-1.5">
-            <span className="text-3xl font-black text-white font-mono">{formatCurrency(revenueSummary.mrr)}</span>
-            <p className="text-xs text-slate-500">Based on ₦10,000/mo premium subscription</p>
+            <span className="text-3xl font-black text-foreground font-mono">{formatCurrency(revenueSummary.mrr)}</span>
+            <p className="text-xs text-muted-foreground">Based on ₦10,000/mo premium subscription</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/40 backdrop-blur border-slate-800/80 rounded-2xl overflow-hidden hover:border-slate-700/80 transition-all duration-300">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Annual Run Rate (ARR)</CardTitle>
-            <TrendingUp className="h-5 w-5 text-indigo-400" />
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Annual Run Rate (ARR)</CardTitle>
+            <TrendingUp className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
           </CardHeader>
           <CardContent className="space-y-1.5">
-            <span className="text-3xl font-black text-white font-mono">{formatCurrency(revenueSummary.arr)}</span>
-            <p className="text-xs text-slate-500">Annual run rate projections</p>
+            <span className="text-3xl font-black text-foreground font-mono">{formatCurrency(revenueSummary.arr)}</span>
+            <p className="text-xs text-muted-foreground">Annual run rate projections</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900/40 backdrop-blur border-slate-800/80 rounded-2xl overflow-hidden hover:border-slate-700/80 transition-all duration-300">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">ARPU & Subscribers</CardTitle>
-            <Users className="h-5 w-5 text-pink-400" />
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">ARPU & Subscribers</CardTitle>
+            <Users className="h-5 w-5 text-pink-600 dark:text-pink-400" />
           </CardHeader>
           <CardContent className="space-y-1.5">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-white font-mono">{revenueSummary.activePaying}</span>
-              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-none font-semibold">
+              <span className="text-3xl font-black text-foreground font-mono">{revenueSummary.activePaying}</span>
+              <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-semibold">
                 ARPU: ₦10k
               </Badge>
             </div>
-            <p className="text-xs text-slate-500">Active paying merchant organizations</p>
+            <p className="text-xs text-muted-foreground">Active paying merchant organizations</p>
           </CardContent>
         </Card>
       </div>
@@ -130,10 +130,10 @@ export default function RevenueAnalytics() {
       {/* Grid: Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Top Performing Businesses */}
-        <Card className="bg-slate-900/40 backdrop-blur border-slate-800/80 rounded-3xl lg:col-span-2 overflow-hidden shadow-xl">
-          <CardHeader className="border-b border-slate-800/80 bg-slate-950/20 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
-              <Building className="h-4 w-4 text-emerald-400" />
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl lg:col-span-2 overflow-hidden shadow-xl">
+          <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
+            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+              <Building className="h-4 w-4 text-primary" />
               Top 5 Merchants by Sales (GMV)
             </CardTitle>
           </CardHeader>
@@ -162,10 +162,10 @@ export default function RevenueAnalytics() {
         </Card>
 
         {/* Plan Subscription Splits */}
-        <Card className="bg-slate-900/40 backdrop-blur border-slate-800/80 rounded-3xl overflow-hidden shadow-xl flex flex-col justify-between">
-          <CardHeader className="border-b border-slate-800/80 bg-slate-950/20 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
-              <Percent className="h-4 w-4 text-indigo-400" />
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl overflow-hidden shadow-xl flex flex-col justify-between">
+          <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
+            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+              <Percent className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
               Subscriber Split
             </CardTitle>
           </CardHeader>
@@ -197,18 +197,18 @@ export default function RevenueAnalytics() {
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
-          <div className="p-5 border-t border-slate-800/40 bg-slate-950/20 grid grid-cols-3 gap-2 text-center text-[10px] font-bold">
+          <div className="p-5 border-t border-border/40 bg-background/20 grid grid-cols-3 gap-2 text-center text-[10px] font-bold">
             <div className="space-y-1">
-              <span className="block text-emerald-400">Paying Pro</span>
-              <span className="block text-white font-mono text-sm">{revenueSummary.activePaying}</span>
+              <span className="block text-emerald-600 dark:text-emerald-400">Paying Pro</span>
+              <span className="block text-foreground font-mono text-sm">{revenueSummary.activePaying}</span>
             </div>
-            <div className="space-y-1 border-x border-slate-800/60">
-              <span className="block text-indigo-400">Free Trial</span>
-              <span className="block text-white font-mono text-sm">{revenueSummary.freeTrial}</span>
+            <div className="space-y-1 border-x border-border/60">
+              <span className="block text-indigo-600 dark:text-indigo-400">Free Trial</span>
+              <span className="block text-foreground font-mono text-sm">{revenueSummary.freeTrial}</span>
             </div>
             <div className="space-y-1">
               <span className="block text-amber-500">Churned</span>
-              <span className="block text-white font-mono text-sm">{revenueSummary.churnedThisMonth}</span>
+              <span className="block text-foreground font-mono text-sm">{revenueSummary.churnedThisMonth}</span>
             </div>
           </div>
         </Card>

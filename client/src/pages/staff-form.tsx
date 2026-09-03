@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
 import { useReturnTo } from "@/lib/return-to";
-import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, User, Briefcase, Settings2, UserCheck, UserPlus, Unlink, Link2 } from "lucide-react";
+import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, FileClock, User, Briefcase, Settings2, UserCheck, UserPlus, Unlink, Link2, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,12 +19,16 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStaffSchema, type Staff, type Customer, type StaffInviteStatus } from "@shared/schema";
+import { insertStaffSchema, type Staff, type Customer, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { uploadContractFileToStaging } from "@/lib/contract-upload";
 import { useStore } from "@/lib/store-context";
 import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getCurrencyByCode } from "@/lib/currency-utils";
@@ -74,7 +78,7 @@ export default function StaffFormPage() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [selectedLinkCustomerId, setSelectedLinkCustomerId] = useState<string>("");
 
-  const { data: staffMember, isLoading: isLoadingStaff } = useQuery<Staff & { inviteStatus?: StaffInviteStatus }>({
+  const { data: staffMember, isLoading: isLoadingStaff } = useQuery<Staff & { inviteStatus?: StaffInviteStatus; contractStatus?: StaffContractStatus }>({
     queryKey: [`/api/staff/${staffId}`],
     enabled: !!staffId,
     queryFn: async () => {
@@ -130,6 +134,108 @@ export default function StaffFormPage() {
     },
     onError: (error: Error) => {
       toast({ title: "Couldn't Unlink Profile", description: getUserFriendlyError(error), variant: "destructive" });
+    },
+  });
+
+  // ─── Contract ────────────────────────────────────────────────────────────
+  // File/image contracts upload to a business-scoped staging key (POST
+  // /api/staff/contract-upload-url) that doesn't need a real staffId yet, so
+  // they can be attached inline at creation time too - see
+  // uploadContractFileToStaging below, used both here (create) and by
+  // attachContractMutation (edit/replace on an existing staff member).
+  const [contractType, setContractType] = useState<"none" | "text" | "file" | "image">("none");
+  const [contractText, setContractText] = useState("");
+  const [contractAltText, setContractAltText] = useState("");
+  const [contractFile, setContractFile] = useState<File | null>(null);
+  // Only meaningful (and only shown) when this staff member is already
+  // active - see the checkbox below and POST /api/staff/:id/contract's
+  // handling of requireSignature.
+  const [requireSignatureOnAttach, setRequireSignatureOnAttach] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  const { data: contractDetail } = useQuery<{
+    contractStatus: StaffContractStatus;
+    contractType?: "file" | "image" | "text";
+    contentText?: string;
+    altText?: string;
+    fileOriginalName?: string;
+    signedGetUrl?: string;
+    declinedAt?: string;
+    declinedReason?: string;
+    signature?: { typedFullName: string; signedAt: string; ipAddress: string };
+    history?: Array<{
+      id: string;
+      versionNumber: number;
+      contractType: "file" | "image" | "text";
+      createdAt: string;
+      supersededAt: string | null;
+      isCurrent: boolean;
+      createdByName?: string;
+      contentText?: string | null;
+      fileOriginalName?: string | null;
+      altText?: string | null;
+      signedGetUrl?: string;
+    }>;
+  }>({
+    queryKey: [`/api/staff/${staffId}/contract`],
+    enabled: !!staffId,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/staff/${staffId}/contract`);
+      return res.json();
+    },
+  });
+
+  const attachContractMutation = useMutation({
+    mutationFn: async () => {
+      if (contractType === "text") {
+        const res = await apiRequest("POST", `/api/staff/${staffId}/contract`, {
+          contractType: "text",
+          contentText: contractText.trim(),
+          requireSignature: requireSignatureOnAttach,
+        });
+        return res.json();
+      }
+      if (!contractFile) throw new Error("Please choose a file to upload.");
+      const uploaded = await uploadContractFileToStaging(contractFile);
+
+      const res = await apiRequest("POST", `/api/staff/${staffId}/contract`, {
+        contractType,
+        ...uploaded,
+        ...(contractType === "image" ? { altText: contractAltText.trim() } : {}),
+        requireSignature: requireSignatureOnAttach,
+      });
+      return res.json();
+    },
+    onSuccess: (data: { contractStatus: StaffContractStatus; requiredSignatureApplied?: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}/contract`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+
+      // Honest, response-driven messaging - this used to be one hardcoded
+      // "will be asked to sign during onboarding" toast regardless of
+      // whether that was ever going to happen (it wasn't, for an
+      // already-active staff member left unchecked).
+      if (data.requiredSignatureApplied) {
+        toast({
+          title: "Contract attached",
+          description: `${staffMember?.name || "The staff member"} will be asked to sign it the next time they log in.`,
+        });
+      } else if (data.contractStatus === "not_applicable_existing_account") {
+        toast({
+          title: "Contract saved as a record",
+          description: "This staff member already has access, so they won't be prompted to sign it unless you check “Require signature” above.",
+        });
+      } else {
+        toast({ title: "Contract attached", description: "The staff member will be asked to review and sign it during onboarding." });
+      }
+      setContractType("none");
+      setContractText("");
+      setContractAltText("");
+      setContractFile(null);
+      setRequireSignatureOnAttach(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't attach contract", description: getUserFriendlyError(error), variant: "destructive" });
     },
   });
 
@@ -250,13 +356,37 @@ export default function StaffFormPage() {
     },
   });
 
-  const onSubmit = (data: any) => {
+  const [isPreparingContract, setIsPreparingContract] = useState(false);
+
+  const onSubmit = async (data: any) => {
     const validation = validatePhoneNumber(data.mobileNumber, data.countryCode || "NG");
     if (!validation.valid) { form.setError("mobileNumber", { message: validation.error }); return; }
-    const payload = {
+    const payload: any = {
       ...data,
       commissionRateOverride: data.commissionRateOverride != null ? data.commissionRateOverride / 100 : null,
     };
+
+    // The Contract section only offers this inline path on the create form
+    // (staffId undefined) - once saved, attaching/replacing goes through its
+    // own attachContractMutation instead.
+    if (!staffId && contractType === "text" && contractText.trim()) {
+      payload.contract = { contractType: "text", contentText: contractText.trim() };
+    } else if (!staffId && (contractType === "file" || contractType === "image") && contractFile) {
+      try {
+        setIsPreparingContract(true);
+        const uploaded = await uploadContractFileToStaging(contractFile);
+        payload.contract = {
+          contractType,
+          ...uploaded,
+          ...(contractType === "image" ? { altText: contractAltText.trim() } : {}),
+        };
+      } catch (error) {
+        toast({ title: "Couldn't upload contract file", description: getUserFriendlyError(error as Error), variant: "destructive" });
+        return;
+      } finally {
+        setIsPreparingContract(false);
+      }
+    }
     mutation.mutate(payload);
   };
 
@@ -284,6 +414,29 @@ export default function StaffFormPage() {
   const watchRole = form.watch("role");
   const roleLabel = watchRole === "manager" ? "Manager" : watchRole === "staff" ? "Staff" : watchRole || "Staff";
 
+  // staffMember.contractStatus (the versioned staff_contracts table) is the
+  // source of truth once a staff row exists; signedContract is the
+  // deprecated bare checkbox that predates it and is only ever relevant for
+  // a record that has never had a real contract attached.
+  const contractBadge = (() => {
+    const status = staffMember?.contractStatus;
+    if (status === "signed") {
+      return <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>;
+    }
+    if (status === "pending_signature") {
+      return <Badge variant="secondary" className="text-[10px]"><FileClock className="h-2.5 w-2.5 mr-0.5" />Awaiting Signature</Badge>;
+    }
+    if (status === "declined") {
+      return <Badge variant="destructive" className="text-[10px]"><FileX className="h-2.5 w-2.5 mr-0.5" />Contract Declined</Badge>;
+    }
+    if (status === "not_applicable_existing_account") {
+      return <Badge variant="outline" className="text-[10px]">No Signature Required</Badge>;
+    }
+    return form.watch("signedContract")
+      ? <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>
+      : <Badge variant="secondary" className="text-[10px]"><FileX className="h-2.5 w-2.5 mr-0.5" />No Contract</Badge>;
+  })();
+
   return (
     <div className="min-h-screen bg-muted/20">
       {/* Sticky top nav */}
@@ -295,8 +448,8 @@ export default function StaffFormPage() {
           <h1 className="font-semibold text-sm truncate">{staffId ? "Edit Staff Member" : "New Staff Member"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>
         </div>
-        <Button size="sm" onClick={form.handleSubmit(onSubmit)} disabled={mutation.isPending} className="shrink-0">
-          {mutation.isPending ? "Saving…" : staffId ? "Save Changes" : "Create Profile"}
+        <Button size="sm" onClick={form.handleSubmit(onSubmit)} disabled={mutation.isPending || isPreparingContract} className="shrink-0">
+          {isPreparingContract ? "Uploading contract…" : mutation.isPending ? "Saving…" : staffId ? "Save Changes" : "Create Profile"}
         </Button>
       </div>
 
@@ -321,10 +474,7 @@ export default function StaffFormPage() {
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Badge variant="outline" className="text-[10px]">{roleLabel}</Badge>
-                      {form.watch("signedContract")
-                        ? <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>
-                        : <Badge variant="secondary" className="text-[10px]"><FileX className="h-2.5 w-2.5 mr-0.5" />Pending Contract</Badge>
-                      }
+                      {contractBadge}
                     </div>
                   </div>
                 </div>
@@ -342,7 +492,7 @@ export default function StaffFormPage() {
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl><SelectTrigger className="h-11"><SelectValue placeholder="Select a branch..." /></SelectTrigger></FormControl>
                         <SelectContent>
-                          {stores.filter(s => s.id !== "all").map((s) => (
+                          {stores.filter(s => s.id !== "all" && s.isActive !== false).map((s) => (
                             <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -483,23 +633,175 @@ export default function StaffFormPage() {
 
             {/* Contract */}
             <Card className="border-0 shadow-sm">
-              <CardContent className="p-4">
-                <FormField control={form.control} name="signedContract" render={({ field }) => (
-                  <FormItem className="flex items-center justify-between gap-4">
-                    <div>
-                      <FormLabel className="text-sm font-medium flex items-center gap-2">
-                        <FileCheck className="h-4 w-4 text-emerald-600" />
-                        Employment Contract Signed
-                      </FormLabel>
-                      <FormDescription className="text-xs mt-0.5">
-                        Toggle on once the staff member has signed their official contract.
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                  </FormItem>
-                )} />
+              <CardContent className="p-4 space-y-4">
+                <SectionHeader icon={<FileCheck className="h-3.5 w-3.5" />} label="Employment Contract" />
+
+                {staffMember?.contractStatus === "signed" ? (
+                  <div className="rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
+                    <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1.5">
+                      <FileCheck className="h-3.5 w-3.5" /> Signed by {contractDetail?.signature?.typedFullName}
+                    </p>
+                    {contractDetail?.signature?.signedAt && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {new Date(contractDetail.signature.signedAt).toLocaleString()} · IP {contractDetail.signature.ipAddress}
+                      </p>
+                    )}
+                    {contractDetail?.signedGetUrl && (
+                      <a href={contractDetail.signedGetUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline block">
+                        View {contractDetail.fileOriginalName || "signed document"}
+                      </a>
+                    )}
+                    {contractDetail?.contractType === "text" && contractDetail.contentText && (
+                      <pre className="whitespace-pre-wrap text-[11px] text-muted-foreground bg-background/60 rounded p-2 max-h-32 overflow-y-auto">{contractDetail.contentText}</pre>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">Amending a signed contract isn't supported yet.</p>
+                  </div>
+                ) : (
+                  <>
+                    {staffMember?.contractStatus === "declined" && (
+                      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive space-y-1">
+                        <p className="font-medium">This staff member declined to sign.</p>
+                        {contractDetail?.declinedReason && <p>Reason given: {contractDetail.declinedReason}</p>}
+                        <p className="text-muted-foreground">Attaching a new contract below will let them try again.</p>
+                      </div>
+                    )}
+                    {staffMember?.contractStatus === "pending_signature" && (
+                      <p className="text-xs text-muted-foreground">
+                        Awaiting the staff member's signature. Attaching a new contract below replaces this one before they've signed.
+                      </p>
+                    )}
+                    {!staffId && (
+                      <p className="text-xs text-muted-foreground">
+                        Optional — attach now for the staff member to review and sign during onboarding (after they set their password).
+                      </p>
+                    )}
+
+                    <RadioGroup
+                      value={contractType}
+                      onValueChange={(v) => setContractType(v as typeof contractType)}
+                      className="flex flex-wrap gap-3"
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="none" id="contract-none" />
+                        <label htmlFor="contract-none" className="text-xs cursor-pointer">None for now</label>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="text" id="contract-text" />
+                        <label htmlFor="contract-text" className="text-xs cursor-pointer">Type contract text</label>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="file" id="contract-file" />
+                        <label htmlFor="contract-file" className="text-xs cursor-pointer">Upload file (PDF)</label>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="image" id="contract-image" />
+                        <label htmlFor="contract-image" className="text-xs cursor-pointer">Upload image</label>
+                      </div>
+                    </RadioGroup>
+
+                    {contractType === "text" && (
+                      <Textarea
+                        placeholder="Paste or type the full contract text..."
+                        className="min-h-32 text-sm"
+                        value={contractText}
+                        onChange={(e) => setContractText(e.target.value)}
+                      />
+                    )}
+
+                    {(contractType === "file" || contractType === "image") && (
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 text-xs border rounded-lg p-3 cursor-pointer hover:bg-muted/30">
+                          <Upload className="h-4 w-4 text-muted-foreground" />
+                          {contractFile ? contractFile.name : `Choose ${contractType === "image" ? "an image" : "a PDF"}...`}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept={contractType === "image" ? "image/png,image/jpeg,image/webp" : "application/pdf"}
+                            onChange={(e) => setContractFile(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                        {contractType === "image" && (
+                          <Input
+                            placeholder="Describe the image for accessibility (required)"
+                            value={contractAltText}
+                            onChange={(e) => setContractAltText(e.target.value)}
+                            className="text-xs h-9"
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {staffId && contractType !== "none" && staffMember?.inviteStatus === "active" && (
+                      <div className="flex items-start space-x-2 rounded-lg border p-2.5 bg-muted/20">
+                        <Checkbox
+                          id="require-signature-on-attach"
+                          checked={requireSignatureOnAttach}
+                          onCheckedChange={(checked) => setRequireSignatureOnAttach(!!checked)}
+                        />
+                        <label htmlFor="require-signature-on-attach" className="text-xs cursor-pointer leading-relaxed">
+                          Require <strong>{staffMember?.name || "this staff member"}</strong> to sign this before their next login.
+                          Their current session is unaffected — this only takes effect the next time they log in.
+                        </label>
+                      </div>
+                    )}
+
+                    {staffId && contractType !== "none" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          attachContractMutation.isPending ||
+                          (contractType === "text" && !contractText.trim()) ||
+                          ((contractType === "file" || contractType === "image") && !contractFile) ||
+                          (contractType === "image" && !contractAltText.trim())
+                        }
+                        onClick={() => attachContractMutation.mutate()}
+                      >
+                        {attachContractMutation.isPending ? "Attaching…" : "Attach Contract"}
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {!!contractDetail?.history && contractDetail.history.length > 1 && (
+                  <div className="pt-3 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setIsHistoryOpen((open) => !open)}
+                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                      {isHistoryOpen ? "Hide" : "View"} history ({contractDetail.history.length} versions)
+                    </button>
+                    {isHistoryOpen && (
+                      <div className="mt-2 space-y-2">
+                        {contractDetail.history.map((v) => (
+                          <div key={v.id} className="rounded-lg border p-2.5 text-[11px] space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium capitalize">v{v.versionNumber} · {v.contractType}</span>
+                              <Badge variant={v.isCurrent ? "default" : "secondary"} className="text-[9px]">
+                                {v.isCurrent ? "Current" : "Superseded"}
+                              </Badge>
+                            </div>
+                            <p className="text-muted-foreground">
+                              {new Date(v.createdAt).toLocaleString()}
+                              {v.createdByName ? ` · attached by ${v.createdByName}` : ""}
+                              {v.supersededAt ? ` · replaced ${new Date(v.supersededAt).toLocaleDateString()}` : ""}
+                            </p>
+                            {v.contractType === "text" && v.contentText && (
+                              <pre className="whitespace-pre-wrap bg-muted/40 rounded p-2 max-h-24 overflow-y-auto">{v.contentText}</pre>
+                            )}
+                            {v.signedGetUrl && (
+                              <a href={v.signedGetUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline block">
+                                View {v.fileOriginalName || "document"}
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -757,8 +1059,8 @@ export default function StaffFormPage() {
             {/* Bottom actions */}
             <div className="flex gap-3 pt-2 pb-8">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setLocation(backHref)}>Cancel</Button>
-              <Button type="submit" className="flex-1" disabled={mutation.isPending}>
-                {mutation.isPending ? "Saving…" : staffId ? "Save Changes" : "Create Profile"}
+              <Button type="submit" className="flex-1" disabled={mutation.isPending || isPreparingContract}>
+                {isPreparingContract ? "Uploading contract…" : mutation.isPending ? "Saving…" : staffId ? "Save Changes" : "Create Profile"}
               </Button>
             </div>
           </form>

@@ -2,7 +2,7 @@ import { KowopeBrand } from "@/components/kowope-brand";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ export default function Login() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [step, setStep] = useState<
-    "identifier" | "password" | "activation_code" | "create_password" | "verify_otp" | "org_select" | "almost_there" | "verify_email_change"
+    "identifier" | "password" | "activation_code" | "create_password" | "sign_contract" | "verify_otp" | "org_select" | "almost_there" | "verify_email_change"
   >("identifier");
   const [identifier, setIdentifier] = useState("");
   const [identifierDisplay, setIdentifierDisplay] = useState("");
@@ -73,6 +73,21 @@ export default function Login() {
   const [orgs, setOrgs] = useState<{ id: string; name: string; slug: string; role: string }[]>([]);
   const [orgSelectToken, setOrgSelectToken] = useState<string | null>(null);
 
+  // The name already on file (set by the manager at staff creation), shown
+  // read-only on the create-password screen. Deliberately not an editable
+  // field: staff.name is manager/owner-controlled only (via PATCH
+  // /api/staff/:id) - see the comment in POST /api/auth/set-activated-password.
+  const [pendingName, setPendingName] = useState("");
+
+  // Contract review/sign state - reached after password creation (or a
+  // later login), gated server-side by a contract_pending_token cookie
+  // rather than the normal session. See POST /api/contract/sign.
+  const [signTypedName, setSignTypedName] = useState("");
+  const [signAgreeChecked, setSignAgreeChecked] = useState(false);
+  const [signConsentChecked, setSignConsentChecked] = useState(false);
+  const [showDeclineForm, setShowDeclineForm] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
+
   // Form schemas
   const emailIdentifierSchema = z.object({
     email: z.string().min(1, "Email is required").email("Enter a valid email address"),
@@ -106,7 +121,6 @@ export default function Login() {
   });
 
   const createPasswordFormSchema = z.object({
-    fullName: z.string().min(1, "Your name is required").transform(s => s.trim()),
     password: actPasswordSchema,
     confirmPassword: z.string().min(1, "Confirm password is required"),
   }).refine((data) => data.password === data.confirmPassword, {
@@ -136,7 +150,7 @@ export default function Login() {
 
   const createPassForm = useForm({
     resolver: zodResolver(createPasswordFormSchema),
-    defaultValues: { fullName: "", password: "", confirmPassword: "" },
+    defaultValues: { password: "", confirmPassword: "" },
   });
 
   const createPasswordValue = createPassForm.watch("password") || "";
@@ -148,6 +162,7 @@ export default function Login() {
       return response.json();
     },
     onSuccess: (data) => {
+      if (data.name) setPendingName(data.name);
       if (data.status === "not_found") {
         toast({
           title: "Account not found",
@@ -191,8 +206,11 @@ export default function Login() {
         setStep("password");
       }
     },
-    onError: (error: any) => {
-      const errorMsg = error.response?.data?.error || "Unable to check identifier.";
+    onError: (error: Error) => {
+      // apiRequest (client/src/lib/queryClient.ts) throws a plain Error with
+      // the server's message already on .message - there is no axios-style
+      // .response.data to unwrap.
+      const errorMsg = error.message || "Unable to check identifier.";
       toast({
         title: "Error",
         description: errorMsg,
@@ -232,6 +250,15 @@ export default function Login() {
           title: "Multiple Workspaces Found",
           description: "Please select the organisation you want to access.",
         });
+      } else if (data.status === "contract_signature_required") {
+        // Password was already set in an earlier session (they closed the
+        // tab before signing) - same destination as setPasswordMutation's
+        // "sign-contract" branch below.
+        setStep("sign_contract");
+        toast({
+          title: "One more step",
+          description: data.message || "Please review and sign your contract to continue.",
+        });
       } else {
         toast({
           title: "Welcome back!",
@@ -246,11 +273,10 @@ export default function Login() {
         setLocation("/");
       }
     },
-    onError: (error: any) => {
-      const errorData = error.response?.data || error;
+    onError: (error: Error) => {
       toast({
         title: "Login failed",
-        description: errorData.error || "Invalid password",
+        description: error.message || "Invalid password",
         variant: "destructive",
       });
     },
@@ -276,8 +302,8 @@ export default function Login() {
       queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
-    onError: (error: any) => {
-      const errorMsg = error.response?.data?.error || "Workspace entry failed.";
+    onError: (error: Error) => {
+      const errorMsg = error.message || "Workspace entry failed.";
       toast({
         title: "Workspace entry failed",
         description: errorMsg,
@@ -296,7 +322,8 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data.name) setPendingName(data.name);
       setStep("create_password");
       toast({
         title: "Code Verified!",
@@ -316,15 +343,22 @@ export default function Login() {
 
   // Set Activated Password
   const setPasswordMutation = useMutation({
-    mutationFn: async ({ password, name }: { password: string; name: string }) => {
+    mutationFn: async ({ password }: { password: string }) => {
       const response = await apiRequest("POST", "/api/auth/set-activated-password", {
         emailOrPhone: identifier,
         password,
-        name,
       });
       return response.json();
     },
     onSuccess: (data) => {
+      if (data.nextStep === "sign-contract") {
+        setStep("sign_contract");
+        toast({
+          title: "Password set!",
+          description: data.message || "Please review and sign your contract to continue.",
+        });
+        return;
+      }
       toast({
         title: "Password Set Successfully!",
         description: "Welcome to Kowope.",
@@ -334,11 +368,73 @@ export default function Login() {
       queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
-    onError: (error: any) => {
-      const errorData = error.response?.data || error;
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: errorData.error || "Unable to set password.",
+        description: error.message || "Unable to set password.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Fetch the contract awaiting review/signature - authorized by the
+  // contract_pending_token cookie, not a normal session.
+  const pendingContractQuery = useQuery({
+    queryKey: ["/api/contract/pending"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/contract/pending");
+      return response.json();
+    },
+    enabled: step === "sign_contract",
+    retry: false,
+  });
+
+  const signContractMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/contract/sign", {
+        typedFullName: signTypedName.trim(),
+        affirmedReadAndAgree: signAgreeChecked,
+        consentedElectronicSignature: signConsentChecked,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Contract signed!",
+        description: "Welcome to Kowope.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.resetQueries({ queryKey: ["/api/stores"] });
+      queryClient.resetQueries({ queryKey: ["/api/business"] });
+      setLocation("/");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not sign contract",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const declineContractMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/contract/decline", {
+        reason: declineReason.trim() || undefined,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Decline recorded",
+        description: data.message || "Your manager has been notified.",
+      });
+      setStep("identifier");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not record decline",
+        description: error.message || "Please try again.",
         variant: "destructive",
       });
     },
@@ -365,11 +461,10 @@ export default function Login() {
         description: data.message || "Please sign in with your password.",
       });
     },
-    onError: (error: any) => {
-      const errorData = error.response?.data || error;
+    onError: (error: Error) => {
       toast({
         title: "Verification failed",
-        description: errorData.error || "Invalid verification code",
+        description: error.message || "Invalid verification code",
         variant: "destructive",
       });
     },
@@ -404,11 +499,10 @@ export default function Login() {
       queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
-    onError: (error: any) => {
-      const errorData = error.response?.data || error;
+    onError: (error: Error) => {
       toast({
         title: "Verification failed",
-        description: errorData.error || "Invalid OTP code",
+        description: error.message || "Invalid OTP code",
         variant: "destructive",
       });
     },
@@ -428,11 +522,10 @@ export default function Login() {
         description: "A fresh verification code has been sent to your email.",
       });
     },
-    onError: (error: any) => {
-      const errorData = error.response?.data || error;
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: errorData.error || "Unable to resend code.",
+        description: error.message || "Unable to resend code.",
         variant: "destructive",
       });
     },
@@ -448,6 +541,7 @@ export default function Login() {
       return response.json();
     },
     onSuccess: (data) => {
+      if (data.name) setPendingName(data.name);
       if (data?.nextStep === "create-password") {
         setStep("almost_there");
         toast({
@@ -462,9 +556,8 @@ export default function Login() {
         description: "A new invitation activation code has been sent to your email.",
       });
     },
-    onError: (error: any) => {
-      const errorData = error.response?.data || error;
-      const errMsg = errorData.message || errorData.error || "Unable to resend activation code.";
+    onError: (error: Error) => {
+      const errMsg = error.message || "Unable to resend activation code.";
       setActCodeError(errMsg);
       toast({
         title: "Resend failed",
@@ -505,7 +598,7 @@ export default function Login() {
       });
       return;
     }
-    setPasswordMutation.mutate({ password: data.password, name: data.fullName });
+    setPasswordMutation.mutate({ password: data.password });
   };
 
   const handleVerifyOtpSubmit = (e: React.FormEvent) => {
@@ -554,6 +647,7 @@ export default function Login() {
             {step === "verify_email_change" && "Confirm your new email address"}
             {step === "activation_code" && `Activate your staff invitation for ${identifierDisplay}`}
             {step === "create_password" && `Create a password for ${identifierDisplay}`}
+            {step === "sign_contract" && "Review and sign your contract to finish onboarding"}
             {step === "almost_there" && `Complete your Kowope registration for ${identifierDisplay}`}
             {step === "org_select" && "Select the business workspace you want to access"}
           </CardDescription>
@@ -883,24 +977,15 @@ export default function Login() {
           {step === "create_password" && (
             <Form {...createPassForm}>
               <form onSubmit={createPassForm.handleSubmit(onCreatePasswordSubmit)} className="space-y-4">
-                <FormField
-                  control={createPassForm.control}
-                  name="fullName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Your Full Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="e.g. Amaka Johnson"
-                          autoComplete="name"
-                          data-testid="input-full-name"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {pendingName && (
+                  // Read-only - the name on file was set by your manager and
+                  // can only be changed by them. Shown here just so you can
+                  // confirm you're setting up the right account; it is not an
+                  // editable field and is never sent back to the server.
+                  <p className="text-sm text-muted-foreground -mt-1" data-testid="text-pending-name">
+                    Setting up your account, <span className="font-medium text-foreground">{pendingName}</span>.
+                  </p>
+                )}
 
                 <FormField
                   control={createPassForm.control}
@@ -965,6 +1050,151 @@ export default function Login() {
                 </Button>
               </form>
             </Form>
+          )}
+
+          {/* Review & Sign Contract Step */}
+          {step === "sign_contract" && (
+            <div className="space-y-4">
+              {pendingContractQuery.isLoading && (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
+
+              {pendingContractQuery.isError && (
+                <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-2.5 rounded-md text-xs">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>Could not load your contract. Please try logging in again.</span>
+                </div>
+              )}
+
+              {pendingContractQuery.data && !showDeclineForm && (
+                <>
+                  <div className="border rounded-md p-3 max-h-64 overflow-y-auto bg-muted/30 text-sm">
+                    {pendingContractQuery.data.contractType === "text" && (
+                      <pre className="whitespace-pre-wrap font-sans">{pendingContractQuery.data.contentText}</pre>
+                    )}
+                    {pendingContractQuery.data.contractType === "image" && pendingContractQuery.data.signedGetUrl && (
+                      <img
+                        src={pendingContractQuery.data.signedGetUrl}
+                        alt={pendingContractQuery.data.altText || "Employment contract"}
+                        className="max-w-full rounded"
+                      />
+                    )}
+                    {pendingContractQuery.data.contractType === "file" && pendingContractQuery.data.signedGetUrl && (
+                      <a
+                        href={pendingContractQuery.data.signedGetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary hover:underline"
+                        data-testid="link-view-contract-file"
+                      >
+                        View {pendingContractQuery.data.fileOriginalName || "contract document"}
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="sign-typed-name" className="text-sm font-medium text-foreground">
+                      Type your full legal name to sign
+                    </label>
+                    <Input
+                      id="sign-typed-name"
+                      placeholder="e.g. Amaka Johnson"
+                      value={signTypedName}
+                      onChange={(e) => setSignTypedName(e.target.value)}
+                      data-testid="input-sign-typed-name"
+                    />
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <Checkbox
+                      id="consent-electronic-signature"
+                      checked={signConsentChecked}
+                      onCheckedChange={(checked) => setSignConsentChecked(!!checked)}
+                      data-testid="checkbox-consent-electronic-signature"
+                    />
+                    <label htmlFor="consent-electronic-signature" className="text-xs text-muted-foreground cursor-pointer select-none leading-relaxed">
+                      I consent to sign this document electronically and to receive documents electronically.
+                    </label>
+                  </div>
+
+                  <div className="flex items-start space-x-2">
+                    <Checkbox
+                      id="affirm-read-and-agree"
+                      checked={signAgreeChecked}
+                      onCheckedChange={(checked) => setSignAgreeChecked(!!checked)}
+                      data-testid="checkbox-affirm-read-and-agree"
+                    />
+                    <label htmlFor="affirm-read-and-agree" className="text-xs text-muted-foreground cursor-pointer select-none leading-relaxed">
+                      I have read this contract in full and agree to its terms.
+                    </label>
+                  </div>
+
+                  <Button
+                    className="w-full"
+                    disabled={!signTypedName.trim() || !signAgreeChecked || !signConsentChecked || signContractMutation.isPending}
+                    onClick={() => signContractMutation.mutate()}
+                    data-testid="button-sign-contract"
+                  >
+                    {signContractMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Signing...
+                      </>
+                    ) : (
+                      "Sign & Continue"
+                    )}
+                  </Button>
+
+                  <button
+                    type="button"
+                    className="w-full text-xs text-muted-foreground hover:underline bg-transparent border-0 cursor-pointer"
+                    onClick={() => setShowDeclineForm(true)}
+                    data-testid="button-show-decline-contract"
+                  >
+                    I don't want to sign this
+                  </button>
+                </>
+              )}
+
+              {showDeclineForm && (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Declining means you will not gain access to the system. Your manager will be notified so they can follow up with you.
+                  </p>
+                  <div className="space-y-2">
+                    <label htmlFor="decline-reason" className="text-sm font-medium text-foreground">
+                      Reason (optional)
+                    </label>
+                    <textarea
+                      id="decline-reason"
+                      className="w-full rounded-md border bg-background p-2 text-sm min-h-20"
+                      value={declineReason}
+                      onChange={(e) => setDeclineReason(e.target.value)}
+                      data-testid="input-decline-reason"
+                    />
+                  </div>
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    disabled={declineContractMutation.isPending}
+                    onClick={() => declineContractMutation.mutate()}
+                    data-testid="button-confirm-decline-contract"
+                  >
+                    {declineContractMutation.isPending ? "Recording..." : "Confirm Decline"}
+                  </Button>
+                  <button
+                    type="button"
+                    className="w-full text-xs text-muted-foreground hover:underline bg-transparent border-0 cursor-pointer"
+                    onClick={() => setShowDeclineForm(false)}
+                    data-testid="button-cancel-decline-contract"
+                  >
+                    Back to contract
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Verify OTP Step */}

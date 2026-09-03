@@ -306,8 +306,8 @@ export default function StockTransfersPage() {
     );
   }
 
-  // Filter destination stores to exclude origin
-  const otherStores = stores.filter(s => s.id !== currentStore.id);
+  // Filter destination stores to exclude origin and archived stores
+  const otherStores = stores.filter(s => s.id !== currentStore.id && s.isActive !== false);
 
   // Aggregates
   const outgoingCount = transfers.filter(t => t.fromStoreId === currentStore.id).length;

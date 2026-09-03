@@ -205,6 +205,24 @@ export class BusinessRepository {
     });
   }
 
+  async archiveStore(id: string): Promise<Store | undefined> {
+    const [updated] = await db.update(stores).set({ isActive: false }).where(eq(stores.id, id)).returning();
+    return updated;
+  }
+
+  async restoreStore(id: string): Promise<Store | undefined> {
+    const [updated] = await db.update(stores).set({ isActive: true }).where(eq(stores.id, id)).returning();
+    return updated;
+  }
+
+  async countActiveStores(businessId: string): Promise<number> {
+    const result = await db
+      .select({ count: count() })
+      .from(stores)
+      .where(and(eq(stores.businessId, businessId), eq(stores.isActive, true)));
+    return result[0].count;
+  }
+
   async hasStoreData(id: string): Promise<boolean> {
     const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, id));
     const staffCount = await db.select({ count: count() }).from(staff).where(eq(staff.storeId, id));

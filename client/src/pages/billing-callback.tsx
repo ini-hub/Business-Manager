@@ -16,8 +16,17 @@ export default function BillingCallback() {
   const [state, setState] = useState<VerifyState>("verifying");
   const [message, setMessage] = useState<string>("");
 
+  const params = new URLSearchParams(window.location.search);
+  // Same-origin relative path only - server/routes/billing.routes.ts already
+  // validates this before it ever reaches the Paystack callback_url, but a
+  // second check here costs nothing and means this page never trusts a
+  // query param blindly (requirements plan §6, New-SAC-3).
+  const rawReturnTo = params.get("returnTo");
+  const returnTo = rawReturnTo && rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") && !rawReturnTo.includes("://")
+    ? rawReturnTo
+    : "/";
+
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
     const reference = params.get("reference") || params.get("trxref");
     if (!reference) {
       setState("failed");
@@ -44,8 +53,11 @@ export default function BillingCallback() {
 
   const goToApp = () => {
     // Full reload (not client-side navigation) so business/subscription
-    // state - and the paywall gate that reads it - is fetched fresh.
-    window.location.href = "/";
+    // state - and the paywall gate that reads it - is fetched fresh. Sends
+    // the user back to whatever page they actually started checkout from
+    // (requirements plan §6), on both success and failure - a failed
+    // payment shouldn't strand someone any more than a successful one does.
+    window.location.href = returnTo;
   };
 
   return (

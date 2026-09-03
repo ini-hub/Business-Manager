@@ -68,6 +68,12 @@ export const plans = pgTable("plans", {
   currency: text("currency").notNull().default("NGN"),
   features: jsonb("features").notNull().default(sql`'[]'::jsonb`),
   isActive: boolean("is_active").notNull().default(true),
+  // The one implicit plan every pay-per-feature checkout resolves to when the
+  // client omits planId - the app no longer asks anyone to choose a plan
+  // tier (see requirements plan §4), so this is a ₦0 FK placeholder, not a
+  // real pricing choice. At most one row should ever have this true; enforced
+  // by a partial unique index in migrations/0051.
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -120,6 +126,17 @@ export const subscriptionPayments = pgTable("subscription_payments", {
   billingCycle: text("billing_cycle").notNull(),
   status: text("status").notNull().default("pending"), // 'pending', 'success', 'failed'
   providerResponse: jsonb("provider_response"),
+  // Add-on feature keys this charge covers, alongside the base plan (pay-per-
+  // feature entitlement model - see shared/schema/entitlements.ts). Null/empty
+  // for a base-plan-only payment. Read by activateSuccessfulPayment to grant
+  // orgFeatureEntitlements once this payment verifies.
+  featureKeys: jsonb("feature_keys").$type<string[]>(),
+  // Snapshot of what this charge actually priced in, captured at creation -
+  // plans/features can reprice later, but a historical payment must always
+  // show what it charged *then*, not today's catalog prices. Read-only after
+  // insert. Powers the payment history "receipt" view (client/src/pages/settings/payment-history.tsx).
+  planSnapshot: jsonb("plan_snapshot").$type<{ name: string; price: number }>(),
+  featureBreakdown: jsonb("feature_breakdown").$type<{ key: string; name: string; price: number }[]>(),
   initiatedByUserId: varchar("initiated_by_user_id").references(() => users.id), // null for system-initiated renewal charges
   createdAt: timestamp("created_at").notNull().defaultNow(),
   verifiedAt: timestamp("verified_at"),

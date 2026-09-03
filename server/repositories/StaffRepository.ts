@@ -10,6 +10,26 @@ import {
   attendanceRecords,
   users,
   organisationMembers,
+  customers,
+  staffContracts,
+  staffContractSignatures,
+  attendancePunches,
+  staffDevices,
+  attendanceRetroRequests,
+  staffSchedules,
+  staffScheduleExceptions,
+  bookings,
+  repayments,
+  inventoryRestockEvents,
+  stockAudits,
+  saleDrafts,
+  returnLogs,
+  payrollEntries,
+  salaryAdvances,
+  payrollDeductions,
+  payrollPostings,
+  payrollDisbursements,
+  payslipRecords,
   type Staff,
   type InsertStaff,
   type Store,
@@ -241,12 +261,52 @@ export class StaffRepository {
   async deleteStaff(id: string): Promise<boolean> {
     return await db.transaction(async (tx) => {
       await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.managerStaffId, id));
-      const result = await tx.update(staff)
-        .set({ isArchived: true })
-        .where(eq(staff.id, id))
-        .returning();
+      const result = await tx.delete(staff).where(eq(staff.id, id)).returning();
       return result.length > 0;
     });
+  }
+
+  private async tableHasRow(table: any, whereClause: any): Promise<boolean> {
+    const result = await db.select({ count: count() }).from(table).where(whereClause);
+    return result[0].count > 0;
+  }
+
+  // Broad "does anything still reference this staff member" check for permanent
+  // delete. staff.id is referenced (without ON DELETE CASCADE) from sales,
+  // attendance, payroll, contracts, bookings, credit, and inventory-ops tables -
+  // deleting the row while any of these still point at it would either throw an
+  // FK violation or (if cascaded) silently destroy financial/audit history, so
+  // permanent delete must refuse rather than attempt it when any of this exists.
+  async hasStaffHistory(id: string): Promise<boolean> {
+    const checks = [
+      this.hasStaffCheckouts(id),
+      this.tableHasRow(staffContracts, eq(staffContracts.staffId, id)),
+      this.tableHasRow(staffContractSignatures, eq(staffContractSignatures.staffId, id)),
+      this.tableHasRow(attendancePunches, eq(attendancePunches.staffId, id)),
+      this.tableHasRow(staffDevices, eq(staffDevices.staffId, id)),
+      this.tableHasRow(attendanceRetroRequests, eq(attendanceRetroRequests.staffId, id)),
+      this.tableHasRow(staffSchedules, eq(staffSchedules.staffId, id)),
+      this.tableHasRow(staffScheduleExceptions, eq(staffScheduleExceptions.staffId, id)),
+      this.tableHasRow(bookings, or(eq(bookings.leadStaffId, id), eq(bookings.assistingStaffId, id))),
+      this.tableHasRow(repayments, eq(repayments.recordedByStaffId, id)),
+      this.tableHasRow(inventoryRestockEvents, eq(inventoryRestockEvents.staffId, id)),
+      this.tableHasRow(stockAudits, eq(stockAudits.conductedByStaffId, id)),
+      this.tableHasRow(saleDrafts, eq(saleDrafts.staffId, id)),
+      this.tableHasRow(returnLogs, eq(returnLogs.staffId, id)),
+      this.tableHasRow(attendanceRecords, eq(attendanceRecords.staffId, id)),
+      this.tableHasRow(payrollEntries, eq(payrollEntries.staffId, id)),
+      this.tableHasRow(salaryAdvances, eq(salaryAdvances.staffId, id)),
+      this.tableHasRow(payrollDeductions, eq(payrollDeductions.staffId, id)),
+      this.tableHasRow(payrollPostings, eq(payrollPostings.staffId, id)),
+      this.tableHasRow(payrollDisbursements, eq(payrollDisbursements.staffId, id)),
+      this.tableHasRow(payslipRecords, eq(payslipRecords.staffId, id)),
+      // customers.staffId links a customer profile to this staff record (e.g.
+      // an owner who is also a customer) - not DB-enforced, so deleting the
+      // staff row wouldn't fail, it would just leave that link dangling.
+      this.tableHasRow(customers, eq(customers.staffId, id)),
+    ];
+    const results = await Promise.all(checks);
+    return results.some(Boolean);
   }
 
   async archiveStaff(id: string): Promise<Staff | undefined> {

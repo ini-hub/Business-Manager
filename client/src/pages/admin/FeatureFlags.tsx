@@ -211,12 +211,12 @@ export default function FeatureFlags() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight font-outfit">Feature Flags</h1>
-          <p className="text-slate-400 text-sm mt-1">Configure global beta channels, scope experimental modules, or unlock pricing-tier features.</p>
+          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Feature Flags</h1>
+          <p className="text-muted-foreground text-sm mt-1">Configure global beta channels, scope experimental modules, or unlock pricing-tier features.</p>
         </div>
         {isSuperAdmin && (
           <Button
-            className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold self-start sm:self-auto"
+            className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold self-start sm:self-auto"
             onClick={() => {
               resetForm();
               setShowCreateDialog(true);
@@ -231,48 +231,48 @@ export default function FeatureFlags() {
       {/* Main flags display grid */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data?.flags ? (
-        <div className="p-6 bg-rose-500/15 border border-rose-500/20 rounded-2xl text-rose-300 flex items-center gap-3">
+        <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
           <AlertCircle className="h-5 w-5 shrink-0" />
           <span>Error compiling platform feature flags list.</span>
         </div>
       ) : data.flags.length === 0 ? (
-        <div className="text-center py-16 bg-slate-900/20 border border-slate-800/80 rounded-3xl">
-          <ToggleLeft className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-          <h3 className="font-bold text-white text-base">No Feature Flags Declared</h3>
-          <p className="text-xs text-slate-500 mt-1">Initialize dynamic beta channels by declaring your first feature flag.</p>
+        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+          <ToggleLeft className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-bold text-foreground text-base">No Feature Flags Declared</h3>
+          <p className="text-xs text-muted-foreground mt-1">Initialize dynamic beta channels by declaring your first feature flag.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
           {data.flags.map((flag: any) => {
-            let statusBadgeColor = "bg-rose-500/10 text-rose-400";
-            if (flag.status === "on") statusBadgeColor = "bg-emerald-500/10 text-emerald-400";
-            else if (flag.status === "scoped") statusBadgeColor = "bg-indigo-500/10 text-indigo-400";
-            else if (flag.status === "by_plan") statusBadgeColor = "bg-amber-500/10 text-amber-400";
+            let statusBadgeColor = "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400";
+            if (flag.status === "on") statusBadgeColor = "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400";
+            else if (flag.status === "scoped") statusBadgeColor = "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-400";
+            else if (flag.status === "by_plan") statusBadgeColor = "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400";
 
             return (
-              <Card key={flag.id} className="bg-slate-900/40 border-slate-800/80 rounded-3xl overflow-hidden hover:border-slate-700/80 transition-all duration-300 flex flex-col justify-between shadow-xl">
-                <CardHeader className="bg-slate-950/20 p-4 border-b border-slate-800/40 flex flex-row items-center justify-between gap-3">
+              <Card key={flag.id} className="bg-card/40 border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 flex flex-col justify-between shadow-xl">
+                <CardHeader className="bg-background/20 p-4 border-b border-border/40 flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <ToggleLeft className="h-5 w-5 text-indigo-400 shrink-0" />
-                    <CardTitle className="text-sm font-extrabold text-white truncate font-mono">{flag.name}</CardTitle>
+                    <ToggleLeft className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <CardTitle className="text-sm font-extrabold text-foreground truncate font-mono">{flag.name}</CardTitle>
                   </div>
                   <Badge variant="outline" className={`border-none text-[9px] font-bold uppercase shrink-0 ${statusBadgeColor}`}>
                     {flag.status}
                   </Badge>
                 </CardHeader>
-                <CardContent className="p-5 space-y-4 text-xs font-semibold text-slate-300 flex-1 flex flex-col justify-between">
+                <CardContent className="p-5 space-y-4 text-xs font-semibold text-muted-foreground flex-1 flex flex-col justify-between">
                   <div className="space-y-3">
-                    <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed font-medium">
                       {flag.description}
                     </p>
 
                     {flag.status === "scoped" && flag.scopedOrgIds && (
-                      <div className="p-2.5 bg-slate-950/60 border border-slate-850 rounded-xl space-y-1">
-                        <span className="block text-[10px] text-slate-500 uppercase tracking-widest font-bold">Scoped Tenant Tenants:</span>
-                        <code className="block text-[9px] font-mono text-indigo-400 break-all overflow-x-auto whitespace-pre">
+                      <div className="p-2.5 bg-background/60 border border-border rounded-xl space-y-1">
+                        <span className="block text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Scoped Tenant Tenants:</span>
+                        <code className="block text-[9px] font-mono text-indigo-600 dark:text-indigo-400 break-all overflow-x-auto whitespace-pre">
                           {JSON.stringify(flag.scopedOrgIds)}
                         </code>
                       </div>
@@ -280,22 +280,22 @@ export default function FeatureFlags() {
 
                     {flag.status === "by_plan" && flag.subscriptionTier && (
                       <div className="flex items-center gap-2 text-[10px]">
-                        <span className="text-slate-500">Subscription Tier:</span>
-                        <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-none font-bold uppercase text-[9px]">
+                        <span className="text-muted-foreground">Subscription Tier:</span>
+                        <Badge variant="outline" className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-none font-bold uppercase text-[9px]">
                           {flag.subscriptionTier}
                         </Badge>
                       </div>
                     )}
                   </div>
 
-                  <div className="pt-4 border-t border-slate-800/40 flex items-center justify-between gap-4">
-                    <span className="text-[9px] text-slate-500 font-mono">Updated by: {flag.updatedBy || "system"}</span>
+                  <div className="pt-4 border-t border-border/40 flex items-center justify-between gap-4">
+                    <span className="text-[9px] text-muted-foreground font-mono">Updated by: {flag.updatedBy || "system"}</span>
                     {isSuperAdmin && (
                       <div className="flex gap-1">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-slate-800 text-slate-400 hover:text-white rounded-lg p-2"
+                          className="border-border text-muted-foreground hover:text-foreground rounded-lg p-2"
                           onClick={() => handleOpenEdit(flag)}
                         >
                           <Edit2 className="h-3.5 w-3.5" />
@@ -303,7 +303,7 @@ export default function FeatureFlags() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-slate-800 text-rose-400 hover:bg-rose-950/40 rounded-lg p-2"
+                          className="border-border text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg p-2"
                           onClick={() => deleteMutation.mutate(flag.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -320,42 +320,42 @@ export default function FeatureFlags() {
 
       {/* Feature Flag Creation Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-300 max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
           <DialogHeader className="space-y-3">
-            <DialogTitle className="text-lg font-bold text-white">Create Feature Flag</DialogTitle>
-            <DialogDescription className="text-xs text-slate-400">
+            <DialogTitle className="text-lg font-bold text-foreground">Create Feature Flag</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
               Declare a new conditional flag. It will default to disabled ('off') globally.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 my-4">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Flag Router Key (Unique)</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Flag Router Key (Unique)</Label>
               <Input
                 placeholder="e.g. bookings_v2"
-                className="bg-slate-950 border-slate-800 text-white rounded-xl"
+                className="bg-background border-border text-foreground rounded-xl"
                 value={name}
                 onChange={(e) => setName(e.target.value.toLowerCase().replace(/\s+/g, "_"))}
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Description</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</Label>
               <Textarea
                 placeholder="Provide detailed context for this modular feature channel..."
-                className="bg-slate-950 border-slate-800 text-white rounded-xl min-h-[70px]"
+                className="bg-background border-border text-foreground rounded-xl min-h-[70px]"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Routing Status</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Routing Status</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                <SelectContent className="bg-card border-border text-muted-foreground">
                   <SelectItem value="off">Off (Globally Disabled)</SelectItem>
                   <SelectItem value="on">On (Globally Enabled)</SelectItem>
                   <SelectItem value="scoped">Scoped (Enabled only for specific Organisation IDs)</SelectItem>
@@ -366,13 +366,13 @@ export default function FeatureFlags() {
 
             {status === "scoped" && (
               <div className="space-y-1">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-450 flex items-center gap-1">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                   Scoped Organisation IDs (JSON Array)
-                  <span title='e.g. ["uuid-1", "uuid-2"]'><HelpCircle className="h-3.5 w-3.5 text-slate-500 cursor-help" /></span>
+                  <span title='e.g. ["uuid-1", "uuid-2"]'><HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" /></span>
                 </Label>
                 <Input
                   placeholder='e.g. ["847c234a-...", "9823f982-..."]'
-                  className="bg-slate-950 border-slate-800 text-white rounded-xl font-mono text-xs"
+                  className="bg-background border-border text-foreground rounded-xl font-mono text-xs"
                   value={scopedOrgIdsStr}
                   onChange={(e) => setScopedOrgIdsStr(e.target.value)}
                 />
@@ -381,12 +381,12 @@ export default function FeatureFlags() {
 
             {status === "by_plan" && (
               <div className="space-y-1">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Minimum Subscription Plan</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Minimum Subscription Plan</Label>
                 <Select value={subscriptionTier} onValueChange={setSubscriptionTier}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                  <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                  <SelectContent className="bg-card border-border text-muted-foreground">
                     <SelectItem value="none">Standard Free Tier</SelectItem>
                     <SelectItem value="pro">Pro Plan</SelectItem>
                     <SelectItem value="premium">Enterprise Premium Plan</SelectItem>
@@ -399,13 +399,13 @@ export default function FeatureFlags() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              className="rounded-xl border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded-xl border-border text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setShowCreateDialog(false)}
             >
               Cancel
             </Button>
             <Button
-              className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold"
+              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
               onClick={handleCreateSubmit}
               disabled={createMutation.isPending}
             >
@@ -417,40 +417,40 @@ export default function FeatureFlags() {
 
       {/* Feature Flag Modification Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-300 max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
           <DialogHeader className="space-y-3">
-            <DialogTitle className="text-lg font-bold text-white">Modify Feature Flag</DialogTitle>
-            <DialogDescription className="text-xs text-slate-400">
+            <DialogTitle className="text-lg font-bold text-foreground">Modify Feature Flag</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
               Overwrite flag parameters. Router changes take effect globally within 15 seconds.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 my-4">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Flag Key (Immutable)</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Flag Key (Immutable)</Label>
               <Input
-                className="bg-slate-950/60 border-slate-800 text-slate-500 rounded-xl font-mono text-xs"
+                className="bg-background/60 border-border text-muted-foreground rounded-xl font-mono text-xs"
                 value={name}
                 disabled
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Description</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</Label>
               <Textarea
-                className="bg-slate-950 border-slate-800 text-white rounded-xl min-h-[70px]"
+                className="bg-background border-border text-foreground rounded-xl min-h-[70px]"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Routing Status</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Routing Status</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                <SelectContent className="bg-card border-border text-muted-foreground">
                   <SelectItem value="off">Off (Globally Disabled)</SelectItem>
                   <SelectItem value="on">On (Globally Enabled)</SelectItem>
                   <SelectItem value="scoped">Scoped (Enabled only for specific Organisation IDs)</SelectItem>
@@ -461,9 +461,9 @@ export default function FeatureFlags() {
 
             {status === "scoped" && (
               <div className="space-y-1">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Scoped Organisation IDs (JSON Array)</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Scoped Organisation IDs (JSON Array)</Label>
                 <Input
-                  className="bg-slate-950 border-slate-800 text-white rounded-xl font-mono text-xs"
+                  className="bg-background border-border text-foreground rounded-xl font-mono text-xs"
                   value={scopedOrgIdsStr}
                   onChange={(e) => setScopedOrgIdsStr(e.target.value)}
                 />
@@ -472,12 +472,12 @@ export default function FeatureFlags() {
 
             {status === "by_plan" && (
               <div className="space-y-1">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Minimum Subscription Plan</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Minimum Subscription Plan</Label>
                 <Select value={subscriptionTier} onValueChange={setSubscriptionTier}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                  <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                  <SelectContent className="bg-card border-border text-muted-foreground">
                     <SelectItem value="none">Standard Free Tier</SelectItem>
                     <SelectItem value="pro">Pro Plan</SelectItem>
                     <SelectItem value="premium">Enterprise Premium Plan</SelectItem>
@@ -490,13 +490,13 @@ export default function FeatureFlags() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              className="rounded-xl border-slate-800 text-slate-400 hover:bg-slate-800"
+              className="rounded-xl border-border text-muted-foreground hover:bg-muted"
               onClick={() => setShowEditDialog(false)}
             >
               Cancel
             </Button>
             <Button
-              className="rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold"
+              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
               onClick={handleEditSubmit}
               disabled={editMutation.isPending}
             >

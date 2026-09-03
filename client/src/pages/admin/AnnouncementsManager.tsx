@@ -197,8 +197,8 @@ export default function AnnouncementsManager() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight font-outfit">Platform Announcements</h1>
-          <p className="text-slate-400 text-sm mt-1">Broadcast high-impact system alert banners or dispatch simulated informational email campaigns.</p>
+          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Platform Announcements</h1>
+          <p className="text-muted-foreground text-sm mt-1">Broadcast high-impact system alert banners or dispatch simulated informational email campaigns.</p>
         </div>
         {canManage && activeTab === "banners" && (
           <Button
@@ -215,12 +215,12 @@ export default function AnnouncementsManager() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-1 mb-6">
-          <TabsTrigger value="banners" className="rounded-xl px-5 py-2.5 text-xs font-bold text-slate-400 data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+        <TabsList className="bg-background/60 border border-border/80 rounded-2xl p-1 mb-6">
+          <TabsTrigger value="banners" className="rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
             <Megaphone className="h-4 w-4 mr-2" />
             Banner Broadcasts
           </TabsTrigger>
-          <TabsTrigger value="email" className="rounded-xl px-5 py-2.5 text-xs font-bold text-slate-400 data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="email" className="rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
             <Mail className="h-4 w-4 mr-2" />
             Simulated Email Broadcaster
           </TabsTrigger>
@@ -230,40 +230,40 @@ export default function AnnouncementsManager() {
         <TabsContent value="banners" className="space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
+              <Loader2 className="h-8 w-8 animate-spin text-violet-600 dark:text-violet-400" />
             </div>
           ) : error || !listData?.announcements ? (
-            <div className="p-6 bg-rose-500/15 border border-rose-500/20 rounded-2xl text-rose-300 flex items-center gap-3">
+            <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
               <AlertCircle className="h-5 w-5 shrink-0" />
               <span>Failed to fetch active announcements from backend ledger.</span>
             </div>
           ) : listData.announcements.length === 0 ? (
-            <div className="text-center py-16 bg-slate-900/20 border border-slate-800/80 rounded-3xl">
-              <Megaphone className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <h3 className="font-bold text-white text-base">No Announcements Broadcasted</h3>
-              <p className="text-xs text-slate-500 mt-1">Initialize alert banners for system maintenance or software updates.</p>
+            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+              <Megaphone className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <h3 className="font-bold text-foreground text-base">No Announcements Broadcasted</h3>
+              <p className="text-xs text-muted-foreground mt-1">Initialize alert banners for system maintenance or software updates.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 animate-in fade-in duration-300">
               {listData.announcements.map((ann: any) => {
-                let badgeColor = "bg-sky-500/10 text-sky-400";
-                if (ann.type === "warning") badgeColor = "bg-amber-500/10 text-amber-400";
-                else if (ann.type === "maintenance") badgeColor = "bg-rose-500/10 text-rose-400";
-                else if (ann.type === "update") badgeColor = "bg-emerald-500/10 text-emerald-400";
+                let badgeColor = "bg-sky-100 dark:bg-sky-950/40 text-sky-800 dark:text-sky-400";
+                if (ann.type === "warning") badgeColor = "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400";
+                else if (ann.type === "maintenance") badgeColor = "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400";
+                else if (ann.type === "update") badgeColor = "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400";
 
                 return (
-                  <Card key={ann.id} className="bg-slate-900/40 border-slate-800/80 rounded-3xl overflow-hidden hover:border-slate-700/80 transition-all duration-300 shadow-xl flex flex-col md:flex-row items-stretch">
+                  <Card key={ann.id} className="bg-card/40 border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl flex flex-col md:flex-row items-stretch">
                     <div className="p-6 flex-1 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className={`border-none text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md ${badgeColor}`}>
                             {ann.type}
                           </Badge>
-                          <Badge variant="outline" className="border-slate-800 bg-slate-950/60 text-slate-400 text-[9px] py-0.5 px-2 rounded-md font-semibold">
+                          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground text-[9px] py-0.5 px-2 rounded-md font-semibold">
                             Scope: {ann.target === "specific_org" ? `Org (${ann.targetOrgId})` : ann.target}
                           </Badge>
                           {ann.dismissible && (
-                            <Badge variant="outline" className="border-none bg-slate-850 text-slate-500 text-[9px] py-0.5 px-2 rounded-md">
+                            <Badge variant="outline" className="border-none bg-muted text-muted-foreground text-[9px] py-0.5 px-2 rounded-md">
                               Dismissible
                             </Badge>
                           )}
@@ -272,7 +272,7 @@ export default function AnnouncementsManager() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="border-slate-800 text-rose-400 hover:bg-rose-950/40 rounded-lg p-2 h-auto"
+                            className="border-border text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg p-2 h-auto"
                             onClick={() => deleteBannerMutation.mutate(ann.id)}
                             disabled={deleteBannerMutation.isPending}
                           >
@@ -281,10 +281,10 @@ export default function AnnouncementsManager() {
                         )}
                       </div>
 
-                      <h3 className="text-base font-extrabold text-white font-outfit">{ann.title}</h3>
-                      <p className="text-slate-300 text-xs leading-relaxed font-semibold">{ann.message}</p>
+                      <h3 className="text-base font-extrabold text-foreground font-outfit">{ann.title}</h3>
+                      <p className="text-muted-foreground text-xs leading-relaxed font-semibold">{ann.message}</p>
 
-                      <div className="pt-3 border-t border-slate-800/40 flex flex-wrap items-center gap-x-6 gap-y-2 text-[10px] text-slate-500">
+                      <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-x-6 gap-y-2 text-[10px] text-muted-foreground">
                         <div className="flex items-center gap-1.5 font-medium">
                           <User className="h-3.5 w-3.5" />
                           <span>Author: {ann.createdBy || "System"}</span>
@@ -308,15 +308,15 @@ export default function AnnouncementsManager() {
 
         {/* 2. EMAIL TAB */}
         <TabsContent value="email" className="max-w-2xl animate-in fade-in duration-300">
-          <Card className="bg-slate-900/40 border border-slate-800/80 rounded-3xl shadow-xl overflow-hidden">
-            <CardHeader className="bg-slate-950/20 p-6 border-b border-slate-800/40">
+          <Card className="bg-card/40 border border-border/80 rounded-3xl shadow-xl overflow-hidden">
+            <CardHeader className="bg-background/20 p-6 border-b border-border/40">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-violet-500/10 text-violet-400">
+                <div className="p-2.5 rounded-xl bg-violet-100 dark:bg-violet-950/40 text-violet-800 dark:text-violet-400">
                   <Mail className="h-5 w-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-extrabold text-white font-outfit">Simulated Email Broadcast</CardTitle>
-                  <CardDescription className="text-xs text-slate-400">
+                  <CardTitle className="text-base font-extrabold text-foreground font-outfit">Simulated Email Broadcast</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">
                     Compile message details to log or simulate dispatching a HTML newsletter directly to your merchant segments.
                   </CardDescription>
                 </div>
@@ -325,12 +325,12 @@ export default function AnnouncementsManager() {
             <CardContent className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Target Merchant Segment</Label>
+                  <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Target Merchant Segment</Label>
                   <Select value={emailTarget} onValueChange={setEmailTarget}>
-                    <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                    <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                    <SelectContent className="bg-card border-border text-muted-foreground">
                       <SelectItem value="all">All Registered Merchants</SelectItem>
                       <SelectItem value="trial">Standard Trial Segment</SelectItem>
                       <SelectItem value="growth">Growth Segment</SelectItem>
@@ -340,10 +340,10 @@ export default function AnnouncementsManager() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Broadcast Subject</Label>
+                  <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Broadcast Subject</Label>
                   <Input
                     placeholder="e.g. Schedule Maintenance: Server Upgrade on Sunday"
-                    className="bg-slate-950 border-slate-800 text-white rounded-xl"
+                    className="bg-background border-border text-foreground rounded-xl"
                     value={emailSubject}
                     onChange={(e) => setEmailSubject(e.target.value)}
                   />
@@ -351,18 +351,18 @@ export default function AnnouncementsManager() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">HTML / Text Email Body</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">HTML / Text Email Body</Label>
                 <Textarea
                   placeholder="Dear Store Owners, We are updating our database engines..."
-                  className="bg-slate-950 border-slate-800 text-white rounded-xl min-h-[160px] font-semibold text-xs leading-relaxed"
+                  className="bg-background border-border text-foreground rounded-xl min-h-[160px] font-semibold text-xs leading-relaxed"
                   value={emailBody}
                   onChange={(e) => setEmailBody(e.target.value)}
                 />
               </div>
 
-              <div className="pt-4 border-t border-slate-800/40 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
-                  <Layers className="h-4 w-4 text-violet-400" />
+              <div className="pt-4 border-t border-border/40 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-medium">
+                  <Layers className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                   <span>Emails will be logged inside database simulated outputs.</span>
                 </div>
                 <Button
@@ -390,10 +390,10 @@ export default function AnnouncementsManager() {
 
       {/* Creation Modal for Banner */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-300 max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
           <DialogHeader className="space-y-3">
-            <DialogTitle className="text-lg font-bold text-white font-outfit">Create Broadcast Banner</DialogTitle>
-            <DialogDescription className="text-xs text-slate-400">
+            <DialogTitle className="text-lg font-bold text-foreground font-outfit">Create Broadcast Banner</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
               Mount an in-app banner immediately visible in the merchant dashboards.
             </DialogDescription>
           </DialogHeader>
@@ -401,12 +401,12 @@ export default function AnnouncementsManager() {
           <div className="space-y-4 my-4">
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Announcement Title</Label>
-                <span className="text-[9px] text-slate-500">{bannerTitle.length}/80</span>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Announcement Title</Label>
+                <span className="text-[9px] text-muted-foreground">{bannerTitle.length}/80</span>
               </div>
               <Input
                 placeholder="e.g. Scheduled Network Operations"
-                className="bg-slate-950 border-slate-800 text-white rounded-xl"
+                className="bg-background border-border text-foreground rounded-xl"
                 maxLength={80}
                 value={bannerTitle}
                 onChange={(e) => setBannerTitle(e.target.value)}
@@ -415,12 +415,12 @@ export default function AnnouncementsManager() {
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Banner Alert Message</Label>
-                <span className="text-[9px] text-slate-500">{bannerMessage.length}/150</span>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Banner Alert Message</Label>
+                <span className="text-[9px] text-muted-foreground">{bannerMessage.length}/150</span>
               </div>
               <Textarea
                 placeholder="Alert text content visible to users..."
-                className="bg-slate-950 border-slate-800 text-white rounded-xl min-h-[70px] text-xs"
+                className="bg-background border-border text-foreground rounded-xl min-h-[70px] text-xs"
                 maxLength={150}
                 value={bannerMessage}
                 onChange={(e) => setBannerMessage(e.target.value)}
@@ -429,12 +429,12 @@ export default function AnnouncementsManager() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Visual Severity</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Visual Severity</Label>
                 <Select value={bannerType} onValueChange={setBannerType}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                  <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                  <SelectContent className="bg-card border-border text-muted-foreground">
                     <SelectItem value="info">Info (Sky Blue)</SelectItem>
                     <SelectItem value="update">Update (Emerald Green)</SelectItem>
                     <SelectItem value="warning">Warning (Amber Orange)</SelectItem>
@@ -444,12 +444,12 @@ export default function AnnouncementsManager() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Target Segment</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Target Segment</Label>
                 <Select value={bannerTarget} onValueChange={setBannerTarget}>
-                  <SelectTrigger className="bg-slate-950 border-slate-800 text-white rounded-xl">
+                  <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                  <SelectContent className="bg-card border-border text-muted-foreground">
                     <SelectItem value="all">All Businesses</SelectItem>
                     <SelectItem value="trial">Trial Accounts</SelectItem>
                     <SelectItem value="growth">Growth Accounts</SelectItem>
@@ -461,10 +461,10 @@ export default function AnnouncementsManager() {
 
             {bannerTarget === "specific_org" && (
               <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-250">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Organisation ID (UUID)</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Organisation ID (UUID)</Label>
                 <Input
                   placeholder="e.g. 748b9a3d-..."
-                  className="bg-slate-950 border-slate-800 text-white rounded-xl font-mono text-xs"
+                  className="bg-background border-border text-foreground rounded-xl font-mono text-xs"
                   value={bannerTargetOrgId}
                   onChange={(e) => setBannerTargetOrgId(e.target.value)}
                 />
@@ -473,30 +473,30 @@ export default function AnnouncementsManager() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Display From (Optional)</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Display From (Optional)</Label>
                 <Input
                   type="datetime-local"
-                  className="bg-slate-950 border-slate-800 text-white rounded-xl text-xs"
+                  className="bg-background border-border text-foreground rounded-xl text-xs"
                   value={bannerShowFrom}
                   onChange={(e) => setBannerShowFrom(e.target.value)}
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Display Until (Optional)</Label>
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Display Until (Optional)</Label>
                 <Input
                   type="datetime-local"
-                  className="bg-slate-950 border-slate-800 text-white rounded-xl text-xs"
+                  className="bg-background border-border text-foreground rounded-xl text-xs"
                   value={bannerShowUntil}
                   onChange={(e) => setBannerShowUntil(e.target.value)}
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-2xl border border-slate-850">
+            <div className="flex items-center justify-between p-3 bg-background/60 rounded-2xl border border-border">
               <div className="space-y-0.5">
-                <Label className="text-xs font-bold text-white">Merchant Dismissible</Label>
-                <span className="block text-[9px] text-slate-500">Allow users to permanently close this notification.</span>
+                <Label className="text-xs font-bold text-foreground">Merchant Dismissible</Label>
+                <span className="block text-[9px] text-muted-foreground">Allow users to permanently close this notification.</span>
               </div>
               <Switch checked={bannerDismissible} onCheckedChange={setBannerDismissible} />
             </div>
@@ -505,7 +505,7 @@ export default function AnnouncementsManager() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              className="rounded-xl border-slate-800 text-slate-400 hover:bg-slate-800"
+              className="rounded-xl border-border text-muted-foreground hover:bg-muted"
               onClick={() => setShowCreateDialog(false)}
             >
               Cancel

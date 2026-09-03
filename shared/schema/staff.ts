@@ -35,6 +35,12 @@ export const staff = pgTable("staff", {
   countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
   payPerMonth: numeric("pay_per_month", { precision: 12, scale: 2 }).$type<number>().notNull(),
   commissionRateOverride: numeric("commission_rate_override", { precision: 5, scale: 4 }).$type<number>(), // Nullable: overrides store commission rate
+  // DEPRECATED: predates the versioned e-signature flow (see staff-contracts.ts /
+  // migrations/0046_staff_contract_signing.sql) and was a bare manual
+  // checkbox never linked to any document. Left as-is for historical rows,
+  // not backfilled (there is nothing to backfill it against). The moment a
+  // staffContracts row exists for a staff member, that table is the source
+  // of truth and this column should be ignored.
   signedContract: boolean("signed_contract").notNull().default(false),
   isArchived: boolean("is_archived").notNull().default(false),
   role: text("role").notNull().default("staff"), // manager or staff

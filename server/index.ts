@@ -9,6 +9,7 @@ import { csrfMiddleware } from "./csrf";
 import { startBookingReminderService } from "./services/BookingReminderService";
 import { startCreditReminderService } from "./services/CreditReminderService";
 import { startTrialReminderService } from "./services/TrialReminderService";
+import { startFeatureSunsetReminderService } from "./services/FeatureSunsetReminderService";
 import { startAttendanceDayCloseService } from "./services/AttendanceDayCloseService";
 import { runMigrations } from "./migrate";
 
@@ -146,6 +147,7 @@ app.use((req, res, next) => {
   startBookingReminderService();
   startCreditReminderService();
   startTrialReminderService();
+  startFeatureSunsetReminderService();
   startAttendanceDayCloseService();
 
   // Flush any emails that queued while the server was down (e.g. Render free-tier spin-down)

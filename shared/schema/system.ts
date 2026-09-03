@@ -12,6 +12,14 @@ export const pendingEmails = pgTable("pending_emails", {
   nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
   status: text("status").notNull().default("pending"), // 'pending' | 'sent' | 'failed'
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Resend's message id from the accepted send, so the webhook in
+  // server/routes/email-webhooks.routes.ts can match a later delivery event
+  // back to this row. 'status' above only ever reflects whether the app
+  // handed the message to Resend, not what Resend's own MTA did with it -
+  // these two columns are the only signal for the latter.
+  providerMessageId: text("provider_message_id"),
+  deliveryStatus: text("delivery_status"), // 'delivered' | 'bounced' | 'complained' | 'delayed' | null (no event yet)
+  deliveryStatusAt: timestamp("delivery_status_at"),
 });
 
 export type PendingEmail = typeof pendingEmails.$inferSelect;

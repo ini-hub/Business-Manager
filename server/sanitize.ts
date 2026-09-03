@@ -15,6 +15,17 @@ export function toTitleCase(input: string | undefined | null): string {
     .join(" ");
 }
 
+/**
+ * Strips CR/LF and other control characters so a value is safe to embed in an
+ * email header (Subject, Reply-To, etc). Unlike escapeHtml (which only
+ * protects HTML body content), this guards against header injection / header
+ * folding from user-controlled strings like a business or staff name.
+ */
+export function sanitizeHeaderValue(input: string | undefined | null): string {
+  if (!input) return "";
+  return input.replace(/[\r\n\x00-\x1f\x7f]/g, "").trim();
+}
+
 export function escapeHtml(input: string | undefined | null): string {
   if (!input) return "";
   return input

@@ -25,12 +25,25 @@ import {
   plans,
   supportThreads,
   supportThreadMessages,
+  isGenuineSuspensionReason,
   passwordSchema,
+  featureCatalog,
+  featureDependencies,
+  orgFeatureEntitlements,
+  insertFeatureCatalogSchema,
+  platformConfig,
+  platformPaymentCredentials,
 } from "@shared/schema";
+import { grantFeatureEntitlement, scheduleFeatureRemoval } from "./lib/entitlements";
+import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
+import { getConfiguredTrialDays, setPlatformConfigValue } from "./lib/platformConfig";
+import { encryptSecret } from "./lib/credentialEncryption";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
 import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./auth-admin";
 import { broadcastDataChange } from "./websocket";
-import { sendOtpEmail, sendPasswordChangedEmail } from "./email";
+import { sendOtpEmail, sendPasswordChangedEmail, sendAdminInviteEmail, sendAdminMfaResetEmail } from "./email";
+import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
+import { checkResendCooldown } from "./lib/otp-cooldown";
 
 const ADMIN_CONSOLE_NAME = "Business Manager Admin Console";
 
@@ -103,6 +116,9 @@ adminRouter.post("/auth/login", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
+    if (admin.status === "invited") {
+      return res.status(403).json({ error: "Your account setup isn't complete yet. Check your email for an activation link, or ask a super admin to resend your invite." });
+    }
     if (admin.status !== "active") {
       return res.status(403).json({ error: "Administrative account is suspended." });
     }
@@ -232,6 +248,219 @@ adminRouter.post("/auth/verify-mfa", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Admin Verify MFA Step 2 error:", error);
     return res.status(500).json({ error: "Internal server verification error." });
+  }
+});
+
+// ─── Admin onboarding (invite acceptance / MFA re-pairing) ─────────────────
+// Three public (no isAdminAuthenticated) steps, mirroring the staff
+// activation flow in server/routes.ts: activate -> [set-password, invite
+// flow only] -> verify-mfa-setup. An admin_onboarding_token cookie (1h,
+// modeled on generateContractPendingToken's contract_pending_token) scopes
+// identity to one adminId across the steps without a full session.
+
+// No cookie-parser middleware is installed anywhere in this app (see the
+// identical helper in server/auth-admin.ts and server/auth.ts) - cookies are
+// read straight off the raw header.
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  const list: Record<string, string> = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(";").forEach((cookie) => {
+    const parts = cookie.split("=");
+    list[parts.shift()!.trim()] = decodeURI(parts.join("="));
+  });
+  return list;
+}
+
+function generateAdminOnboardingToken(adminId: string, needsPassword: boolean): string {
+  return jwt.sign({ adminId, needsPassword, action: "admin_onboarding" }, JWT_TEMP_SECRET, { expiresIn: "1h" });
+}
+
+function verifyAdminOnboardingToken(token: string): { adminId: string; needsPassword: boolean } | undefined {
+  try {
+    const decoded = jwt.verify(token, JWT_TEMP_SECRET) as any;
+    if (decoded.action !== "admin_onboarding") return undefined;
+    return { adminId: decoded.adminId, needsPassword: !!decoded.needsPassword };
+  } catch {
+    return undefined;
+  }
+}
+
+// Step 1: validate the emailed activation code (invite, or an MFA-only
+// re-pair issued by reset-mfa). Generates the TOTP secret right away and
+// returns its QR payload — the only place it's ever shown, to the invitee's
+// own browser on their own onboarding page.
+adminRouter.post("/auth/activate", async (req: Request, res: Response) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    return res.status(400).json({ error: "Email and activation code are required." });
+  }
+
+  try {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.email, email.trim().toLowerCase())).limit(1);
+    if (!admin) {
+      return res.status(400).json({ error: "Invalid activation code." });
+    }
+
+    const cleanInput = normalizeActivationCode(code);
+    const cleanStored = admin.activationCode ? normalizeActivationCode(admin.activationCode) : "";
+    const codeMatch = cleanStored.length > 0 &&
+      cleanInput.length === cleanStored.length &&
+      crypto.timingSafeEqual(Buffer.from(cleanInput), Buffer.from(cleanStored));
+    if (!codeMatch) {
+      return res.status(400).json({ error: "Invalid activation code." });
+    }
+    if (admin.activationCodeUsed) {
+      return res.status(400).json({ error: "This code has already been used. Ask a super admin to resend your invite." });
+    }
+    if (admin.activationCodeExpiry && new Date() > new Date(admin.activationCodeExpiry)) {
+      return res.status(400).json({ error: "This activation code has expired. Ask a super admin to resend your invite." });
+    }
+
+    const needsPassword = admin.status === "invited";
+    const mfaSecret = generateSecret();
+    const qrUrl = getOTPAuthURL(admin.email, "BusinessManager-Admin", mfaSecret);
+
+    await db.update(superAdmins).set({ activationCodeUsed: true, mfaSecret }).where(eq(superAdmins.id, admin.id));
+
+    const onboardingToken = generateAdminOnboardingToken(admin.id, needsPassword);
+    res.cookie("admin_onboarding_token", onboardingToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 1000,
+    });
+
+    return res.json({
+      success: true,
+      name: admin.name,
+      nextStep: needsPassword ? "create-password" : "setup-mfa",
+      qrUrl,
+    });
+  } catch (error) {
+    console.error("Admin activate error:", error);
+    return res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// Step 2 (invite flow only — skipped for an MFA-only re-pair): the invitee
+// chooses their own password. No secret changes hands here; the QR from
+// step 1 is still what the client renders next.
+adminRouter.post("/auth/set-password", async (req: Request, res: Response) => {
+  const { password } = req.body;
+  const token = parseCookies(req.headers.cookie).admin_onboarding_token;
+  const claims = token ? verifyAdminOnboardingToken(token) : undefined;
+  if (!claims) {
+    return res.status(401).json({ error: "Onboarding session expired. Please use your invitation link again." });
+  }
+  if (!password) {
+    return res.status(400).json({ error: "Password is required." });
+  }
+
+  const pwdVal = passwordSchema.safeParse(password);
+  if (!pwdVal.success) {
+    return res.status(400).json({ error: pwdVal.error.errors[0].message });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    await db.update(superAdmins).set({ passwordHash }).where(eq(superAdmins.id, claims.adminId));
+
+    // Re-issue the cookie with needsPassword now cleared, so verify-mfa-setup
+    // below can tell "password step done" apart from "invite flow skipped
+    // straight past it" without trusting anything the client sends.
+    const refreshedToken = generateAdminOnboardingToken(claims.adminId, false);
+    res.cookie("admin_onboarding_token", refreshedToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 1000,
+    });
+
+    return res.json({ success: true, nextStep: "setup-mfa" });
+  } catch (error) {
+    console.error("Admin set-password error:", error);
+    return res.status(500).json({ error: "Failed to set password." });
+  }
+});
+
+// Step 3: verify the first TOTP code against the secret generated in step 1.
+// On success this completes onboarding — flips the account active and logs
+// the invitee straight in, same as the routine login verify-mfa above.
+adminRouter.post("/auth/verify-mfa-setup", async (req: Request, res: Response) => {
+  const { code } = req.body;
+  const token = parseCookies(req.headers.cookie).admin_onboarding_token;
+  const claims = token ? verifyAdminOnboardingToken(token) : undefined;
+  if (!claims) {
+    return res.status(401).json({ error: "Onboarding session expired. Please use your invitation link again." });
+  }
+  if (!code) {
+    return res.status(400).json({ error: "Verification code is required." });
+  }
+
+  try {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.id, claims.adminId)).limit(1);
+    if (!admin || !admin.mfaSecret) {
+      return res.status(400).json({ error: "No pending MFA pairing found. Please use your invitation link again." });
+    }
+    if (claims.needsPassword) {
+      // Cookie still reflects the pre-set-password state (that endpoint
+      // re-issues it with needsPassword: false on success) - guards against
+      // skipping straight from activate to verify-mfa-setup on an invite
+      // that still has its placeholder password.
+      return res.status(400).json({ error: "Please set your password first." });
+    }
+
+    const isDevBypass = process.env.NODE_ENV !== "production" && code === "000000";
+    const isValid = isDevBypass || verifyTOTP(code, admin.mfaSecret);
+    if (!isValid) {
+      return res.status(401).json({ error: "Invalid 6-digit verification code." });
+    }
+
+    await db
+      .update(superAdmins)
+      .set({
+        mfaEnabled: true,
+        status: "active",
+        activationCode: null,
+        activationCodeExpiry: null,
+        resendAttempts: 0,
+        resendWindowStart: null,
+        lastLoginAt: new Date(),
+      })
+      .where(eq(superAdmins.id, admin.id));
+
+    res.clearCookie("admin_onboarding_token");
+
+    const sessionToken = generateAdminToken({
+      adminId: admin.id,
+      email: admin.email,
+      role: admin.role,
+      name: admin.name,
+    });
+    res.cookie("admin_sid", sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 2 * 60 * 60 * 1000,
+    });
+
+    await db.insert(superAdminAuditLogs).values({
+      adminId: admin.id,
+      adminEmail: admin.email,
+      adminRole: admin.role,
+      action: "admin_onboarding_completed",
+      target: "Self",
+      ipAddress: req.ip || "127.0.0.1",
+      details: JSON.stringify({ mfaMethod: "totp" }),
+    });
+
+    return res.json({
+      success: true,
+      admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role },
+    });
+  } catch (error) {
+    console.error("Admin verify-mfa-setup error:", error);
+    return res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -1044,6 +1273,8 @@ adminRouter.post("/businesses/:id/suspend", isAdminAuthenticated, requireAdminRo
       })
       .where(eq(organisations.id, org.id));
 
+    broadcastDataChange(org.id, "business");
+
     // Log administrative override in operations ledger
     await writeAuditLog(req, "suspend_business", org.name, { reason, note });
 
@@ -1054,30 +1285,32 @@ adminRouter.post("/businesses/:id/suspend", isAdminAuthenticated, requireAdminRo
   }
 });
 
+// Reactivating a business (whether via this standalone endpoint or the
+// support thread's "Reactivate & Resolve" action) changes organisations.status
+// - gated identically wherever it happens, deliberately excluding
+// support_agent (see SUPPORT_ROLES below, which does include it for actions
+// that never touch business status).
+const BUSINESS_STATUS_ROLES = ["super_admin", "ops_manager"] as const;
+
 // Reactivate business
-adminRouter.post("/businesses/:id/reactivate", isAdminAuthenticated, requireAdminRole(["super_admin", "ops_manager"]), async (req: Request, res: Response) => {
+adminRouter.post("/businesses/:id/reactivate", isAdminAuthenticated, requireAdminRole([...BUSINESS_STATUS_ROLES]), async (req: Request, res: Response) => {
   const { id } = req.params;
   const { note } = req.body;
 
   try {
-    const [org] = await db.select().from(organisations).where(eq(organisations.id, id)).limit(1);
-    if (!org) {
+    const [existing] = await db.select().from(organisations).where(eq(organisations.id, id)).limit(1);
+    if (!existing) {
       return res.status(404).json({ error: "Business account not found." });
     }
 
-    // Restore to active status
-    await db
-      .update(organisations)
-      .set({
-        status: "active",
-        suspensionReason: null,
-        suspensionNote: note || "Reactivated by Operations",
-        suspendedAt: null,
-      })
-      .where(eq(organisations.id, org.id));
+    const org = await reactivateOrganisation(id, note);
 
     // Log administrative override
     await writeAuditLog(req, "reactivate_business", org.name, { note });
+
+    // Sweeps any open suspension-reason support thread(s) for this org so a
+    // thread never dangles "open" after the business is already active again.
+    await autoResolveSuspensionThreads(org.id, req.admin!.adminId);
 
     return res.json({ success: true, message: `Business '${org.name}' successfully reactivated.` });
   } catch (error) {
@@ -1104,9 +1337,12 @@ adminRouter.get("/support-threads", isAdminAuthenticated, async (req: Request, r
         lastMessageAt: supportThreads.lastMessageAt,
         lastMessageBySenderType: supportThreads.lastMessageBySenderType,
         resolvedAt: supportThreads.resolvedAt,
+        resolutionOutcome: supportThreads.resolutionOutcome,
         adminLastReadAt: supportThreads.adminLastReadAt,
         organisationId: supportThreads.organisationId,
         organisationName: organisations.name,
+        organisationStatus: organisations.status,
+        organisationSuspensionReason: organisations.suspensionReason,
         userName: users.name,
         userEmail: users.email,
       })
@@ -1131,10 +1367,31 @@ adminRouter.get("/support-threads", isAdminAuthenticated, async (req: Request, r
 adminRouter.get("/support-threads/:id/messages", isAdminAuthenticated, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
-    if (!thread) {
+    const [row] = await db
+      .select({
+        thread: supportThreads,
+        organisationName: organisations.name,
+        organisationStatus: organisations.status,
+        organisationSuspensionReason: organisations.suspensionReason,
+        userName: users.name,
+        userEmail: users.email,
+      })
+      .from(supportThreads)
+      .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
+      .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
+      .where(eq(supportThreads.id, id))
+      .limit(1);
+    if (!row) {
       return res.status(404).json({ error: "Support thread not found." });
     }
+    const thread = {
+      ...row.thread,
+      organisationName: row.organisationName,
+      organisationStatus: row.organisationStatus,
+      organisationSuspensionReason: row.organisationSuspensionReason,
+      userName: row.userName,
+      userEmail: row.userEmail,
+    };
 
     const messages = await db
       .select()
@@ -1198,6 +1455,20 @@ adminRouter.post("/support-threads/:id/resolve", isAdminAuthenticated, requireAd
       return res.status(404).json({ error: "Support thread not found." });
     }
 
+    // A suspension-reason thread can't be waved through as generically
+    // "resolved" while the business is still actually suspended - admins must
+    // pick one of the two explicit outcomes below instead. Every other
+    // thread (general/trial_expired/non_payment, or one whose org is already
+    // active again) keeps this plain toggle exactly as before.
+    if (isGenuineSuspensionReason(thread.reason)) {
+      const [org] = await db.select({ status: organisations.status }).from(organisations).where(eq(organisations.id, thread.organisationId)).limit(1);
+      if (org?.status === "suspended") {
+        return res.status(400).json({
+          error: 'This business is still suspended. Use "Reactivate & Resolve" or "Close — keep suspended" instead.',
+        });
+      }
+    }
+
     await db
       .update(supportThreads)
       .set({ status: "resolved", resolvedAt: new Date(), resolvedByAdminId: req.admin!.adminId })
@@ -1212,6 +1483,78 @@ adminRouter.post("/support-threads/:id/resolve", isAdminAuthenticated, requireAd
   }
 });
 
+// Lifts the linked business's suspension and resolves this thread (plus any
+// sibling open suspension thread for the same org) in one action. Gated like
+// the standalone reactivate endpoint - support_agent can reply and can close
+// a thread with the suspension upheld, but can't be the one to unsuspend a
+// business.
+adminRouter.post("/support-threads/:id/reactivate-and-resolve", isAdminAuthenticated, requireAdminRole([...BUSINESS_STATUS_ROLES]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { note } = req.body;
+  try {
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
+    if (!thread) {
+      return res.status(404).json({ error: "Support thread not found." });
+    }
+    if (!isGenuineSuspensionReason(thread.reason)) {
+      return res.status(400).json({ error: "This thread isn't tied to a suspension." });
+    }
+
+    const org = await reactivateOrganisation(thread.organisationId, note);
+    if (!org) {
+      return res.status(404).json({ error: "Business account not found." });
+    }
+
+    await writeAuditLog(req, "reactivate_and_resolve_support_thread", thread.id, { organisationId: thread.organisationId, note });
+
+    // Sweeps this thread plus any other open suspension thread for the org,
+    // stamping resolutionOutcome 'reactivated' and broadcasting per row.
+    await autoResolveSuspensionThreads(org.id, req.admin!.adminId);
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Reactivate-and-resolve support thread error:", error);
+    return res.status(500).json({ error: "Failed to reactivate business and resolve thread." });
+  }
+});
+
+// Resolves a suspension-reason thread while deliberately leaving the business
+// suspended - only reachable once an admin has actually replied, so the
+// owner isn't left locked out with no explanation.
+adminRouter.post("/support-threads/:id/close-upheld", isAdminAuthenticated, requireAdminRole([...SUPPORT_ROLES]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.id, id)).limit(1);
+    if (!thread) {
+      return res.status(404).json({ error: "Support thread not found." });
+    }
+    if (!isGenuineSuspensionReason(thread.reason)) {
+      return res.status(400).json({ error: "This thread isn't tied to a suspension." });
+    }
+
+    const [hasAdminReply] = await db
+      .select({ id: supportThreadMessages.id })
+      .from(supportThreadMessages)
+      .where(and(eq(supportThreadMessages.threadId, id), eq(supportThreadMessages.senderType, "admin")))
+      .limit(1);
+    if (!hasAdminReply) {
+      return res.status(400).json({ error: "Reply to the owner with the reason before closing this thread as still suspended." });
+    }
+
+    await db
+      .update(supportThreads)
+      .set({ status: "resolved", resolvedAt: new Date(), resolvedByAdminId: req.admin!.adminId, resolutionOutcome: "suspension_upheld" })
+      .where(eq(supportThreads.id, id));
+
+    await writeAuditLog(req, "close_support_thread_suspension_upheld", thread.id, { organisationId: thread.organisationId });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Close support thread (suspension upheld) error:", error);
+    return res.status(500).json({ error: "Failed to close support thread." });
+  }
+});
+
 adminRouter.post("/support-threads/:id/reopen", isAdminAuthenticated, requireAdminRole([...SUPPORT_ROLES]), async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -1221,6 +1564,10 @@ adminRouter.post("/support-threads/:id/reopen", isAdminAuthenticated, requireAdm
     }
 
     try {
+      // resolutionOutcome is intentionally left as-is here (not reset to
+      // null) - it stays visible as history of the last real outcome even
+      // across a reopen, and gets overwritten the next time this thread
+      // actually resolves.
       await db
         .update(supportThreads)
         .set({ status: "open", resolvedAt: null, resolvedByAdminId: null })
@@ -1989,6 +2336,203 @@ adminRouter.delete("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(
 });
 
 // ----------------------------------------------------
+// 6b. FEATURE CATALOG ENDPOINTS (pay-per-feature pricing)
+// ----------------------------------------------------
+// Deliberately separate from featureFlags above: that table is a release
+// kill-switch, this one is the monetization catalog super admins price and
+// businesses purchase. They compose at read time (server/lib/entitlements.ts
+// getOrgEntitlements) rather than merge, since a kill-switch and a price
+// list answer different questions - see shared/schema/entitlements.ts.
+
+adminRouter.get("/feature-catalog", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const list = await db.select().from(featureCatalog).orderBy(featureCatalog.sortOrder);
+    return res.json({ features: list });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to query the feature catalog." });
+  }
+});
+
+adminRouter.post("/feature-catalog", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const parsed = insertFeatureCatalogSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors.map((e) => e.message).join(", ") });
+  }
+  try {
+    const [created] = await db.insert(featureCatalog).values(parsed.data).returning();
+    await writeAuditLog(req, "create_feature_catalog_entry", created.key, { category: created.category, tierType: created.tierType });
+    return res.json({ success: true, feature: created });
+  } catch (error) {
+    console.error("Create feature catalog entry error:", error);
+    return res.status(500).json({ error: "Failed to register this feature." });
+  }
+});
+
+adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const [existing] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, id)).limit(1);
+    if (!existing) return res.status(404).json({ error: "Feature not found." });
+
+    const patch = insertFeatureCatalogSchema.partial().safeParse(req.body);
+    if (!patch.success) {
+      return res.status(400).json({ error: patch.error.errors.map((e) => e.message).join(", ") });
+    }
+
+    const [updated] = await db
+      .update(featureCatalog)
+      .set({ ...patch.data, updatedAt: new Date() })
+      .where(eq(featureCatalog.id, id))
+      .returning();
+
+    await writeAuditLog(req, "update_feature_catalog_pricing", existing.key, { before: existing, after: patch.data });
+    return res.json({ success: true, feature: updated });
+  } catch (error) {
+    console.error("Update feature catalog entry error:", error);
+    return res.status(500).json({ error: "Failed to update this feature." });
+  }
+});
+
+// Schedules the §2.7 sunset-notice transition: every org that currently has
+// this feature for free via the one-time grandfathering backfill (source
+// 'grandfathered' - never one that already purchased it, or was comped by an
+// admin) moves to source='grandfathered_sunset', status='pending_removal',
+// removalEffectiveAt=paywallEffectiveAt. FeatureSunsetReminderService picks
+// those rows up and sends the staged 30/7/1-day-and-today notices; the
+// existing lazy sweep in getOrgEntitlements enforces the actual cutover once
+// the date passes - this endpoint only schedules it.
+adminRouter.post("/feature-catalog/:id/schedule-sunset", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { paywallEffectiveAt } = req.body;
+  if (!paywallEffectiveAt) return res.status(400).json({ error: "paywallEffectiveAt is required." });
+
+  const effectiveAt = new Date(paywallEffectiveAt);
+  if (Number.isNaN(effectiveAt.getTime())) return res.status(400).json({ error: "paywallEffectiveAt must be a valid date." });
+  const minDate = new Date();
+  minDate.setDate(minDate.getDate() + 30);
+  if (effectiveAt < minDate) {
+    return res.status(400).json({ error: "The paywall date must be at least 30 days out, so affected businesses get real notice." });
+  }
+
+  try {
+    const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+
+    const updated = await db
+      .update(orgFeatureEntitlements)
+      .set({ status: "pending_removal", source: "grandfathered_sunset", removalEffectiveAt: effectiveAt, updatedAt: new Date() })
+      .where(and(eq(orgFeatureEntitlements.featureId, req.params.id), eq(orgFeatureEntitlements.status, "active"), eq(orgFeatureEntitlements.source, "grandfathered")))
+      .returning({ organisationId: orgFeatureEntitlements.organisationId });
+
+    await writeAuditLog(req, "schedule_feature_sunset", feature.key, { paywallEffectiveAt: effectiveAt, affectedOrgs: updated.length });
+    return res.json({ success: true, affectedOrgs: updated.length, paywallEffectiveAt: effectiveAt });
+  } catch (error) {
+    console.error("Schedule feature sunset error:", error);
+    return res.status(500).json({ error: "Failed to schedule this transition." });
+  }
+});
+
+adminRouter.get("/feature-catalog/:id/dependencies", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const rows = await db.select().from(featureDependencies).where(eq(featureDependencies.featureId, req.params.id));
+    return res.json({ dependencies: rows });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load dependencies." });
+  }
+});
+
+adminRouter.post("/feature-catalog/:id/dependencies", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { dependsOnFeatureId } = req.body;
+  if (!dependsOnFeatureId) return res.status(400).json({ error: "dependsOnFeatureId is required." });
+  try {
+    const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+    const [created] = await db
+      .insert(featureDependencies)
+      .values({ featureId: req.params.id, dependsOnFeatureId })
+      .onConflictDoNothing()
+      .returning();
+    await writeAuditLog(req, "add_feature_dependency", feature.key, { dependsOnFeatureId });
+    return res.json({ success: true, dependency: created ?? null });
+  } catch (error) {
+    console.error("Add feature dependency error:", error);
+    return res.status(500).json({ error: "Failed to add this dependency." });
+  }
+});
+
+adminRouter.delete("/feature-catalog/dependencies/:dependencyId", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    await db.delete(featureDependencies).where(eq(featureDependencies.id, req.params.dependencyId));
+    await writeAuditLog(req, "remove_feature_dependency", req.params.dependencyId);
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to remove this dependency." });
+  }
+});
+
+// Per-org manual grant/revoke - support and finance exceptions, comping a
+// feature without a real payment (source='admin_grant'). Revocation here is
+// immediate, unlike an owner's own removal (scheduleFeatureRemoval), which
+// stays usable through the paid cycle - an admin correcting a mistaken grant
+// or a fraud case has no reason to honor a grace period it never sold.
+adminRouter.get("/organisations/:id/feature-entitlements", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select({ entitlement: orgFeatureEntitlements, feature: featureCatalog })
+      .from(orgFeatureEntitlements)
+      .innerJoin(featureCatalog, eq(orgFeatureEntitlements.featureId, featureCatalog.id))
+      .where(eq(orgFeatureEntitlements.organisationId, req.params.id))
+      .orderBy(featureCatalog.sortOrder);
+    return res.json({ entitlements: rows.map((r) => ({ ...r.entitlement, feature: r.feature })) });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load this organisation's entitlements." });
+  }
+});
+
+adminRouter.post(
+  "/organisations/:id/feature-entitlements",
+  isAdminAuthenticated,
+  requireAdminRole(["super_admin", "finance_admin"]),
+  async (req: Request, res: Response) => {
+    const { featureKey } = req.body;
+    if (!featureKey) return res.status(400).json({ error: "featureKey is required." });
+    try {
+      await grantFeatureEntitlement({
+        organisationId: req.params.id,
+        featureKey,
+        source: "admin_grant",
+        grantedByAdminId: req.admin!.adminId,
+      });
+      await writeAuditLog(req, "admin_grant_feature", featureKey, { organisationId: req.params.id });
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("Admin grant feature error:", error);
+      return res.status(500).json({ error: "Failed to grant this feature." });
+    }
+  }
+);
+
+adminRouter.delete(
+  "/organisations/:id/feature-entitlements/:featureKey",
+  isAdminAuthenticated,
+  requireAdminRole(["super_admin", "finance_admin"]),
+  async (req: Request, res: Response) => {
+    try {
+      const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.key, req.params.featureKey)).limit(1);
+      if (!feature) return res.status(404).json({ error: "Unknown feature." });
+      await db
+        .update(orgFeatureEntitlements)
+        .set({ status: "removed", updatedAt: new Date() })
+        .where(and(eq(orgFeatureEntitlements.organisationId, req.params.id), eq(orgFeatureEntitlements.featureId, feature.id), eq(orgFeatureEntitlements.status, "active")));
+      await writeAuditLog(req, "admin_revoke_feature", req.params.featureKey, { organisationId: req.params.id });
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("Admin revoke feature error:", error);
+      return res.status(500).json({ error: "Failed to revoke this feature." });
+    }
+  }
+);
+
+// ----------------------------------------------------
 // 7. ANNOUNCEMENTS ENDPOINTS
 // ----------------------------------------------------
 
@@ -2201,38 +2745,50 @@ adminRouter.get("/super-admins", isAdminAuthenticated, requireAdminRole(["super_
   }
 });
 
-// Create internal admin account
+// Invite a new internal admin account. No password, no MFA secret is ever
+// generated or returned here - the invitee sets their own password and
+// pairs their own authenticator via /auth/activate -> /auth/set-password ->
+// /auth/verify-mfa-setup below, so nobody but them ever sees either. See
+// migrations/0047_super_admin_invites.sql.
 adminRouter.post("/super-admins", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, role } = req.body;
 
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ error: "All admin profile parameters are required." });
+  if (!name || !email || !role) {
+    return res.status(400).json({ error: "Name, email and security clearance role are required." });
   }
 
   try {
-    const [existing] = await db.select().from(superAdmins).where(eq(superAdmins.email, email.trim().toLowerCase())).limit(1);
+    const emailLower = email.trim().toLowerCase();
+    const [existing] = await db.select().from(superAdmins).where(eq(superAdmins.email, emailLower)).limit(1);
     if (existing) {
       return res.status(400).json({ error: "Administrative email already exists." });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
-    const mfaSecret = generateSecret();
-    const qrUrl = getOTPAuthURL(email.trim().toLowerCase(), "BusinessManager-Admin", mfaSecret);
+    // Placeholder, unusable hash - same trick as StaffInviteService's
+    // createInvitedUser: no login is possible until set-password below
+    // overwrites it, and a null here would read as "no password set" to
+    // anything checking for that instead of "invite not yet accepted".
+    const placeholderHash = await bcrypt.hash(crypto.randomUUID(), 10);
+    const activationCode = generateActivationCode();
 
     const [newAdmin] = await db
       .insert(superAdmins)
       .values({
         name,
-        email: email.trim().toLowerCase(),
-        passwordHash,
-        mfaSecret,
-        mfaEnabled: false, // forces MFA setup on first login
+        email: emailLower,
+        passwordHash: placeholderHash,
+        mfaSecret: null,
+        mfaEnabled: false,
         role,
-        status: "active",
+        status: "invited",
+        activationCode,
+        activationCodeExpiry: activationCodeExpiry(),
+        activationCodeUsed: false,
       })
       .returning();
 
-    await writeAuditLog(req, "create_admin_account", newAdmin.email, { role: newAdmin.role });
+    await sendAdminInviteEmail(emailLower, name, role, activationCode);
+    await writeAuditLog(req, "invite_admin_account", newAdmin.email, { role: newAdmin.role });
 
     return res.json({
       success: true,
@@ -2242,16 +2798,60 @@ adminRouter.post("/super-admins", isAdminAuthenticated, requireAdminRole(["super
         email: newAdmin.email,
         role: newAdmin.role,
       },
-      mfaSecret,
-      qrUrl,
     });
   } catch (error) {
-    console.error("Create internal admin error:", error);
-    return res.status(500).json({ error: "Failed to create internal admin account." });
+    console.error("Invite internal admin error:", error);
+    return res.status(500).json({ error: "Failed to invite internal admin account." });
   }
 });
 
-// Reset admin MFA
+// Resend a pending admin invite (expired/lost email). 3/hour, same cooldown
+// as staff resend - see server/routes/staff.routes.ts.
+adminRouter.post("/super-admins/:id/resend-invite", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.id, id)).limit(1);
+    if (!admin) {
+      return res.status(404).json({ error: "Admin account not found." });
+    }
+    if (admin.status !== "invited") {
+      return res.status(409).json({ error: "This admin has already completed account setup." });
+    }
+
+    const cooldown = checkResendCooldown(admin.resendAttempts, admin.resendWindowStart);
+    if (!cooldown.allowed) {
+      return res.status(429).json({
+        error: `Too many invitations sent to this address. Please try again in ${cooldown.retryAfterMinutes} minutes.`,
+        retryAfterMinutes: cooldown.retryAfterMinutes,
+      });
+    }
+
+    const activationCode = generateActivationCode();
+    await db
+      .update(superAdmins)
+      .set({
+        activationCode,
+        activationCodeExpiry: activationCodeExpiry(),
+        activationCodeUsed: false,
+        resendAttempts: cooldown.nextAttempts,
+        resendWindowStart: cooldown.nextWindowStart,
+      })
+      .where(eq(superAdmins.id, id));
+
+    await sendAdminInviteEmail(admin.email, admin.name, admin.role, activationCode);
+    await writeAuditLog(req, "resend_admin_invite", admin.email);
+
+    return res.json({ success: true, message: "Invitation resent." });
+  } catch (error) {
+    console.error("Resend admin invite error:", error);
+    return res.status(500).json({ error: "Failed to resend invitation." });
+  }
+});
+
+// Reset admin MFA. Emails the target admin a fresh re-pairing link instead
+// of returning the secret/QR directly to whoever clicked "reset" - the
+// resetting admin has no legitimate need to see another admin's TOTP secret.
 adminRouter.post("/super-admins/:id/reset-mfa", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   const { id } = req.params;
 
@@ -2261,24 +2861,25 @@ adminRouter.post("/super-admins/:id/reset-mfa", isAdminAuthenticated, requireAdm
       return res.status(404).json({ error: "Admin account not found." });
     }
 
-    const newSecret = generateSecret();
-    const qrUrl = getOTPAuthURL(admin.email, "BusinessManager-Admin", newSecret);
+    const activationCode = generateActivationCode();
 
     await db
       .update(superAdmins)
       .set({
-        mfaSecret: newSecret,
-        mfaEnabled: false, // Forces pairing setup on next login
+        mfaSecret: null,
+        mfaEnabled: false, // Forces re-pairing before next login
+        activationCode,
+        activationCodeExpiry: activationCodeExpiry(),
+        activationCodeUsed: false,
       })
       .where(eq(superAdmins.id, id));
 
+    await sendAdminMfaResetEmail(admin.email, admin.name, activationCode);
     await writeAuditLog(req, "reset_admin_mfa", admin.email);
 
     return res.json({
       success: true,
-      message: "MFA credentials successfully reset. Pairing QR code generated.",
-      mfaSecret: newSecret,
-      qrUrl,
+      message: `MFA pairing reset. A re-pairing link was emailed to ${admin.email}.`,
     });
   } catch (error) {
     return res.status(500).json({ error: "Failed to reset MFA configurations." });
@@ -2317,3 +2918,139 @@ adminRouter.delete("/super-admins/:id", isAdminAuthenticated, requireAdminRole([
     return res.status(500).json({ error: "Failed to toggle admin status." });
   }
 });
+
+// ----------------------------------------------------
+// 11. PLATFORM SETTINGS ENDPOINTS (trial length, platform payment credentials)
+// ----------------------------------------------------
+// Two previously-missing "spot to configure X" gaps: trial length was a
+// hardcoded constant, and the platform's own Paystack keys (used to charge
+// every business - distinct from a tenant's own storeIntegrations
+// credentials) could only be rotated by editing .env and redeploying. See
+// shared/schema/platform.ts, server/lib/platformConfig.ts,
+// server/lib/credentialEncryption.ts.
+
+const MASK = "••••••••••••••••";
+
+adminRouter.get("/platform-config/trial-days", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const days = await getConfiguredTrialDays();
+    return res.json({ trialDays: days });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load trial length." });
+  }
+});
+
+adminRouter.put("/platform-config/trial-days", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { trialDays } = req.body;
+  const days = Number(trialDays);
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    return res.status(400).json({ error: "Trial length must be a whole number of days between 1 and 365." });
+  }
+
+  try {
+    await setPlatformConfigValue("trial_days", days, req.admin!.email);
+    await writeAuditLog(req, "update_trial_days", "platform_config", { trialDays: days });
+    return res.json({ success: true, trialDays: days });
+  } catch (error) {
+    console.error("Update trial-days error:", error);
+    return res.status(500).json({ error: "Failed to update trial length." });
+  }
+});
+
+// Any admin can view (masked) which providers are configured; only
+// super_admin can change them - the same asymmetry as feature-catalog
+// pricing edits above, since these directly control money movement.
+adminRouter.get("/platform-payment-credentials", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const rows = await db.select().from(platformPaymentCredentials);
+    const masked = rows.map((row) => ({
+      provider: row.provider,
+      isActive: row.isActive,
+      publicKey: row.publicKey,
+      secretKeySet: !!row.secretKeyEncrypted,
+      webhookSecretSet: !!row.webhookSecretEncrypted,
+      updatedAt: row.updatedAt,
+      updatedBy: row.updatedBy,
+    }));
+    return res.json({ credentials: masked });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load platform payment credentials." });
+  }
+});
+
+adminRouter.put(
+  "/platform-payment-credentials/:provider",
+  isAdminAuthenticated,
+  requireAdminRole(["super_admin"]),
+  async (req: Request, res: Response) => {
+    const { provider } = req.params;
+    if (!["paystack", "stripe", "flutterwave"].includes(provider)) {
+      return res.status(400).json({ error: "Unknown payment provider." });
+    }
+
+    const { isActive, publicKey, secretKey, webhookSecret } = req.body;
+
+    try {
+      const [existing] = await db
+        .select()
+        .from(platformPaymentCredentials)
+        .where(eq(platformPaymentCredentials.provider, provider))
+        .limit(1);
+
+      // Sentinel-compare-on-write, same convention as the tenant
+      // storeIntegrations form (client/src/pages/settings/components/
+      // store-integrations.tsx): the masked bullet value means "unchanged",
+      // never overwrite with it. An actually-blank field clears the secret.
+      let secretKeyEncrypted = existing?.secretKeyEncrypted ?? null;
+      if (typeof secretKey === "string" && secretKey !== MASK) {
+        secretKeyEncrypted = secretKey ? encryptSecret(secretKey) : null;
+      }
+      let webhookSecretEncrypted = existing?.webhookSecretEncrypted ?? null;
+      if (typeof webhookSecret === "string" && webhookSecret !== MASK) {
+        webhookSecretEncrypted = webhookSecret ? encryptSecret(webhookSecret) : null;
+      }
+
+      const values = {
+        provider,
+        isActive: typeof isActive === "boolean" ? isActive : (existing?.isActive ?? false),
+        publicKey: typeof publicKey === "string" ? publicKey : (existing?.publicKey ?? null),
+        secretKeyEncrypted,
+        webhookSecretEncrypted,
+        updatedAt: new Date(),
+        updatedBy: req.admin!.email,
+      };
+
+      const [saved] = existing
+        ? await db
+            .update(platformPaymentCredentials)
+            .set(values)
+            .where(eq(platformPaymentCredentials.id, existing.id))
+            .returning()
+        : await db.insert(platformPaymentCredentials).values(values).returning();
+
+      await writeAuditLog(req, "update_platform_payment_credentials", provider, {
+        isActive: values.isActive,
+        secretKeyChanged: secretKeyEncrypted !== (existing?.secretKeyEncrypted ?? null),
+        webhookSecretChanged: webhookSecretEncrypted !== (existing?.webhookSecretEncrypted ?? null),
+      });
+
+      return res.json({
+        success: true,
+        credential: {
+          provider: saved.provider,
+          isActive: saved.isActive,
+          publicKey: saved.publicKey,
+          secretKeySet: !!saved.secretKeyEncrypted,
+          webhookSecretSet: !!saved.webhookSecretEncrypted,
+          updatedAt: saved.updatedAt,
+        },
+      });
+    } catch (error) {
+      console.error("Update platform payment credentials error:", error);
+      const message = error instanceof Error && error.message.includes("PLATFORM_CREDENTIALS_ENCRYPTION_KEY")
+        ? error.message
+        : "Failed to update platform payment credentials.";
+      return res.status(500).json({ error: message });
+    }
+  }
+);

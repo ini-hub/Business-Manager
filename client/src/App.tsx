@@ -90,13 +90,22 @@ const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitabilit
 const ProfilePage = lazy(() => import("@/pages/profile"));
 const HelpSupportPage = lazy(() => import("@/pages/help-support"));
 const SettingsIndexPage = lazy(() => import("@/pages/settings/index"));
-const SettingsStoresPage = lazy(() => import("@/pages/settings-stores"));
+const SettingsBusinessPage = lazy(() => import("@/pages/settings-business"));
+const SettingsStoresPage = lazy(() => import("@/pages/settings/stores"));
+const SettingsRolesPage = lazy(() => import("@/pages/settings/roles"));
+const SettingsStorePage = lazy(() => import("@/pages/settings-store"));
+const SettingsStoreDetailsPage = lazy(() => import("@/pages/settings/store-details"));
+const SettingsAttendancePage = lazy(() => import("@/pages/settings/attendance"));
+const SettingsCreditSalesPage = lazy(() => import("@/pages/settings/credit-sales"));
+const SettingsPaymentIntegrationsPage = lazy(() => import("@/pages/settings/payment-integrations"));
+const SettingsBulkOperationsPage = lazy(() => import("@/pages/settings/bulk-operations"));
+const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
+const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
 const StoreFormPage = lazy(() => import("@/pages/store-form"));
 const BusinessFormPage = lazy(() => import("@/pages/business-form"));
 const RoleFormPage = lazy(() => import("@/pages/role-form"));
-const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
-const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
 const BillingSettingsPage = lazy(() => import("@/pages/settings/billing"));
+const PaymentHistoryPage = lazy(() => import("@/pages/settings/payment-history"));
 const ReportsIndexPage = lazy(() => import("@/pages/reports/index"));
 const AuditLogsPage = lazy(() => import("@/pages/reports/audit-logs"));
 const AnalyticsExplorerPage = lazy(() => import("@/pages/analytics"));
@@ -115,6 +124,8 @@ const TransactionsMonitor = lazy(() => import("@/pages/admin/TransactionsMonitor
 const RevenueAnalytics = lazy(() => import("@/pages/admin/RevenueAnalytics"));
 const BillingPayments = lazy(() => import("@/pages/admin/BillingPayments"));
 const FeatureFlags = lazy(() => import("@/pages/admin/FeatureFlags"));
+const FeatureCatalog = lazy(() => import("@/pages/admin/FeatureCatalog"));
+const PlatformSettings = lazy(() => import("@/pages/admin/PlatformSettings"));
 const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
 const SystemHealth = lazy(() => import("@/pages/admin/SystemHealth"));
 const AuditLogs = lazy(() => import("@/pages/admin/AuditLogs"));
@@ -183,6 +194,8 @@ function SuperAdminRouter() {
               <Route path="/super-admin/revenue" component={RevenueAnalytics} />
               <Route path="/super-admin/billing" component={BillingPayments} />
               <Route path="/super-admin/flags" component={FeatureFlags} />
+              <Route path="/super-admin/feature-catalog" component={FeatureCatalog} />
+              <Route path="/super-admin/platform-settings" component={PlatformSettings} />
               <Route path="/super-admin/announcements" component={AnnouncementsManager} />
               <Route path="/super-admin/health" component={SystemHealth} />
               <Route path="/super-admin/audit-logs" component={AuditLogs} />
@@ -445,6 +458,30 @@ function AuthenticatedLayout() {
                   <Route path="/settings/stores">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStoresPage />}
                   </Route>
+                  <Route path="/settings/roles">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsRolesPage />}
+                  </Route>
+                  <Route path="/settings/business">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBusinessPage />}
+                  </Route>
+                  <Route path="/settings/store-settings">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStorePage />}
+                  </Route>
+                  <Route path="/settings/store-details">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStoreDetailsPage />}
+                  </Route>
+                  <Route path="/settings/attendance">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsAttendancePage />}
+                  </Route>
+                  <Route path="/settings/credit-sales">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsCreditSalesPage />}
+                  </Route>
+                  <Route path="/settings/payment-integrations">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsPaymentIntegrationsPage />}
+                  </Route>
+                  <Route path="/settings/bulk-operations">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBulkOperationsPage />}
+                  </Route>
                   <Route path="/settings/stores/new">
                     {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
                   </Route>
@@ -478,7 +515,10 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}
                   </Route>
                   <Route path="/settings/billing">
-                    {user?.role !== "owner" ? <Redirect to="/settings" /> : <BillingSettingsPage />}
+                    {user?.role === "staff" ? <Redirect to="/" /> : <BillingSettingsPage />}
+                  </Route>
+                  <Route path="/settings/billing/payment-history">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <PaymentHistoryPage />}
                   </Route>
                   {/* Most specific first — wouter matches top-down, so
                       /analytics would otherwise swallow its own subpaths. */}

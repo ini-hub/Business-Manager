@@ -33,7 +33,7 @@ import { STAFF_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
-import { insertStaffSchema, type Staff, type InsertStaff, type StaffInviteStatus } from "@shared/schema";
+import { insertStaffSchema, type Staff, type InsertStaff, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
 import { Mail, Shield, MailWarning, ShieldCheck, Send, Clock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
@@ -41,8 +41,10 @@ import { useStore } from "@/lib/store-context";
 
 // The API attaches inviteStatus to every staff row (derived server-side from
 // the linked account, without exposing its id). It answers "can this person
-// actually log in yet?", which signedContract never did.
-type StaffRow = Staff & { inviteStatus?: StaffInviteStatus; storeName?: string };
+// actually log in yet?", which signedContract never did. contractStatus is
+// the equivalent projection over the versioned staff_contracts table -
+// signedContract itself is deprecated and no longer kept in sync with it.
+type StaffRow = Staff & { inviteStatus?: StaffInviteStatus; contractStatus?: StaffContractStatus; storeName?: string };
 
 function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
   if (status === "active") {
@@ -70,6 +72,24 @@ function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
     );
   }
   return <Badge variant="secondary" className="gap-1">Not invited</Badge>;
+}
+
+// Mirrors the status->badge mapping in staff-form.tsx's contractBadge, so the
+// list and edit views always agree on what a given contractStatus means.
+function ContractStatusBadge({ status }: { status?: StaffContractStatus }) {
+  if (status === "signed") {
+    return <Badge variant="default" className="gap-1"><FileCheck className="h-3 w-3" />Signed</Badge>;
+  }
+  if (status === "pending_signature") {
+    return <Badge variant="secondary" className="gap-1"><Clock className="h-3 w-3" />Awaiting signature</Badge>;
+  }
+  if (status === "declined") {
+    return <Badge variant="destructive" className="gap-1"><FileX className="h-3 w-3" />Declined</Badge>;
+  }
+  if (status === "not_applicable_existing_account") {
+    return <Badge variant="outline" className="gap-1">No signature required</Badge>;
+  }
+  return <Badge variant="secondary" className="gap-1"><FileX className="h-3 w-3" />No contract</Badge>;
 }
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
@@ -328,23 +348,9 @@ export default function StaffPage() {
           ),
         },
         {
-          key: "signedContract",
+          key: "contractStatus",
           header: "Contract",
-          render: (staff: StaffRow) => (
-            <Badge variant={staff.signedContract ? "default" : "secondary"} className="gap-1">
-              {staff.signedContract ? (
-                <>
-                  <FileCheck className="h-3 w-3" />
-                  Signed
-                </>
-              ) : (
-                <>
-                  <FileX className="h-3 w-3" />
-                  Not signed
-                </>
-              )}
-            </Badge>
-          ),
+          render: (staff: StaffRow) => <ContractStatusBadge status={staff.contractStatus} />,
         },
         {
           key: "actions",
@@ -363,7 +369,14 @@ export default function StaffPage() {
               >
                 <Edit className="h-4 w-4" />
               </Button>
-              {staff.inviteStatus !== "active" && (
+              {/* Once a password is set, the person is no longer blocked by
+                  their activation code - resending it is a no-op at best.
+                  A pending_signature/declined contract needs a new/replaced
+                  contract (via Edit), not a resent invite - see the server
+                  refusal in StaffInviteService.resendToLinkedUser. */}
+              {staff.inviteStatus !== "active" &&
+                staff.contractStatus !== "pending_signature" &&
+                staff.contractStatus !== "declined" && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -520,7 +533,7 @@ export default function StaffPage() {
         { key: "mobileNumber", header: "Mobile Number" },
         { key: "payPerMonth", header: "Pay Per Month" },
         { key: "paymentMethod", header: "Payment Method" },
-        { key: "signedContract", header: "Signed Contract" },
+        { key: "contractStatus", header: "Contract Status" },
       ]
     : [
         { key: "name", header: "Name" },
@@ -544,7 +557,7 @@ export default function StaffPage() {
 
   // Tracks whichever tab's live search/filter result set is currently on screen, so
   // "Export current view" can offer exactly that, separate from the always-full export.
-  const [visibleStaffRows, setVisibleStaffRows] = useState<(Staff & { status: string })[]>([]);
+  const [visibleStaffRows, setVisibleStaffRows] = useState<(StaffRow & { status: string })[]>([]);
 
   const handleStaffReportExport = (filtered = false) => {
     const scoped = filtered ? visibleStaffRows : (activeTab === "active" ? activeStaff : archivedStaff);
@@ -556,7 +569,7 @@ export default function StaffPage() {
       mobileNumber: s.mobileNumber || "—",
       payLabel: s.overridePaymentMethod ? formatCurrency(s.payPerMonth) : "Store default",
       paymentMethod: s.overridePaymentMethod ? capitalize(s.paymentMethod) : "Store default",
-      status: activeTab === "active" ? (s.signedContract ? "Active" : "Pending") : "Deactivated",
+      status: activeTab === "active" ? (s.contractStatus === "signed" ? "Active" : "Pending") : "Deactivated",
     }));
     const sorted = isOwner ? [...rows].sort((a, b) => a.role.localeCompare(b.role)) : rows;
 
@@ -660,7 +673,7 @@ export default function StaffPage() {
 
           const activeTableData = activeStaff.map((s) => ({
             ...s,
-            status: s.signedContract ? "Active" : "Pending"
+            status: s.contractStatus === "signed" ? "Active" : "Pending"
           }));
 
           const archivedTableData = archivedStaff.map((s) => ({

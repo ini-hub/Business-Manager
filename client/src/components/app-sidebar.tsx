@@ -15,13 +15,11 @@ import {
   DollarSign,
   Wallet,
   Wallet2,
-  Gift,
   BookOpen,
   CalendarClock,
   ArrowLeftRight,
   Truck,
   FileText,
-  Percent,
   Building2,
   Coins,
   ShieldCheck,
@@ -219,24 +217,18 @@ const reportsItems: MenuItem[] = [
   },
 ];
 
+// One entry point into Settings (Business Settings + Store Settings, split
+// by scope on the /settings landing page itself - see the Settings Screen
+// Restructure requirements plan). Visible to owner and manager: managers
+// already have write access to most Store Settings sections and can browse
+// Billing, so hiding the whole area from them was an inconsistency, not a
+// real restriction - Business-owner-only sections are gated within the page.
 const settingsItems: MenuItem[] = [
   {
-    title: "Business & Stores",
-    url: "/settings/stores",
+    title: "Settings",
+    url: "/settings",
     icon: Settings,
-    allowedRoles: ["owner"],
-  },
-  {
-    title: "Promotions",
-    url: "/settings/promotions",
-    icon: Gift,
-    allowedRoles: ["owner"],
-  },
-  {
-    title: "Taxes & Compliance",
-    url: "/settings/taxes",
-    icon: Percent,
-    allowedRoles: ["owner"],
+    allowedRoles: ["owner", "manager"],
   },
 ];
 

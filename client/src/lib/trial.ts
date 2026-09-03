@@ -31,17 +31,13 @@ export function trialDaysRemaining(business: Pick<TrialFields, "trialEndsAt"> | 
 }
 
 /**
- * Whether the app should be locked for this org right now. Only ever true for a
- * "trialing" org whose trialEndsAt has passed (and the server hasn't yet lazily
- * flipped it to "active" via a converted subscription), or an org explicitly
- * "suspended". Every pre-existing organisation is "active" and never suspended
- * by this flow, so this is always false for them.
+ * Whether the app should be locked for this org right now. Mirrors
+ * server/lib/trial.ts's getOrgAccessState: only an admin-suspended org locks
+ * the whole app. A trial simply ending, with nothing purchased, is NOT a
+ * lock - the org falls back to the free tier via the per-feature entitlement
+ * gates (useEntitlements/FeatureGate), same as any other non-paying org.
  */
 export function isOrgLocked(business: TrialFields | null | undefined): boolean {
   if (!business) return false;
-  if (business.status === "suspended") return true;
-  if (business.status === "trialing" && business.trialEndsAt) {
-    return new Date(business.trialEndsAt) <= new Date();
-  }
-  return false;
+  return business.status === "suspended";
 }

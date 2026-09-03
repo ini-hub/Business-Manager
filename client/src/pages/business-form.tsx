@@ -99,7 +99,7 @@ export default function BusinessFormPage() {
         await createBusiness(values);
         toast({ title: "Business created successfully" });
       }
-      setLocation("/settings/stores");
+      setLocation("/settings/business");
     } catch (error) {
       toast({
         title: "Error Saving Business",
@@ -117,7 +117,7 @@ export default function BusinessFormPage() {
     return (
       <div className="p-8 text-center">
         <PageHeader title="Business Configuration" description="Only owners can manage business settings." />
-        <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/stores")}>
+        <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/business")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
         </Button>
       </div>
@@ -127,7 +127,7 @@ export default function BusinessFormPage() {
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/stores")}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/business")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <PageHeader 
@@ -328,7 +328,7 @@ export default function BusinessFormPage() {
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t">
-                  <Button type="button" variant="outline" onClick={() => setLocation("/settings/stores")}>
+                  <Button type="button" variant="outline" onClick={() => setLocation("/settings/business")}>
                     Cancel
                   </Button>
                   <Button type="submit" data-testid="button-save-business" className="min-w-[120px]">

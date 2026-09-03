@@ -213,6 +213,37 @@ describe("invitation lifecycle", () => {
     // One from the invite plus three resends - the fourth sent nothing.
     expect(await mailsTo(email)).toHaveLength(4);
   });
+
+  it("refuses to resend once the member already has a password (contract_pending) - regression for the decline-bypass", async () => {
+    // A contract_pending member is blocked on their staff_contracts row, not
+    // their activation code (which is already used) - resending used to
+    // silently re-arm the code anyway, which combined with
+    // set-activated-password's old pending_signature-only check let a
+    // DECLINED contract be walked straight back into a real session. See
+    // server/routes.ts's set-activated-password for the other half of this
+    // fix.
+    const f = await newFixture();
+    const email = `contract-pending-resend-${Date.now()}@example.test`;
+    await invite(f, email);
+    const user = await userFor(f.staffId);
+    const member = await memberFor(user!.id, f.businessId);
+    await storage.updateUser(user!.id, { activationCodeUsed: true, activationCode: null });
+    await storage.updateOrganisationMemberStatus(member!.id, "contract_pending");
+
+    const before = (await storage.getUser(user!.id))!.activationCode;
+    const outcome = await staffInviteService.inviteStaff({
+      staff: (await storage.getStaff(f.staffId))! as any,
+      businessId: f.businessId, email, role: "staff",
+      reason: "manual_resend", respectCooldown: true, allowRelink: false,
+    });
+    expect(outcome).toEqual({ kind: "contract_pending_not_applicable", userId: user!.id });
+
+    // No code re-armed, no mail queued beyond the original invite.
+    expect((await storage.getUser(user!.id))!.activationCode).toBe(before);
+    expect((await storage.getUser(user!.id))!.activationCodeUsed).toBe(true);
+    expect(await mailsTo(email)).toHaveLength(1);
+    expect((await memberFor(user!.id, f.businessId))!.status).toBe("contract_pending");
+  });
 });
 
 describe("relinking onto a real account", () => {

@@ -153,21 +153,21 @@ export default function BusinessesList() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight font-outfit">Businesses Directory</h1>
-          <p className="text-slate-400 text-sm mt-1">Audit platform accounts, check gross sales volume, and configure access.</p>
+          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Businesses Directory</h1>
+          <p className="text-muted-foreground text-sm mt-1">Audit platform accounts, check gross sales volume, and configure access.</p>
         </div>
       </div>
 
       {/* Query Filters */}
-      <div className="bg-slate-900/40 backdrop-blur border border-slate-800/80 rounded-3xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <div className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
         <div className="space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Search Company Name</Label>
+          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Search Company Name</Label>
           <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               type="text"
               placeholder="Filter company..."
-              className="bg-slate-950/60 border-slate-800 text-white pl-9 rounded-xl focus:border-emerald-500/80 focus:ring-emerald-500/20"
+              className="bg-background/60 border-border text-foreground pl-9 rounded-xl focus:border-primary/80 focus:ring-ring/20"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -178,7 +178,7 @@ export default function BusinessesList() {
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Administrative Status</Label>
+          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Administrative Status</Label>
           <Select
             value={status}
             onValueChange={(val) => {
@@ -186,10 +186,10 @@ export default function BusinessesList() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="bg-slate-950/60 border-slate-800 text-white rounded-xl focus:border-emerald-500/80">
+            <SelectTrigger className="bg-background/60 border-border text-foreground rounded-xl focus:border-primary/80">
               <SelectValue placeholder="All Accounts" />
             </SelectTrigger>
-            <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+            <SelectContent className="bg-card border-border text-muted-foreground">
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="suspended">Suspended</SelectItem>
@@ -198,11 +198,11 @@ export default function BusinessesList() {
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Min Sales (GMV threshold)</Label>
+          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Min Sales (GMV threshold)</Label>
           <Input
             type="number"
             placeholder="e.g. 100000"
-            className="bg-slate-950/60 border-slate-800 text-white rounded-xl focus:border-emerald-500/80 focus:ring-emerald-500/20"
+            className="bg-background/60 border-border text-foreground rounded-xl focus:border-primary/80 focus:ring-ring/20"
             value={minGMV}
             onChange={(e) => {
               setMinGMV(e.target.value);
@@ -213,7 +213,7 @@ export default function BusinessesList() {
 
         <Button
           variant="outline"
-          className="border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white rounded-xl h-11"
+          className="border-border text-muted-foreground hover:bg-muted hover:text-foreground rounded-xl h-11"
           onClick={() => {
             setSearch("");
             setStatus("all");
@@ -229,26 +229,26 @@ export default function BusinessesList() {
       {/* Main Directory Table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data ? (
-        <div className="p-6 bg-rose-500/15 border border-rose-500/20 rounded-2xl text-rose-300 flex items-center gap-3">
+        <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
           <AlertCircle className="h-5 w-5 shrink-0" />
           <span>Error compiling business directories. Please refresh dashboard.</span>
         </div>
       ) : data.businesses.length === 0 ? (
-        <div className="text-center py-16 bg-slate-900/20 border border-slate-800/80 rounded-3xl">
-          <Building className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-          <h3 className="font-bold text-white text-base">No Businesses Found</h3>
-          <p className="text-xs text-slate-500 mt-1">Adjust search parameters or verify registration timeline.</p>
+        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+          <Building className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-bold text-foreground text-base">No Businesses Found</h3>
+          <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or verify registration timeline.</p>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="bg-slate-900/40 backdrop-blur border border-slate-800/80 rounded-3xl overflow-hidden">
+          <div className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-800 bg-slate-950/40 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <tr className="border-b border-border bg-background/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     <th className="px-6 py-4">Company Name</th>
                     <th className="px-6 py-4">Account Owner</th>
                     <th className="px-6 py-4">Created Date</th>
@@ -258,37 +258,37 @@ export default function BusinessesList() {
                     <th className="px-6 py-4 text-center">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800 text-xs font-semibold text-slate-300">
+                <tbody className="divide-y divide-border text-xs font-semibold text-muted-foreground">
                   {data.businesses.map((org: any) => (
-                    <tr key={org.id} className="hover:bg-slate-900/20 transition-colors">
+                    <tr key={org.id} className="hover:bg-card/20 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-slate-800 rounded-lg flex items-center justify-center shrink-0 border border-slate-700 text-indigo-400">
+                          <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center shrink-0 border border-border text-indigo-600 dark:text-indigo-400">
                             <Building className="h-4 w-4" />
                           </div>
                           <div>
-                            <span className="block font-bold text-white text-sm">{org.name}</span>
-                            <span className="block text-[10px] text-slate-500 font-mono">slug: {org.slug}</span>
+                            <span className="block font-bold text-foreground text-sm">{org.name}</span>
+                            <span className="block text-[10px] text-muted-foreground font-mono">slug: {org.slug}</span>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <User className="h-3.5 w-3.5 text-slate-500" />
+                          <User className="h-3.5 w-3.5 text-muted-foreground" />
                           <div>
-                            <span className="block text-slate-200">{org.owner?.name}</span>
-                            <span className="block text-[10px] text-slate-500">{org.owner?.email}</span>
+                            <span className="block text-foreground">{org.owner?.name}</span>
+                            <span className="block text-[10px] text-muted-foreground">{org.owner?.email}</span>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-[11px] text-slate-400">
+                      <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">
                         {formatDate(org.createdAt)}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="block text-slate-300 font-mono">{org.staffCount} Staff Members</span>
-                        <span className="block text-[10px] text-slate-500 font-mono">{org.transactionsCount} Checkouts</span>
+                        <span className="block text-muted-foreground font-mono">{org.staffCount} Staff Members</span>
+                        <span className="block text-[10px] text-muted-foreground font-mono">{org.transactionsCount} Checkouts</span>
                       </td>
-                      <td className="px-6 py-4 text-right font-mono font-bold text-emerald-400">
+                      <td className="px-6 py-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                         {formatCurrency(org.gmv)}
                       </td>
                       <td className="px-6 py-4">
@@ -296,10 +296,10 @@ export default function BusinessesList() {
                           variant="outline"
                           className={`border-none font-bold uppercase tracking-wider text-[10px] ${
                             org.status === "active"
-                              ? "bg-emerald-500/10 text-emerald-400"
+                              ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
                               : org.status === "trialing"
-                              ? "bg-amber-500/10 text-amber-400"
-                              : "bg-rose-500/10 text-rose-400"
+                              ? "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400"
+                              : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"
                           }`}
                         >
                           {org.status}
@@ -311,7 +311,7 @@ export default function BusinessesList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg text-xs"
+                              className="border-border text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg text-xs"
                               title="Audit Profile"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -322,7 +322,7 @@ export default function BusinessesList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-slate-800 text-rose-400 hover:text-white hover:bg-rose-950/40 rounded-lg text-xs"
+                              className="border-border text-rose-600 dark:text-rose-400 hover:text-foreground hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs"
                               onClick={() => handleOpenSuspend(org.id)}
                               title="Suspend Operation"
                             >
@@ -332,7 +332,7 @@ export default function BusinessesList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-slate-800 text-emerald-400 hover:text-white hover:bg-emerald-950/40 rounded-lg text-xs"
+                              className="border-border text-emerald-600 dark:text-emerald-400 hover:text-foreground hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg text-xs"
                               onClick={() => reactivateMutation.mutate(org.id)}
                               title="Reactivate Operation"
                             >
@@ -350,7 +350,7 @@ export default function BusinessesList() {
 
           {/* Table Pagination */}
           {data.pagination && data.pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between px-2 text-xs text-slate-400 select-none">
+            <div className="flex items-center justify-between px-2 text-xs text-muted-foreground select-none">
               <span>
                 Page {data.pagination.page} of {data.pagination.totalPages} ({data.pagination.total} total companies)
               </span>
@@ -358,7 +358,7 @@ export default function BusinessesList() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-slate-800 text-slate-300 hover:bg-slate-900 rounded-xl"
+                  className="border-border text-muted-foreground hover:bg-card rounded-xl"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
                 >
@@ -367,7 +367,7 @@ export default function BusinessesList() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-slate-800 text-slate-300 hover:bg-slate-900 rounded-xl"
+                  className="border-border text-muted-foreground hover:bg-card rounded-xl"
                   onClick={() => setPage((p) => Math.min(data.pagination.totalPages, p + 1))}
                   disabled={page === data.pagination.totalPages}
                 >
@@ -381,27 +381,27 @@ export default function BusinessesList() {
 
       {/* Suspension Reasons Dialog */}
       <Dialog open={showSuspensionDialog} onOpenChange={setShowSuspensionDialog}>
-        <DialogContent className="bg-slate-900 border border-slate-800 text-slate-300 max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
           <DialogHeader className="space-y-3">
-            <div className="mx-auto w-12 h-12 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center justify-center">
-              <Ban className="h-6 w-6 text-rose-400 animate-pulse" />
+            <div className="mx-auto w-12 h-12 bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 rounded-2xl flex items-center justify-center">
+              <Ban className="h-6 w-6 text-rose-600 dark:text-rose-400 animate-pulse" />
             </div>
-            <DialogTitle className="text-center text-lg font-bold text-white">
+            <DialogTitle className="text-center text-lg font-bold text-foreground">
               Suspend Business Account
             </DialogTitle>
-            <DialogDescription className="text-center text-xs text-slate-400">
+            <DialogDescription className="text-center text-xs text-muted-foreground">
               Suspension immediately invalidates all active user sessions for the organization and blocks standard API access.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 my-4">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suspension Reason Code</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suspension Reason Code</Label>
               <Select value={suspensionReason} onValueChange={setSuspensionReason}>
-                <SelectTrigger className="bg-slate-950/60 border-slate-800 text-white rounded-xl">
+                <SelectTrigger className="bg-background/60 border-border text-foreground rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                <SelectContent className="bg-card border-border text-muted-foreground">
                   <SelectItem value="policy_violation">Policy Violation (Terms of Service)</SelectItem>
                   <SelectItem value="non_payment">Non Payment of Subscription Fees</SelectItem>
                   <SelectItem value="fraudulent_activity">Fraudulent / Suspicious Activity</SelectItem>
@@ -413,10 +413,10 @@ export default function BusinessesList() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Compliance & Audit Notes</Label>
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Compliance & Audit Notes</Label>
               <Textarea
                 placeholder="Provide detailed context for this administrative override..."
-                className="bg-slate-950/60 border-slate-800 text-white rounded-xl min-h-[90px] focus:border-rose-500/80 focus:ring-rose-500/20"
+                className="bg-background/60 border-border text-foreground rounded-xl min-h-[90px] focus:border-rose-500/80 focus:ring-rose-500/20"
                 value={suspensionNote}
                 onChange={(e) => setSuspensionNote(e.target.value)}
               />
@@ -426,7 +426,7 @@ export default function BusinessesList() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              className="rounded-xl border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded-xl border-border text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setShowSuspensionDialog(false)}
             >
               Cancel

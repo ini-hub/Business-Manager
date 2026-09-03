@@ -33,7 +33,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, gt, count, desc, sql, inArray } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
@@ -48,6 +48,7 @@ import { explainCommission } from "@shared/commission-explainer";
 import { payrollSettlementService } from "../services/PayrollSettlementService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withExpenseId } from '../utils/slug-resolver';
+import { requireFeature, hasFeature } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -280,12 +281,32 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  // Calculate (or recalculate) payroll for a period
+  // Calculate (or recalculate) payroll for a period. Fixed-pay stays free
+  // regardless of the Financial Management bundle (FAC-7) - only gated when
+  // the store actually has staff on Hybrid/Commission pay, since those are
+  // the only payment methods the bundle prices.
   app.post("/api/payroll/periods/:id/calculate", requireManagerOrOwner, async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
+
+      const [nonFixedStaff] = await db
+        .select({ id: staff.id })
+        .from(staff)
+        .where(and(eq(staff.storeId, period.storeId), eq(staff.isArchived, false), inArray(staff.paymentMethod, ["hybrid", "commission"])))
+        .limit(1);
+      if (nonFixedStaff) {
+        const businessId = (req as any).user?.businessId;
+        if (!businessId || !(await hasFeature(businessId, "financial_management"))) {
+          return res.status(402).json({
+            error: "feature_not_purchased",
+            featureKey: "financial_management",
+            message: "This store has staff on Hybrid or Commission pay - add the Financial Management add-on to calculate their payroll. Fixed-pay staff stay free.",
+          });
+        }
+      }
+
       const userId = (req as any).user?.id;
       const entries = await storage.calculatePayrollForPeriod(req.params.id);
       auditLogger.log({ action: "PAYROLL_PERIOD_CALCULATE", resource: "payroll_period", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id } });
@@ -909,7 +930,10 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/expenses", requireManagerOrOwner, async (req, res) => {
+  // requireFeature gates the Financial Management bundle (FAC-7) on mutating
+  // expense routes only - GET stays open so already-recorded expenses remain
+  // readable if the bundle is later removed (FAC-8 soft-lock).
+  app.post("/api/expenses", requireManagerOrOwner, requireFeature("financial_management"), async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -955,7 +979,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.patch("/api/expenses/:id", withExpenseId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/expenses/:id", withExpenseId, requireManagerOrOwner, requireFeature("financial_management"), async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -1020,7 +1044,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.delete("/api/expenses/:id", withExpenseId, requireRole("owner"), async (req, res) => {
+  app.delete("/api/expenses/:id", withExpenseId, requireRole("owner"), requireFeature("financial_management"), async (req, res) => {
     try {
       const [existing] = await db.select().from(expenses).where(eq(expenses.id, req.params.id));
       await storage.deleteExpense(req.params.id);

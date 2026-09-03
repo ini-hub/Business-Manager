@@ -37,6 +37,7 @@ import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { isOrgTrialing } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
+import { requireFeature } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -48,7 +49,9 @@ export type RouteMiddlewares = {
 export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== PROFIT & LOSS ==========
 
-  app.get("/api/profit-loss", requireManagerOrOwner, async (req, res) => {
+  // requireFeature gates the Financial Management bundle (FAC-7): P&L,
+  // Expenses, and Hybrid/Commission payroll ship together as one purchase.
+  app.get("/api/profit-loss", requireManagerOrOwner, requireFeature("financial_management"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) {
@@ -64,7 +67,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
-  app.get("/api/profit-loss/summary", requireRole("owner"), async (req, res) => {
+  app.get("/api/profit-loss/summary", requireRole("owner"), requireFeature("financial_management"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const businessId = req.query.businessId as string;

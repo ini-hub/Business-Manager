@@ -42,6 +42,7 @@ import { isTrialExpired } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
+import { requireCountLimit } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -264,7 +265,10 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.post("/api/stores", requireRole("owner"), async (req, res) => {
+  // requireCountLimit gates the 1-free-store tier (§1): each additional
+  // store needs the store_addon entitlement. See the matching comment on
+  // POST /api/staff in server/routes/staff.routes.ts.
+  app.post("/api/stores", requireRole("owner"), requireCountLimit("store_count"), async (req, res) => {
     try {
       const userBusinessId = (req as any).user?.businessId;
       if (!userBusinessId) {
@@ -364,6 +368,64 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
+  // Archive a store: hides it (excluded from the store switcher) without
+  // touching its customers/staff/inventory - the low-friction default for
+  // "we don't use this branch anymore." Mirrors the staff archive pattern.
+  app.post("/api/stores/:id/archive", requireRole("owner"), async (req, res) => {
+    try {
+      const store = await storage.getStore(req.params.id);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
+      }
+
+      const activeStoreCount = await storage.countActiveStores(store.businessId);
+      if (store.isActive && activeStoreCount <= 1) {
+        return res.status(400).json({
+          error: "You must have at least one active store. Please create another store before archiving this one."
+        });
+      }
+
+      const archived = await storage.archiveStore(req.params.id);
+      if (!archived) {
+        return res.status(500).json({ error: "We couldn't archive the store. Please try again." });
+      }
+      const ctx = await getAuditContext(req, { storeId: req.params.id });
+      auditLogger.logEvent(ctx, "ARCHIVE", "store", req.params.id, "success", { previousValues: store, newValues: archived });
+      res.json(archived);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't archive the store. Please try again." });
+    }
+  });
+
+  // Restore an archived store.
+  app.post("/api/stores/:id/restore", requireRole("owner"), async (req, res) => {
+    try {
+      const store = await storage.getStore(req.params.id);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
+      }
+
+      const restored = await storage.restoreStore(req.params.id);
+      if (!restored) {
+        return res.status(500).json({ error: "We couldn't restore the store. Please try again." });
+      }
+      const ctx = await getAuditContext(req, { storeId: req.params.id });
+      auditLogger.logEvent(ctx, "RESTORE", "store", req.params.id, "success", { previousValues: store, newValues: restored });
+      res.json(restored);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't restore the store. Please try again." });
+    }
+  });
+
+  // Permanently delete an archived store. Rarer than archiving - still blocked
+  // while the store has customers, staff, or inventory, since those aren't
+  // safe to cascade-delete.
   app.delete("/api/stores/:id", requireRole("owner"), async (req, res) => {
     try {
       const store = await storage.getStore(req.params.id);
@@ -374,9 +436,13 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(403).json({ error: "Unauthorized access to store data." });
       }
 
+      if (store.isActive) {
+        return res.status(400).json({ error: "Only archived stores can be permanently deleted." });
+      }
+
       const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, req.params.id));
       const inventoryCount = await db.select({ count: count() }).from(inventory).where(eq(inventory.storeId, req.params.id));
-      
+
       const staffList = await storage.getStaffList(req.params.id);
       const nonOwnerStaff = staffList.filter(s => s.userId !== (req as any).user?.id && s.email !== (req as any).user?.email);
 
@@ -390,6 +456,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!deleted) {
         return res.status(500).json({ error: "We couldn't delete the store. Please try again." });
       }
+      const ctx = await getAuditContext(req, { storeId: req.params.id });
+      auditLogger.logEvent(ctx, "PERMANENT_DELETE", "store", req.params.id, "success", { previousValues: store });
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't delete the store. Please try again." });
@@ -615,7 +683,9 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.post("/api/customers", async (req, res) => {
+  // requireCountLimit gates the 50-free-customer tier (FAC-6): see the
+  // matching comment on POST /api/staff in server/routes/staff.routes.ts.
+  app.post("/api/customers", requireCountLimit("customer_count"), async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,

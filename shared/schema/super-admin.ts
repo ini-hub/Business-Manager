@@ -15,10 +15,18 @@ export const superAdmins = pgTable("super_admins", {
   mfaSecret: text("mfa_secret"),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   role: text("role").notNull().default("ops_manager"), // 'super_admin', 'ops_manager', 'support_agent', 'finance_admin'
-  status: text("status").notNull().default("active"), // 'active', 'suspended'
+  status: text("status").notNull().default("active"), // 'active', 'suspended', 'invited' (see migrations/0047_super_admin_invites.sql)
   otpCode: text("otp_code"),
   otpExpiry: timestamp("otp_expiry"),
   otpAttempts: integer("otp_attempts").notNull().default(0),
+  // Invite-onboarding fields (migration 0047), mirroring users.activationCode*
+  // in shared/schema/auth.ts. Set on creation, cleared once the invitee has
+  // both set their password and paired their own TOTP secret.
+  activationCode: text("activation_code"),
+  activationCodeExpiry: timestamp("activation_code_expiry"),
+  activationCodeUsed: boolean("activation_code_used").notNull().default(false),
+  resendAttempts: integer("resend_attempts").notNull().default(0),
+  resendWindowStart: timestamp("resend_window_start"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at"),
 });

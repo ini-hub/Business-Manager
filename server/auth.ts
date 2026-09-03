@@ -52,6 +52,28 @@ export function verifyOrgSelectToken(token: string): { userId: string } | undefi
   }
 }
 
+// Minted instead of the real jwt_token when set-activated-password (or a
+// later login) finds a staff member's contract still awaiting a signature.
+// Deliberately a distinct cookie name/claim shape verified by its own
+// function, never generateToken/verifyToken, so it can never satisfy
+// isAuthenticated (or anything downstream of it) even by accident - see
+// requireContractPendingToken below. Short-lived: this token only exists to
+// get the person from "just set a password" to "signed the contract",
+// nothing more.
+export function generateContractPendingToken(userId: string, staffContractId: string): string {
+  return jwt.sign({ userId, staffContractId, action: "contract_pending" }, JWT_SECRET_VALUE, { expiresIn: "1h" });
+}
+
+export function verifyContractPendingToken(token: string): { userId: string; staffContractId: string } | undefined {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
+    if (decoded?.action !== "contract_pending" || !decoded.userId || !decoded.staffContractId) return undefined;
+    return { userId: decoded.userId, staffContractId: decoded.staffContractId };
+  } catch (error) {
+    return undefined;
+  }
+}
+
 export function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
   if (!cookieHeader) return list;
@@ -114,6 +136,23 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   return next();
 };
 
+// Gates the self-service contract review/sign/decline routes
+// (server/routes/contract.routes.ts). Reads the contract_pending_token
+// cookie set by set-activated-password / login when a signature is
+// outstanding, and attaches req.contractSession - never req.user. That is
+// the whole point: this token must stay structurally incapable of passing
+// isAuthenticated or any business-route access check, even by accident.
+export const requireContractPendingToken: RequestHandler = async (req, res, next) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies.contract_pending_token;
+  const claims = token ? verifyContractPendingToken(token) : undefined;
+  if (!claims) {
+    return res.status(401).json({ error: "Your session to review this contract has expired. Please log in again." });
+  }
+  (req as any).contractSession = claims;
+  return next();
+};
+
 // Paths that must stay reachable even for a locked org: /api/auth (so login,
 // logout, and switching to a different, unlocked business keep working),
 // /api/billing (plans/subscribe/cancel, so an owner can actually pay to
@@ -122,8 +161,12 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
 // /api/business (so the client can fetch the record that tells it the org
 // is locked and render the paywall/paused screen in the first place), and
 // /api/admin (a wholly separate operator auth system that never sets
-// req.user.businessId, kept here only as defense in depth).
-const ORG_LOCK_EXEMPT_PREFIXES = ["/api/auth", "/api/billing", "/api/support", "/api/admin"];
+// req.user.businessId, kept here only as defense in depth). /api/contract
+// (self-service contract review/sign/decline) never sets req.user at all
+// (see requireContractPendingToken above), so this is belt-and-suspenders
+// rather than load-bearing, but keeps the exemption list an honest map of
+// every pre-full-auth route family.
+const ORG_LOCK_EXEMPT_PREFIXES = ["/api/auth", "/api/billing", "/api/support", "/api/admin", "/api/contract"];
 const ORG_LOCK_EXEMPT_PATHS = new Set(["/api/business", "/api/health"]);
 
 function isOrgLockExempt(path: string): boolean {

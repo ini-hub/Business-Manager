@@ -14,6 +14,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
 import { PageHeader } from "@/components/page-header";
+import { BackToSettingsButton } from "@/components/settings-back-button";
 import { MetricCard } from "@/components/metric-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -228,6 +229,7 @@ export default function TaxesCompliancePage() {
         <PageHeader
           title="Taxes & Compliance"
           description="Establish VAT, sales, and localized service tax rates to guarantee fiscal compliance."
+          actions={<BackToSettingsButton />}
         />
         <StoreRequiredAlert title="Store Required for Taxes & Compliance" />
       </div>
@@ -316,6 +318,7 @@ export default function TaxesCompliancePage() {
         description="Configure VAT levels, automate checkout surcharge calculations, and audit monthly tax logs."
         actions={
           <div className="flex items-center gap-2">
+            <BackToSettingsButton />
             <BulkOperations
               entityConfig={TAX_RATE_BULK_CONFIG}
               data={taxRatesWithStatus as unknown as Record<string, unknown>[]}

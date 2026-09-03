@@ -39,6 +39,7 @@ import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { payrollPostingService } from "../services/PayrollPostingService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { requireFeature } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -121,7 +122,11 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
   // ========== REPORTS ==========
-  app.get("/api/reports/staff-performance", requireManagerOrOwner, async (req, res) => {
+  // Gated on the GET itself, unlike most requireFeature uses - staff
+  // performance tracking is a computed report with no underlying owned
+  // records to keep readable after removal (unlike P&L/Expenses), so there
+  // is no mutating route to gate instead.
+  app.get("/api/reports/staff-performance", requireManagerOrOwner, requireFeature("staff_performance_tracking"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const startDate = req.query.startDate as string | undefined;
@@ -168,7 +173,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Staff performance breakdown (services + products per staff member)
-  app.get("/api/reports/staff-performance/:staffId/breakdown", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/staff-performance/:staffId/breakdown", requireManagerOrOwner, requireFeature("staff_performance_tracking"), async (req, res) => {
     try {
       const { staffId } = req.params;
       const storeId = req.query.storeId as string;
@@ -548,7 +553,9 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/attendance/punch", isAuthenticated, async (req, res) => {
+  // Self check-in is the paid option (§1) - Attendance recorded by a manager
+  // (the /punch/proxy route below) stays free and ungated.
+  app.post("/api/attendance/punch", isAuthenticated, requireFeature("self_check_in"), async (req, res) => {
     try {
       const staffRecord = await resolveOwnStaff(req, res, req.body?.storeId as string | undefined);
       if (!staffRecord) return;

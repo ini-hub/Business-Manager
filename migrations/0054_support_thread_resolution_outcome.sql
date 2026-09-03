@@ -1,0 +1,19 @@
+-- A suspension-reason support thread (GENUINE_SUSPENSION_REASONS in
+-- shared/schema/support.ts: 'policy_violation', 'fraudulent_activity',
+-- 'owner_request', 'inactivity', 'other') being marked "resolved" used to say
+-- nothing about whether the business's actual suspension was lifted. Two
+-- explicit outcomes replace that ambiguity for these threads:
+--
+--   'reactivated'        - resolved because the linked business was
+--                          unsuspended in the same action, or already had
+--                          been via the standalone businesses/:id/reactivate
+--                          endpoint auto-resolving any open thread for the org.
+--   'suspension_upheld'  - resolved with the business deliberately left
+--                          suspended; only reachable after the admin has sent
+--                          at least one reply in the thread (enforced in
+--                          server/routes-admin.ts, not here).
+--
+-- Null for every other thread ('general'/'trial_expired'/'non_payment', still
+-- resolved via the plain toggle) and for every thread resolved before this
+-- shipped - no backfill, they just render with the legacy look.
+ALTER TABLE support_threads ADD COLUMN IF NOT EXISTS resolution_outcome text;

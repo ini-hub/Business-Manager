@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { plans, subscriptions, subscriptionPayments } from "@shared/schema";
 import { storage } from "../storage";
 import {
@@ -11,6 +11,8 @@ import {
   verifyWebhookSignature,
 } from "../lib/paystack";
 import { createPendingPayment, activateSuccessfulPayment, planPrice } from "../lib/billing";
+import { getOrgEntitlements, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, getCountLimitStatus } from "../lib/entitlements";
+import { featureCatalog } from "@shared/schema";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -49,6 +51,22 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
     }
   });
 
+  // ========== FEATURE CATALOG (what a business can add on) ==========
+  // Business-authenticated, not owner-only - a manager can browse what's
+  // available even though only an owner can check out (UAC-2), same as
+  // reading /api/billing/subscription today.
+  app.get("/api/billing/feature-catalog", async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.businessId) return res.status(401).json({ error: "Authentication required." });
+      const list = await db.select().from(featureCatalog).where(eq(featureCatalog.isActive, true)).orderBy(featureCatalog.sortOrder);
+      res.json(list);
+    } catch (error) {
+      console.error("GET /api/billing/feature-catalog error:", error);
+      res.status(500).json({ error: "We couldn't load available add-ons. Please try again." });
+    }
+  });
+
   // ========== CURRENT SUBSCRIPTION ==========
   app.get("/api/billing/subscription", async (req, res) => {
     try {
@@ -67,12 +85,56 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
     }
   });
 
+  // ========== PAYMENT HISTORY (business-end billing review, New-FAC-6) ==========
+  // Read-only, business-authenticated (not owner-only) - a manager can audit
+  // spend without needing to touch checkout, same access level as reading
+  // /api/entitlements and /api/billing/subscription today.
+  app.get("/api/billing/payments", async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.businessId) return res.status(401).json({ error: "Authentication required." });
+
+      const payments = await db
+        .select()
+        .from(subscriptionPayments)
+        .where(eq(subscriptionPayments.organisationId, user.businessId))
+        .orderBy(desc(subscriptionPayments.createdAt));
+
+      res.json(payments);
+    } catch (error) {
+      console.error("GET /api/billing/payments error:", error);
+      res.status(500).json({ error: "We couldn't load your payment history. Please try again." });
+    }
+  });
+
   // ========== SUBSCRIBE (start checkout) ==========
+  // featureKeys rides on the same checkout as the base plan (§2.6, decision
+  // 1: consolidated billing) - one Paystack charge for base + every selected
+  // add-on, never a second checkout flow for add-ons (FAC-4).
+  //
+  // planId is optional: the app no longer asks anyone to choose a plan tier
+  // (requirements plan §4) - the feature catalog is the only checkout
+  // surface now, so an omitted planId resolves to the one implicit ₦0
+  // "default" plan server-side, purely to satisfy subscriptions.planId's FK.
   const subscribeSchema = z.object({
-    planId: z.string(),
+    planId: z.string().optional(),
     billingCycle: z.enum(["monthly", "annual"]).default("monthly"),
     provider: z.enum(["paystack", "stripe", "flutterwave"]).default("paystack"),
+    featureKeys: z.array(z.string()).optional().default([]),
+    // Where to send the user back to after Paystack, success or failure -
+    // see billing-callback.tsx. Validated below: must be a same-origin
+    // relative path, never an absolute/protocol-relative URL (open-redirect
+    // risk riding on a payment callback).
+    returnTo: z.string().optional(),
   });
+
+  function sanitizeReturnTo(returnTo: string | undefined): string | undefined {
+    if (!returnTo) return undefined;
+    if (!returnTo.startsWith("/")) return undefined;
+    if (returnTo.startsWith("//")) return undefined;
+    if (returnTo.includes("://")) return undefined;
+    return returnTo;
+  }
 
   app.post("/api/billing/subscribe", requireRole("owner"), async (req, res) => {
     try {
@@ -84,15 +146,17 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
           `${data.provider} isn't connected yet. Paystack is the only active payment channel right now.`
         );
       }
-      if (!isPaystackConfigured()) {
+      if (!(await isPaystackConfigured())) {
         throw new BillingNotConfiguredError(
           "Payment processing isn't connected yet for this account. Please contact support to activate your subscription."
         );
       }
 
-      const [plan] = await db.select().from(plans).where(eq(plans.id, data.planId));
+      const [plan] = data.planId
+        ? await db.select().from(plans).where(eq(plans.id, data.planId))
+        : await db.select().from(plans).where(eq(plans.isDefault, true));
       if (!plan || !plan.isActive) {
-        return res.status(404).json({ error: "That plan is no longer available." });
+        return res.status(404).json({ error: data.planId ? "That plan is no longer available." : "No default plan is configured. Please contact support." });
       }
 
       let email = user.email as string | undefined;
@@ -104,7 +168,28 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         return res.status(400).json({ error: "Add an email address to your account before subscribing." });
       }
 
-      const amount = planPrice(plan, data.billingCycle);
+      let addOnTotal = 0;
+      const featureBreakdown: { key: string; name: string; price: number }[] = [];
+      if (data.featureKeys.length > 0) {
+        const depsCheck = await validatePurchaseDependencies(user.businessId, data.featureKeys);
+        if (!depsCheck.ok) return res.status(400).json({ error: depsCheck.message });
+
+        const rows = await db.select().from(featureCatalog).where(inArray(featureCatalog.key, data.featureKeys));
+        if (rows.length !== data.featureKeys.length) {
+          return res.status(404).json({ error: "One or more selected features are no longer available." });
+        }
+        for (const row of rows) {
+          if (row.tierType === "bundle_child") {
+            return res.status(400).json({ error: `"${row.name}" is only available as part of its bundle - purchase the bundle instead.` });
+          }
+          if (!row.isActive) return res.status(404).json({ error: `"${row.name}" isn't available for purchase right now.` });
+          const price = Number(data.billingCycle === "annual" ? row.priceAnnual : row.priceMonthly) || 0;
+          addOnTotal += price;
+          featureBreakdown.push({ key: row.key, name: row.name, price });
+        }
+      }
+
+      const amount = planPrice(plan, data.billingCycle) + addOnTotal;
       const payment = await createPendingPayment({
         organisationId: user.businessId,
         planId: plan.id,
@@ -114,16 +199,21 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         currency: plan.currency,
         billingCycle: data.billingCycle,
         initiatedByUserId: user.id,
+        featureKeys: data.featureKeys,
+        planSnapshot: { name: plan.name, price: planPrice(plan, data.billingCycle) },
+        featureBreakdown,
       });
 
       try {
+        const returnTo = sanitizeReturnTo(data.returnTo);
+        const callbackUrl = `${req.protocol}://${req.get("host")}/billing/callback${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`;
         const { authorizationUrl } = await initializeTransaction({
           email,
           amountKobo: Math.round(amount * 100),
           reference: payment.reference,
-          callbackUrl: `${req.protocol}://${req.get("host")}/billing/callback`,
+          callbackUrl,
           currency: plan.currency,
-          metadata: { organisationId: user.businessId, planId: plan.id, billingCycle: data.billingCycle },
+          metadata: { organisationId: user.businessId, planId: plan.id, billingCycle: data.billingCycle, featureKeys: data.featureKeys },
         });
         res.json({ authorizationUrl, reference: payment.reference });
       } catch (providerError) {
@@ -179,6 +269,57 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
     }
   });
 
+  // ========== ENTITLEMENTS (which features + limits this org has) ==========
+  // Sibling of /subscription rather than its own route file - entitlements
+  // are a billing concern (§2.4). Drives client/src/hooks/useEntitlements.ts.
+  app.get("/api/entitlements", async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.businessId) return res.status(401).json({ error: "Authentication required." });
+
+      const [granted, purchased, staffSeats, customerCount, storeCount] = await Promise.all([
+        getOrgEntitlements(user.businessId),
+        getOrgPurchasedFeatures(user.businessId),
+        getCountLimitStatus(user.businessId, "staff_seats"),
+        getCountLimitStatus(user.businessId, "customer_count"),
+        getCountLimitStatus(user.businessId, "store_count"),
+      ]);
+
+      res.json({
+        features: Array.from(granted),
+        // Subset of `features` that's actually been purchased (or is free),
+        // never inflated by the trial blanket grant - see getOrgPurchasedFeatures.
+        purchasedFeatures: Array.from(purchased),
+        limits: { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount },
+      });
+    } catch (error) {
+      console.error("GET /api/entitlements error:", error);
+      res.status(500).json({ error: "We couldn't load your plan's features. Please try again." });
+    }
+  });
+
+  // ========== REMOVE A FEATURE (owner-initiated downgrade) ==========
+  // Mirrors /cancel below: stays usable through the current paid cycle
+  // (FAC-8), not an instant cutoff.
+  app.post("/api/billing/features/:featureKey/remove", requireRole("owner"), async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const feature = await getFeatureByKey(req.params.featureKey);
+      if (!feature) return res.status(404).json({ error: "Unknown feature." });
+
+      const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.organisationId, user.businessId));
+      const removalEffectiveAt = subscription?.currentPeriodEnd ?? new Date();
+
+      const outcome = await scheduleFeatureRemoval(user.businessId, req.params.featureKey, removalEffectiveAt);
+      if (!outcome.ok) return res.status(400).json({ error: outcome.message });
+
+      res.json({ success: true, featureKey: req.params.featureKey, usableUntil: removalEffectiveAt });
+    } catch (error) {
+      console.error("POST /api/billing/features/:featureKey/remove error:", error);
+      res.status(500).json({ error: "We couldn't remove this feature. Please try again." });
+    }
+  });
+
   // ========== CANCEL ==========
   app.post("/api/billing/cancel", requireRole("owner"), async (req, res) => {
     try {
@@ -216,7 +357,7 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
     try {
       const signature = req.headers["x-paystack-signature"] as string | undefined;
       const rawBody = (req as any).rawBody as Buffer;
-      if (!verifyWebhookSignature(rawBody, signature)) {
+      if (!(await verifyWebhookSignature(rawBody, signature))) {
         console.warn("[Billing webhook] Invalid Paystack signature - rejecting.");
         return res.status(401).json({ error: "Invalid signature" });
       }

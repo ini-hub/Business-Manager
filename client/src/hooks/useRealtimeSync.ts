@@ -30,6 +30,7 @@ const RESOURCE_KEYS: Record<string, string[]> = {
   credit:           ["/api/credit"],
   booking:          ["/api/bookings"],
   support:          ["/api/support/thread", "/api/support/threads"],
+  business:         ["/api/business"],
 };
 
 export function useRealtimeSync(): void {

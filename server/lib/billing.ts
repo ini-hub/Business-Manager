@@ -13,6 +13,7 @@ import {
   type Plan,
 } from "@shared/schema";
 import { chargeAuthorization } from "./paystack";
+import { grantFeatureEntitlement, getActiveFeaturePricing } from "./entitlements";
 
 /** The account owner's name + email on file for an org - used to attribute renewal charges and send owner-facing notices. */
 export async function getOwnerContact(organisationId: string): Promise<{ name: string | null; email: string } | undefined> {
@@ -56,6 +57,12 @@ export async function createPendingPayment(args: {
   billingCycle: string;
   subscriptionId?: string;
   initiatedByUserId?: string;
+  featureKeys?: string[];
+  // What this charge actually priced in, frozen at this moment - plans and
+  // features can reprice later, but this payment's own record never should.
+  // See shared/schema/organisations.ts's subscriptionPayments.planSnapshot.
+  planSnapshot?: { name: string; price: number };
+  featureBreakdown?: { key: string; name: string; price: number }[];
 }) {
   const reference = generatePaymentReference(args.organisationId);
   const [payment] = await db
@@ -72,6 +79,9 @@ export async function createPendingPayment(args: {
       billingCycle: args.billingCycle,
       status: "pending",
       initiatedByUserId: args.initiatedByUserId ?? null,
+      featureKeys: args.featureKeys && args.featureKeys.length > 0 ? args.featureKeys : null,
+      planSnapshot: args.planSnapshot ?? null,
+      featureBreakdown: args.featureBreakdown && args.featureBreakdown.length > 0 ? args.featureBreakdown : null,
     })
     .returning();
   return payment;
@@ -152,6 +162,19 @@ export async function activateSuccessfulPayment(
     .set({ status: "success", providerResponse: paystackData, verifiedAt: now, subscriptionId })
     .where(eq(subscriptionPayments.id, paymentId));
 
+  // Grant (or refresh) an entitlement for every add-on this charge covers -
+  // one consolidated Paystack charge for base plan + add-ons together (§2.6
+  // of the pay-per-feature plan). Idempotent, so the webhook/client-verify
+  // double-fire this function already tolerates is safe here too.
+  for (const featureKey of payment.featureKeys ?? []) {
+    await grantFeatureEntitlement({
+      organisationId: payment.organisationId,
+      featureKey,
+      source: "purchased",
+      subscriptionPaymentId: paymentId,
+    });
+  }
+
   const [org] = await db.select().from(organisations).where(eq(organisations.id, payment.organisationId));
   if (org) {
     await db
@@ -215,7 +238,11 @@ export async function maybeProcessDueRenewal(
   const [org] = await db.select().from(organisations).where(eq(organisations.id, business.id));
   if (!org) return;
 
-  const amount = planPrice(plan, claimed.billingCycle as "monthly" | "annual");
+  // Add-ons renew together with the base plan, on its cycle, in one charge -
+  // never a separate billing date per feature (§2.6, decision 1).
+  const cycle = claimed.billingCycle as "monthly" | "annual";
+  const addOns = await getActiveFeaturePricing(claimed.organisationId, cycle);
+  const amount = planPrice(plan, cycle) + addOns.reduce((sum, a) => sum + a.price, 0);
   const payment = await createPendingPayment({
     organisationId: claimed.organisationId,
     planId: claimed.planId,
@@ -225,6 +252,9 @@ export async function maybeProcessDueRenewal(
     currency: plan.currency,
     billingCycle: claimed.billingCycle,
     subscriptionId: claimed.id,
+    featureKeys: addOns.map((a) => a.featureKey),
+    planSnapshot: { name: plan.name, price: planPrice(plan, cycle) },
+    featureBreakdown: addOns.map((a) => ({ key: a.featureKey, name: a.name, price: a.price })),
   });
 
   try {

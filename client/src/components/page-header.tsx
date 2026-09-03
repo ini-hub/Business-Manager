@@ -300,6 +300,19 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
   if (location.startsWith("/payroll/")) guidePath = "/payroll";
   if (location.startsWith("/sales/new")) guidePath = "/new-sale";
   if (location.startsWith("/settings/stores")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/roles")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/business")) guidePath = "/settings-stores";
+  // /settings/taxes and /settings/promotions are real routes again (each
+  // used to be a tab folded into /settings/store-settings, keyed off a
+  // ?tab= query param) and already match a PAGE_GUIDES key 1:1, so no
+  // override is needed for them - only the remaining store-scoped settings
+  // pages, which share the general Store Settings guide.
+  if (location.startsWith("/settings/store-settings")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/store-details")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/attendance")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/credit-sales")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/payment-integrations")) guidePath = "/settings-stores";
+  if (location.startsWith("/settings/bulk-operations")) guidePath = "/settings-stores";
   if (location.startsWith("/customers/")) guidePath = "/customers";
   // /staffs/* is the admin roster+attendance area; /staffs/performance gets
   // its own, more specific guide below and must be checked after this one so
@@ -307,8 +320,6 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
   // dedicated guide — same as before this rename, when it fell outside the
   // "/staff/" prefix's own guide too.
   if (location === "/staffs" || location.startsWith("/staffs/")) guidePath = "/staffs";
-  if (location.startsWith("/settings/taxes")) guidePath = "/settings/taxes";
-  if (location.startsWith("/settings/promotions")) guidePath = "/settings/promotions";
   if (location.startsWith("/staffs/performance")) guidePath = "/staffs/performance";
   if (location.startsWith("/reports/service-profitability")) guidePath = "/reports/service-profitability";
 

@@ -11,6 +11,7 @@ import { canRestoreWriteOff } from "../lib/creditBalance";
 import { getStoreTimezone } from "../lib/dateUtils";
 import { auditLogger } from "../audit";
 import { broadcastChange, getClientIp } from "../routes/helpers";
+import { requireFeature } from "../lib/entitlements";
 
 /**
  * Staff debt is recovered from payroll, so any move on a staff member's debt
@@ -31,11 +32,11 @@ export class CreditController extends BaseController {
   public register(router: Router): void {
     router.get("/credit/summary", isAuthenticated, this.getCreditSummary.bind(this));
     router.get("/credit/ledger", isAuthenticated, this.getCreditLedger.bind(this));
-    router.post("/credit/entries", isAuthenticated, this.createCreditEntry.bind(this));
-    router.post("/credit/entries/bulk", isAuthenticated, this.bulkImportCreditEntries.bind(this));
+    router.post("/credit/entries", isAuthenticated, requireFeature("credit_sale"), this.createCreditEntry.bind(this));
+    router.post("/credit/entries/bulk", isAuthenticated, requireFeature("credit_sale"), this.bulkImportCreditEntries.bind(this));
     router.post("/credit/entries/:id/repayments", isAuthenticated, this.createRepayment.bind(this));
     router.get("/credit/entries/:id/repayments", isAuthenticated, this.getRepayments.bind(this));
-    router.post("/credit/entries/:id/reminders", isAuthenticated, this.sendReminder.bind(this));
+    router.post("/credit/entries/:id/reminders", isAuthenticated, requireFeature("credit_recall_reminders"), this.sendReminder.bind(this));
     router.get("/credit/entries/:id/reminders", isAuthenticated, this.getReminderLogs.bind(this));
     router.post("/credit/entries/:id/write-off", isAuthenticated, this.writeOffDebt.bind(this));
     router.post("/credit/entries/:id/restore-write-off", isAuthenticated, this.restoreWriteOff.bind(this));

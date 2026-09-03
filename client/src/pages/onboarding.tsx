@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { apiRequest } from "@/lib/queryClient";
+import { getUserFriendlyError } from "@/lib/error-utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -12,8 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight, Upload } from "lucide-react";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
+import { uploadContractFileToStaging } from "@/lib/contract-upload";
 
 // Fire-and-forget funnel instrumentation - never blocks the wizard on failure.
 function logFunnelEvent(eventName: string, metadata?: Record<string, unknown>) {
@@ -78,8 +82,10 @@ export default function OnboardingWizard() {
 
   const storeMutation = useMutation({
     mutationFn: async (data: z.infer<typeof storeSchema>) => {
+      // apiRequest already throws a proper Error (the server's message on
+      // .message) for any non-2xx response - no need to re-check res.ok or
+      // re-parse the body here.
       const res = await apiRequest("POST", "/api/stores", { ...data, businessId: (user as any)?.businessId });
-      if (!res.ok) throw await res.json();
       return res.json();
     },
     onSuccess: (store) => {
@@ -88,7 +94,7 @@ export default function OnboardingWizard() {
       toast({ title: "Store created!", description: `${store.name} is ready.` });
       setStep(2);
     },
-    onError: (err: any) => toast({ title: "Failed to create store", description: err.error || "Please try again.", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Failed to create store", description: getUserFriendlyError(error, "store"), variant: "destructive" }),
   });
 
   // ── Step 2: Staff ──────────────────────────────────────────────────────────
@@ -98,15 +104,24 @@ export default function OnboardingWizard() {
     defaultValues: { name: "", email: "", mobileNumber: "", countryCode: "+234", role: "staff", payPerMonth: 0 },
   });
 
+  // Optional contract, attached inline the same way as the standalone New
+  // Staff form (client/src/pages/staff-form.tsx) - see
+  // uploadContractFileToStaging for why file/image uploads work here even
+  // though no staffId exists yet at this point in the wizard.
+  const [contractType, setContractType] = useState<"none" | "text" | "file" | "image">("none");
+  const [contractText, setContractText] = useState("");
+  const [contractAltText, setContractAltText] = useState("");
+  const [contractFile, setContractFile] = useState<File | null>(null);
+  const [isPreparingContract, setIsPreparingContract] = useState(false);
+
   const staffMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof staffSchema>) => {
+    mutationFn: async (data: z.infer<typeof staffSchema> & { contract?: Record<string, unknown> }) => {
       const phoneCheck = validatePhoneNumber(data.mobileNumber, data.countryCode);
       if (!phoneCheck.valid) {
         staffForm.setError("mobileNumber", { message: phoneCheck.error });
         throw new Error(phoneCheck.error);
       }
       const res = await apiRequest("POST", "/api/staff", { ...data, storeId: createdStoreId });
-      if (!res.ok) throw await res.json();
       return res.json();
     },
     onSuccess: () => {
@@ -114,8 +129,31 @@ export default function OnboardingWizard() {
       toast({ title: "Staff member added!" });
       setStep(3);
     },
-    onError: (err: any) => toast({ title: "Failed to add staff", description: err.error || "Please try again.", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Failed to add staff", description: getUserFriendlyError(error, "staff"), variant: "destructive" }),
   });
+
+  const onStaffSubmit = async (data: z.infer<typeof staffSchema>) => {
+    const payload: z.infer<typeof staffSchema> & { contract?: Record<string, unknown> } = { ...data };
+    if (contractType === "text" && contractText.trim()) {
+      payload.contract = { contractType: "text", contentText: contractText.trim() };
+    } else if ((contractType === "file" || contractType === "image") && contractFile) {
+      try {
+        setIsPreparingContract(true);
+        const uploaded = await uploadContractFileToStaging(contractFile);
+        payload.contract = {
+          contractType,
+          ...uploaded,
+          ...(contractType === "image" ? { altText: contractAltText.trim() } : {}),
+        };
+      } catch (error) {
+        toast({ title: "Couldn't upload contract file", description: getUserFriendlyError(error as Error), variant: "destructive" });
+        return;
+      } finally {
+        setIsPreparingContract(false);
+      }
+    }
+    staffMutation.mutate(payload);
+  };
 
   // ── Step 3: Inventory ──────────────────────────────────────────────────────
 
@@ -127,7 +165,6 @@ export default function OnboardingWizard() {
   const inventoryMutation = useMutation({
     mutationFn: async (data: z.infer<typeof inventorySchema>) => {
       const res = await apiRequest("POST", "/api/inventory", { ...data, storeId: createdStoreId });
-      if (!res.ok) throw await res.json();
       return res.json();
     },
     onSuccess: () => {
@@ -135,7 +172,7 @@ export default function OnboardingWizard() {
       toast({ title: "Item added to inventory!" });
       setStep(4);
     },
-    onError: (err: any) => toast({ title: "Failed to add item", description: err.error || "Please try again.", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Failed to add item", description: getUserFriendlyError(error, "inventory"), variant: "destructive" }),
   });
 
   const finishOnboarding = async (destination: string = "/") => {
@@ -252,7 +289,7 @@ export default function OnboardingWizard() {
             </CardHeader>
             <CardContent>
               <Form {...staffForm}>
-                <form onSubmit={staffForm.handleSubmit(d => staffMutation.mutate(d))} className="space-y-4">
+                <form onSubmit={staffForm.handleSubmit(onStaffSubmit)} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <FormField control={staffForm.control} name="name" render={({ field }) => (
                       <FormItem>
@@ -310,12 +347,78 @@ export default function OnboardingWizard() {
                       </FormItem>
                     )} />
                   </div>
+
+                  <div className="space-y-3 border-t pt-4">
+                    <div>
+                      <p className="text-sm font-medium">Employment Contract <span className="text-muted-foreground font-normal text-xs">(optional)</span></p>
+                      <p className="text-xs text-muted-foreground">Attach now for them to review and sign during onboarding, after they set their password.</p>
+                    </div>
+                    <RadioGroup
+                      value={contractType}
+                      onValueChange={(v) => setContractType(v as typeof contractType)}
+                      className="flex flex-wrap gap-3"
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="none" id="ob-contract-none" />
+                        <label htmlFor="ob-contract-none" className="text-xs cursor-pointer">None for now</label>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="text" id="ob-contract-text" />
+                        <label htmlFor="ob-contract-text" className="text-xs cursor-pointer">Type contract text</label>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="file" id="ob-contract-file" />
+                        <label htmlFor="ob-contract-file" className="text-xs cursor-pointer">Upload file (PDF)</label>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <RadioGroupItem value="image" id="ob-contract-image" />
+                        <label htmlFor="ob-contract-image" className="text-xs cursor-pointer">Upload image</label>
+                      </div>
+                    </RadioGroup>
+
+                    {contractType === "text" && (
+                      <Textarea
+                        placeholder="Paste or type the full contract text..."
+                        className="min-h-28 text-sm"
+                        value={contractText}
+                        onChange={(e) => setContractText(e.target.value)}
+                      />
+                    )}
+
+                    {(contractType === "file" || contractType === "image") && (
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 text-xs border rounded-lg p-3 cursor-pointer hover:bg-muted/30">
+                          <Upload className="h-4 w-4 text-muted-foreground" />
+                          {contractFile ? contractFile.name : `Choose ${contractType === "image" ? "an image" : "a PDF"}...`}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept={contractType === "image" ? "image/png,image/jpeg,image/webp" : "application/pdf"}
+                            onChange={(e) => setContractFile(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                        {contractType === "image" && (
+                          <Input
+                            placeholder="Describe the image for accessibility (required)"
+                            value={contractAltText}
+                            onChange={(e) => setContractAltText(e.target.value)}
+                            className="text-xs h-9"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "staff" }); setStep(3); }}>
                       Skip for now
                     </Button>
-                    <Button type="submit" className="flex-1" disabled={staffMutation.isPending}>
-                      {staffMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Adding...</> : <>Add Staff <ChevronRight className="h-4 w-4 ml-1" /></>}
+                    <Button type="submit" className="flex-1" disabled={staffMutation.isPending || isPreparingContract}>
+                      {isPreparingContract
+                        ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading contract...</>
+                        : staffMutation.isPending
+                          ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Adding...</>
+                          : <>Add Staff <ChevronRight className="h-4 w-4 ml-1" /></>}
                     </Button>
                   </div>
                 </form>

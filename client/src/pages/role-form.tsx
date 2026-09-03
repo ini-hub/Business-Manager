@@ -55,7 +55,7 @@ export default function RoleFormPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
       toast({ title: "Custom role created successfully." });
-      setLocation("/settings/stores");
+      setLocation("/settings/roles");
     },
     onError: (err: any) => {
       toast({
@@ -74,7 +74,7 @@ export default function RoleFormPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
       toast({ title: "Custom role updated successfully." });
-      setLocation("/settings/stores");
+      setLocation("/settings/roles");
     },
     onError: (err: any) => {
       toast({
@@ -110,7 +110,7 @@ export default function RoleFormPage() {
     return (
       <div className="p-8 text-center">
         <PageHeader title="Role Configuration" description="Only owners can manage custom roles." />
-        <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/stores")}>
+        <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/roles")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
         </Button>
       </div>
@@ -130,7 +130,7 @@ export default function RoleFormPage() {
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/stores")}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/roles")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <PageHeader 
@@ -201,7 +201,7 @@ export default function RoleFormPage() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t">
-                <Button type="button" variant="outline" onClick={() => setLocation("/settings/stores")}>
+                <Button type="button" variant="outline" onClick={() => setLocation("/settings/roles")}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="min-w-[120px]">

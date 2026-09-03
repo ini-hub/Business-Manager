@@ -215,6 +215,9 @@ export interface IStorage {
   createStore(store: InsertStore): Promise<Store>;
   updateStore(id: string, store: Partial<InsertStore>): Promise<Store | undefined>;
   deleteStore(id: string): Promise<boolean>;
+  archiveStore(id: string): Promise<Store | undefined>;
+  restoreStore(id: string): Promise<Store | undefined>;
+  countActiveStores(businessId: string): Promise<number>;
   hasStoreData(id: string): Promise<boolean>;
 
   // Customers
@@ -259,6 +262,7 @@ export interface IStorage {
   archiveStaff(id: string): Promise<Staff | undefined>;
   restoreStaff(id: string): Promise<Staff | undefined>;
   hasStaffCheckouts(id: string): Promise<boolean>;
+  hasStaffHistory(id: string): Promise<boolean>;
 
   // Products
   getProducts(storeId: string): Promise<any[]>;
@@ -739,6 +743,18 @@ export class DatabaseStorage implements IStorage {
     return this.businessRepo.deleteStore(id);
   }
 
+  async archiveStore(id: string): Promise<Store | undefined> {
+    return this.businessRepo.archiveStore(id);
+  }
+
+  async restoreStore(id: string): Promise<Store | undefined> {
+    return this.businessRepo.restoreStore(id);
+  }
+
+  async countActiveStores(businessId: string): Promise<number> {
+    return this.businessRepo.countActiveStores(businessId);
+  }
+
   async hasStoreData(id: string): Promise<boolean> {
     return this.businessRepo.hasStoreData(id);
   }
@@ -875,6 +891,10 @@ export class DatabaseStorage implements IStorage {
 
   async hasStaffCheckouts(id: string): Promise<boolean> {
     return this.staffRepo.hasStaffCheckouts(id);
+  }
+
+  async hasStaffHistory(id: string): Promise<boolean> {
+    return this.staffRepo.hasStaffHistory(id);
   }
 
   // ─── Product Repo Delegation ───────────────────────────────────────────────

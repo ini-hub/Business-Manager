@@ -47,7 +47,7 @@ async function flush(): Promise<void> {
 
     for (const item of due) {
       try {
-        const { error } = await resend.emails.send({
+        const { data, error } = await resend.emails.send({
           from: `${BUSINESS_NAME} <${RESEND_FROM_EMAIL}>`,
           to: item.to,
           subject: item.subject,
@@ -57,7 +57,11 @@ async function flush(): Promise<void> {
         });
         if (error) throw new Error(`${error.name}: ${error.message}`);
         console.log(`[EmailQueue] Sent to ${item.to} (attempt ${item.attempts + 1})`);
-        await db.update(pendingEmails).set({ status: "sent", attempts: item.attempts + 1 }).where(eq(pendingEmails.id, item.id));
+        // "Sent" here only means Resend accepted the request - data?.id is
+        // the handle the resend webhook (email-webhooks.routes.ts) later
+        // uses to report what actually happened to it (delivered/bounced/
+        // complained), since that's invisible to this call.
+        await db.update(pendingEmails).set({ status: "sent", attempts: item.attempts + 1, providerMessageId: data?.id }).where(eq(pendingEmails.id, item.id));
       } catch (err) {
         console.error(`[EmailQueue] Resend error for ${item.to}:`, err instanceof Error ? err.message : err);
         const nextAttempts = item.attempts + 1;
@@ -113,6 +117,28 @@ export function sendEmail(payload: EmailPayload): void {
   enqueueEmail(payload).catch((err) => {
     console.error("[EmailQueue] Failed to persist email to DB:", err);
   });
+}
+
+export type DeliveryStatus = "delivered" | "bounced" | "complained" | "delayed";
+
+/**
+ * Called by server/routes/email-webhooks.routes.ts once a Resend webhook
+ * event is verified. Matches the event back to the row that was queued (by
+ * the message id captured in flush() above) and records what actually
+ * happened downstream of "Sent". Returns the matched row (if any) so the
+ * route can log the to/subject for a bounce or complaint - the same detail
+ * enqueueEmail's own failure logging already includes.
+ */
+export async function recordDeliveryEvent(
+  providerMessageId: string,
+  deliveryStatus: DeliveryStatus,
+): Promise<{ to: string; subject: string } | null> {
+  const [updated] = await db
+    .update(pendingEmails)
+    .set({ deliveryStatus, deliveryStatusAt: new Date() })
+    .where(eq(pendingEmails.providerMessageId, providerMessageId))
+    .returning({ to: pendingEmails.to, subject: pendingEmails.subject });
+  return updated ?? null;
 }
 
 export async function getQueueStats(): Promise<{ pending: number; failed: number }> {

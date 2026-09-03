@@ -14,7 +14,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Building2, Coins, Gift } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
-export function BusinessSettingsSection() {
+// Renamed from BusinessSettingsSection: despite the old name, everything
+// here is store-scoped (receipt prefix override, low-stock threshold,
+// payroll defaults, loyalty config - all on the per-store `settings` table),
+// not business-wide. See the Settings Screen Restructure requirements plan.
+export function StoreDetailsSection() {
   const { currentStore } = useStore();
   const { toast } = useToast();
   

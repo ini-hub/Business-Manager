@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency } from "@/lib/currency-utils";
 import { PageHeader } from "@/components/page-header";
+import { BackToSettingsButton } from "@/components/settings-back-button";
 import type { Promotion, Inventory } from "@shared/schema";
 
 export default function PromotionsPage() {
@@ -163,6 +164,7 @@ export default function PromotionsPage() {
         <PageHeader
           title="Promotions Management"
           description="Configure Buy X Get Y and Spend X Get Y discounts for automated application at POS checkout."
+          actions={<BackToSettingsButton />}
         />
         <StoreRequiredAlert title="Store Required for Promotions" />
       </div>
@@ -175,10 +177,13 @@ export default function PromotionsPage() {
         title="Promotions Management"
         description="Configure Buy X Get Y and Spend X Get Y discounts for automated application at POS checkout."
         actions={
-          <Button onClick={() => { resetForm(); setIsOpen(true); }} className="hover-elevate shadow-md flex items-center gap-2">
-            <Plus className="h-4 w-4" />
-            Create Promotion
-          </Button>
+          <>
+            <BackToSettingsButton />
+            <Button onClick={() => { resetForm(); setIsOpen(true); }} className="hover-elevate shadow-md flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Create Promotion
+            </Button>
+          </>
         }
       />
 

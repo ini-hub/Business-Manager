@@ -3,9 +3,15 @@ import type { Organisation, Subscription } from "@shared/schema";
 /** Length of the free trial granted to a brand-new organisation at signup. */
 export const TRIAL_DAYS = 14;
 
-export function computeTrialEndsAt(from: Date = new Date()): Date {
+/**
+ * `days` defaults to the TRIAL_DAYS constant but is normally passed
+ * explicitly by callers via getConfiguredTrialDays() (server/lib/
+ * platformConfig.ts) so an admin-configured trial length applies to new
+ * signups without this function needing to know about the config table.
+ */
+export function computeTrialEndsAt(from: Date = new Date(), days: number = TRIAL_DAYS): Date {
   const end = new Date(from);
-  end.setDate(end.getDate() + TRIAL_DAYS);
+  end.setDate(end.getDate() + days);
   return end;
 }
 
@@ -25,26 +31,23 @@ export function isTrialExpired(org: Pick<Organisation, "status" | "trialEndsAt">
 }
 
 /**
- * Whether the org can use the app normally right now. Everything that isn't
- * "trialing" or "suspended" (i.e. every pre-existing organisation) is always "ok" -
- * this function only ever restricts orgs created by the new trial flow.
- *
- * Both a suspended org (admin-initiated, e.g. fraud/ToS/non-payment) and a
- * trial-expired org without an active subscription are locked immediately -
- * no grace period. A soft grace window undermines the incentive to convert,
- * so the countdown to expiry is instead surfaced ahead of time via
- * TrialReminderService (email at 3 days / 2 days / today) and the in-app
- * trial banner, not by quietly extending access past trialEndsAt.
+ * Whether the org can use the app normally right now. Only an admin-suspended
+ * org (fraud/ToS/non-payment - see server/lib/billing.ts's
+ * maybeProcessDueRenewal, which sets this on a failed renewal charge) locks
+ * the whole app. A trial ending on its own, with nothing purchased, is NOT a
+ * whole-org lock: the per-feature gates (requireFeature/requireCountLimit in
+ * server/lib/entitlements.ts) already take over at that point and fall the
+ * org back to exactly the free tier, same as any other non-paying org -
+ * that's the intended landing state, not something to additionally block at
+ * the API level. (Before this, getOrgEntitlements grants every active
+ * feature outright while the trial is still running - see
+ * isOrgCurrentlyTrialing - so "trial ends" is genuinely the only transition,
+ * not a second gate stacked on top of a whole-org lock.)
  */
 export function getOrgAccessState(
   org: Pick<Organisation, "status" | "trialEndsAt">,
-  subscription: Pick<Subscription, "status"> | null
+  _subscription: Pick<Subscription, "status"> | null
 ): "ok" | "locked" {
   if (org.status === "suspended") return "locked";
-  if (org.status === "trialing") {
-    if (!isTrialExpired(org)) return "ok";
-    if (subscription?.status === "active") return "ok";
-    return "locked";
-  }
   return "ok";
 }

@@ -8,10 +8,13 @@ import {
   sendAddedToOrgEmail,
   sendEmailVerificationOtpEmail,
   sendEmailChangeNoticeToOldAddress,
+  sendContractSignatureRequiredEmail,
 } from "../email";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { staffInviteService, type InviteOutcome, type ExistingLink } from "../services/StaffInviteService";
 import { syncStaffNameToLinkedUser } from "../services/IdentitySync";
+import { staffContractService } from "../services/StaffContractService";
+import { objectStorage } from "../lib/objectStorage";
 
 // The invite form is a deliberate enumeration-oracle blind spot (see the
 // "Collapsed deliberately" comment below): a manager must never learn that
@@ -39,6 +42,9 @@ import {
   insertCustomRoleSchema,
   insertStoreIntegrationSchema,
   insertExpenseSchema,
+  attachContractSchema,
+  ALLOWED_CONTRACT_MIME_TYPES,
+  MAX_CONTRACT_FILE_SIZE_BYTES,
   type UserRole,
   orders,
   checkouts,
@@ -65,6 +71,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { requireCountLimit } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -111,6 +118,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           : new Map();
         list.forEach(s => { s.inviteStatus = statuses.get(s.id) ?? "none"; });
       };
+      const attachContractStatus = async (list: any[]) => {
+        const statuses = await staffContractService.computeContractStatuses(list, businessId);
+        list.forEach(s => { s.contractStatus = statuses.get(s.id) ?? "none"; });
+      };
       const redactUserId = (list: any[]) => {
         list.forEach(s => { delete s.userId; });
       };
@@ -140,6 +151,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           redactWages(result.data);
         }
         await attachInviteStatus(result.data);
+        await attachContractStatus(result.data);
         redactUserId(result.data);
         return res.json(result);
       }
@@ -149,6 +161,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         redactWages(staffList);
       }
       await attachInviteStatus(staffList);
+      await attachContractStatus(staffList);
       redactUserId(staffList);
       res.json(staffList);
     } catch (error) {
@@ -184,6 +197,9 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       (staffMember as any).inviteStatus = singleBusinessId
         ? await staffInviteService.computeInviteStatus(staffMember, singleBusinessId)
         : "none";
+      (staffMember as any).contractStatus = singleBusinessId
+        ? await staffContractService.computeContractStatus(staffMember, singleBusinessId)
+        : "none";
 
       delete (staffMember as any).userId;
       res.json(staffMember);
@@ -192,8 +208,22 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
-  app.post("/api/staff", requireManagerOrOwner, async (req, res) => {
+  // requireCountLimit gates the 1-free-staff-seat tier (FAC-6): creating past
+  // the limit without the staff_seats_addon entitlement is a hard 402 block;
+  // existing staff beyond the count are never touched. See server/lib/entitlements.ts.
+  app.post("/api/staff", requireManagerOrOwner, requireCountLimit("staff_seats"), async (req, res) => {
     try {
+      // Pulled out before insertStaffSchema.parse below, which knows nothing
+      // about contracts - validated separately against attachContractSchema.
+      let contractInput: z.infer<typeof attachContractSchema> | undefined;
+      if (req.body.contract) {
+        const parsed = attachContractSchema.safeParse(req.body.contract);
+        if (!parsed.success) {
+          return res.status(400).json({ error: formatZodErrors(parsed.error.errors) });
+        }
+        contractInput = parsed.data;
+      }
+
       const sanitizeOptionalNumber = (val: any) => {
         if (val === undefined || val === null || val === "") return null;
         return sanitizeNumber(val);
@@ -227,6 +257,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         payHolidayDaysOverride: sanitizeBoolean(req.body.payHolidayDaysOverride),
         payOffDaysOverride: sanitizeBoolean(req.body.payOffDaysOverride),
       };
+      delete sanitizedBody.contract;
       const data = insertStaffSchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
 
@@ -296,17 +327,48 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         },
       );
 
+      const refreshedStaff = await storage.getStaff(staffMember.id);
       const inviteStatus = resolvedBusinessId
         ? await staffInviteService.computeInviteStatus(
-            { id: staffMember.id, userId: (await storage.getStaff(staffMember.id))?.userId },
+            { id: staffMember.id, userId: refreshedStaff?.userId },
             resolvedBusinessId,
           )
         : "none";
+
+      // Contract attach happens last, after the invite outcome is known:
+      // branch C (attachExistingUser) adds membership as 'active' immediately
+      // with no password step to hang a signature gate off of, so a contract
+      // still gets stored for the record, but computeContractStatus reports
+      // it as not_applicable_existing_account rather than pending_signature
+      // once the membership is active - see StaffContractService's docstring.
+      let contractStatus: string = "none";
+      let contractWarning: string | undefined;
+      if (contractInput) {
+        const contractOutcome = await staffContractService.attachContract({
+          staffId: staffMember.id,
+          createdByUserId: getUserId(req) || "",
+          input: contractInput,
+        });
+        if (contractOutcome.kind === "invalid") {
+          contractWarning = `The staff member was saved, but the contract could not be attached: ${contractOutcome.reason}`;
+        } else {
+          auditLogger.logEvent(ctx, "STAFF_CONTRACT_ATTACHED", "staff", staffMember.id, "success", {
+            details: { contractType: contractInput.contractType },
+          });
+        }
+      }
+      if (resolvedBusinessId) {
+        contractStatus = await staffContractService.computeContractStatus(
+          { id: staffMember.id, userId: refreshedStaff?.userId },
+          resolvedBusinessId,
+        );
+      }
 
       broadcastChange(req, "staff", data.storeId, "created");
       res.status(201).json({
         ...staffMember,
         inviteStatus,
+        contractStatus,
         // Collapsed deliberately: telling a manager whether an arbitrary email
         // already had a platform account is an enumeration oracle.
         inviteSent: outcome.kind === "activation_sent" || outcome.kind === "added_to_existing_user",
@@ -316,6 +378,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         ...(outcome.kind === "skipped" && outcome.reason === "no_business"
           ? { inviteWarning: "The staff member was saved, but no invitation was sent because this store isn't linked to a business yet." }
           : {}),
+        ...(contractWarning ? { contractWarning } : {}),
         // Only ever the same-business subset - see sameBusinessExistingLinks.
         ...(sameBusinessLinks.length
           ? { existingStaffLinks: sameBusinessLinks.map(({ staffId, storeId, name }) => ({ staffId, storeId, name })) }
@@ -590,6 +653,169 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
+  // ========== STAFF CONTRACTS ==========
+  // A dedicated route family rather than folding into PATCH /api/staff/:id
+  // (already a large, intricate handler thanks to the email-change flow) -
+  // see migrations/0046_staff_contract_signing.sql and
+  // StaffContractService for the model this drives.
+
+  // Presigned upload URL for a file/image contract. The browser PUTs
+  // directly to the bucket with this URL; this server never touches the
+  // file bytes. storageKey is then passed to POST /api/staff/:id/contract,
+  // or included in the `contract` field of POST /api/staff.
+  //
+  // Deliberately NOT scoped to a staff id (:id) - a presigned URL is just a
+  // write permission into one object key, nothing downstream trusts the key
+  // path itself as an authorization signal, and requiring a real staffId
+  // used to make file/image contracts impossible to attach while creating a
+  // new staff member (no id exists yet at that point). Business-scoped only.
+  app.post("/api/staff/contract-upload-url", requireManagerOrOwner, async (req, res) => {
+    try {
+      const { fileName, mimeType } = req.body;
+      if (!fileName || !mimeType) {
+        return res.status(400).json({ error: "fileName and mimeType are required." });
+      }
+      if (!ALLOWED_CONTRACT_MIME_TYPES.includes(mimeType)) {
+        return res.status(400).json({ error: `File type ${mimeType} is not allowed for contracts.` });
+      }
+
+      const businessId = (req as any).user?.organisationId || (req as any).user?.businessId || "unscoped";
+      const safeName = sanitizeString(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storageKey = `staff-contracts/pending/${businessId}/${Date.now()}-${crypto.randomBytes(6).toString("hex")}-${safeName}`;
+      const uploadUrl = await objectStorage.getSignedPutUrl(storageKey, mimeType);
+
+      res.json({ uploadUrl, storageKey, maxFileSizeBytes: MAX_CONTRACT_FILE_SIZE_BYTES });
+    } catch (error) {
+      console.error("Contract upload-url error:", error);
+      res.status(500).json({ error: "Could not prepare the upload. Please try again." });
+    }
+  });
+
+  // Attach a contract to an existing staff member, or replace one that is
+  // still awaiting a signature. (Attaching at creation time instead goes
+  // through the optional `contract` field of POST /api/staff.)
+  app.post("/api/staff/:id/contract", requireManagerOrOwner, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+
+      const parsed = attachContractSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: formatZodErrors(parsed.error.errors) });
+      }
+
+      const outcome = await staffContractService.attachContract({
+        staffId: staffMember.id,
+        createdByUserId: getUserId(req) || "",
+        input: parsed.data,
+      });
+
+      if (outcome.kind === "invalid") {
+        return res.status(400).json({ error: outcome.reason });
+      }
+      if (outcome.kind === "refused_already_signed") {
+        return res.status(409).json({ error: "This staff member has already signed their contract. Amending a signed contract isn't supported yet." });
+      }
+
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "STAFF_CONTRACT_ATTACHED", "staff", staffMember.id, "success", {
+        details: { contractType: parsed.data.contractType, replaced: outcome.kind === "replaced" },
+      });
+
+      const businessId = (await storage.getStore(staffMember.storeId))?.businessId;
+
+      // Opt-in only, and only meaningful for a staff member who already has
+      // full access - see requireSignatureForActiveMember's docstring. A
+      // staff member still mid-onboarding already gets the gate naturally
+      // through the normal pending_signature/contract_pending flow, so this
+      // is a no-op for them (requiredSignatureApplied stays false).
+      let requiredSignatureApplied = false;
+      const requireSignature = req.body.requireSignature === true;
+      if (requireSignature && staffMember.userId && businessId) {
+        requiredSignatureApplied = await staffContractService.requireSignatureForActiveMember(staffMember.userId, businessId);
+        if (requiredSignatureApplied) {
+          auditLogger.logEvent(ctx, "STAFF_CONTRACT_SIGNATURE_REQUIRED", "staff", staffMember.id, "success", {});
+
+          const linkedUser = await storage.getUser(staffMember.userId);
+          if (linkedUser?.email) {
+            const business = await storage.getBusinessById(businessId);
+            sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your workspace")
+              .catch((err) => console.error("[StaffContract] Failed to send signature-required notification:", err));
+          }
+        }
+      }
+
+      const contractStatus = businessId
+        ? await staffContractService.computeContractStatus(staffMember, businessId)
+        : "pending_signature";
+
+      broadcastChange(req, "staff", staffMember.storeId, "updated");
+      res.status(outcome.kind === "attached" ? 201 : 200).json({ contractStatus, requiredSignatureApplied });
+    } catch (error) {
+      console.error("Attach contract error:", error);
+      res.status(500).json({ error: "Could not attach the contract. Please try again." });
+    }
+  });
+
+  // Manager-facing view of a staff member's contract: status, version
+  // metadata, and (once signed) a link to the document plus the signature
+  // audit record.
+  app.get("/api/staff/:id/contract", requireManagerOrOwner, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+
+      const contract = await staffContractService.getContractByStaffId(staffMember.id);
+      if (!contract) {
+        return res.json({ contractStatus: "none" });
+      }
+
+      const businessId = (await storage.getStore(staffMember.storeId))?.businessId;
+      const contractStatus = businessId
+        ? await staffContractService.computeContractStatus(staffMember, businessId)
+        : contract.status;
+
+      const review = await staffContractService.getContractForReview(contract.id);
+      const signatureRecord = contract.status === "signed"
+        ? await staffContractService.getSignatureForContract(contract.id)
+        : undefined;
+      const history = await staffContractService.getVersionHistory(contract.id);
+
+      res.json({
+        contractStatus,
+        contractType: review?.version.contractType,
+        contentText: review?.version.contentText,
+        altText: review?.version.altText,
+        fileOriginalName: review?.version.fileOriginalName,
+        versionNumber: review?.version.versionNumber,
+        signedGetUrl: review?.signedGetUrl,
+        declinedAt: contract.declinedAt,
+        declinedReason: contract.declinedReason,
+        signature: signatureRecord
+          ? {
+              typedFullName: signatureRecord.typedFullName,
+              signedAt: signatureRecord.signedAt,
+              ipAddress: signatureRecord.ipAddress,
+            }
+          : undefined,
+        history,
+      });
+    } catch (error) {
+      console.error("Get staff contract error:", error);
+      res.status(500).json({ error: "Could not load this staff member's contract." });
+    }
+  });
+
   app.delete("/api/staff/:id", requireManagerOrOwner, async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
@@ -687,6 +913,12 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
 
       if (outcome.kind === "already_active") {
         return res.status(409).json({ error: "This staff member has already activated their account." });
+      }
+      if (outcome.kind === "contract_pending_not_applicable") {
+        return res.status(409).json({
+          error: "This staff member already set their password - resending an activation code won't help. If they're stuck, it's because of their contract: attach or replace it below to let them continue.",
+          code: "contract_pending_not_applicable",
+        });
       }
       if (outcome.kind === "cooldown") {
         return res.status(429).json({
@@ -806,10 +1038,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(400).json({ error: "Only archived staff can be permanently deleted." });
       }
 
-      const hasCheckouts = await storage.hasStaffCheckouts(req.params.id);
-      if (hasCheckouts) {
+      const hasHistory = await storage.hasStaffHistory(req.params.id);
+      if (hasHistory) {
         return res.status(400).json({
-          error: "Cannot permanently delete staff member with existing sales records. This staff member has processed sales that must be preserved for your records."
+          error: "This staff member has recorded sales, attendance, payroll, or contract history and cannot be permanently deleted. Please keep them archived instead."
         });
       }
 

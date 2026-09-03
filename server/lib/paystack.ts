@@ -1,24 +1,55 @@
 import crypto from "crypto";
+import { db } from "../db";
+import { eq } from "drizzle-orm";
+import { platformPaymentCredentials } from "@shared/schema";
+import { decryptSecret } from "./credentialEncryption";
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co";
 
-function getSecretKey(): string {
-  const key = process.env.PAYSTACK_SECRET_KEY;
+/**
+ * DB-configured credentials (requirements plan §5) take priority so an admin
+ * can rotate the platform's Paystack key from the new admin UI with no
+ * redeploy; process.env.PAYSTACK_SECRET_KEY stays a fallback for deployments
+ * that haven't configured a row yet, so nothing breaks until an admin opts
+ * in. Not cached - key rotations must take effect immediately, and this is a
+ * single indexed-PK lookup on the same request path that already hits the
+ * DB for the checkout/webhook it's part of.
+ */
+async function getConfiguredSecretKey(): Promise<string | null> {
+  const [row] = await db
+    .select()
+    .from(platformPaymentCredentials)
+    .where(eq(platformPaymentCredentials.provider, "paystack"))
+    .limit(1);
+  if (row?.isActive && row.secretKeyEncrypted) {
+    try {
+      return decryptSecret(row.secretKeyEncrypted);
+    } catch (error) {
+      console.error("Failed to decrypt configured Paystack secret key, falling back to env:", error);
+    }
+  }
+  return null;
+}
+
+async function getSecretKey(): Promise<string> {
+  const configured = await getConfiguredSecretKey();
+  const key = configured ?? process.env.PAYSTACK_SECRET_KEY;
   if (!key) {
-    throw new Error("PAYSTACK_SECRET_KEY is not set.");
+    throw new Error("Paystack isn't configured - set it up in Super Admin > Platform Settings, or set PAYSTACK_SECRET_KEY.");
   }
   return key;
 }
 
-export function isPaystackConfigured(): boolean {
-  return !!process.env.PAYSTACK_SECRET_KEY;
+export async function isPaystackConfigured(): Promise<boolean> {
+  const configured = await getConfiguredSecretKey();
+  return !!(configured ?? process.env.PAYSTACK_SECRET_KEY);
 }
 
 async function paystackRequest<T = any>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${PAYSTACK_BASE_URL}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${getSecretKey()}`,
+      Authorization: `Bearer ${await getSecretKey()}`,
       "Content-Type": "application/json",
       ...init.headers,
     },
@@ -93,8 +124,8 @@ export async function chargeAuthorization(args: {
  * `verify` hook in server/index.ts) - hashing JSON.stringify(req.body)
  * instead can silently mismatch on key ordering/whitespace.
  */
-export function verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
+export async function verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): Promise<boolean> {
   if (!signature) return false;
-  const hash = crypto.createHmac("sha512", getSecretKey()).update(rawBody).digest("hex");
+  const hash = crypto.createHmac("sha512", await getSecretKey()).update(rawBody).digest("hex");
   return hash === signature;
 }

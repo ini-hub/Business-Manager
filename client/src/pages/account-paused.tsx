@@ -3,8 +3,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 
 /**
- * Shown to non-owner staff of an org that's trial-expired or suspended.
- * Billing is owner-only, so staff never see plan pickers or payment UI here -
+ * Shown to non-owner staff of a suspended org (a trial simply ending no
+ * longer locks the app - see client/src/lib/trial.ts's isOrgLocked). Billing
+ * is owner-only, so staff never see the feature picker or payment UI here -
  * just a clear explanation and a way to sign out.
  */
 export function AccountPaused() {

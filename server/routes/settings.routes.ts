@@ -32,6 +32,20 @@ import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { isValidLatitude, isValidLongitude } from "@shared/geo";
+import { getOrgEntitlements, getFeatureByKey } from "../lib/entitlements";
+
+// Settings fields gated behind a purchasable feature (§1 of the pay-per-
+// feature plan) - everything else in PUT /api/settings' payload (attendance,
+// payroll splits, borrow-book reminders, ...) stays free. Checked as whole
+// field groups so a request either fully applies or is rejected outright -
+// never a silent partial write of only the fields the org happens to own.
+const GATED_SETTINGS_FIELDS: Record<string, string> = {
+  receiptPrefix: "receipt_customization",
+  receiptThankYouMessage: "receipt_customization",
+  lowStockThreshold: "low_stock_threshold",
+  loyaltyPointsPerCurrency: "loyalty_program",
+  loyaltyPointValue: "loyalty_program",
+};
 
 const clampInt = (value: unknown, min: number, max: number): number =>
   Math.min(max, Math.max(min, Math.round(sanitizeNumber(value))));
@@ -121,6 +135,23 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       const role = (req as any).user?.role;
       if (role !== "manager" && role !== "owner") {
         return res.status(403).json({ error: "Only managers and owners can modify settings." });
+      }
+
+      const businessId = (req as any).user?.businessId;
+      const neededFeatureKeys = new Set(Object.keys(data).map((field) => GATED_SETTINGS_FIELDS[field]).filter(Boolean));
+      if (neededFeatureKeys.size > 0) {
+        if (!businessId) return res.status(401).json({ error: "Authentication required." });
+        const granted = await getOrgEntitlements(businessId);
+        for (const featureKey of Array.from(neededFeatureKeys)) {
+          if (!granted.has(featureKey)) {
+            const feature = await getFeatureByKey(featureKey);
+            return res.status(402).json({
+              error: "feature_not_purchased",
+              featureKey,
+              message: `This needs the "${feature?.name ?? featureKey}" add-on. Add it from Settings > Billing to continue.`,
+            });
+          }
+        }
       }
 
       const sanitizeSettings = (body: any) => {
@@ -287,7 +318,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.post("/api/promotions", isAuthenticated, async (req, res) => {
+  app.post("/api/promotions", requireManagerOrOwner, async (req, res) => {
     try {
       const data = insertPromotionSchema.parse(req.body);
       if (!(await checkStoreAccess(data.storeId, req, res))) return;
@@ -309,7 +340,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.patch("/api/promotions/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/promotions/:id", requireManagerOrOwner, async (req, res) => {
     try {
       const { id } = req.params;
       const data = insertPromotionSchema.partial().parse(req.body);
@@ -335,7 +366,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.delete("/api/promotions/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/promotions/:id", requireManagerOrOwner, async (req, res) => {
     try {
       const { id } = req.params;
       const promotion = await db.select().from(promotions).where(eq(promotions.id, id)).then(r => r[0]);

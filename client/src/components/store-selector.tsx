@@ -23,7 +23,9 @@ import { useAuth } from "@/hooks/useAuth";
 export function StoreSelector() {
   const [open, setOpen] = useState(false);
   const { user } = useAuth();
-  const { stores, currentStore, setCurrentStore, isLoading } = useStore();
+  const { stores: allStores, currentStore, setCurrentStore, isLoading } = useStore();
+  // Archived stores are hidden here - manage them from Settings > Stores.
+  const stores = allStores.filter(s => s.isActive !== false);
 
   if (isLoading) {
     return (
