@@ -134,14 +134,33 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  // Production serves the prebuilt static bundle from this same process/port
+  // (the only port reachable on the deployment platform - see the port
+  // comment below). In development, this process is API-only: the frontend
+  // is served by its own standalone Vite dev server (see vite.config.ts's
+  // server.proxy and package.json's dev/dev:client/dev:server scripts),
+  // which keeps the frontend's HMR connection alive across `tsx watch`
+  // restarting this process on every backend file change - it used to run
+  // embedded here via server/vite.ts's setupVite, which meant every backend
+  // edit also killed the frontend's HMR websocket, forcing a manual browser
+  // refresh to see any update (backend or frontend) after most edits.
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+    // Dev-only safety net: this process no longer serves any frontend route
+    // (see the comment above), so a request that lands here for anything
+    // other than /api or /ws is almost always someone hitting this port out
+    // of habit from before the dev-server split - a bookmark, a hard
+    // `window.location.href` redirect (e.g. AdminLogin.tsx after a
+    // successful login), or a stale tab. Redirect it to the Vite dev server
+    // instead of letting Express's bare "Cannot GET /..." confuse them.
+    const viteDevPort = process.env.VITE_DEV_PORT || "5173";
+    app.use((req, res, next) => {
+      if (req.method !== "GET" || req.path.startsWith("/api") || req.path.startsWith("/ws")) {
+        return next();
+      }
+      res.redirect(`http://localhost:${viteDevPort}${req.originalUrl}`);
+    });
   }
 
   startBookingReminderService();

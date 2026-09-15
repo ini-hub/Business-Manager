@@ -11,11 +11,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, AlertCircle } from "lucide-react";
+import { Loader2, ArrowLeft, AlertCircle, ExternalLink } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LegalFooter } from "@/components/legal-footer";
+import { legalDocHref } from "@/lib/legal-docs";
 import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 
 // Password policy validator
@@ -33,13 +35,12 @@ export default function Login() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [step, setStep] = useState<
-    "identifier" | "password" | "activation_code" | "create_password" | "sign_contract" | "verify_otp" | "org_select" | "almost_there" | "verify_email_change"
+    "identifier" | "password" | "activation_code" | "create_password" | "sign_contract" | "legal_consent" | "verify_otp" | "org_select" | "almost_there" | "verify_email_change"
   >("identifier");
   const [identifier, setIdentifier] = useState("");
   const [identifierDisplay, setIdentifierDisplay] = useState("");
   const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [isPasswordValid, setIsPasswordValid] = useState(false);
-  const [stayLoggedIn, setStayLoggedIn] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   
@@ -225,7 +226,6 @@ export default function Login() {
       const response = await apiRequest("POST", "/api/auth/login", {
         emailOrPhone: identifier,
         password,
-        stayLoggedIn,
       });
       return response.json();
     },
@@ -259,6 +259,16 @@ export default function Login() {
           title: "One more step",
           description: data.message || "Please review and sign your contract to continue.",
         });
+      } else if (data.status === "legal_consent_required") {
+        // Covers both a brand-new-feature backfill and a stale acceptance
+        // (a super admin published a new document version since this
+        // account last consented) - server/lib/authFlow.ts resumes normal
+        // login once POST /api/legal/consent-pending/accept records it.
+        setStep("legal_consent");
+        toast({
+          title: "One more step",
+          description: data.message || "Please review and accept our current legal documents to continue.",
+        });
       } else {
         toast({
           title: "Welcome back!",
@@ -288,7 +298,6 @@ export default function Login() {
       const response = await apiRequest("POST", "/api/auth/organisation/select", {
         orgSelectToken,
         organisationId,
-        stayLoggedIn,
       });
       return response.json();
     },
@@ -351,6 +360,14 @@ export default function Login() {
       return response.json();
     },
     onSuccess: (data) => {
+      if (data.nextStep === "legal-consent") {
+        setStep("legal_consent");
+        toast({
+          title: "Password set!",
+          description: data.message || "Please review and accept our current legal documents to continue.",
+        });
+        return;
+      }
       if (data.nextStep === "sign-contract") {
         setStep("sign_contract");
         toast({
@@ -411,6 +428,84 @@ export default function Login() {
     onError: (error: Error) => {
       toast({
         title: "Could not sign contract",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Fetch every current legal document/section for the consent screen in
+  // one call - GET /api/legal is public/unauthenticated (same documents
+  // whoever asks) and includes contentMarkdown, so this doesn't depend on
+  // the legal_consent_pending_token cookie, and doesn't need one hook per
+  // document (the count is no longer fixed at three - a super admin can add
+  // further sections via LegalDocuments.tsx).
+  const legalDocsQuery = useQuery<{ documents: Array<{ documentType: string; title: string; contentMarkdown: string }> }>({
+    queryKey: ["/api/legal"],
+    enabled: step === "legal_consent",
+  });
+  const legalDocs = legalDocsQuery.data?.documents ?? [];
+  const legalDocsLoading = legalDocsQuery.isLoading;
+  const legalDocsError = legalDocsQuery.isError;
+  const [acceptedLegalDocs, setAcceptedLegalDocs] = useState<Record<string, boolean>>({});
+  const allLegalDocsAccepted = legalDocs.length > 0 && legalDocs.every((d) => acceptedLegalDocs[d.documentType]);
+
+  const acceptLegalConsentMutation = useMutation({
+    mutationFn: async () => {
+      // The exact documents this screen actually rendered checkboxes for
+      // and got checked - server-validated against what's current at
+      // submit time, same rationale as signup.tsx's acceptedDocumentTypes.
+      const acceptedDocumentTypes = legalDocs
+        .filter((d) => acceptedLegalDocs[d.documentType])
+        .map((d) => d.documentType);
+      const response = await apiRequest("POST", "/api/legal/consent-pending/accept", {
+        affirmedReadAndAgree: allLegalDocsAccepted,
+        acceptedDocumentTypes,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      // Consent might unblock straight into a normal session, or into a
+      // further step (multiple workspaces to choose from, or a staff
+      // contract also pending) - the same shapes loginMutation/
+      // setPasswordMutation already know how to route.
+      if (data.requiresOrganisationSelection) {
+        setOrgs(data.organisations);
+        setOrgSelectToken(data.orgSelectToken);
+        setStep("org_select");
+        toast({
+          title: "Multiple Workspaces Found",
+          description: "Please select the organisation you want to access.",
+        });
+        return;
+      }
+      if (data.status === "contract_signature_required" || data.nextStep === "sign-contract") {
+        setStep("sign_contract");
+        toast({
+          title: "One more step",
+          description: data.message || "Please review and sign your contract to continue.",
+        });
+        return;
+      }
+      toast({
+        title: "Thanks!",
+        description: "Your acceptance has been recorded. Welcome to Kowope.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.resetQueries({ queryKey: ["/api/stores"] });
+      queryClient.resetQueries({ queryKey: ["/api/business"] });
+      setLocation("/");
+    },
+    onError: (error: any) => {
+      if (error.code === "LEGAL_DOCUMENTS_STALE") {
+        // A document was archived/reactivated/added while this screen was
+        // open - refetch so the checkboxes reflect what's current now, and
+        // make the user re-check them rather than silently resubmitting.
+        queryClient.invalidateQueries({ queryKey: ["/api/legal"] });
+        setAcceptedLegalDocs({});
+      }
+      toast({
+        title: "Could not record your acceptance",
         description: error.message || "Please try again.",
         variant: "destructive",
       });
@@ -648,6 +743,7 @@ export default function Login() {
             {step === "activation_code" && `Activate your staff invitation for ${identifierDisplay}`}
             {step === "create_password" && `Create a password for ${identifierDisplay}`}
             {step === "sign_contract" && "Review and sign your contract to finish onboarding"}
+            {step === "legal_consent" && "Please review and accept our current legal documents to continue"}
             {step === "almost_there" && `Complete your Kowope registration for ${identifierDisplay}`}
             {step === "org_select" && "Select the business workspace you want to access"}
           </CardDescription>
@@ -799,17 +895,7 @@ export default function Login() {
                    )}
                  />
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="stay-logged-in"
-                      checked={stayLoggedIn}
-                      onCheckedChange={(checked) => setStayLoggedIn(!!checked)}
-                    />
-                    <label htmlFor="stay-logged-in" className="text-xs text-muted-foreground cursor-pointer select-none">
-                      Stay logged in for 30 days
-                    </label>
-                  </div>
+                <div className="flex items-center justify-end">
                   <Link href="/auth/forgot-password" className="text-xs text-blue-500 hover:underline" data-testid="link-forgot-password">
                     Forgot password?
                   </Link>
@@ -1197,6 +1283,77 @@ export default function Login() {
             </div>
           )}
 
+          {/* Legal document consent step */}
+          {step === "legal_consent" && (
+            <div className="space-y-4">
+              {legalDocsLoading && (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
+
+              {legalDocsError && (
+                <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-2.5 rounded-md text-xs">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>Could not load these documents. Please try logging in again.</span>
+                </div>
+              )}
+
+              {!legalDocsLoading && !legalDocsError && (
+                <>
+                  <div className="space-y-2.5">
+                    {legalDocs.map((doc) => (
+                      <div key={doc.documentType} className="flex items-start gap-2.5">
+                        <Checkbox
+                          id={`legal-consent-${doc.documentType}`}
+                          checked={!!acceptedLegalDocs[doc.documentType]}
+                          onCheckedChange={(checked) =>
+                            setAcceptedLegalDocs((prev) => ({ ...prev, [doc.documentType]: !!checked }))
+                          }
+                          data-testid={`checkbox-legal-consent-${doc.documentType}`}
+                          className="mt-0.5"
+                        />
+                        <label
+                          htmlFor={`legal-consent-${doc.documentType}`}
+                          className="text-xs text-muted-foreground cursor-pointer select-none leading-relaxed"
+                        >
+                          I have read and agree to the{" "}
+                          <a
+                            href={legalDocHref(doc.documentType)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="underline font-medium text-foreground hover:text-primary inline-flex items-center gap-1"
+                            data-testid={`link-open-legal-${doc.documentType}`}
+                          >
+                            {doc.title}
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Button
+                    className="w-full"
+                    disabled={!allLegalDocsAccepted || acceptLegalConsentMutation.isPending}
+                    onClick={() => acceptLegalConsentMutation.mutate()}
+                    data-testid="button-accept-legal-consent"
+                  >
+                    {acceptLegalConsentMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Recording...
+                      </>
+                    ) : (
+                      "Agree & Continue"
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Verify OTP Step */}
           {step === "verify_email_change" && (
             <div className="space-y-4">
@@ -1309,6 +1466,7 @@ export default function Login() {
           </CardFooter>
         )}
       </Card>
+      <LegalFooter />
     </div>
   );
 }

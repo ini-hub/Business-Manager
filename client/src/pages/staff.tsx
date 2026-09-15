@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Plus, UserPlus, Edit, Trash2, Phone, Hash, FileCheck, FileX, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Plus, UserPlus, Edit, Trash2, Phone, Hash, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { insertStaffSchema, type Staff, type InsertStaff, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
-import { Mail, Shield, MailWarning, ShieldCheck, Send, Clock } from "lucide-react";
+import { Mail, Shield, MailWarning, ShieldCheck, Send, Clock, Crown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -74,23 +75,6 @@ function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
   return <Badge variant="secondary" className="gap-1">Not invited</Badge>;
 }
 
-// Mirrors the status->badge mapping in staff-form.tsx's contractBadge, so the
-// list and edit views always agree on what a given contractStatus means.
-function ContractStatusBadge({ status }: { status?: StaffContractStatus }) {
-  if (status === "signed") {
-    return <Badge variant="default" className="gap-1"><FileCheck className="h-3 w-3" />Signed</Badge>;
-  }
-  if (status === "pending_signature") {
-    return <Badge variant="secondary" className="gap-1"><Clock className="h-3 w-3" />Awaiting signature</Badge>;
-  }
-  if (status === "declined") {
-    return <Badge variant="destructive" className="gap-1"><FileX className="h-3 w-3" />Declined</Badge>;
-  }
-  if (status === "not_applicable_existing_account") {
-    return <Badge variant="outline" className="gap-1">No signature required</Badge>;
-  }
-  return <Badge variant="secondary" className="gap-1"><FileX className="h-3 w-3" />No contract</Badge>;
-}
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
@@ -259,6 +243,14 @@ export default function StaffPage() {
     return formatCurrencyUtil(value, storeCurrency);
   };
 
+  // Extra vertical breathing room per row, on top of the shared table's
+  // default p-4 (client/src/components/ui/table.tsx) - merged into each
+  // column's className, which PolymorphicTable applies to both the header
+  // and body cells. Scoped to this page only, not a change to the shared
+  // table component, so every other list using DataTable is unaffected.
+  const withRowSpacing = (cols: any[]): any[] =>
+    cols.map((col) => ({ ...col, className: cn(col.className, "py-5") }));
+
   const activeColumns = useMemo(() => {
     const storeColumn = currentStore?.id === "all" ? [{
       key: "storeName",
@@ -311,47 +303,22 @@ export default function StaffPage() {
       const mobileCol = baseColumns.find(c => c.key === "mobileNumber")!;
       const nonMobileBaseCols = baseColumns.filter(c => c.key !== "mobileNumber");
 
-      return [
+      return withRowSpacing([
         ...nonMobileBaseCols,
         {
           key: "role",
           header: "Role",
           render: (staff: StaffRow) => (
-            <Badge variant={staff.role === "manager" ? "default" : "secondary"} className="gap-1 capitalize">
-              <Shield className="h-3 w-3" />
+            <Badge
+              variant={staff.role === "owner" ? "default" : staff.role === "manager" ? "default" : "secondary"}
+              className={cn("gap-1 capitalize", staff.role === "owner" && "bg-amber-500 hover:bg-amber-500/90 text-white")}
+            >
+              {staff.role === "owner" ? <Crown className="h-3 w-3" /> : <Shield className="h-3 w-3" />}
               {staff.role || "Staff"}
             </Badge>
           ),
         },
-        {
-          key: "paymentMethod",
-          header: "Model",
-          render: (staff: StaffRow) => (
-            <div className="flex flex-col gap-0.5">
-              <Badge variant="outline" className="capitalize w-fit">
-                {staff.overridePaymentMethod ? staff.paymentMethod : "Store Default"}
-              </Badge>
-              {!staff.overridePaymentMethod && (
-                <span className="text-[10px] text-muted-foreground">inherits store model</span>
-              )}
-            </div>
-          ),
-        },
         mobileCol,
-        {
-          key: "payPerMonth",
-          header: "Monthly Pay",
-          render: (staff: StaffRow) => (
-            staff.overridePaymentMethod
-              ? <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
-              : <span className="text-xs text-muted-foreground italic">Store default</span>
-          ),
-        },
-        {
-          key: "contractStatus",
-          header: "Contract",
-          render: (staff: StaffRow) => <ContractStatusBadge status={staff.contractStatus} />,
-        },
         {
           key: "actions",
           header: "",
@@ -421,10 +388,10 @@ export default function StaffPage() {
             </div>
           ),
         },
-      ];
+      ]);
     }
 
-    return [
+    return withRowSpacing([
       ...baseColumns,
       {
         key: "actions",
@@ -445,7 +412,7 @@ export default function StaffPage() {
           </div>
         ),
       },
-    ];
+    ]);
   }, [isOwner, formatCurrency, setLocation, otherStores.length]);
 
   const archivedColumns = [

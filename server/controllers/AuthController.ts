@@ -324,6 +324,10 @@ export class AuthController extends BaseController {
         pendingPhoneOtpAttempts: 0,
       });
 
+      // Keep every staff row this account is linked to in step - see
+      // IdentitySync (mirrors updateProfile's name sync below).
+      await syncUserIdentityToLinkedStaff(userId, { phone: user.pendingPhone });
+
       return this.ok(res, serializeUser(updated));
     } catch (error) {
       // Defense-in-depth for the sliver of time between the re-check above

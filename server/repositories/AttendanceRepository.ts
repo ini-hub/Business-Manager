@@ -40,12 +40,23 @@ export class AttendanceRepository {
       // earlier punch must not go on charging a late deduction for a day now
       // marked absent, on leave, or otherwise not worked as scheduled.
       const clearsLateFlag = data.status !== "present" && existing[0].isLate;
+      // data.isLate undefined means "this caller didn't touch lateness" (e.g.
+      // the quick status-cycle buttons) - leave whatever was there alone,
+      // same as notes/markedByUserId already not being blindly overwritten
+      // with null. Only an explicit isLate (server/routes/reports.routes.ts'
+      // manual-mark endpoint, when a manager sets/clears it) changes it, and
+      // always wins over clearsLateFlag's implicit clear.
+      const setsLateInfo = data.isLate !== undefined;
       const [updated] = await db.update(attendanceRecords)
         .set({
           status: data.status,
           notes: data.notes ?? null,
           markedByUserId: data.markedByUserId ?? null,
-          ...(clearsLateFlag ? { isLate: false, lateMinutes: null } : {}),
+          ...(setsLateInfo
+            ? { isLate: data.isLate, lateMinutes: data.isLate ? (data.lateMinutes ?? null) : null }
+            : clearsLateFlag
+              ? { isLate: false, lateMinutes: null }
+              : {}),
           updatedAt: new Date(),
         })
         .where(eq(attendanceRecords.id, existing[0].id))
@@ -53,7 +64,12 @@ export class AttendanceRepository {
       return updated;
     }
     const [inserted] = await db.insert(attendanceRecords)
-      .values({ ...data, updatedAt: new Date() })
+      .values({
+        ...data,
+        isLate: data.isLate ?? false,
+        lateMinutes: data.isLate ? (data.lateMinutes ?? null) : null,
+        updatedAt: new Date(),
+      })
       .returning();
     return inserted;
   }

@@ -23,9 +23,8 @@ export interface JWTPayload {
   email?: string;
 }
 
-export function generateToken(payload: JWTPayload, stayLoggedIn?: boolean): string {
-  const expiry = stayLoggedIn ? "30d" : JWT_EXPIRY;
-  return jwt.sign(payload, JWT_SECRET_VALUE, { expiresIn: expiry as any });
+export function generateToken(payload: JWTPayload): string {
+  return jwt.sign(payload, JWT_SECRET_VALUE, { expiresIn: JWT_EXPIRY as any });
 }
 
 export function verifyToken(token: string): JWTPayload | undefined {
@@ -69,6 +68,29 @@ export function verifyContractPendingToken(token: string): { userId: string; sta
     const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
     if (decoded?.action !== "contract_pending" || !decoded.userId || !decoded.staffContractId) return undefined;
     return { userId: decoded.userId, staffContractId: decoded.staffContractId };
+  } catch (error) {
+    return undefined;
+  }
+}
+
+// Minted instead of the real jwt_token when login, or first-time staff
+// activation (set-activated-password), finds the account hasn't yet
+// accepted the current Terms and Conditions / Privacy Policy / Data Usage
+// Policy (LegalDocumentService.hasAcceptedCurrentDocuments). Same
+// structurally-incapable-of-authenticating design as
+// generateContractPendingToken above: a distinct claim shape, verified by
+// its own function, that can never satisfy isAuthenticated. `continueTo`
+// tells POST /api/legal/consent-pending/accept which flow to resume once
+// consent is recorded (server/lib/authFlow.ts).
+export function generateLegalConsentPendingToken(userId: string, continueTo: "login" | "staff_activation"): string {
+  return jwt.sign({ userId, continueTo, action: "legal_consent_pending" }, JWT_SECRET_VALUE, { expiresIn: "1h" });
+}
+
+export function verifyLegalConsentPendingToken(token: string): { userId: string; continueTo: "login" | "staff_activation" } | undefined {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
+    if (decoded?.action !== "legal_consent_pending" || !decoded.userId || !decoded.continueTo) return undefined;
+    return { userId: decoded.userId, continueTo: decoded.continueTo };
   } catch (error) {
     return undefined;
   }
@@ -153,6 +175,22 @@ export const requireContractPendingToken: RequestHandler = async (req, res, next
   return next();
 };
 
+// Gates POST /api/legal/consent-pending/accept (server/routes/legal.routes.ts).
+// Reads the legal_consent_pending_token cookie set by login / set-activated-
+// password when consent is outstanding, and attaches req.legalConsentSession
+// - never req.user, for the same reason requireContractPendingToken above
+// never sets it.
+export const requireLegalConsentPendingToken: RequestHandler = async (req, res, next) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies.legal_consent_pending_token;
+  const claims = token ? verifyLegalConsentPendingToken(token) : undefined;
+  if (!claims) {
+    return res.status(401).json({ error: "Your session to accept these documents has expired. Please log in again." });
+  }
+  (req as any).legalConsentSession = claims;
+  return next();
+};
+
 // Paths that must stay reachable even for a locked org: /api/auth (so login,
 // logout, and switching to a different, unlocked business keep working),
 // /api/billing (plans/subscribe/cancel, so an owner can actually pay to
@@ -161,12 +199,15 @@ export const requireContractPendingToken: RequestHandler = async (req, res, next
 // /api/business (so the client can fetch the record that tells it the org
 // is locked and render the paywall/paused screen in the first place), and
 // /api/admin (a wholly separate operator auth system that never sets
-// req.user.businessId, kept here only as defense in depth). /api/contract
+// req.user.businessId, kept here only as defense in depth). /api/legal (the
+// public legal-document reads and the consent-pending accept endpoint) must
+// stay reachable for the same reason /api/business does - a locked org's
+// owner still needs to be able to read/accept these. /api/contract
 // (self-service contract review/sign/decline) never sets req.user at all
 // (see requireContractPendingToken above), so this is belt-and-suspenders
 // rather than load-bearing, but keeps the exemption list an honest map of
 // every pre-full-auth route family.
-const ORG_LOCK_EXEMPT_PREFIXES = ["/api/auth", "/api/billing", "/api/support", "/api/admin", "/api/contract"];
+const ORG_LOCK_EXEMPT_PREFIXES = ["/api/auth", "/api/billing", "/api/support", "/api/admin", "/api/contract", "/api/legal"];
 const ORG_LOCK_EXEMPT_PATHS = new Set(["/api/business", "/api/health"]);
 
 function isOrgLockExempt(path: string): boolean {

@@ -18,9 +18,12 @@ import { Loader2 } from "lucide-react";
 import { isOrgLocked } from "@/lib/trial";
 import { TrialBanner } from "@/components/trial-banner";
 import { AnnouncementBanner } from "@/components/announcement-banner";
+import { LegalConsentBanner } from "@/components/legal-consent-banner";
 import { Paywall } from "@/pages/paywall";
 import { AccountPaused } from "@/pages/account-paused";
 import BillingCallback from "@/pages/billing-callback";
+import { TrialWelcomeNotice } from "@/components/trial-welcome-notice";
+import { TermsPage, PrivacyPage, DataUsagePage, LegalDocumentByParamPage } from "@/pages/legal/legal-document-page";
 import type { Business } from "@shared/schema";
 
 // Eager — needed before auth resolves or tiny catch-all
@@ -126,6 +129,7 @@ const BillingPayments = lazy(() => import("@/pages/admin/BillingPayments"));
 const FeatureFlags = lazy(() => import("@/pages/admin/FeatureFlags"));
 const FeatureCatalog = lazy(() => import("@/pages/admin/FeatureCatalog"));
 const PlatformSettings = lazy(() => import("@/pages/admin/PlatformSettings"));
+const LegalDocuments = lazy(() => import("@/pages/admin/LegalDocuments"));
 const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
 const SystemHealth = lazy(() => import("@/pages/admin/SystemHealth"));
 const AuditLogs = lazy(() => import("@/pages/admin/AuditLogs"));
@@ -196,6 +200,7 @@ function SuperAdminRouter() {
               <Route path="/super-admin/flags" component={FeatureFlags} />
               <Route path="/super-admin/feature-catalog" component={FeatureCatalog} />
               <Route path="/super-admin/platform-settings" component={PlatformSettings} />
+              <Route path="/super-admin/legal-documents" component={LegalDocuments} />
               <Route path="/super-admin/announcements" component={AnnouncementsManager} />
               <Route path="/super-admin/health" component={SystemHealth} />
               <Route path="/super-admin/audit-logs" component={AuditLogs} />
@@ -238,6 +243,11 @@ function Router() {
           every invitation email fell through to NotFound. */}
       <Route path="/activate" component={Login} />
       <Route path="/auth/signup" component={Signup} />
+      <Route path="/terms" component={TermsPage} />
+      <Route path="/privacy" component={PrivacyPage} />
+      <Route path="/data-usage" component={DataUsagePage} />
+      {/* Reaches any section a super admin adds beyond the three friendly paths above (LegalDocuments.tsx). Registered after them so /terms etc. still win. */}
+      <Route path="/legal/:type" component={LegalDocumentByParamPage} />
       <Route path="/auth/verify-otp" component={VerifyOtp} />
       <Route path="/auth/forgot-password" component={ForgotPassword} />
       <Route path="/auth/reset-password" component={ResetPassword} />
@@ -276,17 +286,26 @@ function AuthenticatedLayout() {
 
   const hasStores = !storesLoading && Array.isArray(stores) && stores.length > 0;
 
+  // True only for a trialing org's owner who hasn't clicked through the
+  // blocking "your 14-day free trial starts now" notice yet
+  // (TrialWelcomeNotice below) - never true for staff (billing/trial
+  // messaging is owner-only, same scoping as TrialBanner), and never true
+  // again once trialConsentAcceptedAt is set.
+  const needsTrialConsent = user?.role === "owner" && business?.status === "trialing" && !business?.trialConsentAcceptedAt;
+
   // Redirect to onboarding via useEffect. A locked org (suspended, or
   // trial-expired past grace) makes /api/stores 403 rather than return an
   // empty list, which looks identical to "brand-new org with no stores yet"
   // from here - guard on isOrgLocked so a locked org sees the Paywall/
   // AccountPaused screen below instead of being bounced into the
-  // create-store wizard, where store creation would just 403 again.
+  // create-store wizard, where store creation would just 403 again. Also
+  // guard on needsTrialConsent so a brand-new owner sees the trial notice
+  // before, not racing, the redirect into the onboarding wizard.
   useEffect(() => {
-    if (!storesLoading && !businessLoading && !hasStores && !isOrgLocked(business) && location !== "/onboarding") {
+    if (!storesLoading && !businessLoading && !hasStores && !isOrgLocked(business) && !needsTrialConsent && location !== "/onboarding") {
       setLocation("/onboarding");
     }
-  }, [storesLoading, businessLoading, hasStores, business, location, setLocation]);
+  }, [storesLoading, businessLoading, hasStores, business, needsTrialConsent, location, setLocation]);
 
   // Global power-user navigation keyboard shortcuts (Alt/Option modifier)
   useEffect(() => {
@@ -358,6 +377,10 @@ function AuthenticatedLayout() {
     return user?.role === "owner" ? <Paywall business={business} /> : <AccountPaused />;
   }
 
+  if (needsTrialConsent && business) {
+    return <TrialWelcomeNotice business={business} />;
+  }
+
   if (!hasStores) return null;
 
   return (
@@ -367,6 +390,7 @@ function AuthenticatedLayout() {
           <div className="flex flex-1 w-full min-h-0">
           <AppSidebar />
           <SidebarInset className="flex flex-col flex-1 min-w-0">
+            <LegalConsentBanner />
             <AnnouncementBanner />
             <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
               <div className="flex items-center gap-2">

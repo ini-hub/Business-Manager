@@ -154,6 +154,18 @@ export default function PayrollPage() {
     enabled: !!selectedPeriodId && !!selectedPeriod && selectedPeriod.status !== "paid",
   });
 
+  // Store-scoped, not period-scoped - who's excluded depends on current
+  // staff/contract state, not a period's date range (see
+  // PayrollService.getExcludedStaffForStore).
+  const { data: excludedStaff = [] } = useQuery<{ staffId: string; name: string; reason: "pending_signature" | "declined" | "invite_pending" }[]>({
+    queryKey: ["/api/payroll/excluded-staff", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/payroll/excluded-staff?storeId=${currentStore?.id}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
   const { data: entriesRaw = [], isLoading: entriesLoading } = useQuery<PayrollEntryWithPay[]>({
     queryKey: ["/api/payroll/periods/entries", selectedPeriodId],
     queryFn: async () => {
@@ -560,6 +572,22 @@ export default function PayrollPage() {
                     <strong>{unrecordedDays.length} staff member{unrecordedDays.length !== 1 ? "s have" : " has"} unrecorded attendance days</strong> in this period.
                     Unrecorded days default to absent and will reduce pay.{" "}
                     <Link href="/staffs/attendance" className="underline font-medium">Mark attendance →</Link>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Staff excluded from payroll - onboarding incomplete (invite not accepted, or contract not yet signed/declined) */}
+              {excludedStaff.length > 0 && (
+                <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertDescription className="text-amber-800 dark:text-amber-300">
+                    <strong>{excludedStaff.length} staff member{excludedStaff.length !== 1 ? "s haven't" : " hasn't"} finished onboarding</strong>{" "}
+                    and {excludedStaff.length !== 1 ? "are" : "is"} excluded from payroll.
+                    Attendance and sales are still recorded for them, but they won't receive a payroll entry until they accept their invitation{excludedStaff.some(s => s.reason !== "invite_pending") ? " and sign their contract" : ""}.{" "}
+                    <span className="font-medium">
+                      {excludedStaff.map(s => s.name).join(", ")}
+                    </span>
+                    .
                   </AlertDescription>
                 </Alert>
               )}

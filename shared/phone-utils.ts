@@ -144,6 +144,24 @@ export function normalizePhoneForStorage(phoneNumber: string, countryCodeOrDialC
   return `${dialCode}${cleanedNumber}`;
 }
 
+// Reverses normalizePhoneForStorage: splits a canonical dial-code+local
+// string (users.phone) back into the {countryCode, localNumber} shape
+// staff.mobileNumber/staff.countryCode are stored as - needed to mirror a
+// user's verified phone onto their linked staff row(s) without corrupting
+// the stored format (see IdentitySync.syncUserIdentityToLinkedStaff).
+// Matches the longest dial code first since some are prefixes of others
+// (e.g. "+1" vs "+20"... no actual overlap today, but codes do vary in
+// length, so this stays correct if one ever is added).
+export function splitNormalizedPhone(phone: string): { countryCode: string; localNumber: string } | undefined {
+  const byLength = [...countryCodes].sort((a, b) => b.dialCode.length - a.dialCode.length);
+  for (const country of byLength) {
+    if (phone.startsWith(country.dialCode)) {
+      return { countryCode: country.dialCode, localNumber: phone.slice(country.dialCode.length) };
+    }
+  }
+  return undefined;
+}
+
 // Existing accounts were stored before normalization existed, so a stored
 // phone may or may not have kept its leading trunk zero (e.g. "+23408138303956"
 // vs "+2348138303956" for the same real number). Rather than backfill

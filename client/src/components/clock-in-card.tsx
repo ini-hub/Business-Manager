@@ -230,6 +230,15 @@ export function ClockInCard() {
   };
 
   const status = fenceLabel();
+  // Once a browser permission is explicitly denied, no web API can make it
+  // re-prompt - only the browser's own site-settings UI can. fence.refresh()
+  // still matters here despite that: after the person flips the setting
+  // there themselves, a fresh watchPosition call picks it up immediately,
+  // no page reload needed, so "Check again" is the thing to press once
+  // they're done, not a dead end.
+  const locationHelpText = fence.state === "denied"
+    ? "Tap the lock or site-info icon next to your browser's address bar, allow Location for this site, then check again below."
+    : null;
   const canClockIn = fence.state === "inside" && !punchMutation.isPending;
   // Clock-out is checked against the same geofence server-side (see
   // checkGeofence), so it needs the same gating — otherwise a click fired
@@ -289,6 +298,9 @@ export function ClockInCard() {
                     <MapPin className="h-4 w-4 shrink-0" />
                     <span>{status.text}</span>
                   </div>
+                  {locationHelpText && (
+                    <p className="text-xs text-muted-foreground">{locationHelpText}</p>
+                  )}
 
                   <Button
                     variant="outline"
@@ -303,9 +315,9 @@ export function ClockInCard() {
                     Clock out
                   </Button>
 
-                  {(fence.state === "weak" || fence.state === "outside") && (
+                  {(fence.state === "weak" || fence.state === "outside" || fence.state === "denied") && (
                     <Button variant="ghost" size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
-                      Try my location again
+                      {fence.state === "denied" ? "Check again" : "Try my location again"}
                     </Button>
                   )}
                 </>
@@ -326,6 +338,9 @@ export function ClockInCard() {
                 <MapPin className="h-4 w-4 shrink-0" />
                 <span>{status.text}</span>
               </div>
+              {locationHelpText && (
+                <p className="text-xs text-muted-foreground">{locationHelpText}</p>
+              )}
 
               <Button
                 className="w-full"
@@ -339,9 +354,9 @@ export function ClockInCard() {
                 Clock in
               </Button>
 
-              {(fence.state === "weak" || fence.state === "outside") && (
+              {(fence.state === "weak" || fence.state === "outside" || fence.state === "denied") && (
                 <Button variant="ghost" size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
-                  Try my location again
+                  {fence.state === "denied" ? "Check again" : "Try my location again"}
                 </Button>
               )}
             </div>

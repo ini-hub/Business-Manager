@@ -9,17 +9,32 @@ async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
 
-    // Try to parse JSON error response and extract just the message
+    // Try to parse JSON error response and extract just the message.
+    // Two shapes are in use across the API: nested ({ error: { message,
+    // code } }, e.g. LEGAL_DOCUMENTS_STALE) and flat ({ error: "code",
+    // message: "friendly text" }, e.g. requireFeature's feature_not_purchased
+    // 402). A bare string `error` field is usually itself the friendly
+    // message (most routes), but wherever a sibling `message` field is also
+    // present, that's the human-readable one and `error` is a machine code -
+    // preferring `message` there first is what actually fixes the flat
+    // shape without breaking the far more common bare-string-is-the-message
+    // convention (jsonError.message is simply undefined in that case).
     try {
       const jsonError = JSON.parse(text);
       const rawError = jsonError.error;
+      const nestedMessage = rawError !== null && typeof rawError === "object" ? rawError.message : undefined;
       const errorMessage =
-        (rawError !== null && typeof rawError === "object" ? rawError.message : rawError) ||
+        nestedMessage ||
         jsonError.message ||
+        (typeof rawError === "string" ? rawError : undefined) ||
         text;
       const error: ApiError = new Error(errorMessage);
       if (rawError !== null && typeof rawError === "object" && typeof rawError.code === "string") {
         error.code = rawError.code;
+      } else if (typeof rawError === "string" && jsonError.message) {
+        // Flat shape: the string `error` field doubles as the machine
+        // code precisely when a separate human-readable `message` exists.
+        error.code = rawError;
       }
       throw error;
     } catch (parseError) {

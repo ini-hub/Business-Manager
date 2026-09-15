@@ -28,6 +28,13 @@ export const organisations = pgTable("organisations", {
   deletedAt: timestamp("deleted_at"), // Soft-delete 30-day grace period
   deletionReason: text("deletion_reason"),
   trialEndsAt: timestamp("trial_ends_at"), // null for orgs created before trials existed (grandfathered, never gated)
+  // Set once the owner clicks through the blocking "your 14-day free trial
+  // starts now" notice shown right after signup (client/src/components/
+  // trial-welcome-notice.tsx). Null for every org created before this
+  // shipped - deliberately never backfilled/enforced retroactively, unlike
+  // the legal-document consent gate, since this is a one-time informational
+  // notice rather than a legal acceptance record.
+  trialConsentAcceptedAt: timestamp("trial_consent_accepted_at"),
   activatedAt: timestamp("activated_at"), // set once, on the org's first-ever completed sale
   defaultWalkInCustomerId: varchar("default_walk_in_customer_id"), // cached id of the auto-provisioned trial walk-in customer
   defaultTrialStaffId: varchar("default_trial_staff_id"), // cached id of the auto-provisioned trial default staff record

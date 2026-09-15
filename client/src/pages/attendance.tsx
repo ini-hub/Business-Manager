@@ -13,6 +13,7 @@ import {
   Users,
   AlertCircle,
   BookOpen,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -94,6 +98,86 @@ function StatusBadge({ status, isActive, isLate, lateMinutes }: { status: Attend
       </Badge>
       {isLate && <LateBadge lateMinutes={lateMinutes} />}
     </div>
+  );
+}
+
+/**
+ * Lets a manager flag a manually-marked day as late, with a minutes count -
+ * parity with self-check-in, which always computes isLate/lateMinutes from
+ * the actual clock-in time (server/services/attendance/lateness.ts). A
+ * manual mark has no clock-in time to derive that from, so the manager
+ * enters it directly. Marking late also sets the day to "present" - late
+ * is only ever meaningful alongside it (AttendanceRepository clears the
+ * flag for any other status).
+ */
+function LateMarker({
+  isLate,
+  lateMinutes,
+  onSave,
+  onClear,
+  disabled,
+}: {
+  isLate?: boolean;
+  lateMinutes?: number | null;
+  onSave: (minutes: number) => void;
+  onClear: () => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [minutes, setMinutes] = useState(String(lateMinutes ?? ""));
+
+  return (
+    <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setMinutes(String(lateMinutes ?? "")); }}>
+      <PopoverTrigger asChild>
+        <Button
+          variant={isLate ? "default" : "ghost"}
+          size="icon"
+          className={`h-7 w-7 ${!isLate ? "text-orange-600 dark:text-orange-400" : "bg-orange-500 hover:bg-orange-500/90"}`}
+          title={isLate ? `Late by ${lateMinutes ?? 0} min - click to edit` : "Mark late"}
+          disabled={disabled}
+          data-testid="button-mark-late"
+        >
+          <Clock className="h-3.5 w-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 space-y-3" align="end">
+        <div className="space-y-1.5">
+          <Label htmlFor="late-minutes" className="text-xs">Minutes late</Label>
+          <Input
+            id="late-minutes"
+            type="number"
+            min={0}
+            step={1}
+            value={minutes}
+            onChange={(e) => setMinutes(e.target.value)}
+            placeholder="e.g. 15"
+            data-testid="input-late-minutes"
+          />
+        </div>
+        <div className="flex gap-2">
+          {isLate && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => { onClear(); setOpen(false); }}
+              data-testid="button-clear-late"
+            >
+              Clear
+            </Button>
+          )}
+          <Button
+            size="sm"
+            className="flex-1"
+            disabled={!minutes || Number(minutes) < 0}
+            onClick={() => { onSave(Number(minutes)); setOpen(false); }}
+            data-testid="button-save-late"
+          >
+            Save
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -183,18 +267,28 @@ export default function AttendancePage() {
   }, [records]);
 
   const markMutation = useMutation({
-    mutationFn: async ({ staffId, date, status }: { staffId: string; date: string; status: AttendanceStatus }) => {
+    mutationFn: async (
+      { staffId, date, status, isLate, lateMinutes }:
+      { staffId: string; date: string; status: AttendanceStatus; isLate?: boolean; lateMinutes?: number | null },
+    ) => {
       const res = await apiRequest("POST", "/api/attendance", {
         storeId: currentStore?.id,
         staffId,
         date,
         status,
+        ...(isLate !== undefined ? { isLate, lateMinutes } : {}),
       });
       return res.json();
     },
     onSuccess: () => {
+      // invalidateQueries already refetches any active query matching this
+      // key on its own - a following refetchQueries() was a second, fully
+      // redundant fetch of the exact same data (and a third one still
+      // arrives independently via useRealtimeSync's websocket-driven
+      // invalidation, which exists so *other* managers viewing this store
+      // see the update live - that one isn't redundant, it just isn't this
+      // client's job to also trigger).
       queryClient.invalidateQueries({ queryKey: ["/api/attendance", currentStore?.id] });
-      queryClient.refetchQueries({ queryKey: ["/api/attendance", currentStore?.id] });
     },
     onError: () => toast({ title: "Couldn't save attendance", variant: "destructive" }),
   });
@@ -211,8 +305,8 @@ export default function AttendancePage() {
       return res.json();
     },
     onSuccess: () => {
+      // See markMutation's onSuccess above - refetchQueries() here was redundant with invalidateQueries.
       queryClient.invalidateQueries({ queryKey: ["/api/attendance", currentStore?.id] });
-      queryClient.refetchQueries({ queryKey: ["/api/attendance", currentStore?.id] });
       toast({ title: `Marked all staff as ${bulkStatus.replace("_", " ")} for ${format(currentDate, "MMM d")}` });
     },
     onError: () => toast({ title: "Couldn't bulk mark attendance", variant: "destructive" }),
@@ -361,6 +455,13 @@ export default function AttendancePage() {
                                 </Button>
                               );
                             })}
+                            <LateMarker
+                              isLate={rec?.isLate}
+                              lateMinutes={rec?.lateMinutes}
+                              disabled={markMutation.isPending}
+                              onSave={(minutes) => markMutation.mutate({ staffId: s.id, date: dailyDate, status: "present", isLate: true, lateMinutes: minutes })}
+                              onClear={() => markMutation.mutate({ staffId: s.id, date: dailyDate, status: status ?? "present", isLate: false, lateMinutes: null })}
+                            />
                           </div>
                         )}
                       </div>

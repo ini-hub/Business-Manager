@@ -309,9 +309,22 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   // Upsert a single attendance record
   app.post("/api/attendance", requireManagerOrOwner, async (req, res) => {
     try {
-      const { storeId, staffId, date, status, notes } = req.body;
+      const { storeId, staffId, date, status, notes, isLate, lateMinutes } = req.body;
       if (!storeId || !staffId || !date || !status) {
         return res.status(400).json({ error: "storeId, staffId, date and status are required." });
+      }
+      // Manual parity with self-check-in's automatic isLate/lateMinutes
+      // (server/services/AttendanceService.ts's evaluateLateness) - a
+      // manager marking someone present by hand can flag them late too,
+      // rather than that information only ever existing for staff who
+      // clocked themselves in. isLate is only meaningful alongside
+      // "present" - AttendanceRepository.upsertAttendanceRecord already
+      // clears it for any other status.
+      if (isLate !== undefined && typeof isLate !== "boolean") {
+        return res.status(400).json({ error: "isLate must be a boolean." });
+      }
+      if (lateMinutes !== undefined && lateMinutes !== null && (!Number.isInteger(lateMinutes) || lateMinutes < 0)) {
+        return res.status(400).json({ error: "lateMinutes must be a non-negative whole number." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
@@ -321,11 +334,19 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       }
 
       const userId = (req as any).user?.id;
-      const record = await storage.upsertAttendanceRecord({ storeId, staffId, date, status, notes, markedByUserId: userId });
+      const record = await storage.upsertAttendanceRecord({
+        storeId,
+        staffId,
+        date,
+        status,
+        notes,
+        markedByUserId: userId,
+        ...(isLate !== undefined ? { isLate, lateMinutes: isLate ? (lateMinutes ?? null) : null } : {}),
+      });
 
       const ctx = await getAuditContext(req, { storeId });
       auditLogger.logEvent(ctx, "ATTENDANCE_MARK", "attendance_record", record.id, "success", {
-        newValues: { staffId, date, status, notes: notes ?? null },
+        newValues: { staffId, date, status, notes: notes ?? null, isLate: record.isLate, lateMinutes: record.lateMinutes },
       });
 
       triggerAutoRecalculate(storeId, date).catch(console.error);
@@ -512,6 +533,11 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const exception = await storage.upsertStaffScheduleException({
         storeId, staffId, date, kind, reason: reason ?? null,
         createdByUserId: (req as any).user?.id ?? null,
+      });
+
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_EXCEPTION_APPLY", "staff_schedule_exception", exception.id, "success", {
+        newValues: { staffId, date, kind, reason: reason ?? null },
       });
 
       triggerAutoRecalculate(storeId, date).catch(console.error);
@@ -829,6 +855,11 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       await storage.deleteStaffScheduleException(storeId, staffId, date);
+
+      const ctx = await getAuditContext(req, { storeId });
+      auditLogger.logEvent(ctx, "ATTENDANCE_EXCEPTION_DELETE", "staff_schedule_exception", undefined, "success", {
+        previousValues: { staffId, date },
+      });
 
       triggerAutoRecalculate(storeId, date).catch(console.error);
       broadcastChange(req, "attendance", storeId, "updated");

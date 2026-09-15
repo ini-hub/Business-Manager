@@ -43,6 +43,7 @@ import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
 import { requireCountLimit } from "../lib/entitlements";
+import { splitNormalizedPhone } from "@shared/phone-utils";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -189,6 +190,28 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
+  // Records the owner clicking through the blocking "your 14-day free trial
+  // starts now" notice shown right after signup (client/src/components/
+  // trial-welcome-notice.tsx). Owner-only, and a no-op once already set -
+  // this is a one-time informational notice, not a re-consentable legal
+  // document, so there's nothing to compare against like
+  // LegalDocumentService.hasAcceptedCurrentDocuments.
+  app.post("/api/business/accept-trial-consent", requireRole("owner"), async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) {
+        return res.status(400).json({ error: "No business associated with this account." });
+      }
+      const business = await storage.updateBusiness(businessId, { trialConsentAcceptedAt: new Date() });
+      if (!business) {
+        return res.status(404).json({ error: "Business not found." });
+      }
+      res.json(business);
+    } catch (error) {
+      res.status(500).json({ error: "Could not record trial consent. Please try again." });
+    }
+  });
+
   // ========== FUNNEL INSTRUMENTATION ==========
   // Client-reported events for steps the server can't see itself (onboarding
   // skip clicks, client-side checkout validation blocks). Fire-and-forget from
@@ -292,20 +315,30 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
 
       const store = await storage.createStore(data);
 
-      // Automatically add the owner to the staff list of their new store
+      // Automatically add the owner to the staff list of their new store.
+      // Name/mobile come from the real users row, not req.user (the JWT
+      // payload - see JWTPayload in server/auth.ts - carries neither name
+      // nor phone, so reading user.name/user.phone here always fell through
+      // to the placeholder text and "0000000000"). Kept in step afterward
+      // by IdentitySync whenever the owner edits their profile or verifies
+      // a phone change.
       try {
-        const user = (req as any).user;
-        if (user && user.id) {
-          const activeBusinessId = user.businessId;
-          const business = activeBusinessId ? await storage.getBusinessById(activeBusinessId) : undefined;
+        const sessionUser = (req as any).user;
+        if (sessionUser && sessionUser.id) {
+          const activeBusinessId = sessionUser.businessId;
+          const [business, ownerUser] = await Promise.all([
+            activeBusinessId ? storage.getBusinessById(activeBusinessId) : Promise.resolve(undefined),
+            storage.getUser(sessionUser.id),
+          ]);
+          const splitPhone = ownerUser?.phone ? splitNormalizedPhone(ownerUser.phone) : undefined;
           await storage.createStaff({
             storeId: store.id,
-            userId: user.id,
-            name: business?.name ? `${business.name} Owner` : "Business Owner",
-            email: user.email || "owner@example.com",
-            mobileNumber: user.phone || "0000000000",
-            countryCode: "+234",
-            role: "manager", // Best role mapping for the owner until an explicit 'owner' role is needed
+            userId: sessionUser.id,
+            name: ownerUser?.name || (business?.name ? `${business.name} Owner` : "Business Owner"),
+            email: ownerUser?.email || sessionUser.email || "owner@example.com",
+            mobileNumber: splitPhone?.localNumber || "0000000000",
+            countryCode: splitPhone?.countryCode || "+234",
+            role: "owner",
             payPerMonth: 0,
             signedContract: true,
             staffNumber: "",

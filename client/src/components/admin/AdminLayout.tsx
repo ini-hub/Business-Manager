@@ -25,6 +25,7 @@ import {
   CreditCard,
   Tag,
   Settings,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -186,6 +187,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Feature Flags", path: "/super-admin/flags", icon: ToggleLeft, roles: ["super_admin"] },
         { name: "Feature Catalog", path: "/super-admin/feature-catalog", icon: Tag, roles: ["super_admin", "finance_admin"] },
         { name: "Platform Settings", path: "/super-admin/platform-settings", icon: Settings, roles: ["super_admin"] },
+        { name: "Legal Documents", path: "/super-admin/legal-documents", icon: FileText, roles: ["super_admin"] },
         { name: "Announcements", path: "/super-admin/announcements", icon: Megaphone, roles: ["super_admin"] },
       ],
     },

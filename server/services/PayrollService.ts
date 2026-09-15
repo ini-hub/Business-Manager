@@ -25,8 +25,75 @@ import { staffCreditDeductionService } from "./StaffCreditDeductionService";
 import { salaryAdvanceDeductionService } from "./SalaryAdvanceDeductionService";
 import { lateArrivalDeductionService } from "./LateArrivalDeductionService";
 import { commissionForFormula } from "./payroll/commissionFormula";
+import { staffContractService } from "./StaffContractService";
+import { staffInviteService } from "./StaffInviteService";
+
+export type PayrollExcludedStaff = { staffId: string; name: string; reason: "pending_signature" | "declined" | "invite_pending" };
 
 export class PayrollService {
+  /**
+   * Splits a store's non-archived staff into who's payable this run and who
+   * isn't. Attendance/sales can still be recorded against a staff member who
+   * hasn't finished onboarding (they may genuinely be working their first
+   * days before the paperwork is done - see the "should attendance/sales be
+   * attachable to a non-onboarded staff member" decision), but they must not
+   * receive an actual payroll entry - real wages/commission - until
+   * onboarding is actually done. Two independent, non-overlapping signals
+   * for "not done":
+   *
+   *  - inviteStatus 'pending'/'partial' (StaffInviteService) - the invite
+   *    was sent but never accepted, or the account exists but isn't fully
+   *    active yet. This is the common case: most businesses never touch the
+   *    e-signature contract feature at all, so this is usually the *only*
+   *    signal that actually fires. inviteStatus 'none' (no invite ever
+   *    sent - a pure HR record with no login) is deliberately payable, same
+   *    as the design decision for attendance/sales.
+   *  - contractStatus 'pending_signature'/'declined' (StaffContractService)
+   *    - the narrower, opt-in e-signature contract feature specifically.
+   *    'none'/'not_applicable_existing_account' are payable.
+   *
+   * Shared by calculatePayrollForPeriod and getExcludedStaffForStore so the
+   * two can never disagree about who's excluded.
+   */
+  private async resolvePayableStaff(
+    nonArchivedStaff: (typeof staff.$inferSelect)[],
+    businessId: string,
+  ): Promise<{ payable: (typeof staff.$inferSelect)[]; excluded: PayrollExcludedStaff[] }> {
+    const [contractStatuses, inviteStatuses] = await Promise.all([
+      staffContractService.computeContractStatuses(nonArchivedStaff, businessId),
+      staffInviteService.computeInviteStatuses(nonArchivedStaff, businessId),
+    ]);
+    const payable: (typeof staff.$inferSelect)[] = [];
+    const excluded: PayrollExcludedStaff[] = [];
+    for (const s of nonArchivedStaff) {
+      const contractStatus = contractStatuses.get(s.id) ?? "none";
+      const inviteStatus = inviteStatuses.get(s.id) ?? "none";
+      if (contractStatus === "pending_signature" || contractStatus === "declined") {
+        excluded.push({ staffId: s.id, name: s.name, reason: contractStatus });
+      } else if (inviteStatus === "pending" || inviteStatus === "partial") {
+        excluded.push({ staffId: s.id, name: s.name, reason: "invite_pending" });
+      } else {
+        payable.push(s);
+      }
+    }
+    return { payable, excluded };
+  }
+
+  /**
+   * Staff currently excluded from payroll store-wide - not period-scoped,
+   * since exclusion depends on current staff/contract state, not a
+   * period's date range. Powers the "N staff excluded - contract not yet
+   * signed" note on the payroll page (client/src/pages/payroll.tsx).
+   */
+  public async getExcludedStaffForStore(storeId: string): Promise<PayrollExcludedStaff[]> {
+    const store = await storage.getStore(storeId);
+    if (!store) return [];
+    const allStaff = await db.select().from(staff).where(eq(staff.storeId, storeId));
+    const nonArchivedStaff = allStaff.filter(s => !s.isArchived);
+    const { excluded } = await this.resolvePayableStaff(nonArchivedStaff, store.businessId);
+    return excluded;
+  }
+
   /**
    * Calculate Payroll For Period (Payroll V2.0 Calculation Engine)
    */
@@ -48,8 +115,33 @@ export class PayrollService {
 
     // Get all staff for quick lookup
     const allStaff = await db.select().from(staff).where(eq(staff.storeId, period.storeId));
-    const activeStaffList = allStaff.filter(s => !s.isArchived);
+    const nonArchivedStaff = allStaff.filter(s => !s.isArchived);
+    const { payable: activeStaffList } = await this.resolvePayableStaff(nonArchivedStaff, store.businessId);
     const staffMap = new Map(allStaff.map(s => [s.id, s]));
+    const payableStaffIds = new Set(activeStaffList.map(s => s.id));
+
+    // Remove stale entries (and any deductions scoped to them) for staff who
+    // are no longer payable - archived since the last calculation, or newly
+    // excluded (onboarding/contract status changed). The upsert below only
+    // ever touches staff currently in activeStaffList, so without this, a
+    // staff member's entry/pay from an earlier calculation - back when they
+    // were still payable - would keep showing up (and counting toward Total
+    // Payable) forever. Never reachable for a paid period (guarded above),
+    // so nothing here is ever settled/already-disbursed.
+    const existingEntryStaffIds = await db.select({ staffId: payrollEntries.staffId })
+      .from(payrollEntries)
+      .where(eq(payrollEntries.periodId, periodId));
+    const staleStaffIds = Array.from(new Set(
+      existingEntryStaffIds.map(e => e.staffId).filter(id => !payableStaffIds.has(id)),
+    ));
+    if (staleStaffIds.length > 0) {
+      await db.delete(payrollDeductions).where(
+        and(eq(payrollDeductions.periodId, periodId), inArray(payrollDeductions.staffId, staleStaffIds)),
+      );
+      await db.delete(payrollEntries).where(
+        and(eq(payrollEntries.periodId, periodId), inArray(payrollEntries.staffId, staleStaffIds)),
+      );
+    }
 
     // Auto-inject carry-forward deductions from previous paid periods
     const prevPaidPeriods = await db.select().from(payrollPeriods).where(
@@ -62,7 +154,11 @@ export class PayrollService {
           gt(payrollEntries.carryForwardAmount, 0),
         )
       );
-      for (const prev of prevEntries) {
+      // A staff member excluded from this period must not accrue a
+      // carry-forward deduction either - it would be orphaned with no
+      // payroll entry to attach to, and reappear the moment they become
+      // payable again with no entry to actually recover it from in between.
+      for (const prev of prevEntries.filter(p => payableStaffIds.has(p.staffId))) {
         const existing = await db.select().from(payrollDeductions).where(
           and(
             eq(payrollDeductions.periodId, periodId),

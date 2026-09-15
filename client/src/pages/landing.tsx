@@ -615,6 +615,9 @@ export default function Landing() {
           <div className="flex gap-4 text-xs text-white/35">
             <Link href="/auth/login" className="hover:text-white/60 transition-colors">Sign In</Link>
             <Link href="/auth/signup" className="hover:text-white/60 transition-colors">Sign Up</Link>
+            <Link href="/terms" className="hover:text-white/60 transition-colors">Terms</Link>
+            <Link href="/privacy" className="hover:text-white/60 transition-colors">Privacy</Link>
+            <Link href="/data-usage" className="hover:text-white/60 transition-colors">Data Usage</Link>
           </div>
         </div>
       </footer>

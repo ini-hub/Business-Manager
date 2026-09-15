@@ -50,12 +50,23 @@ if (!process.env.DATABASE_URL) {
 // for an extra hour, delaying sends past OTP/reset-code expiry). Set via
 // the libpq startup option so it applies before any query can run on the
 // connection (a post-connect `SET TIME ZONE` query would race with it).
+// Managed Postgres providers (Neon, Supabase, Render, etc.) require TLS.
+// Their certs chain to a public CA already in Node's default trust store, so
+// full verification (rejectUnauthorized: true, the pg default when `ssl` is
+// set) works without pinning anything - confirmed against this project's own
+// Neon endpoint. Local/self-hosted Postgres (127.0.0.1, localhost) never
+// asks for TLS, so only enable it when the URL says so.
+const requiresSsl =
+  /\bsslmode=require\b/.test(process.env.DATABASE_URL) ||
+  /\.neon\.tech\b/.test(process.env.DATABASE_URL);
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: parseInt(process.env.DB_POOL_MAX || "20"),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
   options: "-c timezone=UTC",
+  ssl: requiresSsl ? { rejectUnauthorized: true } : undefined,
 });
 
 export const db = drizzle(pool, { schema });

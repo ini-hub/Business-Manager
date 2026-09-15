@@ -412,7 +412,7 @@ export default function StaffFormPage() {
   const currencyInfo = getCurrencyByCode(currentStore?.currency || "NGN");
   const nameInitials = form.watch("name")?.slice(0, 2).toUpperCase() || "";
   const watchRole = form.watch("role");
-  const roleLabel = watchRole === "manager" ? "Manager" : watchRole === "staff" ? "Staff" : watchRole || "Staff";
+  const roleLabel = watchRole === "owner" ? "Owner" : watchRole === "manager" ? "Manager" : watchRole === "staff" ? "Staff" : watchRole || "Staff";
 
   // staffMember.contractStatus (the versioned staff_contracts table) is the
   // source of truth once a staff row exists; signedContract is the
@@ -588,6 +588,14 @@ export default function StaffFormPage() {
                         <Select onValueChange={field.onChange} value={field.value || "staff"}>
                           <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
                           <SelectContent>
+                            {/* Not a real choice - "owner" is only ever set by the
+                                auto-created record at store creation (see
+                                business.routes.ts), never picked from this dropdown.
+                                Rendered only so the owner's own staff row, if opened
+                                here, shows its actual role instead of a blank Select. */}
+                            {field.value === "owner" && (
+                              <SelectItem value="owner" disabled>Owner — Full Access</SelectItem>
+                            )}
                             <SelectItem value="staff">Staff — Sales Access Only</SelectItem>
                             <SelectItem value="manager">Manager — Full Store Access</SelectItem>
                             {customRoles.map((r: any) => (

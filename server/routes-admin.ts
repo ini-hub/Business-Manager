@@ -33,11 +33,14 @@ import {
   insertFeatureCatalogSchema,
   platformConfig,
   platformPaymentCredentials,
+  publishLegalDocumentVersionSchema,
+  createLegalDocumentSchema,
 } from "@shared/schema";
 import { grantFeatureEntitlement, scheduleFeatureRemoval } from "./lib/entitlements";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
 import { getConfiguredTrialDays, setPlatformConfigValue } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
+import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
 import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./auth-admin";
 import { broadcastDataChange } from "./websocket";
@@ -2954,6 +2957,165 @@ adminRouter.put("/platform-config/trial-days", isAdminAuthenticated, requireAdmi
   } catch (error) {
     console.error("Update trial-days error:", error);
     return res.status(500).json({ error: "Failed to update trial length." });
+  }
+});
+
+// ─── Legal Documents (Terms and Conditions / Privacy Policy / Data Usage) ───
+// Versioned, super-admin-authored content - see shared/schema/legal-documents.ts
+// and server/services/LegalDocumentService.ts. Publishing a new version here
+// automatically makes every user's prior acceptance stale (no separate
+// "require re-consent" toggle needed - see hasAcceptedCurrentDocuments).
+// Not limited to the three seeded defaults - createDocument below lets a
+// super admin add further sections, which every consent screen picks up
+// automatically since none of them hardcode a fixed set of types.
+
+adminRouter.get("/legal-documents", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    // listAllForAdmin, not listAllCurrent - this view also shows archived
+    // sections (with a Reactivate action), unlike every user-facing read.
+    const current = await legalDocumentService.listAllForAdmin();
+    return res.json({
+      documents: current.map(c => ({
+        documentType: c.document.documentType,
+        title: c.document.title,
+        contentMarkdown: c.version.contentMarkdown,
+        versionNumber: c.version.versionNumber,
+        publishedAt: c.version.createdAt,
+        publishedByAdminId: c.version.createdByAdminId,
+        archivedAt: c.document.archivedAt,
+      })),
+    });
+  } catch (error) {
+    console.error("List legal documents error:", error);
+    return res.status(500).json({ error: "Failed to load legal documents." });
+  }
+});
+
+adminRouter.post("/legal-documents", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const parsed = createLegalDocumentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid submission." });
+  }
+
+  try {
+    const outcome = await legalDocumentService.createDocument({
+      documentType: parsed.data.documentType,
+      title: parsed.data.title,
+      contentMarkdown: parsed.data.contentMarkdown,
+      adminId: req.admin!.adminId,
+    });
+    if (outcome.kind === "duplicate_type") {
+      return res.status(409).json({ error: `A document with type "${parsed.data.documentType}" already exists.` });
+    }
+    await writeAuditLog(req, "create_legal_document", "legal_document", {
+      documentType: outcome.document.documentType,
+    });
+    return res.status(201).json({
+      documentType: outcome.document.documentType,
+      title: outcome.document.title,
+      versionNumber: outcome.version.versionNumber,
+      publishedAt: outcome.version.createdAt,
+    });
+  } catch (error) {
+    console.error("Create legal document error:", error);
+    return res.status(500).json({ error: "Failed to create new section." });
+  }
+});
+
+adminRouter.post("/legal-documents/:type/archive", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const document = await legalDocumentService.archiveDocument(req.params.type);
+    if (!document) {
+      return res.status(404).json({ error: "Unknown legal document type." });
+    }
+    await writeAuditLog(req, "archive_legal_document", "legal_document", { documentType: req.params.type });
+    return res.json({ documentType: document.documentType, archivedAt: document.archivedAt });
+  } catch (error) {
+    console.error("Archive legal document error:", error);
+    return res.status(500).json({ error: "Failed to deactivate this section." });
+  }
+});
+
+adminRouter.post("/legal-documents/:type/reactivate", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const document = await legalDocumentService.reactivateDocument(req.params.type);
+    if (!document) {
+      return res.status(404).json({ error: "Unknown legal document type." });
+    }
+    await writeAuditLog(req, "reactivate_legal_document", "legal_document", { documentType: req.params.type });
+    return res.json({ documentType: document.documentType, archivedAt: document.archivedAt });
+  } catch (error) {
+    console.error("Reactivate legal document error:", error);
+    return res.status(500).json({ error: "Failed to reactivate this section." });
+  }
+});
+
+// Hard delete - only succeeds for a document nobody has ever accepted (see
+// LegalDocumentService.deleteDocument). Anything a real user has consented
+// to must be deactivated via /archive instead, which keeps the audit trail.
+adminRouter.delete("/legal-documents/:type", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const outcome = await legalDocumentService.deleteDocument(req.params.type);
+    if (outcome.kind === "not_found") {
+      return res.status(404).json({ error: "Unknown legal document type." });
+    }
+    if (outcome.kind === "has_acceptances") {
+      return res.status(409).json({
+        error: `${outcome.acceptanceCount} user(s) have already accepted this document, so it can't be deleted - deactivate it instead.`,
+      });
+    }
+    await writeAuditLog(req, "delete_legal_document", "legal_document", { documentType: req.params.type });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Delete legal document error:", error);
+    return res.status(500).json({ error: "Failed to delete this section." });
+  }
+});
+
+adminRouter.get("/legal-documents/:type/versions", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const documentType = req.params.type;
+  try {
+    const versions = await legalDocumentService.getVersionHistory(documentType);
+    if (versions.length === 0) {
+      return res.status(404).json({ error: "Unknown legal document type." });
+    }
+    return res.json({ versions });
+  } catch (error) {
+    console.error("Get legal document versions error:", error);
+    return res.status(500).json({ error: "Failed to load version history." });
+  }
+});
+
+adminRouter.put("/legal-documents/:type", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const documentType = req.params.type;
+  const parsed = publishLegalDocumentVersionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid submission." });
+  }
+
+  try {
+    const { document, version } = await legalDocumentService.publishNewVersion({
+      documentType,
+      title: parsed.data.title,
+      contentMarkdown: parsed.data.contentMarkdown,
+      adminId: req.admin!.adminId,
+    });
+    await writeAuditLog(req, "publish_legal_document_version", "legal_document", {
+      documentType,
+      versionNumber: version.versionNumber,
+    });
+    return res.json({
+      documentType: document.documentType,
+      title: document.title,
+      versionNumber: version.versionNumber,
+      publishedAt: version.createdAt,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Unknown legal document type")) {
+      return res.status(404).json({ error: "Unknown legal document type." });
+    }
+    console.error("Publish legal document version error:", error);
+    return res.status(500).json({ error: "Failed to publish new version." });
   }
 });
 

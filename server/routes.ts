@@ -2,9 +2,11 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken, generateContractPendingToken } from "./auth";
-import { staffContractService } from "./services/StaffContractService";
+import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken, generateLegalConsentPendingToken } from "./auth";
+import { legalDocumentService } from "./services/LegalDocumentService";
+import { completeLoginForUser, completeStaffActivation } from "./lib/authFlow";
 import { registerContractRoutes } from "./routes/contract.routes";
+import { registerLegalRoutes } from "./routes/legal.routes";
 import { registerEmailWebhookRoutes } from "./routes/email-webhooks.routes";
 import { setupAdminAuth } from "./auth-admin";
 import { adminRouter } from "./routes-admin";
@@ -102,6 +104,11 @@ function getClientIp(req: Request): string {
     return forwarded.split(",")[0].trim();
   }
   return req.socket?.remoteAddress || "unknown";
+}
+
+function getUserAgent(req: Request): string {
+  const ua = req.headers["user-agent"];
+  return typeof ua === "string" ? ua : "unknown";
 }
 
 function getUserId(req: Request): string | undefined {
@@ -365,6 +372,27 @@ export async function registerRoutes(
       const data = signupSchema.parse(req.body);
       const normalizedEmail = data.email.toLowerCase();
 
+      // Fail fast, before creating anything, if the legal documents the
+      // client actually rendered/checked don't exactly match what's current
+      // right now - a super admin archiving, reactivating, or adding a
+      // section between this form loading and being submitted must never
+      // result in recording acceptance of something the user never saw (or
+      // silently skipping something newly required). See
+      // LegalDocumentService.recordAcceptance for the full rationale; this
+      // is the same check run again there as a second guard.
+      const currentDocumentTypesAtSubmit = await legalDocumentService.getCurrentDocumentTypes();
+      const providedDocumentTypes = Array.from(new Set(data.acceptedDocumentTypes)).sort();
+      const legalDocumentsCurrent = providedDocumentTypes.length === currentDocumentTypesAtSubmit.length
+        && providedDocumentTypes.every((t, i) => t === currentDocumentTypesAtSubmit[i]);
+      if (!legalDocumentsCurrent) {
+        return res.status(409).json({
+          error: {
+            message: "Our legal documents changed while you were filling this out. Please refresh the page and accept the current versions to continue.",
+            code: "LEGAL_DOCUMENTS_STALE",
+          },
+        });
+      }
+
       // Check if email already exists
       const existingUser = await storage.getUserByIdentifier(normalizedEmail);
       if (existingUser) {
@@ -429,6 +457,26 @@ export async function registerRoutes(
         status: "active",
         activatedAt: new Date(),
       });
+
+      // Record acceptance of every currently-active legal document - the
+      // pre-check above already confirmed data.acceptedDocumentTypes
+      // matches what's current; this call re-validates the same thing right
+      // before writing (the account rows above take a few DB round trips,
+      // so it's a second guard against the same admin-toggles-a-section
+      // race, not just trusting time has stood still since the pre-check).
+      // If it somehow comes back stale anyway, the account is already
+      // created at this point - log it rather than leaving a half-created
+      // account with no way to complete signup.
+      const acceptanceOutcome = await legalDocumentService.recordAcceptance({
+        userId: user.id,
+        organisationId: organisation.id,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        acceptedDocumentTypes: data.acceptedDocumentTypes,
+      });
+      if (acceptanceOutcome.kind === "stale") {
+        console.error(`Signup ${user.id}: legal documents changed between pre-check and write - no acceptance recorded. Current: ${acceptanceOutcome.currentDocumentTypes.join(", ")}`);
+      }
 
       // Send the verification OTP email
       await sendEmailVerificationOtpEmail(
@@ -748,113 +796,31 @@ export async function registerRoutes(
         return res.json({ status: "email_verification_required", email: user.email });
       }
 
-      // Fetch user organizations
-      const members = await storage.getOrganisationsByUserId(user.id);
-      const activeMembers = members.filter(m => m.status === "active");
-
-      if (activeMembers.length === 0) {
-        // Before the generic "no active organisation" 403: this account's
-        // password is already set (we got this far), but a membership is
-        // sitting in "contract_pending" - see set-activated-password. Covers
-        // "closed the tab after setting the password, came back and logged
-        // in normally" rather than dead-ending them.
-        const contractPendingMember = members.find(m => m.status === "contract_pending");
-        if (contractPendingMember) {
-          const allStaff = await storage.getAllStaffByUserId(user.id);
-          let staffForOrg;
-          for (const s of allStaff) {
-            const store = await storage.getStore(s.storeId);
-            if (store?.businessId === contractPendingMember.organisationId) {
-              staffForOrg = s;
-              break;
-            }
-          }
-          const contract = staffForOrg ? await staffContractService.getContractByStaffId(staffForOrg.id) : undefined;
-
-          if (contract?.status === "declined") {
-            // Distinct from the generic message below on purpose - a
-            // declined contract needs the manager's attention, not another
-            // login attempt.
-            return res.status(403).json({
-              error: "You declined this contract. Your manager has been notified — contact them to proceed.",
-              status: "contract_declined",
-            });
-          }
-          if (contract?.status === "pending_signature") {
-            const pendingToken = generateContractPendingToken(user.id, contract.id);
-            res.cookie("contract_pending_token", pendingToken, {
-              httpOnly: true,
-              secure: process.env.NODE_ENV === "production",
-              maxAge: 60 * 60 * 1000,
-              sameSite: "lax",
-            });
-            return res.json({
-              status: "contract_signature_required",
-              nextStep: "sign-contract",
-              message: "Please review and sign your contract to continue.",
-            });
-          }
-        }
-
-        return res.status(403).json({ error: "Your account is not associated with any active organisation." });
-      }
-
-      // If user belongs to multiple organizations, let them choose
-      if (activeMembers.length > 1) {
-        const orgIds = activeMembers.map(m => m.organisationId);
-        const orgs = await storage.getBusinessesByIds(orgIds);
-        const orgMap = new Map(orgs.map(o => [o.id, o]));
-        const orgList = activeMembers
-          .map(m => {
-            const org = orgMap.get(m.organisationId);
-            if (!org) return null;
-            return { id: org.id, name: org.name, slug: org.slug, role: m.role };
-          })
-          .filter(Boolean);
+      // Legal-document consent gate - checked once the account is known
+      // genuinely reachable (password ok, email verified) but before any
+      // org-membership resolution, so it applies uniformly regardless of
+      // how many orgs this user belongs to. Covers both a brand-new-feature
+      // backfill (every account that predates this shipping) and a stale
+      // acceptance (a super admin published a new document version since
+      // this user last consented) - hasAcceptedCurrentDocuments treats both
+      // identically. See server/lib/authFlow.ts for the rest of login once
+      // this passes.
+      if (!(await legalDocumentService.hasAcceptedCurrentDocuments(user.id))) {
+        const pendingToken = generateLegalConsentPendingToken(user.id, "login");
+        res.cookie("legal_consent_pending_token", pendingToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 60 * 60 * 1000,
+          sameSite: "lax",
+        });
         return res.json({
-          requiresOrganisationSelection: true,
-          organisations: orgList,
-          orgSelectToken: generateOrgSelectToken(user.id),
+          status: "legal_consent_required",
+          nextStep: "legal-consent",
+          message: "Please review and accept our current legal documents to continue.",
         });
       }
 
-      // Single organization path - scope JWT immediately
-      const activeMember = activeMembers[0];
-      const org = await storage.getBusinessById(activeMember.organisationId);
-      
-      const payload = {
-        userId: user.id,
-        organisationId: activeMember.organisationId,
-        role: activeMember.role,
-        staffId: activeMember.staffId || undefined,
-        email: user.email || undefined,
-      };
-
-      const token = generateToken(payload, data.stayLoggedIn);
-
-      // Set httpOnly cookie
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: data.stayLoggedIn ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
-
-      const sessionUser = {
-        id: user.id,
-        email: user.email || user.phone || "",
-        role: activeMember.role,
-        businessId: activeMember.organisationId,
-        isVerified: user.isVerified || user.isEmailVerified || user.isPhoneVerified,
-      };
-
-      req.user = payload;
-
-      res.json({
-        message: "Login successful.",
-        user: sessionUser,
-        business: org,
-      });
+      await completeLoginForUser(user, req, res);
     } catch (error) {
       console.error("Login endpoint error:", error);
       auditLogger.logAuthAttempt(undefined, getClientIp(req), false, "login");
@@ -868,7 +834,7 @@ export async function registerRoutes(
   // Organisation select endpoint for multiple workspaces
   app.post("/api/auth/organisation/select", async (req: Request, res: Response) => {
     try {
-      const { orgSelectToken, organisationId, stayLoggedIn } = req.body;
+      const { orgSelectToken, organisationId } = req.body;
       if (!orgSelectToken || !organisationId) {
         return res.status(400).json({ error: "Organisation selection session and Organisation ID are required." });
       }
@@ -899,12 +865,12 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload, stayLoggedIn);
+      const token = generateToken(payload);
 
       res.cookie("jwt_token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        maxAge: stayLoggedIn ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
+        maxAge: 24 * 60 * 60 * 1000,
         sameSite: "lax",
       });
 
@@ -957,7 +923,7 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload, false);
+      const token = generateToken(payload);
 
       res.cookie("jwt_token", token, {
         httpOnly: true,
@@ -1033,7 +999,7 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload, false);
+      const token = generateToken(payload);
 
       res.cookie("jwt_token", token, {
         httpOnly: true,
@@ -1309,110 +1275,38 @@ export async function registerRoutes(
 
       // Fetch workspace membership
       const members = await storage.getOrganisationsByUserId(user.id);
-      let targetMember = members.find(m => m.status === "partial") || members.find(m => m.status === "pending")
+      const targetMember = members.find(m => m.status === "partial") || members.find(m => m.status === "pending")
         || members.find(m => m.status === "contract_pending") || members.find(m => m.status === "active");
       if (!targetMember) {
         return res.status(400).json({ error: "No workspace association found." });
       }
 
-      // Both users.name and staff.name are seeded from the manager's own
-      // input at invite time (StaffInviteService.createInvitedUser) and are
-      // deliberately NOT writable from here. staff.name in particular is
-      // otherwise editable only via PATCH /api/staff/:id, gated to
-      // managers/owners - this self-service, pre-session endpoint used to
-      // carry its own `name` field and overwrite both, letting a staff
-      // member silently rename themselves on the HR record moments before
-      // signing a contract (and rendering any later name-match check on the
-      // signature meaningless, since they'd control both sides of it).
-      const activatedStaff = await storage.getStaffByUserId(user.id);
-
-      // If this staff member has a contract, this is a first-time activation
-      // (targetMember has never been "active" before), so the gate applies -
-      // see migrations/0046_staff_contract_signing.sql. Password is set
-      // (above) regardless of what happens next; only the SESSION is gated
-      // on contract state. Checked here via the unfiltered getContractByStaffId
-      // (not getPendingContract, which only returns pending_signature rows
-      // and therefore looks identical to "no contract" for a declined one) -
-      // this endpoint must handle 'declined' explicitly, the same way
-      // POST /api/auth/login already does, or a declined contract can be
-      // silently bypassed: this is exactly the request path a manager's
-      // "Resend invitation" used to walk a declined staff member back
-      // through (a fresh activation code does not touch staff_contracts at
-      // all), landing here with activationCodeUsed freshly true and no
-      // record of the decline ever having been checked.
-      const contract = activatedStaff && targetMember.status !== "active"
-        ? await staffContractService.getContractByStaffId(activatedStaff.id)
-        : undefined;
-
-      if (contract?.status === "declined") {
-        // Nothing to review - the same content was already declined. Stay
-        // exactly where /api/auth/login already parks a declined member:
-        // no jwt_token, no contract_pending_token, no status change. Only a
-        // manager attaching a new contract (which creates a fresh version
-        // and flips status back to pending_signature) moves this forward.
-        return res.status(403).json({
-          error: "You declined this contract. Your manager has been notified — contact them to proceed.",
-          status: "contract_declined",
-        });
-      }
-
-      if (contract?.status === "pending_signature") {
-        targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "contract_pending");
-        broadcastDataChange(targetMember.organisationId, "staff", activatedStaff?.storeId, "updated");
-
-        const pendingToken = generateContractPendingToken(user.id, contract.id);
-        res.cookie("contract_pending_token", pendingToken, {
+      // First-time activation (targetMember has never been "active" before)
+      // also requires accepting the current Terms and Conditions, Privacy
+      // Policy, and Data Usage Policy once - checked here, ahead of the
+      // contract check in completeStaffActivation, so a staff member with
+      // both a pending contract and outstanding legal consent sees the
+      // legal-consent step first, then sign_contract. Password is set
+      // (above) regardless of what happens next; only the SESSION is gated.
+      if (targetMember.status !== "active" && !(await legalDocumentService.hasAcceptedCurrentDocuments(user.id))) {
+        const pendingToken = generateLegalConsentPendingToken(user.id, "staff_activation");
+        res.cookie("legal_consent_pending_token", pendingToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           maxAge: 60 * 60 * 1000,
           sameSite: "lax",
         });
-
         return res.json({
-          message: "Password set. Please review and sign your contract to continue.",
-          nextStep: "sign-contract",
+          message: "Password set. Please review and accept our current legal documents to continue.",
+          nextStep: "legal-consent",
         });
       }
 
-      if (targetMember.status !== "active") {
-        targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "active", new Date());
-      }
-
-      // Not authenticated yet (no req.user), so use broadcastDataChange directly
-      // rather than the req-based broadcastChange helper.
-      broadcastDataChange(targetMember.organisationId, "staff", activatedStaff?.storeId, "updated");
-
-      const org = await storage.getBusinessById(targetMember.organisationId);
-
-      // Generate session JWT
-      const payload = {
-        userId: user.id,
-        organisationId: targetMember.organisationId,
-        role: targetMember.role,
-        staffId: targetMember.staffId || undefined,
-        email: user.email || undefined,
-      };
-
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
-
-      res.json({
-        message: "Password set and logged in successfully.",
-        user: {
-          id: user.id,
-          email: user.email || user.phone || "",
-          role: targetMember.role,
-          businessId: targetMember.organisationId,
-          isVerified: true,
-        },
-        business: org,
-      });
+      // Contract check, workspace activation, and jwt issuance all live in
+      // completeStaffActivation (server/lib/authFlow.ts) - reused verbatim
+      // by POST /api/legal/consent-pending/accept once a first-time
+      // activation with both gates pending clears the legal-consent step.
+      await completeStaffActivation(user, res);
     } catch (error) {
       console.error("Set activated password error:", error);
       res.status(500).json({ error: "Failed to set password." });
@@ -1905,6 +1799,7 @@ export async function registerRoutes(
   // contract_pending_token, not the normal auth middlewares, so it is
   // registered standalone rather than through routeMiddlewares.
   registerContractRoutes(app);
+  registerLegalRoutes(app);
 
   // Resend delivery webhook - signature-verified, not session-based, so it
   // is registered standalone like registerContractRoutes above.

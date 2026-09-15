@@ -46,6 +46,7 @@ import { lateArrivalDeductionService } from "../services/LateArrivalDeductionSer
 import { splitPay, splitPeriod } from "@shared/payroll-take-home";
 import { explainCommission } from "@shared/commission-explainer";
 import { payrollSettlementService } from "../services/PayrollSettlementService";
+import { payrollService } from "../services/PayrollService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withExpenseId } from '../utils/slug-resolver';
 import { requireFeature, hasFeature } from "../lib/entitlements";
@@ -278,6 +279,22 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       res.json(period);
     } catch (error) {
       res.status(500).json({ error: "Could not load payroll period." });
+    }
+  });
+
+  // Staff currently excluded from payroll for this store - contract
+  // outstanding or declined. Not period-scoped (see PayrollService.getExcludedStaffForStore);
+  // powers the payroll page's "N staff excluded" note.
+  app.get("/api/payroll/excluded-staff", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "storeId is required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+
+      const excludedStaff = await payrollService.getExcludedStaffForStore(storeId);
+      res.json(excludedStaff);
+    } catch (error) {
+      res.status(500).json({ error: "Could not load excluded staff." });
     }
   });
 
@@ -799,8 +816,17 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
-      const unrecorded = await storage.getUnrecordedAttendanceDays(period.storeId, period.startDate, period.endDate);
-      res.json(unrecorded);
+      const [unrecorded, excludedStaff] = await Promise.all([
+        storage.getUnrecordedAttendanceDays(period.storeId, period.startDate, period.endDate),
+        payrollService.getExcludedStaffForStore(period.storeId),
+      ]);
+      // A staff member excluded from payroll (onboarding incomplete) never
+      // gets a payroll entry regardless of attendance, so "this will reduce
+      // their pay" is never true for them - surfacing it here is just noise
+      // once the entries themselves already leave them out (see the
+      // separate "N staff excluded from payroll" note this page already shows).
+      const excludedStaffIds = new Set(excludedStaff.map(s => s.staffId));
+      res.json(unrecorded.filter(u => !excludedStaffIds.has(u.staffId)));
     } catch (e) { res.status(500).json({ error: "Could not check unrecorded days." }); }
   });
 

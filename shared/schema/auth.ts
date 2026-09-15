@@ -196,6 +196,23 @@ export const signupSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: passwordSchema,
   confirmPassword: z.string(),
+  // Mirrors staff-contracts.ts's signContractSchema.affirmedReadAndAgree -
+  // the owner must accept every currently-published legal document to
+  // create an account. Recorded via LegalDocumentService.recordAcceptance
+  // in the signup handler. Deliberately doesn't name specific documents -
+  // a super admin can add or archive sections (LegalDocuments.tsx) at any
+  // time, and this schema is static at module-load time so it can't reflect
+  // that set; the client renders one checkbox per actual current document.
+  acceptedLegalTerms: z.literal(true, {
+    errorMap: () => ({ message: "You must agree to our current legal documents to continue" }),
+  }),
+  // The exact document types the signup form actually rendered checkboxes
+  // for and got checked - server-validated against what's current at
+  // submission time (LegalDocumentService.recordAcceptance) so a document
+  // archived/reactivated/added between page-load and submit can't be
+  // silently recorded as accepted (or skipped) without the user ever
+  // seeing it.
+  acceptedDocumentTypes: z.array(z.string().min(1)).min(1, "You must agree to our current legal documents to continue"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -206,7 +223,6 @@ export type SignupRequest = z.infer<typeof signupSchema>;
 export const loginSchema = z.object({
   emailOrPhone: z.string().min(1, "Email or phone number is required"),
   password: z.string().min(1, "Password is required"),
-  stayLoggedIn: z.boolean().optional(),
 });
 export type LoginRequest = z.infer<typeof loginSchema>;
 

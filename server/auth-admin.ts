@@ -109,9 +109,15 @@ export async function setupAdminAuth(app: Express) {
         return res.status(403).json({ error: "Admin account is suspended." });
       }
 
-      // Attach admin to request
+      // Attach admin to request. Field is adminId, not id - matches the
+      // declared AdminJWTPayload type (server/types/express.d.ts) and every
+      // req.admin!.adminId read site (writeAuditLog, autoResolveSuspensionThreads,
+      // grantedByAdminId, etc.) - those were all silently writing/looking up
+      // `undefined` before this fix, since the previous `id` field name here
+      // didn't match, and the `(req as any).admin =` cast hid the mismatch
+      // from the type checker.
       (req as any).admin = {
-        id: admin.id,
+        adminId: admin.id,
         email: admin.email,
         name: admin.name,
         role: admin.role,
