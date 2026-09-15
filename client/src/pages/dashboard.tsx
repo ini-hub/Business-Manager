@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, TrendingUp, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon } from "lucide-react";
+import { Users, UserCog, Package, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { PageHeader } from "@/components/page-header";
@@ -13,14 +13,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useLocation, useSearch } from "wouter";
 import { buildSlug } from "@/lib/slug";
 import { appendReturnTo } from "@/lib/return-to";
-import { SalesTrendChart, RevenueByItemChart, RevenueBreakdownChart } from "@/components/charts";
+import { SalesTrendChart } from "@/components/charts";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { format, startOfDay, endOfDay, isSameDay, subDays, startOfMonth, startOfYear } from "date-fns";
+import { format, startOfDay, endOfDay, subDays, startOfMonth, startOfYear } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -103,6 +103,8 @@ export default function Dashboard() {
   // getPreviousPeriod). Defaults to "month" to match the desktop-first mockup;
   // has no effect on the separate mobile compact date pill below.
   const [datePreset, setDatePreset] = useState<DatePreset>("month");
+  // Mobile/tablet only: toggles the compact "Top items / Customers" widget.
+  const [mobileTopTab, setMobileTopTab] = useState<"items" | "customers">("items");
 
   const applyDatePreset = (preset: DatePreset) => {
     const now = new Date();
@@ -253,7 +255,6 @@ export default function Dashboard() {
   const firstName = user?.name?.split(" ")[0] || "there";
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const isToday = !!dateRange.from && !!dateRange.to && isSameDay(dateRange.from, new Date()) && isSameDay(dateRange.to, new Date());
   const avgSale = (stats?.totalTransactions ?? 0) > 0 ? (stats?.totalRevenue ?? 0) / (stats?.totalTransactions ?? 1) : 0;
   const prevAvgSale = (prevStats?.totalTransactions ?? 0) > 0 ? (prevStats?.totalRevenue ?? 0) / (prevStats?.totalTransactions ?? 1) : 0;
 
@@ -285,6 +286,47 @@ export default function Dashboard() {
     today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days",
     month: "This Month", year: "This Year", all: "All Time", custom: dateRangeLabel,
   };
+
+  // Shared by both the mobile 2x2 grid and the desktop 4-up row, so the two
+  // breakpoints never show different numbers for the same metric.
+  const headlineMetrics = [
+    {
+      key: "revenue",
+      title: "Net revenue",
+      value: formatCurrency(stats?.totalRevenue ?? 0),
+      compactValue: formatCompact(stats?.totalRevenue ?? 0),
+      change: revenueChangePct,
+      sub: (stats?.returnedRevenue ?? 0) > 0 ? `${formatCurrency(stats!.returnedRevenue!)} refunded` : undefined,
+      href: `/profit-loss${deepLinkQuery}`,
+    },
+    {
+      key: "profit",
+      title: "Gross profit",
+      value: formatCurrency(stats?.totalProfit ?? 0),
+      compactValue: formatCompact(stats?.totalProfit ?? 0),
+      change: profitChangePct,
+      sub: `${grossMarginPct}% margin`,
+      href: `/profit-loss${deepLinkQuery}`,
+    },
+    {
+      key: "transactions",
+      title: "Transactions",
+      value: String(stats?.totalTransactions ?? 0),
+      compactValue: String(stats?.totalTransactions ?? 0),
+      change: transactionsChangePct,
+      sub: `${stats?.uniqueCustomersInPeriod ?? 0} customer${(stats?.uniqueCustomersInPeriod ?? 0) === 1 ? "" : "s"}`,
+      href: `/transactions${deepLinkQuery}`,
+    },
+    {
+      key: "avg-sale",
+      title: "Avg. sale",
+      value: formatCurrency(avgSale),
+      compactValue: formatCompact(avgSale),
+      change: avgSaleChangePct,
+      sub: "vs last period",
+      href: `/transactions${deepLinkQuery}`,
+    },
+  ];
 
   if (!currentStore) {
     return (
@@ -329,30 +371,6 @@ export default function Dashboard() {
     },
   ];
 
-  const periodRows: { key: string; label: string; value: React.ReactNode; href: string }[] = [
-    {
-      key: "profit",
-      label: "Gross Profit",
-      value: formatCurrency(stats?.totalProfit ?? 0),
-      href: `/profit-loss${deepLinkQuery}`,
-    },
-    {
-      key: "gross-revenue",
-      label: "Gross Revenue",
-      value: (
-        <>
-          {formatCurrency(stats?.grossRevenue ?? stats?.totalRevenue ?? 0)}
-          {stats?.returnedRevenue && stats.returnedRevenue > 0 ? (
-            <span className="text-[11px] font-normal text-muted-foreground ml-1">
-              (−{formatCurrency(stats.returnedRevenue)} refunded)
-            </span>
-          ) : null}
-        </>
-      ),
-      href: `/profit-loss${deepLinkQuery}`,
-    },
-  ];
-
   return (
     <div className="space-y-4 lg:space-y-6">
       {/* ─── Mobile / tablet (<lg): compact space-optimized layout ─── */}
@@ -368,33 +386,43 @@ export default function Dashboard() {
         <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} compact />
       </div>
 
+      {(stats?.outOfStockCount ?? 0) + (stats?.lowStockCount ?? 0) > 0 && (
+        <Link
+          href="/inventory?view=low-stock"
+          className="sm:hidden flex items-center justify-between gap-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-3 py-2.5"
+          data-testid="banner-stock-alert"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-400">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {stats?.outOfStockCount ?? 0} out of stock, {stats?.lowStockCount ?? 0} low
+          </span>
+          <ChevronRight className="h-4 w-4 text-red-400 shrink-0" />
+        </Link>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-xs text-muted-foreground">{isToday ? "Sales today" : "Sales (period)"}</p>
-          {isLoading ? (
-            <Skeleton className="h-6 w-20 mt-1" />
-          ) : (
-            <p className="text-lg font-bold font-mono tabular-nums mt-0.5 truncate" title={formatCurrency(stats?.totalRevenue ?? 0)}>
-              <span className="sm:hidden">{formatCompact(stats?.totalRevenue ?? 0)}</span>
-              <span className="hidden sm:inline">{formatCurrency(stats?.totalRevenue ?? 0)}</span>
-            </p>
-          )}
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {stats?.totalTransactions ?? 0} transaction{(stats?.totalTransactions ?? 0) === 1 ? "" : "s"}
-          </p>
-        </div>
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-xs text-muted-foreground">Avg. sale</p>
-          {isLoading ? (
-            <Skeleton className="h-6 w-20 mt-1" />
-          ) : (
-            <p className="text-lg font-bold font-mono tabular-nums mt-0.5 truncate" title={formatCurrency(avgSale)}>
-              <span className="sm:hidden">{formatCompact(avgSale)}</span>
-              <span className="hidden sm:inline">{formatCurrency(avgSale)}</span>
-            </p>
-          )}
-          <p className="text-[11px] text-muted-foreground mt-0.5">per transaction</p>
-        </div>
+        {headlineMetrics.map((tile) => (
+          <Link key={tile.key} href={tile.href} className="rounded-lg bg-muted/50 p-3 block">
+            <p className="text-xs text-muted-foreground">{tile.title}</p>
+            {isLoading ? (
+              <Skeleton className="h-6 w-20 mt-1" />
+            ) : (
+              <p className="text-lg font-bold font-mono tabular-nums mt-0.5 truncate" title={tile.value}>
+                <span className="sm:hidden">{tile.compactValue}</span>
+                <span className="hidden sm:inline">{tile.value}</span>
+              </p>
+            )}
+            <div className="flex items-center gap-1 mt-0.5 text-[11px]">
+              {tile.change !== undefined && (
+                <span className={cn("flex items-center gap-0.5 font-medium", tile.change >= 0 ? "text-emerald-600" : "text-red-600")}>
+                  {tile.change >= 0 ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />}
+                  {Math.abs(tile.change)}%
+                </span>
+              )}
+              {tile.sub && <span className="text-muted-foreground truncate">{tile.change !== undefined ? `· ${tile.sub}` : tile.sub}</span>}
+            </div>
+          </Link>
+        ))}
       </div>
 
       <div className="flex gap-2">
@@ -441,247 +469,159 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground">For selected period</p>
-        <Card>
-          <CardContent className="p-0">
-            {periodRows.map((row, i) => (
-              <Link
-                key={row.key}
-                href={row.href}
-                className={cn(
-                  "flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover-elevate",
-                  i < periodRows.length - 1 && "border-b",
-                )}
-                data-testid={`row-period-${row.key}`}
-              >
-                <span className="font-medium">{row.label}</span>
-                <span className="flex items-center gap-1 font-mono font-semibold">
-                  {isLoading ? <Skeleton className="h-4 w-16" /> : row.value}
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                </span>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <SalesTrendChart 
-          storeId={currentStore?.id === "all" ? undefined : currentStore?.id} 
-          businessId={currentStore?.id === "all" ? business?.id : undefined}
-          storeCurrency={storeCurrency} 
-          queryString={queryString} 
-        />
-        <RevenueByItemChart 
-          storeId={currentStore?.id === "all" ? undefined : currentStore?.id} 
-          businessId={currentStore?.id === "all" ? business?.id : undefined}
-          storeCurrency={storeCurrency} 
-          queryString={queryString} 
-        />
-      </div>
-
-      <RevenueBreakdownChart 
-        storeId={currentStore?.id === "all" ? undefined : currentStore?.id} 
+      <SalesTrendChart
+        storeId={currentStore?.id === "all" ? undefined : currentStore?.id}
         businessId={currentStore?.id === "all" ? business?.id : undefined}
-        storeCurrency={storeCurrency} 
-        queryString={queryString} 
+        storeCurrency={storeCurrency}
+        queryString={queryString}
+        periodLabel={presetLabel[datePreset]}
+        headerRight={
+          revenueMixTotal > 0 ? (
+            <span className="text-xs text-muted-foreground shrink-0">
+              Services {servicesSharePct}% · Products {productsSharePct}%
+            </span>
+          ) : undefined
+        }
       />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-            <CardTitle className="text-base font-medium">Low Stock Alerts</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card className="hidden sm:block">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" /> Stock alerts
+            </CardTitle>
+            <Link href="/inventory" className="text-xs text-primary font-medium hover:underline">
+              All {stats?.lowStockItems?.length ?? 0}
+            </Link>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Badge variant="destructive" className="text-xs">{stats?.outOfStockCount ?? 0} out</Badge>
+              <Badge variant="secondary" className="text-xs">{stats?.lowStockCount ?? 0} low</Badge>
+            </div>
             {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-md animate-pulse">
-                    <div className="h-4 w-32 bg-muted rounded" />
-                    <div className="h-5 w-16 bg-muted rounded" />
-                  </div>
-                ))}
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
               </div>
-            ) : (stats?.lowStockItems?.length ?? 0) > 0 ? (
-              <div className="space-y-3">
-                {stats?.lowStockItems?.slice(0, 5).map((item) => {
-                  const reorderQty = Math.max(10 - item.quantity, 5);
+            ) : stockAlertItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">All items are well stocked</p>
+            ) : (
+              <div className="space-y-1">
+                {stockAlertItems.slice(0, 4).map((item) => {
+                  const threshold = item.reorderPoint != null ? item.reorderPoint : (stats?.lowStockThreshold ?? 5);
                   return (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                      data-testid={`low-stock-item-${item.id.slice(0, 8)}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{item.name}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant={item.quantity === 0 ? "destructive" : "secondary"} className="text-xs shrink-0">
-                            {item.quantity === 0 ? "Out of Stock" : `${item.quantity} left`}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            Reorder: +{reorderQty} units
-                          </span>
-                        </div>
+                    <div key={item.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">Reorder {threshold}</p>
                       </div>
-                      <Button asChild variant="ghost" size="icon" className="shrink-0 ml-2" data-testid={`button-restock-${item.id.slice(0, 8)}`}>
-                        <Link href="/inventory">
-                          <Package className="h-4 w-4" />
-                        </Link>
-                      </Button>
+                      <Badge variant={item.quantity === 0 ? "destructive" : "secondary"} className="text-xs shrink-0">
+                        {item.quantity === 0 ? "Out" : `${item.quantity} left`}
+                      </Badge>
                     </div>
                   );
                 })}
-                {(stats?.lowStockItems?.length ?? 0) > 5 && (
-                  <Button asChild variant="outline" size="sm" className="w-full" data-testid="button-view-all-low-stock">
-                    <Link href="/inventory">
-                      View All {stats?.lowStockItems?.length} Items
-                    </Link>
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Package className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">All items are well stocked</p>
               </div>
             )}
+            <Button asChild variant="outline" size="sm" className="w-full">
+              <Link href="/inventory?view=low-stock">
+                <PackagePlus className="mr-2 h-3.5 w-3.5" />
+                Restock inventory
+              </Link>
+            </Button>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-            <CardTitle className="text-base font-medium">Top Performers</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setMobileTopTab("items")}
+                className={cn(
+                  "text-base font-semibold pb-1 border-b-2 -mb-px",
+                  mobileTopTab === "items" ? "border-primary text-foreground" : "border-transparent text-muted-foreground",
+                )}
+                data-testid="button-mobile-tab-items"
+              >
+                Top items
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileTopTab("customers")}
+                className={cn(
+                  "text-base font-semibold pb-1 border-b-2 -mb-px",
+                  mobileTopTab === "customers" ? "border-primary text-foreground" : "border-transparent text-muted-foreground",
+                )}
+                data-testid="button-mobile-tab-customers"
+              >
+                Customers
+              </button>
+            </div>
           </CardHeader>
-          <CardContent>
-            {plLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-md animate-pulse">
-                    <div className="h-4 w-32 bg-muted rounded" />
-                    <div className="h-4 w-20 bg-muted rounded" />
+          <CardContent className="space-y-3">
+            {mobileTopTab === "items" ? (
+              <>
+                {plLoading ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
                   </div>
-                ))}
-              </div>
-            ) : (profitLoss?.length ?? 0) > 0 ? (
-              <div className="space-y-3">
-                {profitLoss
-                  ?.sort((a, b) => b.totalRevenue - a.totalRevenue)
-                  .slice(0, 5)
-                  .map((pl, index) => (
-                    <div
-                      key={pl.id}
-                      className="flex items-center justify-between p-3 bg-muted/50 rounded-md"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                          {index + 1}
-                        </span>
-                        <div>
-                          <p className="font-medium text-sm">{pl.inventory?.name ?? "Unknown"}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {pl.totalQuantitySold} sold
-                          </p>
-                        </div>
+                ) : topItemsSorted.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No sales data yet</p>
+                ) : (
+                  <div className="space-y-1">
+                    {topItemsSorted.map((pl) => (
+                      <div key={pl.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                        <span className="text-sm truncate">{pl.inventory?.name ?? "Unknown"}</span>
+                        <span className="text-sm font-mono shrink-0">{formatCurrency(pl.totalRevenue)}</span>
                       </div>
-                      <p className="font-mono text-sm font-medium">
-                        {formatCurrency(pl.totalRevenue)}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <TrendingUp className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">No sales data yet</p>
-                <Button asChild variant="outline" size="sm" className="mt-3">
-                  <Link href="/sales/new">Make your first sale</Link>
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <Users className="h-4 w-4" /> Top Customers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {topCustomers.length > 0 ? (
-              <div className="space-y-4">
-                {topCustomers.map((customer: any, index: number) => (
-                  <Link
-                    key={customer.id}
-                    href={appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search)}
-                    className="flex items-center justify-between p-3 bg-muted/50 rounded-md hover:bg-muted transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <p className="font-medium text-sm">{customer.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {customer.transactionCount} orders
-                        </p>
-                      </div>
-                    </div>
-                    <p className="font-mono text-sm font-medium">
-                      {formatCurrency(customer.totalSpent)}
-                    </p>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <Link href={`/profit-loss${deepLinkQuery}`} className="text-xs text-primary font-medium hover:underline">
+                    See all
                   </Link>
-                ))}
-              </div>
+                </div>
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <Link href="/sales/new">
+                    <ShoppingCart className="mr-2 h-3.5 w-3.5" />
+                    New sale
+                  </Link>
+                </Button>
+              </>
             ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Users className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                <p className="text-sm text-muted-foreground">No customer data yet</p>
-              </div>
+              <>
+                {topCustomers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No customer data yet</p>
+                ) : (
+                  <div className="space-y-1">
+                    {topCustomers.slice(0, 5).map((customer: any) => (
+                      <Link
+                        key={customer.id}
+                        href={appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search)}
+                        className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0 hover-elevate -mx-2 px-2 rounded"
+                      >
+                        <span className="text-sm truncate">{customer.name}</span>
+                        <span className="text-sm font-mono shrink-0">{formatCurrency(customer.totalSpent)}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <Link href="/customers" className="text-xs text-primary font-medium hover:underline">
+                    See all
+                  </Link>
+                </div>
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <Link href="/customers/new">
+                    <UserPlus className="mr-2 h-3.5 w-3.5" />
+                    Add customer
+                  </Link>
+                </Button>
+              </>
             )}
           </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="hover-elevate">
-          <Link href="/customers">
-            <CardContent className="flex flex-col items-center justify-center py-6">
-              <Users className="h-8 w-8 text-primary mb-3" />
-              <p className="font-medium">Manage Customers</p>
-              <p className="text-xs text-muted-foreground mt-1">{stats?.totalCustomers ?? 0} records</p>
-            </CardContent>
-          </Link>
-        </Card>
-        <Card className="hover-elevate">
-          <Link href="/staffs">
-            <CardContent className="flex flex-col items-center justify-center py-6">
-              <UserCog className="h-8 w-8 text-primary mb-3" />
-              <p className="font-medium">Manage Staff</p>
-              <p className="text-xs text-muted-foreground mt-1">{stats?.totalStaff ?? 0} employees</p>
-            </CardContent>
-          </Link>
-        </Card>
-        <Card className="hover-elevate">
-          <Link href="/inventory">
-            <CardContent className="flex flex-col items-center justify-center py-6">
-              <Package className="h-8 w-8 text-primary mb-3" />
-              <p className="font-medium">Manage Inventory</p>
-              <p className="text-xs text-muted-foreground mt-1">{stats?.totalInventory ?? 0} items</p>
-            </CardContent>
-          </Link>
-        </Card>
-        <Card className="hover-elevate">
-          <Link href={`/profit-loss${deepLinkQuery}`}>
-            <CardContent className="flex flex-col items-center justify-center py-6">
-              <TrendingUp className="h-8 w-8 text-primary mb-3" />
-              <p className="font-medium">View Reports</p>
-              <p className="text-xs text-muted-foreground mt-1">Profit & Loss</p>
-            </CardContent>
-          </Link>
         </Card>
       </div>
       </div>
@@ -760,40 +700,7 @@ export default function Dashboard() {
 
         {/* 4 headline metrics with period-over-period deltas */}
         <div className="grid grid-cols-4 gap-4">
-          {[
-            {
-              key: "revenue",
-              title: "Net revenue",
-              value: formatCurrency(stats?.totalRevenue ?? 0),
-              change: revenueChangePct,
-              sub: (stats?.returnedRevenue ?? 0) > 0 ? `${formatCurrency(stats!.returnedRevenue!)} refunded` : undefined,
-              href: `/profit-loss${deepLinkQuery}`,
-            },
-            {
-              key: "profit",
-              title: "Gross profit",
-              value: formatCurrency(stats?.totalProfit ?? 0),
-              change: profitChangePct,
-              sub: `${grossMarginPct}% margin`,
-              href: `/profit-loss${deepLinkQuery}`,
-            },
-            {
-              key: "transactions",
-              title: "Transactions",
-              value: String(stats?.totalTransactions ?? 0),
-              change: transactionsChangePct,
-              sub: `${stats?.uniqueCustomersInPeriod ?? 0} customer${(stats?.uniqueCustomersInPeriod ?? 0) === 1 ? "" : "s"}`,
-              href: `/transactions${deepLinkQuery}`,
-            },
-            {
-              key: "avg-sale",
-              title: "Avg. sale",
-              value: formatCurrency(avgSale),
-              change: avgSaleChangePct,
-              sub: "vs last period",
-              href: `/transactions${deepLinkQuery}`,
-            },
-          ].map((tile) => (
+          {headlineMetrics.map((tile) => (
             <Link key={tile.key} href={tile.href} className="block">
               <Card className="hover-elevate h-full">
                 <CardContent className="p-4">

@@ -38,6 +38,8 @@ interface ChartProps {
   queryString?: string;
   /** Overrides the "(Last 30 Days)" suffix to reflect an actual applied filter, e.g. "This Month". */
   periodLabel?: string;
+  /** Optional content shown right-aligned in the header next to the title, e.g. a compact revenue-mix summary. */
+  headerRight?: React.ReactNode;
 }
 
 const COLORS = [
@@ -65,7 +67,7 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", queryString = "", periodLabel = "Last 30 Days" }: ChartProps) {
+export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", queryString = "", periodLabel = "Last 30 Days", headerRight }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
     queryKey: ["/api/charts/sales-trends", storeId, businessId, queryString],
@@ -115,8 +117,9 @@ export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", qu
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className={headerRight ? "flex flex-row items-center justify-between gap-4 space-y-0" : undefined}>
         <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
+        {headerRight}
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={250}>
