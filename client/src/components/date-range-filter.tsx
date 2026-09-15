@@ -98,8 +98,8 @@ export function DateRangeFilter({
           data-testid="select-date-preset"
         >
           {compact ? (
-            <span className="flex items-center gap-1.5">
-              <CalendarIcon className="h-3.5 w-3.5" />
+            <span className="!flex items-center gap-1.5 shrink-0">
+              <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
               {activePreset?.label ?? "Select range"}
             </span>
           ) : (
