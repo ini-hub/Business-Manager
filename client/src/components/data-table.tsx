@@ -56,6 +56,16 @@ export interface DataTableProps<T> {
   // Auto-generates a single "..." row-actions menu instead of a hand-rolled
   // "actions" column of icon buttons. Ignored if `columns` already has one.
   rowActions?: (item: T) => RowAction[];
+
+  // Replaces the built-in search input with caller-owned markup, for
+  // server-side search — keeps it in the same toolbar row as filters/count
+  // instead of the caller rendering its own search box in a separate block.
+  searchSlot?: React.ReactNode;
+
+  // Replaces the built-in "Showing X of Y records" text, for callers whose
+  // `data` is only the current server page (X/Y would otherwise reflect the
+  // page size, not the true total).
+  resultCountLabel?: React.ReactNode;
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -81,6 +91,8 @@ export function DataTable<T extends { id: string | number }>({
   showCardChevron,
   hideFooter,
   rowActions,
+  searchSlot,
+  resultCountLabel,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -114,6 +126,8 @@ export function DataTable<T extends { id: string | number }>({
       showCardChevron={showCardChevron}
       hideFooter={hideFooter}
       rowActions={rowActions}
+      searchSlot={searchSlot}
+      resultCountLabel={resultCountLabel}
     />
   );
 }

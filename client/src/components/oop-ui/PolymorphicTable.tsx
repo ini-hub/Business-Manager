@@ -173,6 +173,20 @@ export interface PolymorphicTableProps<T> {
   // an "actions" column of individual icon buttons. Ignored if `columns`
   // already defines its own "actions" column — that column wins.
   rowActions?: (item: T) => RowAction[];
+
+  // Replaces the built-in search input in the toolbar row with caller-owned
+  // markup — for pages doing server-side search (debounced query + pagination)
+  // instead of the built-in client-side filtering of `data`. Without this, a
+  // caller with `searchable={false}` ends up rendering its own search box in a
+  // separate block above the table, splitting what should be one toolbar row
+  // (search + filters + count) into two.
+  searchSlot?: React.ReactNode;
+
+  // Replaces the built-in "Showing X of Y records" text — for callers whose
+  // `data` is only the current server page, where X/Y would otherwise report
+  // the page size instead of the true total (e.g. "25 of 25" instead of the
+  // real "50 customers").
+  resultCountLabel?: React.ReactNode;
 }
 
 /** Kebab trigger + dropdown rendered by the auto-generated "actions" column. */
@@ -238,6 +252,8 @@ export function PolymorphicTable<T extends { id: string | number }>({
   showCardChevron = false,
   hideFooter = false,
   rowActions,
+  searchSlot,
+  resultCountLabel,
 }: PolymorphicTableProps<T>) {
   const columns = useMemo(() => {
     if (!rowActions || rawColumns.some((c) => c.key === "actions")) return rawColumns;
@@ -564,7 +580,9 @@ export function PolymorphicTable<T extends { id: string | number }>({
       {/* Search & Dynamic Horizontal Filter Toolbar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 pb-2 border-b border-muted/30">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
-          {searchable && (
+          {searchSlot ? (
+            <div className="w-full sm:max-w-xs md:max-w-sm">{searchSlot}</div>
+          ) : searchable && (
             <div className="relative w-full sm:max-w-xs md:max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <ClearableInput
@@ -642,7 +660,9 @@ export function PolymorphicTable<T extends { id: string | number }>({
         
         {/* Record count indicator */}
         <div className="text-xs font-semibold text-muted-foreground whitespace-nowrap self-end md:self-center">
-          Showing <span className="text-foreground font-bold">{filteredData.length}</span> of <span className="text-foreground font-bold">{data.length}</span> records
+          {resultCountLabel ?? (
+            <>Showing <span className="text-foreground font-bold">{filteredData.length}</span> of <span className="text-foreground font-bold">{data.length}</span> records</>
+          )}
         </div>
       </div>
 
