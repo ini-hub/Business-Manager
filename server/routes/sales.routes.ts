@@ -235,11 +235,16 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
             totalProducts: 0,
             totalServices: 0,
             totalTransactions: 0,
+            uniqueCustomersInPeriod: 0,
             totalRevenue: 0,
             grossRevenue: 0,
             returnedRevenue: 0,
             totalProfit: 0,
-            lowStockItems: []
+            revenueMix: { services: 0, products: 0 },
+            lowStockThreshold: 5,
+            lowStockItems: [],
+            outOfStockCount: 0,
+            lowStockCount: 0,
           });
         }
 
@@ -262,11 +267,16 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           totalProducts: 0,
           totalServices: 0,
           totalTransactions: 0,
+          uniqueCustomersInPeriod: 0,
           totalRevenue: 0,
           grossRevenue: 0,
           returnedRevenue: 0,
           totalProfit: 0,
-          lowStockItems: [] as any[]
+          revenueMix: { services: 0, products: 0 },
+          lowStockThreshold: 5,
+          lowStockItems: [] as any[],
+          outOfStockCount: 0,
+          lowStockCount: 0,
         };
 
         const lowStockIds = new Set<string>();
@@ -277,10 +287,18 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           consolidated.totalProducts += s.totalProducts || 0;
           consolidated.totalServices += s.totalServices || 0;
           consolidated.totalTransactions += s.totalTransactions || 0;
+          // Approximation: a customer transacting at two stores in the same
+          // window is counted twice here, unlike the de-duplicated
+          // totalCustomers below — acceptable for this secondary stat.
+          consolidated.uniqueCustomersInPeriod += s.uniqueCustomersInPeriod || 0;
           consolidated.totalRevenue += s.totalRevenue || 0;
           consolidated.grossRevenue += s.grossRevenue || 0;
           consolidated.returnedRevenue += s.returnedRevenue || 0;
           consolidated.totalProfit += s.totalProfit || 0;
+          consolidated.revenueMix.services += s.revenueMix?.services || 0;
+          consolidated.revenueMix.products += s.revenueMix?.products || 0;
+          consolidated.outOfStockCount += s.outOfStockCount || 0;
+          consolidated.lowStockCount += s.lowStockCount || 0;
           if (s.lowStockItems) {
             for (const item of s.lowStockItems) {
               if (!lowStockIds.has(item.id)) {

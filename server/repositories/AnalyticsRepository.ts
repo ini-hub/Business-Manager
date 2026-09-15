@@ -10,7 +10,7 @@ import {
   settings,
   stores,
 } from "@shared/schema";
-import { eq, and, gte, lte, desc, count, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc, count, countDistinct, sql } from "drizzle-orm";
 import type { SalesRepository } from "./SalesRepository";
 
 export class AnalyticsRepository {
@@ -30,21 +30,28 @@ export class AnalyticsRepository {
       ...(endDate   ? [lte(checkouts.createdAt, toUtcEnd(endDate,   tz))] : []),
     );
 
-    // All six queries run in parallel
+    // All queries run in parallel
     const [
       [{ total: totalCustomers }],
       [{ total: totalStaff }],
       [{ total: totalCheckouts }],
+      [{ total: uniqueCustomersInPeriod }],
       allInventory,
       settingsRows,
       plSummary,
+      revenueMixRows,
     ] = await Promise.all([
       db.select({ total: count() }).from(customers).where(customerDateFilter),
       db.select({ total: count() }).from(staff).where(eq(staff.storeId, storeId)),
       db.select({ total: count() }).from(checkouts).where(checkoutDateFilter),
+      db.select({ total: countDistinct(transactions.customerId) })
+        .from(transactions)
+        .innerJoin(checkouts, eq(checkouts.id, transactions.checkoutId))
+        .where(checkoutDateFilter),
       db.select().from(inventory).where(eq(inventory.storeId, storeId)),
       db.select().from(settings).where(eq(settings.storeId, storeId)),
       this.salesRepo.getProfitLossSummary(storeId, startDate, endDate),
+      this.getRevenueMixByType(storeId, startDate, endDate),
     ]);
 
     const lowStockThreshold = settingsRows[0]?.lowStockThreshold || 5;
@@ -53,7 +60,13 @@ export class AnalyticsRepository {
     const supplies  = allInventory.filter((i) => i.type === "supply");
     // Supplies are stock and run out, so they belong in the low-stock alert —
     // running dry on shampoo stops services just as surely as running dry on retail.
-    const lowStockItems = [...products, ...supplies].filter((p) => p.quantity <= lowStockThreshold);
+    // Per-item reorderPoint overrides the store-wide threshold when set.
+    const lowStockItems = [...products, ...supplies].filter((p) => {
+      const threshold = p.reorderPoint != null ? p.reorderPoint : lowStockThreshold;
+      return p.quantity <= threshold;
+    });
+    const outOfStockCount = lowStockItems.filter((p) => p.quantity === 0).length;
+    const lowStockCount = lowStockItems.length - outOfStockCount;
 
     return {
       totalCustomers,
@@ -63,11 +76,16 @@ export class AnalyticsRepository {
       totalServices:  services.length,
       totalSupplies:  supplies.length,
       totalTransactions: totalCheckouts,
+      uniqueCustomersInPeriod,
       totalRevenue:    plSummary.totalRevenue,
       grossRevenue:    plSummary.grossRevenue,
       returnedRevenue: plSummary.returnedRevenue,
       totalProfit:     plSummary.grossProfit,
+      revenueMix: revenueMixRows,
+      lowStockThreshold,
       lowStockItems,
+      outOfStockCount,
+      lowStockCount,
     };
   }
 
@@ -146,5 +164,41 @@ export class AnalyticsRepository {
 
     const result = Array.from(grouped.values());
     return result.sort((a, b) => b.value - a.value).slice(0, 10);
+  }
+
+  /**
+   * Revenue mix by inventory type, over the *entire* result set for the period —
+   * unlike getRevenueByType, which caps at the top 10 items and is meant for a
+   * per-item breakdown chart, this needs every order to add up to the true total.
+   */
+  async getRevenueMixByType(storeId: string, startDate?: string, endDate?: string): Promise<{ services: number; products: number }> {
+    const conditions: any[] = [
+      eq(checkouts.storeId, storeId),
+      eq(checkouts.paymentStatus, "completed"),
+      eq(checkouts.isVoided, false),
+    ];
+    const tz = await getStoreTimezone(storeId);
+    if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+    if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
+
+    const rows = await db
+      .select({
+        inventoryType: inventory.type,
+        revenue: orders.totalPrice,
+        refundedAmount: orders.refundedAmount,
+      })
+      .from(orders)
+      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+      .where(and(...conditions));
+
+    let services = 0;
+    let products = 0;
+    for (const row of rows) {
+      const net = Math.max(0, row.revenue - (row.refundedAmount || 0));
+      if (row.inventoryType === "service") services += net;
+      else products += net;
+    }
+    return { services, products };
   }
 }

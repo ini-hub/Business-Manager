@@ -341,11 +341,16 @@ export interface IStorage {
     totalProducts: number;
     totalServices: number;
     totalTransactions: number;
+    uniqueCustomersInPeriod: number;
     totalRevenue: number;
     grossRevenue: number;
     returnedRevenue: number;
     totalProfit: number;
+    revenueMix: { services: number; products: number };
+    lowStockThreshold: number;
     lowStockItems: Inventory[];
+    outOfStockCount: number;
+    lowStockCount: number;
   }>;
 
   // Chart Data
@@ -1230,11 +1235,16 @@ export class DatabaseStorage implements IStorage {
     totalProducts: number;
     totalServices: number;
     totalTransactions: number;
+    uniqueCustomersInPeriod: number;
     totalRevenue: number;
     grossRevenue: number;
     returnedRevenue: number;
     totalProfit: number;
+    revenueMix: { services: number; products: number };
+    lowStockThreshold: number;
     lowStockItems: Inventory[];
+    outOfStockCount: number;
+    lowStockCount: number;
   }> {
     return this.analyticsRepo.getDashboardStats(storeId, startDate, endDate);
   }
