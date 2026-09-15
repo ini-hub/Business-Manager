@@ -819,32 +819,36 @@ export default function Customers() {
         }
       />
 
-      <MetricGrid>
-        <MetricCard
-          title="Active"
-          value={activeCustomers.length}
-          icon={<Users className="h-4 w-4" />}
-          isLoading={isLoading}
-        />
-        <MetricCard
-          title="New this month"
-          value={newThisMonth}
-          icon={<UserPlus2 className="h-4 w-4" />}
-          isLoading={isLoading || isLoadingTxs}
-        />
-        <MetricCard
-          title="Avg. spend"
-          value={formatCurrency(avgSpendPerActiveCustomer)}
-          icon={<Wallet className="h-4 w-4" />}
-          isLoading={isLoading || isLoadingTxs}
-        />
-        <MetricCard
-          title="Inactive 30d+"
-          value={inactive30dCount}
-          icon={<UserX className="h-4 w-4" />}
-          isLoading={isLoading || isLoadingTxs}
-        />
-      </MetricGrid>
+      {/* Mockup only shows this summary row at desktop width (1280px+) — tablet
+          and mobile go straight from the header to the tabs. */}
+      <div className="hidden lg:block">
+        <MetricGrid>
+          <MetricCard
+            title="Active"
+            value={activeCustomers.length}
+            icon={<Users className="h-4 w-4" />}
+            isLoading={isLoading}
+          />
+          <MetricCard
+            title="New this month"
+            value={newThisMonth}
+            icon={<UserPlus2 className="h-4 w-4" />}
+            isLoading={isLoading || isLoadingTxs}
+          />
+          <MetricCard
+            title="Avg. spend"
+            value={formatCurrency(avgSpendPerActiveCustomer)}
+            icon={<Wallet className="h-4 w-4" />}
+            isLoading={isLoading || isLoadingTxs}
+          />
+          <MetricCard
+            title="Inactive 30d+"
+            value={inactive30dCount}
+            icon={<UserX className="h-4 w-4" />}
+            isLoading={isLoading || isLoadingTxs}
+          />
+        </MetricGrid>
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <PolymorphicTabsList
@@ -853,7 +857,7 @@ export default function Customers() {
             { value: "archived", label: `Archived ${archivedCustomers.length}` },
             { value: "analytics", label: "Analytics & Retention" },
           ]}
-          variant="default"
+          variant="bordered"
         />
         {(() => {
           const filterConfigs = [
