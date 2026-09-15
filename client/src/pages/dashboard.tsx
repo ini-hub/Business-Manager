@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, AlertCircle, Building2 } from "lucide-react";
+import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, Plus, ChevronRight } from "lucide-react";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Link, useLocation, useSearch } from "wouter";
 import { buildSlug } from "@/lib/slug";
@@ -18,7 +19,7 @@ import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/l
 import { MetricGrid } from "@/components/metric-grid";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { format, startOfDay, endOfDay } from "date-fns";
+import { format, startOfDay, endOfDay, isSameDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -162,6 +163,12 @@ export default function Dashboard() {
   };
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
+  const firstName = user?.name?.split(" ")[0] || "there";
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const isToday = !!dateRange.from && !!dateRange.to && isSameDay(dateRange.from, new Date()) && isSameDay(dateRange.to, new Date());
+  const avgSale = (stats?.totalTransactions ?? 0) > 0 ? (stats?.totalRevenue ?? 0) / (stats?.totalTransactions ?? 1) : 0;
+
   if (!currentStore) {
     return (
       <div className="space-y-8">
@@ -176,78 +183,128 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
+      <p className="text-sm text-muted-foreground" data-testid="text-dashboard-greeting">
+        {greeting}, {firstName}
+      </p>
+
       <PageHeader
         title="Dashboard"
         description={currentStore?.id === "all" ? `Consolidated overview for all ${stores.length} branches` : `Overview for ${currentStore?.name}`}
-        actions={
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-            <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} />
-            <Button asChild data-testid="button-new-sale" className="w-full sm:w-auto">
-              <Link href="/sales/new">
-                <ShoppingCart className="mr-2 h-4 w-4" />
-                New Sale
-              </Link>
-            </Button>
-          </div>
-        }
+        actions={<DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} />}
       />
+
+      <MetricGrid>
+        <MetricCard
+          title={isToday ? "Sales Today" : "Sales (Selected Period)"}
+          value={formatCurrency(stats?.totalRevenue ?? 0)}
+          compactValue={formatCompact(stats?.totalRevenue ?? 0)}
+          description={`${stats?.totalTransactions ?? 0} transaction${(stats?.totalTransactions ?? 0) === 1 ? "" : "s"}`}
+          isLoading={isLoading}
+          href={`/transactions${deepLinkQuery}`}
+          valueClassName="text-xl sm:text-3xl"
+        />
+        <MetricCard
+          title="Avg. Sale"
+          value={formatCurrency(avgSale)}
+          compactValue={formatCompact(avgSale)}
+          description="per transaction"
+          isLoading={isLoading}
+          href={`/profit-loss${deepLinkQuery}`}
+          valueClassName="text-xl sm:text-3xl"
+        />
+      </MetricGrid>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button asChild size="lg" data-testid="button-new-sale" className="flex-1">
+          <Link href="/sales/new">
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            New Sale
+          </Link>
+        </Button>
+        <Button asChild size="lg" variant="outline" data-testid="button-add-item">
+          <Link href="/inventory/new">
+            <Plus className="mr-2 h-4 w-4" />
+            Item
+          </Link>
+        </Button>
+      </div>
 
       <GettingStartedChecklist />
 
       <div className="space-y-2">
         <p className="text-sm font-medium text-muted-foreground">All-time totals</p>
-        <MetricGrid>
-          <MetricCard
-            title="Total Customers"
-            value={stats?.totalCustomers ?? 0}
-            icon={<Users className="h-4 w-4" />}
-            isLoading={isLoading}
-            href="/customers"
-          />
-          <MetricCard
-            title="Total Staff"
-            value={stats?.totalStaff ?? 0}
-            icon={<UserCog className="h-4 w-4" />}
-            isLoading={isLoading}
-            href="/staffs"
-          />
-          <MetricCard
-            title="Inventory Items"
-            value={stats?.totalInventory ?? 0}
-            description={`${stats?.totalProducts ?? 0} products, ${stats?.totalServices ?? 0} services`}
-            icon={<Package className="h-4 w-4" />}
-            isLoading={isLoading}
-            href="/inventory"
-          />
-        </MetricGrid>
+        <Card>
+          <CardContent className="p-0">
+            <Link
+              href="/customers"
+              className="flex items-center justify-between gap-3 px-4 py-3.5 border-b hover-elevate"
+              data-testid="row-total-customers"
+            >
+              <span className="flex items-center gap-3 text-sm font-medium">
+                <Users className="h-4 w-4 text-muted-foreground" /> Customers
+              </span>
+              <span className="flex items-center gap-1.5 font-mono font-semibold">
+                {isLoading ? <Skeleton className="h-5 w-8" /> : stats?.totalCustomers ?? 0}
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </span>
+            </Link>
+            <Link
+              href="/staffs"
+              className="flex items-center justify-between gap-3 px-4 py-3.5 border-b hover-elevate"
+              data-testid="row-total-staff"
+            >
+              <span className="flex items-center gap-3 text-sm font-medium">
+                <UserCog className="h-4 w-4 text-muted-foreground" /> Staff
+              </span>
+              <span className="flex items-center gap-1.5 font-mono font-semibold">
+                {isLoading ? <Skeleton className="h-5 w-8" /> : stats?.totalStaff ?? 0}
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </span>
+            </Link>
+            <Link
+              href="/inventory"
+              className="flex items-center justify-between gap-3 px-4 py-3.5 hover-elevate"
+              data-testid="row-total-inventory"
+            >
+              <span className="flex items-center gap-3 text-sm font-medium">
+                <Package className="h-4 w-4 text-muted-foreground" /> Inventory
+              </span>
+              <span className="flex items-center gap-1.5 font-mono font-semibold">
+                {isLoading ? (
+                  <Skeleton className="h-5 w-8" />
+                ) : (
+                  <>
+                    {stats?.totalInventory ?? 0}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      ({stats?.totalProducts ?? 0} products, {stats?.totalServices ?? 0} services)
+                    </span>
+                  </>
+                )}
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </span>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="space-y-2">
         <p className="text-sm font-medium text-muted-foreground">For selected period</p>
         <MetricGrid>
           <MetricCard
-            title="Total Transactions"
-            value={stats?.totalTransactions ?? 0}
-            icon={<Receipt className="h-4 w-4" />}
-            isLoading={isLoading}
-            href={`/transactions${deepLinkQuery}`}
-          />
-          <MetricCard
-            title="Actual Revenue (Net)"
-            value={formatCurrency(stats?.totalRevenue ?? 0)}
-            compactValue={formatCompact(stats?.totalRevenue ?? 0)}
-            description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Gross: ${formatCurrency(stats.grossRevenue ?? 0)} (Refunded: ${formatCurrency(stats.returnedRevenue)})` : "Net revenue after returns"}
-            icon={<Coins className="h-4 w-4" />}
-            trend="up"
-            isLoading={isLoading}
-            href={`/profit-loss${deepLinkQuery}`}
-          />
-          <MetricCard
             title="Gross Profit"
             value={formatCurrency(stats?.totalProfit ?? 0)}
             compactValue={formatCompact(stats?.totalProfit ?? 0)}
             icon={<TrendingUp className="h-4 w-4" />}
             trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}
+            isLoading={isLoading}
+            href={`/profit-loss${deepLinkQuery}`}
+          />
+          <MetricCard
+            title="Revenue Breakdown"
+            value={formatCurrency(stats?.grossRevenue ?? stats?.totalRevenue ?? 0)}
+            compactValue={formatCompact(stats?.grossRevenue ?? stats?.totalRevenue ?? 0)}
+            description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Refunded: ${formatCurrency(stats.returnedRevenue)}` : "Gross, before returns"}
+            icon={<Coins className="h-4 w-4" />}
             isLoading={isLoading}
             href={`/profit-loss${deepLinkQuery}`}
           />
