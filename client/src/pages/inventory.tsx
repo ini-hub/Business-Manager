@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type RowAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
@@ -676,59 +676,39 @@ export default function InventoryPage() {
         );
       },
     },
-    {
-      key: "actions",
-      header: "",
-      className: "w-32",
-      render: (item: any) => (
-        <div className="flex items-center gap-1">
-          {item.type === "product" && item.variants && item.variants.length === 1 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                const variant = item.variants[0];
-                setLocation(`/inventory/${buildSlug(item.name, variant.id)}/restock`);
-              }}
-              data-testid={`button-restock-${item.id}`}
-              title="Restock"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditForm(item);
-            }}
-            data-testid={`button-edit-${item.id}`}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedItem(item);
-              setDeleteBlockedBySales(!!item.hasSales);
-              setIsDeleteOpen(true);
-            }}
-            data-testid={`button-delete-${item.id}`}
-            title={item.hasSales ? "Archive item" : "Delete item"}
-          >
-            {item.hasSales
-              ? <Archive className="h-4 w-4 text-amber-500" />
-              : <Trash2 className="h-4 w-4 text-destructive" />
-            }
-          </Button>
-        </div>
-      ),
-    },
   ];
+
+  const inventoryRowActions = (item: any): RowAction[] => {
+    const actions: RowAction[] = [];
+    if (item.type === "product" && item.variants && item.variants.length === 1) {
+      actions.push({
+        label: "Restock",
+        icon: <RefreshCw className="h-4 w-4" />,
+        onClick: () => setLocation(`/inventory/${buildSlug(item.name, item.variants[0].id)}/restock`),
+        testId: `button-restock-${item.id}`,
+      });
+    }
+    actions.push({
+      label: "Edit",
+      icon: <Edit className="h-4 w-4" />,
+      onClick: () => openEditForm(item),
+      testId: `button-edit-${item.id}`,
+    });
+    actions.push({
+      label: item.hasSales ? "Archive item" : "Delete item",
+      icon: item.hasSales
+        ? <Archive className="h-4 w-4 text-amber-500" />
+        : <Trash2 className="h-4 w-4" />,
+      onClick: () => {
+        setSelectedItem(item);
+        setDeleteBlockedBySales(!!item.hasSales);
+        setIsDeleteOpen(true);
+      },
+      destructive: !item.hasSales,
+      testId: `button-delete-${item.id}`,
+    });
+    return actions;
+  };
 
   const isMultiStoreView = currentStore?.id === "all";
 
@@ -1197,6 +1177,7 @@ export default function InventoryPage() {
             <DataTable
               data={tableData}
               columns={columns}
+              rowActions={inventoryRowActions}
               searchable
               searchPlaceholder="Search inventory..."
               searchKeys={["name"]}
