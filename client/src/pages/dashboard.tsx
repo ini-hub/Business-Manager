@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, TrendingUp, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, Calendar as CalendarIcon } from "lucide-react";
+import { Users, UserCog, Package, TrendingUp, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { PageHeader } from "@/components/page-header";
@@ -919,9 +919,9 @@ export default function Dashboard() {
                 </div>
               )}
               <Button asChild variant="outline" size="sm" className="w-full">
-                <Link href="/purchase-orders/new">
+                <Link href="/inventory?view=low-stock">
                   <PackagePlus className="mr-2 h-3.5 w-3.5" />
-                  Create purchase order
+                  Restock inventory
                 </Link>
               </Button>
             </CardContent>
@@ -934,7 +934,7 @@ export default function Dashboard() {
                 Report
               </Link>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               {plLoading ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
@@ -957,6 +957,12 @@ export default function Dashboard() {
                   ))}
                 </div>
               )}
+              <Button asChild variant="outline" size="sm" className="w-full">
+                <Link href="/sales/new">
+                  <ShoppingCart className="mr-2 h-3.5 w-3.5" />
+                  New sale
+                </Link>
+              </Button>
             </CardContent>
           </Card>
 
@@ -967,7 +973,7 @@ export default function Dashboard() {
                 All customers
               </Link>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               {topCustomers.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">No customer data yet</p>
               ) : (
@@ -998,6 +1004,12 @@ export default function Dashboard() {
                   })}
                 </div>
               )}
+              <Button asChild variant="outline" size="sm" className="w-full">
+                <Link href="/customers/new">
+                  <UserPlus className="mr-2 h-3.5 w-3.5" />
+                  Add customer
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         </div>
