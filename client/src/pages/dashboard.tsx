@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, TrendingUp, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus } from "lucide-react";
+import { Users, UserCog, Package, TrendingUp, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, Calendar as CalendarIcon } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,11 +20,10 @@ import { GettingStartedChecklist } from "@/components/getting-started-checklist"
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { format, startOfDay, endOfDay, isSameDay, subDays, startOfMonth, eachDayOfInterval } from "date-fns";
+import { format, startOfDay, endOfDay, isSameDay, subDays, startOfMonth } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 interface DashboardStats {
   totalCustomers: number;
@@ -150,32 +151,6 @@ export default function Dashboard() {
     staleTime: STALE_TIMES.live,
   });
 
-  // Desktop-only "Daily net revenue" chart: current period's daily bars, plus the
-  // previous period's daily average for the dashed reference line.
-  const { data: dailyRevenue = [] } = useQuery<{ date: string; revenue: number; transactions: number }[]>({
-    queryKey: ["/api/charts/sales-trends", currentStore?.id, business?.id, queryString],
-    queryFn: async () => {
-      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
-      const res = await fetch(`/api/charts/sales-trends?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
-      if (!res.ok) throw new Error("Failed to fetch sales trends");
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
-    staleTime: STALE_TIMES.live,
-  });
-
-  const { data: prevDailyRevenue = [] } = useQuery<{ date: string; revenue: number; transactions: number }[]>({
-    queryKey: ["/api/charts/sales-trends", currentStore?.id, business?.id, prevQueryString, "previous"],
-    queryFn: async () => {
-      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
-      const res = await fetch(`/api/charts/sales-trends?${param}${prevQueryString ? '&' + prevQueryString.substring(1) : ''}`);
-      if (!res.ok) throw new Error("Failed to fetch previous-period sales trends");
-      return res.json();
-    },
-    enabled: (currentStore?.id === "all" ? !!business?.id : !!currentStore?.id) && !!previousRange.from,
-    staleTime: STALE_TIMES.live,
-  });
-
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
     queryKey: ["/api/profit-loss", currentStore?.id, business?.id, deepLinkQuery],
     queryFn: async () => {
@@ -274,19 +249,6 @@ export default function Dashboard() {
   const transactionsChangePct = prevStats ? pctChange(stats?.totalTransactions ?? 0, prevStats.totalTransactions) : undefined;
   const avgSaleChangePct = prevStats ? pctChange(avgSale, prevAvgSale) : undefined;
   const grossMarginPct = (stats?.totalRevenue ?? 0) > 0 ? Math.round(((stats?.totalProfit ?? 0) / (stats!.totalRevenue)) * 100) : 0;
-
-  // Zero-fill every day in the selected range so no-sales days render as gaps
-  // between bars instead of the chart silently compressing sparse data together.
-  const dailyRevenueFilled = dateRange.from && dateRange.to
-    ? eachDayOfInterval({ start: dateRange.from, end: dateRange.to }).map((d) => {
-        const key = format(d, "yyyy-MM-dd");
-        const match = dailyRevenue.find((r) => r.date === key);
-        return { date: key, label: format(d, "MMM d"), revenue: match?.revenue ?? 0 };
-      })
-    : [];
-  const prevDailyAvg = prevDailyRevenue.length > 0
-    ? prevDailyRevenue.reduce((sum, r) => sum + r.revenue, 0) / prevDailyRevenue.length
-    : 0;
 
   const revenueMixTotal = (stats?.revenueMix?.services ?? 0) + (stats?.revenueMix?.products ?? 0);
   const servicesSharePct = revenueMixTotal > 0 ? Math.round(((stats?.revenueMix?.services ?? 0) / revenueMixTotal) * 100) : 0;
@@ -735,12 +697,33 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            <DateRangeFilter
-              dateRange={dateRange}
-              onDateRangeChange={(r) => { setDatePreset("custom"); setDateRange(r); }}
-              timezone={currentStore?.timezone}
-              compact
-            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn("gap-1.5", datePreset === "custom" ? "border-primary text-primary" : "text-muted-foreground")}
+                  data-testid="button-custom-range"
+                >
+                  <CalendarIcon className="h-4 w-4" />
+                  {datePreset === "custom" && dateRange.from && dateRange.to
+                    ? `${format(dateRange.from, "MMM d")} - ${format(dateRange.to, "MMM d")}`
+                    : "Custom"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="range"
+                  selected={{ from: dateRange.from, to: dateRange.to }}
+                  onSelect={(range) => {
+                    if (!range?.from) return;
+                    setDatePreset("custom");
+                    setDateRange({ from: startOfDay(range.from), to: range.to ? endOfDay(range.to) : endOfDay(range.from) });
+                  }}
+                  numberOfMonths={2}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
             <Button asChild data-testid="button-new-sale-desktop">
               <Link href="/sales/new">
                 <ShoppingCart className="mr-2 h-4 w-4" />
@@ -810,43 +793,16 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Daily net revenue bars + revenue mix */}
+        {/* Sales trend + revenue mix */}
         <div className="grid grid-cols-3 gap-6">
-          <Card className="col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-              <CardTitle className="text-base font-semibold">Daily net revenue</CardTitle>
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary inline-block" /> This period</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block w-3 border-t border-dashed border-muted-foreground" /> Prev. daily avg</span>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[280px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyRevenueFilled} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted/40" />
-                    <XAxis
-                      dataKey="label"
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                      interval="preserveStartEnd"
-                      minTickGap={40}
-                    />
-                    <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={0} />
-                    <Tooltip
-                      cursor={{ fill: "hsl(var(--muted)/0.15)" }}
-                      formatter={(value: number) => [formatCurrency(value), "Revenue"]}
-                    />
-                    {prevDailyAvg > 0 && (
-                      <ReferenceLine y={prevDailyAvg} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />
-                    )}
-                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} maxBarSize={36} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="col-span-2">
+            <SalesTrendChart
+              storeId={currentStore?.id === "all" ? undefined : currentStore?.id}
+              businessId={currentStore?.id === "all" ? business?.id : undefined}
+              storeCurrency={storeCurrency}
+              queryString={queryString}
+            />
+          </div>
 
           <Card>
             <CardHeader className="pb-2">
