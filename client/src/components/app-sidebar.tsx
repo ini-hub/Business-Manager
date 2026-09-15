@@ -85,25 +85,6 @@ const managementItems: MenuItem[] = [
     icon: CalendarDays,
     allowedRoles: ["owner", "manager"],
   },
-  // The personal view — one entry, same URL, for every role.
-  {
-    title: "My Attendance",
-    url: "/staff/attendance",
-    icon: CalendarDays,
-    allowedRoles: ["owner", "manager", "staff"],
-  },
-  {
-    title: "My Performance",
-    url: "/staff/performance",
-    icon: TrendingUp,
-    allowedRoles: ["owner", "manager", "staff"],
-  },
-  {
-    title: "My Payroll",
-    url: "/staff/payroll",
-    icon: DollarSign,
-    allowedRoles: ["owner", "manager", "staff"],
-  },
   {
     title: "Inventory",
     url: "/inventory",

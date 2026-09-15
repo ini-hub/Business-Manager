@@ -14,13 +14,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { User, Lock, Camera, Shield, CheckCircle2 } from "lucide-react";
+import { User, Lock, Camera, Shield, CheckCircle2, CalendarDays, TrendingUp, DollarSign } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import MyPerformancePage from "./my-performance";
+import MyPayrollPage from "./my-payroll";
+import StaffAttendancePage from "./staff-attendance";
 
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -232,6 +235,9 @@ export default function ProfilePage() {
               tabs={[
                 { value: "general", label: "General Information" },
                 { value: "security", label: "Security & Password" },
+                { value: "attendance", label: "Attendance", icon: CalendarDays },
+                { value: "performance", label: "Performance", icon: TrendingUp },
+                { value: "payroll", label: "Payroll", icon: DollarSign },
               ]}
               variant="default"
               className="mb-6"
@@ -656,6 +662,18 @@ export default function ProfilePage() {
                   </form>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="attendance" className="space-y-6 mt-0 border-none p-0">
+              <StaffAttendancePage />
+            </TabsContent>
+
+            <TabsContent value="performance" className="space-y-6 mt-0 border-none p-0">
+              <MyPerformancePage />
+            </TabsContent>
+
+            <TabsContent value="payroll" className="space-y-6 mt-0 border-none p-0">
+              <MyPayrollPage />
             </TabsContent>
           </Tabs>
         </div>
