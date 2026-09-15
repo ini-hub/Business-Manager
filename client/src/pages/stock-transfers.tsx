@@ -558,9 +558,13 @@ export default function StockTransfersPage() {
                 <div className="space-y-2">
                   <Label>Required Items Grid</Label>
                   {inventoryItems.filter((inv) => inv.quantity > 0).length === 0 && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                      <span className="text-amber-700 text-sm font-medium">⚠️ No inventory items available to transfer</span>
-                      <p className="text-amber-600 text-xs">All items at {currentStore.name} are out of stock. Build inventory or select a different source store.</p>
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-amber-700 text-sm font-medium">
+                        ⚠️ No inventory items available to transfer
+                      </p>
+                      <p className="text-amber-700 text-sm mt-1">
+                        All items at {currentStore.name} are out of stock. Build inventory or select a different source store.
+                      </p>
                     </div>
                   )}
                   <div className="space-y-3">
