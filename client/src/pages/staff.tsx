@@ -26,7 +26,7 @@ import {
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type RowAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
@@ -319,101 +319,65 @@ export default function StaffPage() {
           ),
         },
         mobileCol,
-        {
-          key: "actions",
-          header: "",
-          className: "w-32",
-          render: (staff: StaffRow) => (
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLocation(appendReturnTo(`/staffs/${staff.id}/edit`, location, search));
-                }}
-                title="Edit staff member"
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-              {/* Once a password is set, the person is no longer blocked by
-                  their activation code - resending it is a no-op at best.
-                  A pending_signature/declined contract needs a new/replaced
-                  contract (via Edit), not a resent invite - see the server
-                  refusal in StaffInviteService.resendToLinkedUser. */}
-              {staff.inviteStatus !== "active" &&
-                staff.contractStatus !== "pending_signature" &&
-                staff.contractStatus !== "declined" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedStaff(staff);
-                    setIsResendInviteOpen(true);
-                  }}
-                  title="Resend invitation"
-                  data-testid={`button-resend-invite-${staff.id}`}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              )}
-              {otherStores.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedStaff(staff);
-                    setTransferTargetStoreId("");
-                    setIsTransferOpen(true);
-                  }}
-                  title="Transfer to another store"
-                >
-                  <ArrowRightLeft className="h-4 w-4" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedStaff(staff);
-                  setIsDeleteOpen(true);
-                }}
-                title="Archive staff member"
-              >
-                <Archive className="h-4 w-4" />
-              </Button>
-            </div>
-          ),
-        },
       ]);
     }
 
-    return withRowSpacing([
-      ...baseColumns,
-      {
-        key: "actions",
-        header: "",
-        className: "w-12",
-        render: (staff: StaffRow) => (
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLocation(`/staffs/${staff.id}/edit`);
-              }}
-            >
-              <Edit className="h-4 w-4" />
-            </Button>
-          </div>
-        ),
-      },
-    ]);
+    return withRowSpacing([...baseColumns]);
   }, [isOwner, formatCurrency, setLocation, otherStores.length]);
+
+  // Full action set for owners/managers; staff-role viewers only ever see their
+  // own row's Edit (the "actions" column is entirely absent for them elsewhere).
+  const activeRowActions = (staff: StaffRow): RowAction[] => {
+    if (!isOwner) {
+      return [
+        { label: "Edit", icon: <Edit className="h-4 w-4" />, onClick: () => setLocation(`/staffs/${staff.id}/edit`) },
+      ];
+    }
+    const actions: RowAction[] = [
+      {
+        label: "Edit",
+        icon: <Edit className="h-4 w-4" />,
+        onClick: () => setLocation(appendReturnTo(`/staffs/${staff.id}/edit`, location, search)),
+        testId: `button-edit-${staff.id}`,
+      },
+    ];
+    // Once a password is set, the person is no longer blocked by their activation
+    // code - resending it is a no-op at best. A pending_signature/declined
+    // contract needs a new/replaced contract (via Edit), not a resent invite -
+    // see the server refusal in StaffInviteService.resendToLinkedUser.
+    if (staff.inviteStatus !== "active" && staff.contractStatus !== "pending_signature" && staff.contractStatus !== "declined") {
+      actions.push({
+        label: "Resend invitation",
+        icon: <Send className="h-4 w-4" />,
+        onClick: () => {
+          setSelectedStaff(staff);
+          setIsResendInviteOpen(true);
+        },
+        testId: `button-resend-invite-${staff.id}`,
+      });
+    }
+    if (otherStores.length > 0) {
+      actions.push({
+        label: "Transfer to another store",
+        icon: <ArrowRightLeft className="h-4 w-4" />,
+        onClick: () => {
+          setSelectedStaff(staff);
+          setTransferTargetStoreId("");
+          setIsTransferOpen(true);
+        },
+      });
+    }
+    actions.push({
+      label: "Archive",
+      icon: <Archive className="h-4 w-4" />,
+      onClick: () => {
+        setSelectedStaff(staff);
+        setIsDeleteOpen(true);
+      },
+      destructive: true,
+    });
+    return actions;
+  };
 
   const archivedColumns = [
     ...(currentStore?.id === "all" ? [{
@@ -457,37 +421,22 @@ export default function StaffPage() {
           : <span className="text-xs text-muted-foreground italic">Store default</span>
       ),
     },
+  ];
+
+  const archivedRowActions = (staff: StaffRow): RowAction[] => [
     {
-      key: "actions",
-      header: "",
-      className: "w-32",
-      render: (staff: StaffRow) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              restoreMutation.mutate(staff.id);
-            }}
-            title="Restore staff member"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedStaff(staff);
-              setIsPermanentDeleteOpen(true);
-            }}
-            title="Permanently delete staff member"
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
-        </div>
-      ),
+      label: "Restore",
+      icon: <RotateCcw className="h-4 w-4" />,
+      onClick: () => restoreMutation.mutate(staff.id),
+    },
+    {
+      label: "Delete permanently",
+      icon: <Trash2 className="h-4 w-4" />,
+      onClick: () => {
+        setSelectedStaff(staff);
+        setIsPermanentDeleteOpen(true);
+      },
+      destructive: true,
     },
   ];
 
@@ -654,6 +603,7 @@ export default function StaffPage() {
                 <DataTable
                   data={activeTableData}
                   columns={activeColumns}
+                  rowActions={activeRowActions}
                   searchable
                   searchPlaceholder="Search active staff..."
                   searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
@@ -675,6 +625,7 @@ export default function StaffPage() {
                 <DataTable
                   data={archivedTableData}
                   columns={archivedColumns}
+                  rowActions={archivedRowActions}
                   searchable
                   searchPlaceholder="Search archived staff..."
                   searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
