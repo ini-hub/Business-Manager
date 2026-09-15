@@ -19,7 +19,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
-import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import type { DateRange } from "@/components/date-range-filter";
 import { format, startOfDay, endOfDay, subDays, startOfMonth, startOfYear } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
@@ -375,7 +375,7 @@ export default function Dashboard() {
     <div className="space-y-4 lg:space-y-6">
       {/* ─── Mobile / tablet (<lg): compact space-optimized layout ─── */}
       <div className="lg:hidden space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs text-muted-foreground leading-tight">
             {greeting}, {firstName}
@@ -383,7 +383,48 @@ export default function Dashboard() {
           </p>
           <h1 className="text-xl font-bold tracking-tight leading-tight">Dashboard</h1>
         </div>
-        <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} compact />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Select value={datePreset === "custom" ? undefined : datePreset} onValueChange={(v) => applyDatePreset(v as DatePreset)}>
+            <SelectTrigger
+              className="h-8 w-auto min-w-0 gap-1 rounded-full border-input px-2.5 text-xs"
+              data-testid="select-mobile-date-preset"
+            >
+              <SelectValue placeholder="Date range" />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="7d">Last 7 Days</SelectItem>
+              <SelectItem value="30d">Last 30 Days</SelectItem>
+              <SelectItem value="month">This Month</SelectItem>
+              <SelectItem value="year">This Year</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className={cn("h-8 w-8 shrink-0", datePreset === "custom" && "border-primary text-primary")}
+                data-testid="button-mobile-custom-range"
+              >
+                <CalendarIcon className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="range"
+                selected={{ from: dateRange.from, to: dateRange.to }}
+                onSelect={(range) => {
+                  if (!range?.from) return;
+                  setDatePreset("custom");
+                  setDateRange({ from: startOfDay(range.from), to: range.to ? endOfDay(range.to) : endOfDay(range.from) });
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {(stats?.outOfStockCount ?? 0) + (stats?.lowStockCount ?? 0) > 0 && (
@@ -631,7 +672,10 @@ export default function Dashboard() {
       <div className="hidden lg:block space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+            <p className="text-sm text-muted-foreground leading-tight">
+              {greeting}, {firstName}
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight leading-tight">Dashboard</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {currentStore?.id === "all" ? `All ${stores.length} branches` : currentStore?.name}
               {dateRangeLabel && ` · ${dateRangeLabel}`}
