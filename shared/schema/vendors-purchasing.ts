@@ -164,13 +164,26 @@ export const stockTransfers = pgTable("stock_transfers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   fromStoreId: varchar("from_store_id").notNull().references(() => stores.id),
   toStoreId: varchar("to_store_id").notNull().references(() => stores.id),
-  status: text("status").notNull().default("pending"),
+  status: text("status").notNull().default("pending"), // pending, accepted, rejected, scheduled, delivered, confirmed, cancelled
   notes: text("notes"),
+  // Workflow tracking
+  acceptedAt: timestamp("accepted_at"),
+  acceptedByUserId: varchar("accepted_by_user_id"),
+  rejectionReason: text("rejection_reason"),
+  deliveryDate: date("delivery_date"),
+  deliveryMethod: varchar("delivery_method"), // e.g., "courier", "pickup", "direct"
+  deliveryNotes: text("delivery_notes"),
+  deliveredAt: timestamp("delivered_at"),
+  deliveredByUserId: varchar("delivered_by_user_id"),
+  confirmedAt: timestamp("confirmed_at"),
+  confirmedByUserId: varchar("confirmed_by_user_id"),
+  confirmedQuantityJson: text("confirmed_quantity_json"), // JSON: {inventoryId: quantity}
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_stock_transfers_from_store").on(table.fromStoreId),
   index("idx_stock_transfers_to_store").on(table.toStoreId),
+  index("idx_stock_transfers_status").on(table.status),
 ]);
 
 export const stockTransferItems = pgTable("stock_transfer_items", {

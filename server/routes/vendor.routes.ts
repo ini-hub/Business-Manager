@@ -804,6 +804,125 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
+  // Stock transfer workflow transitions
+  app.put("/api/stock-transfers/:id/accept", isAuthenticated, async (req, res) => {
+    try {
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      // Destination store accepts the transfer
+      if (!(await checkStoreAccess(transfer.toStoreId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await storage.stockTransferRepo.acceptTransfer(req.params.id, userId);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({ action: "STOCK_TRANSFER_ACCEPT", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success" });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not accept stock transfer." });
+    }
+  });
+
+  app.put("/api/stock-transfers/:id/reject", isAuthenticated, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) return res.status(400).json({ error: "Rejection reason is required." });
+
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      // Destination store rejects the transfer
+      if (!(await checkStoreAccess(transfer.toStoreId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await storage.stockTransferRepo.rejectTransfer(req.params.id, userId, reason);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({ action: "STOCK_TRANSFER_REJECT", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { reason } });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not reject stock transfer." });
+    }
+  });
+
+  app.put("/api/stock-transfers/:id/schedule", isAuthenticated, async (req, res) => {
+    try {
+      const { deliveryDate, deliveryMethod, deliveryNotes } = req.body;
+      if (!deliveryDate || !deliveryMethod) {
+        return res.status(400).json({ error: "Delivery date and method are required." });
+      }
+
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      // Source store schedules delivery
+      if (!(await checkStoreAccess(transfer.fromStoreId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await storage.stockTransferRepo.scheduleDelivery(req.params.id, userId, deliveryDate, deliveryMethod, deliveryNotes);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({ action: "STOCK_TRANSFER_SCHEDULE", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { deliveryDate, deliveryMethod } });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not schedule stock transfer." });
+    }
+  });
+
+  app.put("/api/stock-transfers/:id/deliver", isAuthenticated, async (req, res) => {
+    try {
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      // Source store marks as delivered
+      if (!(await checkStoreAccess(transfer.fromStoreId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await storage.stockTransferRepo.markDelivered(req.params.id, userId);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({ action: "STOCK_TRANSFER_DELIVER", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success" });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not mark stock transfer as delivered." });
+    }
+  });
+
+  app.put("/api/stock-transfers/:id/confirm", isAuthenticated, async (req, res) => {
+    try {
+      const { confirmedQuantities } = req.body;
+      if (!confirmedQuantities || typeof confirmedQuantities !== "object") {
+        return res.status(400).json({ error: "Confirmed quantities object is required." });
+      }
+
+      const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
+      if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
+      // Destination store confirms receipt
+      if (!(await checkStoreAccess(transfer.toStoreId, req, res))) return;
+
+      const userId = (req as any).user?.id;
+      const result = await storage.stockTransferRepo.confirmReceipt(req.params.id, userId, confirmedQuantities);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.log({ action: "STOCK_TRANSFER_CONFIRM", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { confirmedQuantities } });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Could not confirm stock transfer receipt." });
+    }
+  });
+
   // ---------- 9. TAX RATES ----------
   // Get tax rates
   app.get("/api/tax-rates", isAuthenticated, async (req, res) => {

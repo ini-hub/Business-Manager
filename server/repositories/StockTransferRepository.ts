@@ -377,4 +377,127 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
       return { success: !!deleted };
     });
   }
+
+  async acceptTransfer(id: string, userId: string): Promise<{ success: boolean; message: string; transfer?: StockTransfer }> {
+    return db.transaction(async (tx) => {
+      const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+      if (!transfer) return { success: false, message: "Transfer not found." };
+      if (transfer.status !== "pending") {
+        return { success: false, message: `Transfer is already ${transfer.status}. Only pending transfers can be accepted.` };
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({ status: "accepted", acceptedAt: new Date(), acceptedByUserId: userId, updatedAt: new Date() })
+        .where(eq(stockTransfers.id, id))
+        .returning();
+
+      return { success: true, message: "Transfer accepted.", transfer: updated };
+    });
+  }
+
+  async rejectTransfer(id: string, userId: string, reason: string): Promise<{ success: boolean; message: string; transfer?: StockTransfer }> {
+    return db.transaction(async (tx) => {
+      const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+      if (!transfer) return { success: false, message: "Transfer not found." };
+      if (transfer.status !== "pending") {
+        return { success: false, message: `Transfer is already ${transfer.status}. Only pending transfers can be rejected.` };
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: "rejected",
+          acceptedByUserId: userId,
+          rejectionReason: reason,
+          updatedAt: new Date()
+        })
+        .where(eq(stockTransfers.id, id))
+        .returning();
+
+      return { success: true, message: "Transfer rejected.", transfer: updated };
+    });
+  }
+
+  async scheduleDelivery(id: string, userId: string, deliveryDate: string, deliveryMethod: string, deliveryNotes?: string): Promise<{ success: boolean; message: string; transfer?: StockTransfer }> {
+    return db.transaction(async (tx) => {
+      const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+      if (!transfer) return { success: false, message: "Transfer not found." };
+      if (transfer.status !== "accepted") {
+        return { success: false, message: `Transfer must be accepted before scheduling. Current status: ${transfer.status}` };
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: "scheduled",
+          deliveryDate: new Date(deliveryDate),
+          deliveryMethod,
+          deliveryNotes,
+          deliveredByUserId: userId,
+          updatedAt: new Date()
+        })
+        .where(eq(stockTransfers.id, id))
+        .returning();
+
+      return { success: true, message: "Delivery scheduled.", transfer: updated };
+    });
+  }
+
+  async markDelivered(id: string, userId: string): Promise<{ success: boolean; message: string; transfer?: StockTransfer }> {
+    return db.transaction(async (tx) => {
+      const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+      if (!transfer) return { success: false, message: "Transfer not found." };
+      if (transfer.status !== "scheduled") {
+        return { success: false, message: `Transfer must be scheduled before marking as delivered. Current status: ${transfer.status}` };
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: "delivered",
+          deliveredAt: new Date(),
+          deliveredByUserId: userId,
+          updatedAt: new Date()
+        })
+        .where(eq(stockTransfers.id, id))
+        .returning();
+
+      return { success: true, message: "Transfer marked as delivered.", transfer: updated };
+    });
+  }
+
+  async confirmReceipt(id: string, userId: string, confirmedQuantities: Record<string, number>): Promise<{ success: boolean; message: string; transfer?: StockTransfer }> {
+    return db.transaction(async (tx) => {
+      const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+      if (!transfer) return { success: false, message: "Transfer not found." };
+      if (transfer.status !== "delivered") {
+        return { success: false, message: `Transfer must be delivered before confirming receipt. Current status: ${transfer.status}` };
+      }
+
+      // Get transfer items to validate confirmed quantities
+      const items = await tx.select().from(stockTransferItems).where(eq(stockTransferItems.transferId, id));
+
+      for (const item of items) {
+        const confirmedQty = confirmedQuantities[item.inventoryId];
+        if (confirmedQty === undefined || confirmedQty < 0) {
+          return { success: false, message: `Invalid confirmed quantity for inventory item ${item.inventoryId}` };
+        }
+      }
+
+      const [updated] = await tx
+        .update(stockTransfers)
+        .set({
+          status: "confirmed",
+          confirmedAt: new Date(),
+          confirmedByUserId: userId,
+          confirmedQuantityJson: JSON.stringify(confirmedQuantities),
+          updatedAt: new Date()
+        })
+        .where(eq(stockTransfers.id, id))
+        .returning();
+
+      return { success: true, message: "Transfer receipt confirmed.", transfer: updated };
+    });
+  }
 }
