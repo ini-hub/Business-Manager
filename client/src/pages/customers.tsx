@@ -30,6 +30,7 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { ClearableInput } from "@/components/clearable-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -831,10 +832,11 @@ export default function Customers() {
                 {/* Server-side search for single-store (paginated); internal search for all-stores */}
                 {currentStore?.id !== "all" && (
                   <div className="mb-3">
-                    <Input
+                    <ClearableInput
                       placeholder="Search active customers..."
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
+                      onClear={() => setSearchInput("")}
                       className="max-w-xs h-9"
                     />
                   </div>

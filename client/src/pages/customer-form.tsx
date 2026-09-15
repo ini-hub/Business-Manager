@@ -257,7 +257,7 @@ export default function CustomerFormPage() {
                           <SelectContent className="max-h-[280px]">
                             {countryCodes.map((c) => (
                               <SelectItem key={c.code} value={c.code}>
-                                {c.name} ({c.dialCode})
+                                {c.dialCode}
                               </SelectItem>
                             ))}
                           </SelectContent>

@@ -724,6 +724,11 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
           quantity: Number(i.quantity),
         })),
       });
+
+      if ("error" in created) {
+        return res.status(400).json({ error: created.error });
+      }
+
       auditLogger.log({ action: "STOCK_TRANSFER_CREATE", resource: "stock_transfer", resourceId: created.id, userId, ip: getClientIp(req), status: "success", details: { fromStoreId, toStoreId, itemCount: items.length } });
       broadcastChange(req, "stock-transfer", fromStoreId, "created");
       res.status(201).json(created);
@@ -786,7 +791,12 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!(await checkStoreAccess(transfer.fromStoreId, req, res))) return;
 
       const userId = (req as any).user?.id;
-      await storage.stockTransferRepo.deleteStockTransfer(req.params.id);
+      const result = await storage.stockTransferRepo.deleteStockTransfer(req.params.id);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.message });
+      }
+
       auditLogger.log({ action: "STOCK_TRANSFER_DELETE", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { transferId: req.params.id } });
       res.json({ success: true });
     } catch (error) {

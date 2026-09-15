@@ -131,7 +131,7 @@ export function NewCustomerDialog({ open, storeId, onClose, onCreated }: NewCust
                         </SelectTrigger>
                         <SelectContent className="max-h-[280px]">
                           {deduplicatedCountryCodes.map(c => (
-                            <SelectItem key={c.dialCode} value={c.dialCode}>{c.name} ({c.dialCode})</SelectItem>
+                            <SelectItem key={c.dialCode} value={c.dialCode}>{c.dialCode}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

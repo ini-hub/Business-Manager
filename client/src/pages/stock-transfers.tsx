@@ -483,7 +483,7 @@ export default function StockTransfersPage() {
                                 <SelectValue placeholder="Choose item" />
                               </SelectTrigger>
                               <SelectContent>
-                                {inventoryItems.map((inv) => (
+                                {inventoryItems.filter((inv) => inv.quantity > 0).map((inv) => (
                                   <SelectItem key={inv.id} value={inv.id}>
                                     {inv.name} (SKU: {inv.id.substring(0, 8).toUpperCase()}) | Stock: {inv.quantity}
                                   </SelectItem>
@@ -502,7 +502,7 @@ export default function StockTransfersPage() {
                             <Input
                               type="number"
                               min="1"
-                              max={maxStock || undefined}
+                              max={maxStock != null ? maxStock : undefined}
                               value={item.quantity}
                               onChange={(e) => {
                                 const valStr = e.target.value;
@@ -512,12 +512,12 @@ export default function StockTransfersPage() {
                                 }
                                 const val = Number(valStr);
                                 if (isNaN(val)) return;
-                                const clamped = maxStock ? Math.min(maxStock, val) : val;
+                                const clamped = maxStock != null ? Math.min(maxStock, val) : val;
                                 updateItemRow(index, "quantity", clamped);
                               }}
                               onBlur={() => {
                                 const val = Number(item.quantity);
-                                const clamped = maxStock ? Math.min(maxStock, val) : val;
+                                const clamped = maxStock != null ? Math.min(maxStock, val) : val;
                                 updateItemRow(index, "quantity", Math.max(1, clamped));
                               }}
                             />

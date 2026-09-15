@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { ClearableInput } from "@/components/clearable-input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -479,11 +480,15 @@ export function PolymorphicTable<T extends { id: string | number }>({
           {searchable && (
             <div className="relative w-full sm:max-w-xs md:max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
+              <ClearableInput
                 placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                onClear={() => {
+                  setSearchTerm("");
                   setCurrentPage(1);
                 }}
                 className="pl-9 h-9"

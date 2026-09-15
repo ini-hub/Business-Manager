@@ -794,7 +794,13 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         inventoryId,
         userId || 'system',
         'CREATE_RESTOCK',
-        true
+        true,
+        undefined,
+        {
+          quantityAdded: Number(quantityAdded),
+          unitCost: Number(unitCost),
+          strategy: costStrategy,
+        }
       );
 
       broadcastChange(req, "inventory", item.storeId, "restocked");

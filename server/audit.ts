@@ -149,7 +149,8 @@ class AuditLogger {
     userId: string | undefined,
     action: string,
     success: boolean,
-    errorMessage?: string
+    errorMessage?: string,
+    details?: Record<string, unknown>
   ): void {
     this.log({
       action,
@@ -158,6 +159,7 @@ class AuditLogger {
       userId,
       status: success ? "success" : "failure",
       errorMessage,
+      details,
     });
   }
 

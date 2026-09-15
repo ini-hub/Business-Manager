@@ -71,10 +71,35 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
     };
   }
 
-  async createStockTransfer(data: InsertStockTransfer & { items: { inventoryId: string; quantity: number }[] }): Promise<StockTransfer> {
+  async createStockTransfer(data: InsertStockTransfer & { items: { inventoryId: string; quantity: number }[] }): Promise<StockTransfer | { error: string }> {
     const { items, ...transferData } = data;
 
     return db.transaction(async (tx) => {
+      // Validate items before creating transfer
+      if (items.length === 0) {
+        return { error: "Transfer must include at least one item." };
+      }
+
+      // Validate each item exists and has sufficient stock
+      for (const item of items) {
+        if (item.quantity <= 0) {
+          return { error: `Item quantity must be greater than 0.` };
+        }
+
+        const [inventoryItem] = await tx
+          .select()
+          .from(inventory)
+          .where(and(eq(inventory.id, item.inventoryId), eq(inventory.storeId, transferData.fromStoreId)));
+
+        if (!inventoryItem) {
+          return { error: `Item not found in source store.` };
+        }
+
+        if (inventoryItem.type !== "service" && inventoryItem.quantity < item.quantity) {
+          return { error: `Insufficient stock for "${inventoryItem.name}". Available: ${inventoryItem.quantity}, Requested: ${item.quantity}` };
+        }
+      }
+
       const [newTransfer] = await tx
         .insert(stockTransfers)
         .values({
@@ -301,11 +326,21 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
     });
   }
 
-  async deleteStockTransfer(id: string): Promise<boolean> {
+  async deleteStockTransfer(id: string): Promise<{ success: boolean; message?: string }> {
     return db.transaction(async (tx) => {
+      const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
+      if (!transfer) {
+        return { success: false, message: "Transfer not found." };
+      }
+      // Only allow deletion of pending, rejected, or cancelled transfers
+      // Completed/delivered transfers have already moved stock and cannot be deleted
+      if (!["pending", "rejected", "cancelled"].includes(transfer.status)) {
+        return { success: false, message: `Cannot delete a ${transfer.status} transfer. Only pending, rejected, or cancelled transfers can be deleted.` };
+      }
+
       await tx.delete(stockTransferItems).where(eq(stockTransferItems.transferId, id));
       const [deleted] = await tx.delete(stockTransfers).where(eq(stockTransfers.id, id)).returning();
-      return !!deleted;
+      return { success: !!deleted };
     });
   }
 }

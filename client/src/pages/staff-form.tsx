@@ -557,7 +557,7 @@ export default function StaffFormPage() {
                         <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
                         <SelectContent className="max-h-[280px]">
                           {countryCodes.map((c) => (
-                            <SelectItem key={c.code} value={c.code}>{c.name} ({c.dialCode})</SelectItem>
+                            <SelectItem key={c.code} value={c.code}>{c.dialCode}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

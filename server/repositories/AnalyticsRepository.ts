@@ -19,11 +19,8 @@ export class AnalyticsRepository {
   async getDashboardStats(storeId: string, startDate?: string, endDate?: string) {
     // Build date filters once
     const tz = await getStoreTimezone(storeId);
-    const customerDateFilter = startDate || endDate ? and(
-      eq(customers.storeId, storeId),
-      ...(startDate ? [gte(customers.createdAt, toUtcStart(startDate, tz))] : []),
-      ...(endDate   ? [lte(customers.createdAt, toUtcEnd(endDate,   tz))] : []),
-    ) : eq(customers.storeId, storeId);
+    // Total customers is an unfiltered count (like staff/inventory), not scoped to date range
+    const customerDateFilter = eq(customers.storeId, storeId);
 
     const checkoutDateFilter = and(
       eq(checkouts.storeId, storeId),

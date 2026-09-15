@@ -287,10 +287,7 @@ export class CustomerRepository {
       inArray(customers.storeId, storeIds),
       eq(customers.isArchived, false)
     ];
-
-    const tz = businessStores[0] ? (await db.select({ timezone: stores.timezone }).from(stores).where(eq(stores.id, businessStores[0].id)).limit(1))[0]?.timezone ?? "Africa/Lagos" : "Africa/Lagos";
-    if (startDate) conditions.push(gte(customers.createdAt, toUtcStart(startDate, tz)));
-    if (endDate) conditions.push(lte(customers.createdAt, toUtcEnd(endDate, tz)));
+    // Total customers is an unfiltered count (not scoped to date range)
 
     const [globalCountResult] = await db
       .select({ count: sql<number>`count(distinct ${customers.globalCustomerId})` })
