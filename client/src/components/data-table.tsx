@@ -1,4 +1,6 @@
-import { PolymorphicTable, ColumnConfig, TableFilterConfig } from "./oop-ui/PolymorphicTable";
+import { PolymorphicTable, ColumnConfig, TableFilterConfig, RowAction } from "./oop-ui/PolymorphicTable";
+
+export type { RowAction };
 
 export interface Column<T> {
   key: keyof T | string;
@@ -50,6 +52,10 @@ export interface DataTableProps<T> {
   // Suppresses the built-in pagination/rows-per-page footer, for callers that
   // paginate server-side and render their own footer instead.
   hideFooter?: boolean;
+
+  // Auto-generates a single "..." row-actions menu instead of a hand-rolled
+  // "actions" column of icon buttons. Ignored if `columns` already has one.
+  rowActions?: (item: T) => RowAction[];
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -74,6 +80,7 @@ export function DataTable<T extends { id: string | number }>({
   forceCardView,
   showCardChevron,
   hideFooter,
+  rowActions,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -106,6 +113,7 @@ export function DataTable<T extends { id: string | number }>({
       forceCardView={forceCardView}
       showCardChevron={showCardChevron}
       hideFooter={hideFooter}
+      rowActions={rowActions}
     />
   );
 }

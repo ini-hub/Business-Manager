@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type RowAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
@@ -616,39 +616,26 @@ export default function Customers() {
         </div>
       ),
     },
+  ];
+
+  const activeRowActions = (customer: Customer): RowAction[] => [
     {
-      key: "actions",
-      header: "",
-      className: "w-24",
-      render: (customer: Customer) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditForm(customer);
-            }}
-            data-testid={`button-edit-${customer.id}`}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedCustomer(customer);
-              setIsDeleteOpen(true);
-            }}
-            data-testid={`button-archive-${customer.id}`}
-          >
-            <Archive className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
+      label: "Edit",
+      icon: <Edit className="h-4 w-4" />,
+      onClick: () => openEditForm(customer),
+      testId: `button-edit-${customer.id}`,
     },
-  ].filter(col => col.key !== "actions" || user?.role !== "staff");
+    {
+      label: "Archive",
+      icon: <Archive className="h-4 w-4" />,
+      onClick: () => {
+        setSelectedCustomer(customer);
+        setIsDeleteOpen(true);
+      },
+      destructive: true,
+      testId: `button-archive-${customer.id}`,
+    },
+  ];
 
   const archivedColumns = [
     ...(currentStore?.id === "all" ? [{
@@ -700,41 +687,27 @@ export default function Customers() {
         <span className="text-sm">{formatDate(customer.lastVisited)}</span>
       ),
     },
+  ];
+
+  const archivedRowActions = (customer: Customer): RowAction[] => [
     {
-      key: "actions",
-      header: "",
-      className: "w-32",
-      render: (customer: Customer) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              restoreMutation.mutate(customer.id);
-            }}
-            title="Restore customer"
-            data-testid={`button-restore-${customer.id}`}
-          >
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm("Permanently delete this customer? This cannot be undone.")) {
-                permanentDeleteMutation.mutate(customer.id);
-              }
-            }}
-            data-testid={`button-delete-permanent-${customer.id}`}
-          >
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
-        </div>
-      ),
+      label: "Restore",
+      icon: <RotateCcw className="h-4 w-4" />,
+      onClick: () => restoreMutation.mutate(customer.id),
+      testId: `button-restore-${customer.id}`,
     },
-  ].filter(col => col.key !== "actions" || user?.role !== "staff");
+    {
+      label: "Delete permanently",
+      icon: <Trash2 className="h-4 w-4" />,
+      onClick: () => {
+        if (confirm("Permanently delete this customer? This cannot be undone.")) {
+          permanentDeleteMutation.mutate(customer.id);
+        }
+      },
+      destructive: true,
+      testId: `button-delete-permanent-${customer.id}`,
+    },
+  ];
 
   const exportColumns = [
     { key: "name", header: "Name" },
@@ -930,6 +903,7 @@ export default function Customers() {
                   isLoading={isLoading}
                   emptyMessage="Add active profiles to start tracking their credit limits, transactions, and retention logs."
                   onRowClick={navigateToCustomerDetails}
+                  rowActions={user?.role !== "staff" ? activeRowActions : undefined}
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="active"
@@ -998,6 +972,7 @@ export default function Customers() {
                   isLoading={isLoading}
                   emptyMessage="Archived or deleted customers will be filed here for compliance histories."
                   onRowClick={navigateToCustomerDetails}
+                  rowActions={user?.role !== "staff" ? archivedRowActions : undefined}
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="archivedTbl"

@@ -39,7 +39,14 @@ import {
   ArrowUp,
   ArrowDown,
   PackageOpen,
+  MoreHorizontal,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DropdownFilter, MobileFilterChip } from "./PolymorphicTableFilters";
 
@@ -95,6 +102,20 @@ export interface ColumnConfig<T> {
   filterable?: boolean;
 }
 
+/**
+ * One entry in a row's "..." actions menu — see `rowActions` on PolymorphicTable/DataTable.
+ * `onClick` takes no arguments: the caller's `rowActions={(item) => [...]}` factory already
+ * closes over `item` when building each action, so there's nothing left to pass back.
+ */
+export interface RowAction {
+  label: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+  testId?: string;
+}
+
 export interface PolymorphicTableProps<T> {
   data: T[];
   columns: ColumnConfig<T>[];
@@ -146,11 +167,51 @@ export interface PolymorphicTableProps<T> {
   // footer above/below this table (the built-in one only knows about the
   // current page's worth of rows, which would show a confusingly smaller total).
   hideFooter?: boolean;
+
+  // Auto-generates a single "..." row-actions menu (desktop table cell and
+  // card-view floating button alike) instead of requiring callers to hand-roll
+  // an "actions" column of individual icon buttons. Ignored if `columns`
+  // already defines its own "actions" column — that column wins.
+  rowActions?: (item: T) => RowAction[];
+}
+
+/** Kebab trigger + dropdown rendered by the auto-generated "actions" column. */
+function RowActionsMenu({ actions }: { actions: RowAction[] }) {
+  if (actions.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={(e) => e.stopPropagation()}
+          data-testid="button-row-actions"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        {actions.map((action, i) => (
+          <DropdownMenuItem
+            key={i}
+            disabled={action.disabled}
+            onSelect={action.onClick}
+            className={cn(action.destructive && "text-destructive focus:text-destructive")}
+            data-testid={action.testId}
+          >
+            {action.icon}
+            {action.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function PolymorphicTable<T extends { id: string | number }>({
   data,
-  columns,
+  columns: rawColumns,
   searchable = true,
   searchPlaceholder = "Search records...",
   searchKeys = [],
@@ -176,7 +237,21 @@ export function PolymorphicTable<T extends { id: string | number }>({
   forceCardView = false,
   showCardChevron = false,
   hideFooter = false,
+  rowActions,
 }: PolymorphicTableProps<T>) {
+  const columns = useMemo(() => {
+    if (!rowActions || rawColumns.some((c) => c.key === "actions")) return rawColumns;
+    return [
+      ...rawColumns,
+      {
+        key: "actions",
+        header: "",
+        className: "w-12",
+        render: (item: T) => <RowActionsMenu actions={rowActions(item)} />,
+      } as ColumnConfig<T>,
+    ];
+  }, [rawColumns, rowActions]);
+
   const [initialUrlState] = useState(() => readTableStateFromUrl(urlKey));
   const [location, setLocation] = useLocation();
 
