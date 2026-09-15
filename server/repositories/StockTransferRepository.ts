@@ -1,5 +1,6 @@
 import { BaseRepository } from "./BaseRepository";
 import { db } from "../db";
+import { auditLogger } from "../audit";
 import {
   stockTransfers,
   stockTransferItems,
@@ -166,6 +167,17 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
             .set({ quantity: sourceNewQty })
             .where(eq(inventory.id, line.inv.id));
 
+          // Log inventory activity for source transfer
+          auditLogger.logDataModification(
+            "inventory",
+            line.inv.id,
+            approvedByUserId,
+            "STOCK_TRANSFER_OUT",
+            true,
+            undefined,
+            { quantityTransferred: line.item.quantity, newQuantity: sourceNewQty, destinationStoreId: transfer.toStoreId }
+          );
+
           // Log Source Event
           await tx.insert(inventoryRestockEvents).values({
             storeId: transfer.fromStoreId,
@@ -218,6 +230,17 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
               .update(inventory)
               .set({ quantity: destNewQty })
               .where(eq(inventory.id, destInvId));
+
+            // Log inventory activity for destination transfer (existing item)
+            auditLogger.logDataModification(
+              "inventory",
+              destInvId,
+              approvedByUserId,
+              "STOCK_TRANSFER_IN",
+              true,
+              undefined,
+              { quantityReceived: line.item.quantity, newQuantity: destNewQty, sourceStoreId: transfer.fromStoreId }
+            );
 
             // Log Destination Event
             await tx.insert(inventoryRestockEvents).values({
@@ -272,6 +295,17 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
               .returning();
 
             destInvId = newDestItem.id;
+
+            // Log inventory activity for destination transfer (new item)
+            auditLogger.logDataModification(
+              "inventory",
+              destInvId,
+              approvedByUserId,
+              "STOCK_TRANSFER_IN",
+              true,
+              undefined,
+              { quantityReceived: line.item.quantity, newQuantity: line.item.quantity, sourceStoreId: transfer.fromStoreId, isNewVariant: true }
+            );
 
             // Log Destination Event for new item
             await tx.insert(inventoryRestockEvents).values({

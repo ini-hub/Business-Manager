@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
+import { auditLogger } from "../audit";
 import {
   orders,
   checkouts,
@@ -781,6 +782,16 @@ export class SalesRepository {
                 if (newCompQty <= lowStockThreshold) {
                   lowStockItems.push({ name: comp.name, quantity: newCompQty });
                 }
+                // Log inventory activity for bundle component
+                auditLogger.logDataModification(
+                  "inventory",
+                  comp.id,
+                  data.staffId,
+                  "SALE_DEDUCTION",
+                  true,
+                  undefined,
+                  { quantityDeducted: totalDeduction, newQuantity: newCompQty }
+                );
               }
             } else {
               const newQuantity = inventoryItem.quantity - item.quantity;
@@ -789,6 +800,16 @@ export class SalesRepository {
               if (newQuantity <= lowStockThreshold) {
                 lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
               }
+              // Log inventory activity for product sale
+              auditLogger.logDataModification(
+                "inventory",
+                item.inventoryId,
+                data.staffId,
+                "SALE_DEDUCTION",
+                true,
+                undefined,
+                { quantityDeducted: item.quantity, newQuantity: newQuantity }
+              );
             }
           }
 
@@ -1513,6 +1534,17 @@ export class SalesRepository {
             await tx.update(inventory)
               .set({ quantity: inventoryItem.quantity + item.quantity })
               .where(eq(inventory.id, inventoryItem.id));
+
+            // Log inventory activity for product return/restock
+            auditLogger.logDataModification(
+              "inventory",
+              inventoryItem.id,
+              data.userId || data.staffId,
+              "SALE_RETURN_RESTOCK",
+              true,
+              undefined,
+              { quantityRestocked: item.quantity, newQuantity: inventoryItem.quantity + item.quantity }
+            );
           }
 
           const beforeQty = inventoryItem ? inventoryItem.quantity : 0;
