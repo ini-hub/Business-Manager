@@ -17,6 +17,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "shared/**/*.test.ts"],
+    // client/**/*.test.ts added for framework-free logic (e.g. table-selection.ts)
+    // extracted specifically to be unit-testable without a DOM/component-testing
+    // dependency. Actual component rendering/interaction tests would still need
+    // jsdom + React Testing Library, which this repo doesn't have yet.
+    include: ["server/**/*.test.ts", "shared/**/*.test.ts", "client/**/*.test.ts"],
   },
 });
