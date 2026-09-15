@@ -36,6 +36,8 @@ interface ChartProps {
   businessId?: string;
   storeCurrency?: string;
   queryString?: string;
+  /** Overrides the "(Last 30 Days)" suffix to reflect an actual applied filter, e.g. "This Month". */
+  periodLabel?: string;
 }
 
 const COLORS = [
@@ -63,7 +65,7 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
+export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", queryString = "", periodLabel = "Last 30 Days" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
     queryKey: ["/api/charts/sales-trends", storeId, businessId, queryString],
@@ -87,7 +89,7 @@ export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", qu
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-medium">Sales Trends</CardTitle>
+          <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
         </CardHeader>
         <CardContent>
           <Skeleton className="h-[250px] w-full" />
@@ -100,7 +102,7 @@ export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", qu
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-medium">Sales Trends</CardTitle>
+          <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex h-[250px] items-center justify-center text-muted-foreground">
@@ -114,7 +116,7 @@ export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", qu
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-medium">Sales Trends (Last 30 Days)</CardTitle>
+        <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={250}>

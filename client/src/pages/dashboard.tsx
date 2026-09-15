@@ -281,6 +281,10 @@ export default function Dashboard() {
   const prevRangeLabel = previousRange.from && previousRange.to
     ? `${format(previousRange.from, "d MMM")} to ${format(previousRange.to, "d MMM")}`
     : "";
+  const presetLabel: Record<DatePreset, string> = {
+    today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days",
+    month: "This Month", year: "This Year", all: "All Time", custom: dateRangeLabel,
+  };
 
   if (!currentStore) {
     return (
@@ -822,6 +826,7 @@ export default function Dashboard() {
               businessId={currentStore?.id === "all" ? business?.id : undefined}
               storeCurrency={storeCurrency}
               queryString={queryString}
+              periodLabel={presetLabel[datePreset]}
             />
           </div>
 
@@ -850,20 +855,20 @@ export default function Dashboard() {
               </div>
 
               <div className="pt-2 border-t space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Business size</p>
+                <p className="text-base font-semibold">Business size</p>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Customers</span>
-                  <span className="font-mono font-semibold">{stats?.totalCustomers ?? 0}</span>
+                  <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Customers</span>
+                  <span className="font-mono">{stats?.totalCustomers ?? 0}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Staff</span>
-                  <span className="font-mono font-semibold">{stats?.totalStaff ?? 0}</span>
+                  <span className="flex items-center gap-2"><UserCog className="h-3.5 w-3.5 text-muted-foreground" /> Staff</span>
+                  <span className="font-mono">{stats?.totalStaff ?? 0}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span>Catalogue</span>
-                  <span className="font-mono font-semibold">
+                  <span className="flex items-center gap-2"><Package className="h-3.5 w-3.5 text-muted-foreground" /> Catalogue</span>
+                  <span className="font-mono">
                     {stats?.totalInventory ?? 0}{" "}
-                    <span className="text-muted-foreground text-xs font-normal">
+                    <span className="text-muted-foreground text-xs">
                       ({stats?.totalProducts ?? 0} products, {stats?.totalServices ?? 0} services)
                     </span>
                   </span>
