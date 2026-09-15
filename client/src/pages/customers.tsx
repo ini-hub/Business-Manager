@@ -792,27 +792,46 @@ export default function Customers() {
               variant="outline"
               onClick={() => setActiveTab("analytics")}
               data-testid="button-insights"
-              className="hidden sm:inline-flex"
+              className="hidden lg:inline-flex"
             >
               <BarChart3 className="mr-2 h-4 w-4" />
               Insights
             </Button>
-            <BulkOperations
-              entityConfig={CUSTOMER_BULK_CONFIG}
-              data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              isLoading={isLoading}
-              storeId={currentStore.id}
-              pdfTitle={`Customers Report (${activeTab})`}
-              onExportPDF={() => handleCustomersReportExport()}
-              onExportFilteredPDF={() => handleCustomersReportExport(true)}
-              visibleData={visibleCustomerRows as unknown as Record<string, unknown>[]}
-              showImportOption={user?.role !== "staff"}
-            />
+            {/* Tablet/mobile: icon-only "..." trigger, matching the mockup's compact header. */}
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={CUSTOMER_BULK_CONFIG}
+                data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+                pdfTitle={`Customers Report (${activeTab})`}
+                onExportPDF={() => handleCustomersReportExport()}
+                onExportFilteredPDF={() => handleCustomersReportExport(true)}
+                visibleData={visibleCustomerRows as unknown as Record<string, unknown>[]}
+                showImportOption={user?.role !== "staff"}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={CUSTOMER_BULK_CONFIG}
+                data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+                pdfTitle={`Customers Report (${activeTab})`}
+                onExportPDF={() => handleCustomersReportExport()}
+                onExportFilteredPDF={() => handleCustomersReportExport(true)}
+                visibleData={visibleCustomerRows as unknown as Record<string, unknown>[]}
+                showImportOption={user?.role !== "staff"}
+              />
+            </div>
             {user?.role !== "staff" && (
               <Button onClick={openCreateForm} data-testid="button-add-customer">
                 <Plus className="mr-2 h-4 w-4" />
-                Add Customer
+                <span className="hidden lg:inline">Add Customer</span>
+                <span className="lg:hidden">Add</span>
               </Button>
             )}
           </div>
