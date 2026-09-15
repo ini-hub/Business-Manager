@@ -136,6 +136,10 @@ export interface PolymorphicTableProps<T> {
   // worse than a layout that fits: the card list shows every column's value with
   // nothing to discover, at any width.
   forceCardView?: boolean;
+
+  // Hints tap-to-open on the mobile/tablet card list with a trailing chevron,
+  // for tables whose rows navigate to a detail page on click.
+  showCardChevron?: boolean;
 }
 
 export function PolymorphicTable<T extends { id: string | number }>({
@@ -164,6 +168,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   onVisibleDataChange,
   urlKey,
   forceCardView = false,
+  showCardChevron = false,
 }: PolymorphicTableProps<T>) {
   const [initialUrlState] = useState(() => readTableStateFromUrl(urlKey));
   const [location, setLocation] = useLocation();
@@ -765,6 +770,10 @@ export function PolymorphicTable<T extends { id: string | number }>({
                         </div>
                       ))}
                     </div>
+                  )}
+
+                  {showCardChevron && (
+                    <ChevronRight className="absolute bottom-3.5 right-3 h-4 w-4 text-muted-foreground/50" />
                   )}
                 </div>
               );

@@ -1,16 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
-import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, ChevronLeft, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench, BarChart3, UserX, Wallet, UserPlus2 } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,7 +80,7 @@ const customerFormSchema = insertCustomerSchema.extend({
   customerNumber: z.string().optional().default(""),
 });
 
-const PAGE_LIMIT = 50;
+const DEFAULT_PAGE_LIMIT = 25;
 
 export default function Customers() {
   const { toast } = useToast();
@@ -102,7 +96,9 @@ export default function Customers() {
   const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
   const [pendingSubmitValues, setPendingSubmitValues] = useState<any | null>(null);
   const [page, setPage] = useUrlState("page", 1, Number);
+  const [pageSize, setPageSize] = useUrlState("pageSize", DEFAULT_PAGE_LIMIT, Number);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -114,11 +110,11 @@ export default function Customers() {
 
   // Reset search and page when store changes
   useEffect(() => { setSearchInput(""); setPage(1); }, [currentStore?.id]);
-  // Reset page when debounced search changes
-  useEffect(() => { setPage(1); }, [debouncedSearch]);
+  // Reset page when debounced search or page size changes
+  useEffect(() => { setPage(1); }, [debouncedSearch, pageSize]);
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(","), page, debouncedSearch],
+    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(","), page, pageSize, debouncedSearch],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
@@ -147,18 +143,22 @@ export default function Customers() {
             }
           }
         }
+        const merged = Array.from(mergedMap.values());
         setTotalPages(1);
-        return Array.from(mergedMap.values());
+        setTotalCount(merged.length);
+        return merged;
       }
       const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : "";
-      const res = await fetch(`/api/customers?storeId=${currentStore?.id}&page=${page}&limit=${PAGE_LIMIT}${searchParam}`);
+      const res = await fetch(`/api/customers?storeId=${currentStore?.id}&page=${page}&limit=${pageSize}${searchParam}`);
       if (!res.ok) throw new Error("Failed to fetch customers");
       const json = await res.json();
       if (Array.isArray(json)) {
         setTotalPages(1);
+        setTotalCount(json.length);
         return json;
       }
       setTotalPages(json.pagination?.totalPages ?? 1);
+      setTotalCount(json.pagination?.total ?? json.data?.length ?? 0);
       return json.data as Customer[];
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
@@ -354,6 +354,16 @@ export default function Customers() {
     return map;
   }, [customerVisits]);
 
+  // Header summary metrics — computed from data already fetched for this page.
+  const avgSpendPerActiveCustomer = activeCustomers.length > 0
+    ? Array.from(customerSpends.values()).reduce((sum, v) => sum + v, 0) / activeCustomers.length
+    : 0;
+  const inactiveThresholdMs = 30 * 24 * 60 * 60 * 1000;
+  const inactive30dCount = activeCustomers.filter((c) => {
+    const last = lastVisitedMap.get(c.id);
+    return !last || Date.now() - new Date(last).getTime() > inactiveThresholdMs;
+  }).length;
+
   const navigateToCustomerDetails = (customer: Customer) => {
     setLocation(appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search));
   };
@@ -510,6 +520,38 @@ export default function Customers() {
     return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric" }).format(new Date(date));
   };
 
+  const formatRelativeDate = (date: string | Date | null) => {
+    if (!date) return null;
+    const diffMs = Date.now() - new Date(date).getTime();
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 7) return `${days} d ago`;
+    if (days < 30) return `${Math.floor(days / 7)} wk ago`;
+    if (days < 365) return `${Math.floor(days / 30)} mo ago`;
+    return `${Math.floor(days / 365)} yr ago`;
+  };
+
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
+  };
+
+  const CustomerNameCell = ({ customer }: { customer: Customer }) => {
+    const presenter = new CustomerPresenter(customer);
+    return (
+      <div className="flex items-center gap-2.5">
+        <Avatar className="h-8 w-8 shrink-0">
+          <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-xs font-semibold">
+            {getInitials(customer.name)}
+          </AvatarFallback>
+        </Avatar>
+        <EntityDisplay presenter={presenter} />
+      </div>
+    );
+  };
+
   const activeColumns = [
     ...(currentStore?.id === "all" ? [{
       key: "storeName",
@@ -523,14 +565,11 @@ export default function Customers() {
     {
       key: "name",
       header: "Customer",
-      render: (customer: Customer) => {
-        const presenter = new CustomerPresenter(customer);
-        return <EntityDisplay presenter={presenter} />;
-      },
+      render: (customer: Customer) => <CustomerNameCell customer={customer} />,
     },
     {
       key: "mobileNumber",
-      header: "Mobile",
+      header: "Contact",
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
           {customer.mobileNumber ? (
@@ -550,7 +589,11 @@ export default function Customers() {
       render: (customer: Customer) => (
         <div className="flex items-start gap-2 max-w-xs">
           <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0 mt-0.5" />
-          <span className="line-clamp-2">{customer.address || "-"}</span>
+          {customer.address ? (
+            <span className="line-clamp-2">{customer.address}</span>
+          ) : (
+            <span className="text-muted-foreground">Add address</span>
+          )}
         </div>
       ),
     },
@@ -565,7 +608,12 @@ export default function Customers() {
       key: "lastVisited",
       header: "Last Visited",
       render: (customer: CustomerRow) => (
-        <span className="text-sm">{formatDate(customer.lastVisited)}</span>
+        <div className="text-sm">
+          <div>{formatDate(customer.lastVisited)}</div>
+          {customer.lastVisited && (
+            <div className="text-xs text-muted-foreground">{formatRelativeDate(customer.lastVisited)}</div>
+          )}
+        </div>
       ),
     },
     {
@@ -615,19 +663,16 @@ export default function Customers() {
     {
       key: "name",
       header: "Customer",
-      render: (customer: Customer) => {
-        const presenter = new CustomerPresenter(customer);
-        return (
-          <div className="flex items-center gap-2">
-            <EntityDisplay presenter={presenter} />
-            <Badge variant="secondary" className="h-5">Archived</Badge>
-          </div>
-        );
-      },
+      render: (customer: Customer) => (
+        <div className="flex items-center gap-2">
+          <CustomerNameCell customer={customer} />
+          <Badge variant="secondary" className="h-5 shrink-0">Archived</Badge>
+        </div>
+      ),
     },
     {
       key: "mobileNumber",
-      header: "Mobile",
+      header: "Contact",
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
           {customer.mobileNumber ? (
@@ -767,9 +812,18 @@ export default function Customers() {
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description={`Managing customers for ${currentStore.name}`}
+        description={currentStore.name}
         actions={
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setActiveTab("analytics")}
+              data-testid="button-insights"
+              className="hidden sm:inline-flex"
+            >
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Insights
+            </Button>
             <BulkOperations
               entityConfig={CUSTOMER_BULK_CONFIG}
               data={(activeTab === "active" ? activeCustomers : archivedCustomers) as unknown as Record<string, unknown>[]}
@@ -792,11 +846,38 @@ export default function Customers() {
         }
       />
 
+      <MetricGrid>
+        <MetricCard
+          title="Active"
+          value={activeCustomers.length}
+          icon={<Users className="h-4 w-4" />}
+          isLoading={isLoading}
+        />
+        <MetricCard
+          title="New this month"
+          value={newThisMonth}
+          icon={<UserPlus2 className="h-4 w-4" />}
+          isLoading={isLoading || isLoadingTxs}
+        />
+        <MetricCard
+          title="Avg. spend"
+          value={formatCurrency(avgSpendPerActiveCustomer)}
+          icon={<Wallet className="h-4 w-4" />}
+          isLoading={isLoading || isLoadingTxs}
+        />
+        <MetricCard
+          title="Inactive 30d+"
+          value={inactive30dCount}
+          icon={<UserX className="h-4 w-4" />}
+          isLoading={isLoading || isLoadingTxs}
+        />
+      </MetricGrid>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <PolymorphicTabsList
           tabs={[
-            { value: "active", label: `Active (${activeCustomers.length})` },
-            { value: "archived", label: `Archived (${archivedCustomers.length})` },
+            { value: "active", label: `Active ${activeCustomers.length}` },
+            { value: "archived", label: `Archived ${archivedCustomers.length}` },
             { value: "analytics", label: "Analytics & Retention" },
           ]}
           variant="default"
@@ -805,7 +886,7 @@ export default function Customers() {
           const filterConfigs = [
             { key: "createdAt", label: "Date Added", type: "date-range" as const },
             { key: "lastVisited", label: "Last Visited", type: "date-range" as const },
-            { key: "totalSpend", label: "Total Spend", type: "range" as const, currencySymbol: currentStore?.currency === "USD" ? "$" : "₦" }
+            { key: "totalSpend", label: "Spend", type: "range" as const, currencySymbol: currentStore?.currency === "USD" ? "$" : "₦" }
           ];
 
           const activeTableData: CustomerRow[] = activeCustomers.map((c) => ({
@@ -851,6 +932,7 @@ export default function Customers() {
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="active"
+                  showCardChevron
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
                   emptyAction={
@@ -863,29 +945,45 @@ export default function Customers() {
                   }
                 />
                 {showPagination && (
-                  <Pagination className="mt-4">
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 text-sm text-muted-foreground">
+                    <span>
+                      {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                        <SelectTrigger className="h-8 w-auto min-w-0 gap-1.5 text-xs" data-testid="select-page-size">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[25, 50, 100].map((n) => (
+                            <SelectItem key={n} value={String(n)}>{n} per page</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
                           onClick={() => setPage(p => Math.max(1, p - 1))}
-                          aria-disabled={page === 1}
-                          className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                      <PaginationItem>
-                        <span className="px-3 py-2 text-sm text-muted-foreground">
-                          Page {page} of {totalPages}
-                        </span>
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationNext
+                          disabled={page === 1}
+                          data-testid="button-page-prev"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
                           onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                          aria-disabled={page === totalPages}
-                          className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
+                          disabled={page === totalPages}
+                          data-testid="button-page-next"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </TabsContent>
               <TabsContent value="archived" className="mt-4">
@@ -897,9 +995,11 @@ export default function Customers() {
                   searchKeys={["name", "customerNumber", "mobileNumber"]}
                   isLoading={isLoading}
                   emptyMessage="Archived or deleted customers will be filed here for compliance histories."
+                  onRowClick={navigateToCustomerDetails}
                   filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="archivedTbl"
+                  showCardChevron
                   emptyIcon={<Users className="h-6 w-6 opacity-40" />}
                   emptyTitle="No Archived Profiles"
                 />
