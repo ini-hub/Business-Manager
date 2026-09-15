@@ -438,6 +438,9 @@ export class BulkUploadService {
           status: "pending",
           items,
         });
+        if ("error" in created) {
+          throw new Error(created.error);
+        }
         auditLogger.logDataModification("stock_transfer", created.id, userId, "CREATE", true);
         result.success++;
       } catch (err: any) {

@@ -171,7 +171,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
           auditLogger.logDataModification(
             "inventory",
             line.inv.id,
-            approvedByUserId,
+            approvedByUserId || undefined,
             "STOCK_TRANSFER_OUT",
             true,
             undefined,
@@ -235,7 +235,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
             auditLogger.logDataModification(
               "inventory",
               destInvId,
-              approvedByUserId,
+              approvedByUserId || undefined,
               "STOCK_TRANSFER_IN",
               true,
               undefined,
@@ -300,7 +300,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
             auditLogger.logDataModification(
               "inventory",
               destInvId,
-              approvedByUserId,
+              approvedByUserId || undefined,
               "STOCK_TRANSFER_IN",
               true,
               undefined,
@@ -431,7 +431,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
         .update(stockTransfers)
         .set({
           status: "scheduled",
-          deliveryDate: new Date(deliveryDate),
+          deliveryDate: deliveryDate as any,
           deliveryMethod,
           deliveryNotes,
           deliveredByUserId: userId,

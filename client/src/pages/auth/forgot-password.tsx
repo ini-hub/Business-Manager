@@ -14,9 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, Mail, MessageSquare, CheckCircle2 } from "lucide-react";
-import { validateEmailOrPhone, getDefaultCountryCode } from "@/lib/validation-utils";
+import { validateEmailOrPhone } from "@/lib/validation-utils";
 import { deduplicatedCountryCodes } from "@/lib/phone-utils";
-import { useStore } from "@/lib/store-context";
 
 const emailSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -34,7 +33,6 @@ type PhoneFormData = z.infer<typeof phoneSchema>;
 
 export default function ForgotPassword() {
   const { toast } = useToast();
-  const { currentStore } = useStore();
   const [, setLocation] = useLocation();
   const [codeSent, setCodeSent] = useState(false);
   const [sentIdentifier, setSentIdentifier] = useState("");
@@ -46,7 +44,8 @@ export default function ForgotPassword() {
     queryKey: ["/api/auth/platform-sms-config"],
   });
 
-  const defaultCountry = getDefaultCountryCode(currentStore?.currency);
+  // Use a default country code since store context is not available during auth
+  const defaultCountry = "NG";
   const defaultDialCode = deduplicatedCountryCodes.find(c => c.code === defaultCountry)?.dialCode ?? "+234";
 
   const emailForm = useForm<EmailFormData>({

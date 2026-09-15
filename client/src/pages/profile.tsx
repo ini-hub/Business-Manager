@@ -235,9 +235,9 @@ export default function ProfilePage() {
               tabs={[
                 { value: "general", label: "General Information" },
                 { value: "security", label: "Security & Password" },
-                { value: "attendance", label: "Attendance", icon: CalendarDays },
-                { value: "performance", label: "Performance", icon: TrendingUp },
-                { value: "payroll", label: "Payroll", icon: DollarSign },
+                { value: "attendance", label: "Attendance" },
+                { value: "performance", label: "Performance" },
+                { value: "payroll", label: "Payroll" },
               ]}
               variant="default"
               className="mb-6"
