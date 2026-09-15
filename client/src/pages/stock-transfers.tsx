@@ -56,6 +56,10 @@ export default function StockTransfersPage() {
   const [notes, setNotes] = useState<string>("");
   const [items, setItems] = useState<{ inventoryId: string; quantity: number | "" }[]>([]);
 
+  // Confirm receipt state
+  const [isConfirmReceiptOpen, setIsConfirmReceiptOpen] = useState(false);
+  const [confirmedQuantities, setConfirmedQuantities] = useState<Record<string, number>>({});
+
   // Fetch Transfers
   const { data: transfers = [], isLoading: isLoadingTransfers } = useQuery<TransferWithStores[]>({
     queryKey: ["/api/stock-transfers", currentStore?.id],
@@ -218,6 +222,26 @@ export default function StockTransfersPage() {
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message || "Could not mark as delivered.", variant: "destructive" });
+    },
+  });
+
+  const confirmReceiptMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/confirm`, {
+        confirmedQuantities,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers", selectedTransferId] });
+      toast({ title: "Receipt Confirmed", description: "Stock has been received and inventory updated." });
+      setIsConfirmReceiptOpen(false);
+      setConfirmedQuantities({});
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Could not confirm receipt.", variant: "destructive" });
     },
   });
 
@@ -681,6 +705,23 @@ export default function StockTransfersPage() {
                     <ArrowDownLeft className="h-4 w-4" /> Mark Delivered
                   </Button>
                 )}
+                {fullTransfer && fullTransfer.status === "delivered" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-green-600 text-white hover:bg-green-700 gap-1"
+                    onClick={() => {
+                      const initial: Record<string, number> = {};
+                      fullTransfer.items.forEach(item => {
+                        initial[item.inventoryId] = item.quantity;
+                      });
+                      setConfirmedQuantities(initial);
+                      setIsConfirmReceiptOpen(true);
+                    }}
+                  >
+                    <CheckCircle className="h-4 w-4" /> Confirm Receipt
+                  </Button>
+                )}
               </div>
             </DialogTitle>
           </DialogHeader>
@@ -748,6 +789,69 @@ export default function StockTransfersPage() {
                     <span className="italic text-muted-foreground">{fullTransfer.notes}</span>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Receipt Dialog */}
+      <Dialog open={isConfirmReceiptOpen} onOpenChange={setIsConfirmReceiptOpen}>
+        <DialogContent className="max-w-2xl border border-border bg-background/90 backdrop-blur-lg">
+          <DialogHeader>
+            <DialogTitle>Confirm Stock Receipt</DialogTitle>
+          </DialogHeader>
+          {fullTransfer && (
+            <div className="space-y-6 max-h-[75vh] overflow-y-auto">
+              <p className="text-sm text-muted-foreground">
+                Verify the quantities received from {fullTransfer.fromStore?.name}. Adjust any items that arrived with shortages or damage.
+              </p>
+              <div className="space-y-4">
+                {fullTransfer.items.map((item) => (
+                  <div key={item.inventoryId} className="grid grid-cols-3 gap-4 items-end p-3 bg-muted/40 rounded-lg border">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Product</Label>
+                      <p className="font-medium">{item.inventory.name}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Shipped Qty</Label>
+                      <p className="font-mono font-bold text-blue-600">{item.quantity} units</p>
+                    </div>
+                    <div>
+                      <Label htmlFor={`qty-${item.inventoryId}`} className="text-xs text-muted-foreground">Received Qty</Label>
+                      <Input
+                        id={`qty-${item.inventoryId}`}
+                        type="number"
+                        min="0"
+                        max={item.quantity}
+                        value={confirmedQuantities[item.inventoryId] ?? item.quantity}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(item.quantity, Number(e.target.value) || 0));
+                          setConfirmedQuantities(prev => ({
+                            ...prev,
+                            [item.inventoryId]: val,
+                          }));
+                        }}
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsConfirmReceiptOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => confirmReceiptMutation.mutate(fullTransfer.id)}
+                  disabled={confirmReceiptMutation.isPending}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {confirmReceiptMutation.isPending ? "Confirming..." : "Confirm Receipt"}
+                </Button>
               </div>
             </div>
           )}

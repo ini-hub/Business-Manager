@@ -475,13 +475,227 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
         return { success: false, message: `Transfer must be delivered before confirming receipt. Current status: ${transfer.status}` };
       }
 
-      // Get transfer items to validate confirmed quantities
-      const items = await tx.select().from(stockTransferItems).where(eq(stockTransferItems.transferId, id));
+      // Get transfer items with inventory details
+      const transferItems = await tx
+        .select({
+          item: stockTransferItems,
+          inv: inventory,
+        })
+        .from(stockTransferItems)
+        .innerJoin(inventory, eq(stockTransferItems.inventoryId, inventory.id))
+        .where(eq(stockTransferItems.transferId, id));
 
-      for (const item of items) {
-        const confirmedQty = confirmedQuantities[item.inventoryId];
+      // Validate confirmed quantities and current stock availability
+      for (const line of transferItems) {
+        const confirmedQty = confirmedQuantities[line.item.inventoryId];
         if (confirmedQty === undefined || confirmedQty < 0) {
-          return { success: false, message: `Invalid confirmed quantity for inventory item ${item.inventoryId}` };
+          return { success: false, message: `Invalid confirmed quantity for inventory item ${line.item.inventoryId}` };
+        }
+
+        // Re-validate source stock hasn't been exhausted since delivery was marked
+        if (line.inv.type !== "service" && line.inv.quantity < confirmedQty) {
+          return {
+            success: false,
+            message: `Insufficient stock for item "${line.inv.name}" at source store. Available: ${line.inv.quantity}, Required: ${confirmedQty}`,
+          };
+        }
+      }
+
+      // Perform atomic stock movements using confirmed quantities
+      for (const line of transferItems) {
+        if (line.inv.type === "service") continue;
+
+        const confirmedQty = confirmedQuantities[line.item.inventoryId];
+        if (confirmedQty === 0) continue; // Skip items with 0 confirmed quantity
+
+        // --- Source Deductions ---
+        const sourcePrevQty = line.inv.quantity;
+        const sourceNewQty = sourcePrevQty - confirmedQty;
+
+        await tx
+          .update(inventory)
+          .set({ quantity: sourceNewQty })
+          .where(eq(inventory.id, line.inv.id));
+
+        // Log inventory activity for source transfer
+        auditLogger.logDataModification(
+          "inventory",
+          line.inv.id,
+          userId,
+          "STOCK_TRANSFER_OUT",
+          true,
+          undefined,
+          { quantityTransferred: confirmedQty, newQuantity: sourceNewQty, destinationStoreId: transfer.toStoreId }
+        );
+
+        // Log Source Event
+        await tx.insert(inventoryRestockEvents).values({
+          storeId: transfer.fromStoreId,
+          inventoryId: line.inv.id,
+          userId: userId,
+          quantityAdded: -confirmedQty,
+          previousQuantity: sourcePrevQty,
+          newQuantity: sourceNewQty,
+          unitCost: line.inv.costPrice,
+          previousCostPrice: line.inv.costPrice,
+          newCostPrice: line.inv.costPrice,
+          previousSellingPrice: line.inv.sellingPrice,
+          newSellingPrice: line.inv.sellingPrice,
+          costStrategy: "keep",
+          notes: `Transferred OUT to Store #${transfer.toStoreId}`,
+          reason: "Correction",
+        });
+
+        // Update Source Profit & Loss
+        const [sourcePL] = await tx
+          .select()
+          .from(profitLoss)
+          .where(and(eq(profitLoss.inventoryId, line.inv.id), eq(profitLoss.storeId, transfer.fromStoreId)));
+
+        if (sourcePL) {
+          await tx
+            .update(profitLoss)
+            .set({ quantityRemaining: sourceNewQty })
+            .where(eq(profitLoss.id, sourcePL.id));
+        }
+
+        // --- Destination Additions ---
+        // Look up if destination already has this item
+        const [destItem] = await tx
+          .select()
+          .from(inventory)
+          .where(and(eq(inventory.storeId, transfer.toStoreId), eq(inventory.name, line.inv.name)));
+
+        let destInvId: string;
+        let destPrevQty = 0;
+        let destNewQty = confirmedQty;
+
+        if (destItem) {
+          destInvId = destItem.id;
+          destPrevQty = destItem.quantity;
+          destNewQty = destPrevQty + confirmedQty;
+
+          // Update existing destination inventory
+          await tx
+            .update(inventory)
+            .set({ quantity: destNewQty })
+            .where(eq(inventory.id, destInvId));
+
+          // Log inventory activity for destination transfer (existing item)
+          auditLogger.logDataModification(
+            "inventory",
+            destInvId,
+            userId,
+            "STOCK_TRANSFER_IN",
+            true,
+            undefined,
+            { quantityReceived: confirmedQty, newQuantity: destNewQty, sourceStoreId: transfer.fromStoreId }
+          );
+
+          // Log Destination Event
+          await tx.insert(inventoryRestockEvents).values({
+            storeId: transfer.toStoreId,
+            inventoryId: destInvId,
+            userId: userId,
+            quantityAdded: confirmedQty,
+            previousQuantity: destPrevQty,
+            newQuantity: destNewQty,
+            unitCost: line.inv.costPrice,
+            previousCostPrice: destItem.costPrice,
+            newCostPrice: destItem.costPrice,
+            previousSellingPrice: destItem.sellingPrice,
+            newSellingPrice: destItem.sellingPrice,
+            costStrategy: "keep",
+            notes: `Transferred IN from Store #${transfer.fromStoreId}`,
+            reason: "Regular Restock",
+          });
+        } else {
+          // Create a product group + inventory item for the destination store
+          const [newProduct] = await tx
+            .insert(products)
+            .values({
+              storeId: transfer.toStoreId,
+              name: line.inv.name,
+              type: line.inv.type,
+            })
+            .onConflictDoNothing()
+            .returning();
+          // If product already exists for this store, look it up
+          const destProduct = newProduct ?? await tx.query.products.findFirst({
+            where: and(
+              eq(products.storeId, transfer.toStoreId),
+              sql`lower(${products.name}) = ${line.inv.name.toLowerCase()}`
+            ),
+          });
+
+          const [newDestItem] = await tx
+            .insert(inventory)
+            .values({
+              storeId: transfer.toStoreId,
+              name: line.inv.name,
+              type: line.inv.type,
+              costPrice: line.inv.costPrice,
+              sellingPrice: line.inv.sellingPrice,
+              quantity: confirmedQty,
+              commissionSplitOverride: line.inv.commissionSplitOverride,
+              commissionSplitBusinessShare: line.inv.commissionSplitBusinessShare,
+              commissionSplitStaffShare: line.inv.commissionSplitStaffShare,
+              productId: destProduct!.id,
+            })
+            .returning();
+
+          destInvId = newDestItem.id;
+
+          // Log inventory activity for destination transfer (new item)
+          auditLogger.logDataModification(
+            "inventory",
+            destInvId,
+            userId,
+            "STOCK_TRANSFER_IN",
+            true,
+            undefined,
+            { quantityReceived: confirmedQty, newQuantity: confirmedQty, sourceStoreId: transfer.fromStoreId, isNewVariant: true }
+          );
+
+          // Log Destination Event for new item
+          await tx.insert(inventoryRestockEvents).values({
+            storeId: transfer.toStoreId,
+            inventoryId: destInvId,
+            userId: userId,
+            quantityAdded: confirmedQty,
+            previousQuantity: 0,
+            newQuantity: confirmedQty,
+            unitCost: line.inv.costPrice,
+            previousCostPrice: line.inv.costPrice,
+            newCostPrice: line.inv.costPrice,
+            previousSellingPrice: line.inv.sellingPrice,
+            newSellingPrice: line.inv.sellingPrice,
+            costStrategy: "Regular Restock" as any,
+            notes: `Transferred IN from Store #${transfer.fromStoreId} (Created variant)`,
+            reason: "Regular Restock",
+          });
+        }
+
+        // Update/Create Destination Profit & Loss
+        const [destPL] = await tx
+          .select()
+          .from(profitLoss)
+          .where(and(eq(profitLoss.inventoryId, destInvId), eq(profitLoss.storeId, transfer.toStoreId)));
+
+        if (destPL) {
+          await tx
+            .update(profitLoss)
+            .set({ quantityRemaining: destNewQty })
+            .where(eq(profitLoss.id, destPL.id));
+        } else {
+          await tx.insert(profitLoss).values({
+            storeId: transfer.toStoreId,
+            inventoryId: destInvId,
+            totalQuantitySold: 0,
+            quantityRemaining: destNewQty,
+            totalRevenue: 0,
+            totalGrossProfit: 0,
+          });
         }
       }
 
@@ -497,7 +711,7 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
         .where(eq(stockTransfers.id, id))
         .returning();
 
-      return { success: true, message: "Transfer receipt confirmed.", transfer: updated };
+      return { success: true, message: "Transfer receipt confirmed and stock moved.", transfer: updated };
     });
   }
 }
