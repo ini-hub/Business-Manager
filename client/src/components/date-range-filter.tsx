@@ -28,6 +28,8 @@ interface DateRangeFilterProps {
   onDateRangeChange: (range: DateRange) => void;
   defaultPreset?: string;
   timezone?: string;
+  /** Renders the preset trigger as a small rounded pill (icon + label) instead of a full-width select box. */
+  compact?: boolean;
 }
 
 const presets = [
@@ -45,6 +47,7 @@ export function DateRangeFilter({
   onDateRangeChange,
   defaultPreset = "today",
   timezone,
+  compact = false,
 }: DateRangeFilterProps) {
   const [selectedPreset, setSelectedPreset] = useState(defaultPreset);
 
@@ -81,11 +84,27 @@ export function DateRangeFilter({
     }
   };
 
+  const activePreset = presets.find((p) => p.value === selectedPreset);
+
   return (
-    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+    <div className={cn("flex flex-col sm:flex-row items-stretch sm:items-center gap-2", compact && "sm:flex-row items-center")}>
       <Select value={selectedPreset} onValueChange={handlePresetChange}>
-        <SelectTrigger className="h-9 min-w-[120px] flex-1 sm:flex-initial" data-testid="select-date-preset">
-          <SelectValue placeholder="Select range" />
+        <SelectTrigger
+          className={cn(
+            compact
+              ? "h-8 w-auto min-w-0 gap-1.5 rounded-full border-input px-3 text-xs [&>svg]:h-3.5 [&>svg]:w-3.5"
+              : "h-9 min-w-[120px] flex-1 sm:flex-initial",
+          )}
+          data-testid="select-date-preset"
+        >
+          {compact ? (
+            <span className="flex items-center gap-1.5">
+              <CalendarIcon className="h-3.5 w-3.5" />
+              {activePreset?.label ?? "Select range"}
+            </span>
+          ) : (
+            <SelectValue placeholder="Select range" />
+          )}
         </SelectTrigger>
         <SelectContent>
           {presets.map((preset) => (
@@ -159,7 +178,7 @@ export function DateRangeFilter({
         <Button
           variant="ghost"
           size="icon"
-          className="h-9 w-9"
+          className={compact ? "h-8 w-8" : "h-9 w-9"}
           onClick={() => {
             setSelectedPreset("all");
             onDateRangeChange({ from: undefined, to: undefined });
@@ -167,7 +186,7 @@ export function DateRangeFilter({
           data-testid="button-clear-dates"
           title="Clear dates"
         >
-          <X className="h-4 w-4" />
+          <X className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
         </Button>
       )}
     </div>

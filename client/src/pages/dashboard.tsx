@@ -245,7 +245,7 @@ export default function Dashboard() {
           </p>
           <h1 className="text-xl font-bold tracking-tight leading-tight">Dashboard</h1>
         </div>
-        <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} />
+        <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} compact />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
