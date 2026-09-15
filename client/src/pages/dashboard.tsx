@@ -372,7 +372,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div>
       {/* ─── Mobile / tablet (<lg): compact space-optimized layout ─── */}
       <div className="lg:hidden space-y-4">
       <div className="flex items-start justify-between gap-3">
