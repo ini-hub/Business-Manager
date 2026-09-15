@@ -148,6 +148,7 @@ export default function AnalyticsDashboardDetailPage() {
             onDateRangeChange={setDateRange}
             defaultPreset="thisMonth"
             timezone={currentStore?.timezone}
+            compact
           />
         </CardContent>
       </Card>

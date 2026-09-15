@@ -188,7 +188,7 @@ export function AttendanceLog({ storeId, staff }: { storeId: string; staff: Staf
                 </PopoverContent>
               </Popover>
 
-              <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} defaultPreset="30days" />
+              <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} defaultPreset="30days" compact />
             </div>
 
             <ExportToolbar

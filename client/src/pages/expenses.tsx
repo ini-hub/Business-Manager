@@ -652,7 +652,7 @@ export default function ExpensesPage() {
                 <SelectItem value="linked">Linked (Sustaining)</SelectItem>
               </SelectContent>
             </Select>
-            <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} timezone={currentStore?.timezone} />
+            <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} timezone={currentStore?.timezone} compact />
             
             {user?.role === "owner" && (
               <Button variant="outline" onClick={() => setLocation("/expenses/categories")}>

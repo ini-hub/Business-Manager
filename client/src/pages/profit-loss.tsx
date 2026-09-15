@@ -474,6 +474,7 @@ export default function ProfitLossPage() {
             )}
             defaultPreset="thisMonth"
             timezone={currentStore?.timezone}
+            compact
           />
           <ExportToolbar
             data={exportData as unknown as Record<string, unknown>[]}

@@ -732,6 +732,7 @@ export default function Transactions() {
                   onDateRangeChange={setDateRange}
                   defaultPreset="today"
                   timezone={currentStore?.timezone}
+                  compact
                 />
                 <ExportToolbar
                   data={exportData as unknown as Record<string, unknown>[]}

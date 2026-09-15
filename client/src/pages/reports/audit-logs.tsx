@@ -253,7 +253,7 @@ export default function AuditLogsPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 items-center">
-              <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} defaultPreset="all" />
+              <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} defaultPreset="all" compact />
 
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters} className="shrink-0">

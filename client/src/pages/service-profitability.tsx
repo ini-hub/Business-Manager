@@ -234,6 +234,7 @@ export default function ServiceProfitabilityPage() {
             onDateRangeChange={setDateRange}
             defaultPreset="thisMonth"
             timezone={currentStore?.timezone}
+            compact
           />
           <ExportToolbar
             data={(report?.items ?? []) as unknown as Record<string, unknown>[]}

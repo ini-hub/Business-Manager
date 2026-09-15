@@ -137,6 +137,7 @@ export default function MyPerformancePage() {
               onDateRangeChange={setDateRange}
               defaultPreset="thisMonth"
               timezone={currentStore?.timezone}
+              compact
             />
             <ExportToolbar
               data={exportRows}

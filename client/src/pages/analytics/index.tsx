@@ -239,6 +239,7 @@ export default function AnalyticsExplorerPage() {
               onDateRangeChange={setDateRange}
               defaultPreset="thisMonth"
               timezone={currentStore?.timezone}
+              compact
             />
             <GrainControl
               grain={grain}
