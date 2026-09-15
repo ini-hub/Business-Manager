@@ -905,24 +905,27 @@ export default function Customers() {
           return (
             <>
               <TabsContent value="active" className="mt-4">
-                {/* Server-side search for single-store (paginated); internal search for all-stores */}
-                {currentStore?.id !== "all" && (
-                  <div className="mb-3">
-                    <ClearableInput
-                      placeholder="Name, phone or ID"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                      onClear={() => setSearchInput("")}
-                      className="max-w-xs h-9"
-                    />
-                  </div>
-                )}
                 <DataTable
                   data={activeTableData}
                   columns={activeColumns}
                   searchable={currentStore?.id === "all"}
                   searchPlaceholder="Name, phone or ID"
                   searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
+                  // Single store: search is server-side (debounced query + pagination), so it's
+                  // slotted into the same toolbar row as the filters instead of the built-in
+                  // client-side search, which would only ever filter within the current page.
+                  searchSlot={
+                    isServerPaginated ? (
+                      <ClearableInput
+                        placeholder="Name, phone or ID"
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                        onClear={() => setSearchInput("")}
+                        className="h-9"
+                      />
+                    ) : undefined
+                  }
+                  resultCountLabel={isServerPaginated ? `${totalCount} customers` : undefined}
                   isLoading={isLoading}
                   emptyMessage="Add active profiles to start tracking their credit limits, transactions, and retention logs."
                   onRowClick={navigateToCustomerDetails}
