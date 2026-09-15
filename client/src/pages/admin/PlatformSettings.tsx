@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Settings, Clock, CreditCard, Loader2 } from "lucide-react";
+import { Settings, Clock, CreditCard, MessageSquare, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,6 +93,35 @@ export default function PlatformSettings() {
     onError: (err: Error) => toast({ title: "Couldn't update payment credentials", description: err.message, variant: "destructive" }),
   });
 
+  // ---- SMS/WhatsApp configuration ----
+  const { data: smsData, isLoading: smsLoading } = useQuery<{ smsEnabled: boolean; whatsappEnabled: boolean }>({
+    queryKey: ["/api/admin/platform-config/sms"],
+  });
+
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+
+  useEffect(() => {
+    if (smsData) {
+      setSmsEnabled(smsData.smsEnabled);
+      setWhatsappEnabled(smsData.whatsappEnabled);
+    }
+  }, [smsData]);
+
+  const saveSmsConfig = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", "/api/admin/platform-config/sms", { smsEnabled, whatsappEnabled });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to update SMS configuration");
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-config/sms"] });
+      toast({ title: "SMS configuration updated", description: "Changes take effect immediately for password reset flows." });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't update SMS configuration", description: err.message, variant: "destructive" }),
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -174,6 +203,51 @@ export default function PlatformSettings() {
                 <Button onClick={() => saveCredentials.mutate()} disabled={saveCredentials.isPending}>
                   {saveCredentials.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Save Credentials
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="h-4 w-4" /> SMS & WhatsApp
+          </CardTitle>
+          <CardDescription>
+            Enable SMS and WhatsApp channels for password reset notifications and other messaging flows.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {smsLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/50">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-semibold">SMS</Label>
+                    <p className="text-xs text-muted-foreground">Send reset codes via SMS text message</p>
+                  </div>
+                  <Switch id="sms-enabled" checked={smsEnabled} onCheckedChange={setSmsEnabled} />
+                </div>
+
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/50">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-semibold">WhatsApp</Label>
+                    <p className="text-xs text-muted-foreground">Send reset codes via WhatsApp messages</p>
+                  </div>
+                  <Switch id="whatsapp-enabled" checked={whatsappEnabled} onCheckedChange={setWhatsappEnabled} />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-end">
+                <Button onClick={() => saveSmsConfig.mutate()} disabled={saveSmsConfig.isPending}>
+                  {saveSmsConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save SMS Configuration
                 </Button>
               </div>
             </>

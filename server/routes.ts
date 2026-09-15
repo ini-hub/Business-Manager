@@ -62,7 +62,7 @@ import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
 import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
-import { getConfiguredTrialDays } from "./lib/platformConfig";
+import { getConfiguredTrialDays, getSmsConfig } from "./lib/platformConfig";
 import { logFunnelEvent } from "./lib/funnel";
 import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "./lib/otp-cooldown";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
@@ -579,15 +579,50 @@ export async function registerRoutes(
     }
   });
 
+  // Get SMS/WhatsApp configuration (public endpoint)
+  app.get("/api/auth/platform-sms-config", async (req: Request, res: Response) => {
+    try {
+      const config = await getSmsConfig();
+      return res.json(config);
+    } catch (error) {
+      console.error("Get SMS config error:", error);
+      return res.status(500).json({ error: "Failed to load SMS configuration." });
+    }
+  });
+
   // Forgot password
   app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
     try {
-      const { emailOrPhone } = req.body;
-      if (!emailOrPhone) {
+      const { email, phone, countryCode, channel = "email" } = req.body;
+
+      // Support legacy emailOrPhone format for backward compatibility
+      let identifier = req.body.emailOrPhone;
+      let selectedChannel = channel;
+
+      if (email && !identifier) {
+        identifier = email;
+        selectedChannel = "email";
+      } else if (phone && !identifier) {
+        identifier = `${countryCode || ""}${phone}`.trim();
+        selectedChannel = channel;
+      }
+
+      if (!identifier) {
         return res.status(400).json({ error: "Email or phone number is required." });
       }
 
-      const user = await storage.getUserByIdentifier(emailOrPhone);
+      // Check if requested channel is configured
+      if (selectedChannel !== "email") {
+        const smsConfig = await getSmsConfig();
+        if (selectedChannel === "sms" && !smsConfig.smsEnabled) {
+          return res.status(400).json({ error: "SMS is not configured." });
+        }
+        if (selectedChannel === "whatsapp" && !smsConfig.whatsappEnabled) {
+          return res.status(400).json({ error: "WhatsApp is not configured." });
+        }
+      }
+
+      const user = await storage.getUserByIdentifier(identifier);
       if (!user) {
         // Return success to avoid user enumeration
         return res.json({ message: "If account exists, an OTP code has been sent." });
@@ -621,15 +656,20 @@ export async function registerRoutes(
         otpResendWindowStart: cooldown.nextWindowStart,
       });
 
-      // Send via email or phone
-      if (user.email) {
-        await sendOtpEmail(user.email, user.name || user.email, otp);
-      } else if (user.phone) {
-        await sendSMS(user.phone, `Your password reset code is: ${otp}. Valid for 10 minutes.`);
+      // Send via selected channel
+      if (selectedChannel === "email") {
+        if (user.email) {
+          await sendOtpEmail(user.email, user.name || user.email, otp);
+        }
+      } else if (selectedChannel === "sms" || selectedChannel === "whatsapp") {
+        if (user.phone) {
+          const msgPrefix = selectedChannel === "whatsapp" ? "WhatsApp: " : "";
+          await sendSMS(user.phone, `${msgPrefix}Your password reset code is: ${otp}. Valid for 10 minutes.`);
+        }
       }
 
-      const maskedIdentifier = user.email
-        ? user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3")
+      const maskedIdentifier = email || (user.email && user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3"))
+        ? email ? email.replace(/(.{2})(.*)(@.*)/, "$1***$3") : user.email!.replace(/(.{2})(.*)(@.*)/, "$1***$3")
         : user.phone?.replace(/(.{3})(.*)(.{3})/, "$1***$3");
 
       res.json({

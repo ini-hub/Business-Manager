@@ -38,7 +38,7 @@ import {
 } from "@shared/schema";
 import { grantFeatureEntitlement, scheduleFeatureRemoval } from "./lib/entitlements";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
-import { getConfiguredTrialDays, setPlatformConfigValue } from "./lib/platformConfig";
+import { getConfiguredTrialDays, setPlatformConfigValue, getPlatformConfigValue } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
@@ -2957,6 +2957,35 @@ adminRouter.put("/platform-config/trial-days", isAdminAuthenticated, requireAdmi
   } catch (error) {
     console.error("Update trial-days error:", error);
     return res.status(500).json({ error: "Failed to update trial length." });
+  }
+});
+
+// SMS/WhatsApp configuration
+adminRouter.get("/platform-config/sms", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const smsEnabled = await getPlatformConfigValue<boolean>("sms_enabled");
+    const whatsappEnabled = await getPlatformConfigValue<boolean>("whatsapp_enabled");
+    return res.json({ smsEnabled: smsEnabled === true, whatsappEnabled: whatsappEnabled === true });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load SMS configuration." });
+  }
+});
+
+adminRouter.put("/platform-config/sms", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { smsEnabled, whatsappEnabled } = req.body;
+
+  if (typeof smsEnabled !== "boolean" || typeof whatsappEnabled !== "boolean") {
+    return res.status(400).json({ error: "smsEnabled and whatsappEnabled must be booleans." });
+  }
+
+  try {
+    await setPlatformConfigValue("sms_enabled", smsEnabled, req.admin!.email);
+    await setPlatformConfigValue("whatsapp_enabled", whatsappEnabled, req.admin!.email);
+    await writeAuditLog(req, "update_sms_config", "platform_config", { smsEnabled, whatsappEnabled });
+    return res.json({ success: true, smsEnabled, whatsappEnabled });
+  } catch (error) {
+    console.error("Update SMS config error:", error);
+    return res.status(500).json({ error: "Failed to update SMS configuration." });
   }
 });
 

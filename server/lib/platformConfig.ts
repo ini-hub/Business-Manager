@@ -39,3 +39,12 @@ export async function getConfiguredTrialDays(): Promise<number> {
   const days = typeof value === "number" && value > 0 ? value : TRIAL_DAYS;
   return days;
 }
+
+export async function getSmsConfig(): Promise<{ smsEnabled: boolean; whatsappEnabled: boolean }> {
+  const smsEnabled = await getPlatformConfigValue<boolean>("sms_enabled");
+  const whatsappEnabled = await getPlatformConfigValue<boolean>("whatsapp_enabled");
+  return {
+    smsEnabled: smsEnabled === true,
+    whatsappEnabled: whatsappEnabled === true,
+  };
+}
