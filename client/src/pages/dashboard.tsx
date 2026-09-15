@@ -194,61 +194,65 @@ export default function Dashboard() {
 
       <GettingStartedChecklist />
 
-      <MetricGrid>
-        <MetricCard
-          title="Total Customers"
-          value={stats?.totalCustomers ?? 0}
-          icon={<Users className="h-4 w-4" />}
-          isLoading={isLoading}
-          href="/customers"
-        />
-        <MetricCard
-          title="Total Staff"
-          value={stats?.totalStaff ?? 0}
-          icon={<UserCog className="h-4 w-4" />}
-          isLoading={isLoading}
-          href="/staffs"
-        />
-        <MetricCard
-          title="Inventory Items"
-          value={stats?.totalInventory ?? 0}
-          description={`${stats?.totalProducts ?? 0} products, ${stats?.totalServices ?? 0} services`}
-          icon={<Package className="h-4 w-4" />}
-          isLoading={isLoading}
-          href="/inventory"
-        />
-        <MetricCard
-          title="Total Transactions"
-          value={stats?.totalTransactions ?? 0}
-          icon={<Receipt className="h-4 w-4" />}
-          isLoading={isLoading}
-          href={`/transactions${deepLinkQuery}`}
-        />
-      </MetricGrid>
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-muted-foreground">All-time totals</p>
+        <MetricGrid>
+          <MetricCard
+            title="Total Customers"
+            value={stats?.totalCustomers ?? 0}
+            icon={<Users className="h-4 w-4" />}
+            isLoading={isLoading}
+            href="/customers"
+          />
+          <MetricCard
+            title="Total Staff"
+            value={stats?.totalStaff ?? 0}
+            icon={<UserCog className="h-4 w-4" />}
+            isLoading={isLoading}
+            href="/staffs"
+          />
+          <MetricCard
+            title="Inventory Items"
+            value={stats?.totalInventory ?? 0}
+            description={`${stats?.totalProducts ?? 0} products, ${stats?.totalServices ?? 0} services`}
+            icon={<Package className="h-4 w-4" />}
+            isLoading={isLoading}
+            href="/inventory"
+          />
+        </MetricGrid>
+      </div>
 
-      <MetricGrid>
-        <MetricCard
-          title="Actual Revenue (Net)"
-          value={formatCurrency(stats?.totalRevenue ?? 0)}
-          compactValue={formatCompact(stats?.totalRevenue ?? 0)}
-          description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Gross: ${formatCurrency(stats.grossRevenue ?? 0)} (Refunded: ${formatCurrency(stats.returnedRevenue)})` : "Net revenue after returns"}
-          icon={<Coins className="h-4 w-4" />}
-          trend="up"
-          trendValue="All time"
-          isLoading={isLoading}
-          href={`/profit-loss${deepLinkQuery}`}
-        />
-        <MetricCard
-          title="Gross Profit"
-          value={formatCurrency(stats?.totalProfit ?? 0)}
-          compactValue={formatCompact(stats?.totalProfit ?? 0)}
-          icon={<TrendingUp className="h-4 w-4" />}
-          trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}
-          trendValue="All time"
-          isLoading={isLoading}
-          href={`/profit-loss${deepLinkQuery}`}
-        />
-      </MetricGrid>
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-muted-foreground">For selected period</p>
+        <MetricGrid>
+          <MetricCard
+            title="Total Transactions"
+            value={stats?.totalTransactions ?? 0}
+            icon={<Receipt className="h-4 w-4" />}
+            isLoading={isLoading}
+            href={`/transactions${deepLinkQuery}`}
+          />
+          <MetricCard
+            title="Actual Revenue (Net)"
+            value={formatCurrency(stats?.totalRevenue ?? 0)}
+            compactValue={formatCompact(stats?.totalRevenue ?? 0)}
+            description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Gross: ${formatCurrency(stats.grossRevenue ?? 0)} (Refunded: ${formatCurrency(stats.returnedRevenue)})` : "Net revenue after returns"}
+            icon={<Coins className="h-4 w-4" />}
+            trend="up"
+            isLoading={isLoading}
+            href={`/profit-loss${deepLinkQuery}`}
+          />
+          <MetricCard
+            title="Gross Profit"
+            value={formatCurrency(stats?.totalProfit ?? 0)}
+            compactValue={formatCompact(stats?.totalProfit ?? 0)}
+            icon={<TrendingUp className="h-4 w-4" />}
+            trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}
+            isLoading={isLoading}
+            href={`/profit-loss${deepLinkQuery}`}
+          />
+        </MetricGrid>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SalesTrendChart 
