@@ -181,7 +181,7 @@ export default function CreditSalesPage() {
       className: "text-right",
       render: (entry: any) => (
         <span className="font-medium text-sm">
-          ₦{entry.amountOwed.toLocaleString()}
+          {formatCurrency(entry.amountOwed)}
         </span>
       ),
     },
@@ -191,7 +191,7 @@ export default function CreditSalesPage() {
       className: "text-right",
       render: (entry: any) => (
         <span className="font-medium text-sm text-emerald-600">
-          ₦{(entry.amountPaidUpfront + (entry.totalRepayments || 0)).toLocaleString()}
+          {formatCurrency(entry.amountPaidUpfront + (entry.totalRepayments || 0))}
         </span>
       ),
     },
@@ -201,7 +201,7 @@ export default function CreditSalesPage() {
       className: "text-right",
       render: (entry: any) => (
         <span className="font-bold text-sm text-amber-500">
-          ₦{entry.outstandingBalance.toLocaleString()}
+          {formatCurrency(entry.outstandingBalance)}
         </span>
       ),
     },
@@ -502,19 +502,19 @@ export default function CreditSalesPage() {
       businessName: currentStore?.name ?? "Business",
       storeName: currentStore?.name ?? "All Stores",
       kpis: [
-        { label: "Total Outstanding", value: `₦${totalOutstanding.toLocaleString()}` },
+        { label: "Total Outstanding", value: formatCurrency(totalOutstanding) },
         { label: "Overdue Entries", value: String(overdueCount) },
         { label: "Total Entries", value: String(tableData.length) },
       ],
       columns: [
         { key: "customerName", header: "Customer" },
-        { key: "amountOwed", header: "Amount Owed", align: "right" as const, format: (e: any) => `₦${e.amountOwed.toLocaleString()}` },
-        { key: "outstandingBalance", header: "Outstanding", align: "right" as const, format: (e: any) => `₦${e.outstandingBalance.toLocaleString()}` },
+        { key: "amountOwed", header: "Amount Owed", align: "right" as const, format: (e: any) => formatCurrency(e.amountOwed) },
+        { key: "outstandingBalance", header: "Outstanding", align: "right" as const, format: (e: any) => formatCurrency(e.outstandingBalance) },
         { key: "statusLabel", header: "Status" },
       ],
       rows: tableData,
       amountKey: "outstandingBalance",
-      formatAmount: (v: number) => `₦${v.toLocaleString()}`,
+      formatAmount: (v: number) => formatCurrency(v),
       statusKey: "status",
       unitLabel: "credit entries",
     });
@@ -523,11 +523,11 @@ export default function CreditSalesPage() {
   const generatePreview = (entry: any, channel: "whatsapp" | "sms") => {
     if (!entry) return "";
     const isOverdue = entry.status === "overdue" || (entry.dueDate && new Date(entry.dueDate) < new Date());
-    const formattedAmt = entry.outstandingBalance.toLocaleString();
+    const formattedAmt = formatCurrency(entry.outstandingBalance);
     const formattedDate = entry.dueDate ? new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" }) : "";
     const storeName = currentStore?.name || "Our Store";
 
-    return `Hello ${entry.customer.name}! 👋\n\nThis na ${storeName}.\nYou get balance of ₦${formattedAmt} wey due on ${formattedDate}.\n\nIf you don pay already, abeg ignore this message.\nIf not, make you try settle before the date.\n\nThank you! 🙏`;
+    return `Hello ${entry.customer.name}! 👋\n\nThis na ${storeName}.\nYou get balance of ${formattedAmt} wey due on ${formattedDate}.\n\nIf you don pay already, abeg ignore this message.\nIf not, make you try settle before the date.\n\nThank you! 🙏`;
   };
 
   const getStatusBadge = (status: string) => {
@@ -689,11 +689,11 @@ export default function CreditSalesPage() {
           <div className="space-y-4 py-4">
             <div className="p-3 bg-muted rounded-lg flex justify-between text-sm">
               <span className="text-muted-foreground">Outstanding Balance:</span>
-              <span className="font-bold text-amber-500">₦{selectedEntry?.outstandingBalance.toLocaleString()}</span>
+              <span className="font-bold text-amber-500">{formatCurrency(selectedEntry?.outstandingBalance ?? 0)}</span>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="repay-amount">Repayment Amount (₦)</Label>
+              <Label htmlFor="repay-amount">Repayment Amount</Label>
               <Input
                 id="repay-amount"
                 type="number"
@@ -713,7 +713,7 @@ export default function CreditSalesPage() {
               />
               {parseFloat(repaymentAmount) > (selectedEntry?.outstandingBalance || 0) && (
                 <p className="text-xs text-rose-500 font-semibold mt-1 flex items-center gap-1 animate-pulse">
-                  ⚠️ Amount exceeds outstanding balance of ₦{selectedEntry?.outstandingBalance.toLocaleString()}
+                  ⚠️ Amount exceeds outstanding balance of {formatCurrency(selectedEntry?.outstandingBalance ?? 0)}
                 </p>
               )}
               {repaymentAmount && parseFloat(repaymentAmount) <= 0 && (
@@ -829,7 +829,7 @@ export default function CreditSalesPage() {
             <DialogDescription>
               {isBulkWriteOff
                 ? `Write off ${selectedIds.length} selected entries as unrecoverable operational bad debt expense.`
-                : `Write off ${selectedEntry?.customer.name}'s balance of ₦${selectedEntry?.outstandingBalance.toLocaleString()} as unrecoverable operational bad debt expense.`}
+                : `Write off ${selectedEntry?.customer.name}'s balance of ${formatCurrency(selectedEntry?.outstandingBalance ?? 0)} as unrecoverable operational bad debt expense.`}
             </DialogDescription>
           </DialogHeader>
 

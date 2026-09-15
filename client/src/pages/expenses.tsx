@@ -87,7 +87,7 @@ const expenseSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["splitCash"],
-        message: `Total splits (₦${totalSplits.toLocaleString()}) must equal total amount (₦${data.amount.toLocaleString()})`,
+        message: `Total splits (${totalSplits.toLocaleString()}) must equal total amount (${data.amount.toLocaleString()})`,
       });
     }
   }
