@@ -154,6 +154,73 @@ export default function StockTransfersPage() {
     },
   });
 
+  // New workflow transition mutations
+  const acceptTransferMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/accept`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers", selectedTransferId] });
+      toast({ title: "Transfer Accepted", description: "Next: source will schedule delivery." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Could not accept transfer.", variant: "destructive" });
+    },
+  });
+
+  const rejectTransferMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/reject`, { reason: "Rejected by destination store" });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers", selectedTransferId] });
+      toast({ title: "Transfer Rejected", description: "Stock transfer has been declined." });
+      setIsDetailsOpen(false);
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Could not reject transfer.", variant: "destructive" });
+    },
+  });
+
+  const scheduleDeliveryMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const deliveryDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/schedule`, {
+        deliveryDate,
+        deliveryMethod: "courier",
+        deliveryNotes: "Scheduled via app"
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers", selectedTransferId] });
+      toast({ title: "Delivery Scheduled", description: "Transfer is now scheduled for delivery." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Could not schedule delivery.", variant: "destructive" });
+    },
+  });
+
+  const markDeliveredMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/deliver`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers", selectedTransferId] });
+      toast({ title: "Transfer Dispatched", description: "Marked as delivered. Destination will confirm receipt." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message || "Could not mark as delivered.", variant: "destructive" });
+    },
+  });
+
   // Bulk cancel (pending transfers only — the server rejects transitions that aren't valid)
   const bulkCancelMutation = useMutation({
     mutationFn: (ids: string[]) =>
@@ -580,19 +647,39 @@ export default function StockTransfersPage() {
                       variant="outline"
                       size="sm"
                       className="bg-emerald-600 text-white hover:bg-emerald-700 gap-1"
-                      onClick={() => updateStatusMutation.mutate({ id: fullTransfer.id, status: "completed" })}
+                      onClick={() => acceptTransferMutation.mutate(fullTransfer.id)}
                     >
-                      <CheckCircle className="h-4 w-4" /> Approve & Dispatch
+                      <CheckCircle className="h-4 w-4" /> Accept
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       className="text-red-500 hover:text-red-700 gap-1"
-                      onClick={() => updateStatusMutation.mutate({ id: fullTransfer.id, status: "cancelled" })}
+                      onClick={() => rejectTransferMutation.mutate(fullTransfer.id)}
                     >
-                      <XCircle className="h-4 w-4" /> Decline
+                      <XCircle className="h-4 w-4" /> Reject
                     </Button>
                   </>
+                )}
+                {fullTransfer && fullTransfer.status === "accepted" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-blue-600 text-white hover:bg-blue-700 gap-1"
+                    onClick={() => scheduleDeliveryMutation.mutate(fullTransfer.id)}
+                  >
+                    <Clock className="h-4 w-4" /> Schedule Delivery
+                  </Button>
+                )}
+                {fullTransfer && fullTransfer.status === "scheduled" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-amber-600 text-white hover:bg-amber-700 gap-1"
+                    onClick={() => markDeliveredMutation.mutate(fullTransfer.id)}
+                  >
+                    <ArrowDownLeft className="h-4 w-4" /> Mark Delivered
+                  </Button>
                 )}
               </div>
             </DialogTitle>
