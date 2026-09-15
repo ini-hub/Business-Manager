@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Upload, Download, FileText, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Upload, Download, FileText, AlertCircle, CheckCircle2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +44,8 @@ interface BulkOperationsProps {
   visibleData?: Record<string, unknown>[];
   /** Mirrors `onExportPDF` but for the "current view" PDF, for pages using a custom renderer. */
   onExportFilteredPDF?: () => void | Promise<void>;
+  /** Renders the trigger as an icon-only "..." button instead of the "Bulk Operations"/"Export" text button. */
+  compact?: boolean;
 }
 
 interface ImportResult {
@@ -64,6 +66,7 @@ export function BulkOperations({
   onExportPDF,
   visibleData,
   onExportFilteredPDF,
+  compact = false,
 }: BulkOperationsProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -269,10 +272,16 @@ export function BulkOperations({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" disabled={isLoading} data-testid={`button-bulk-${config.key}`}>
-            <FileText className="mr-2 h-4 w-4" />
-            {showImportOption ? "Bulk Operations" : "Export"}
-          </Button>
+          {compact ? (
+            <Button variant="outline" size="icon" disabled={isLoading} data-testid={`button-bulk-${config.key}`}>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="outline" disabled={isLoading} data-testid={`button-bulk-${config.key}`}>
+              <FileText className="mr-2 h-4 w-4" />
+              {showImportOption ? "Bulk Operations" : "Export"}
+            </Button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {showImportOption && (
