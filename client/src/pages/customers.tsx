@@ -903,7 +903,8 @@ export default function Customers() {
             createdAt: c.createdAt
           }));
 
-          const showPagination = currentStore?.id !== "all" && totalPages > 1;
+          const isServerPaginated = currentStore?.id !== "all";
+          const showPagination = isServerPaginated && totalCount > 0;
 
           return (
             <>
@@ -933,6 +934,7 @@ export default function Customers() {
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="active"
                   showCardChevron
+                  hideFooter={isServerPaginated}
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
                   emptyAction={

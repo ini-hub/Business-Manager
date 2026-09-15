@@ -140,6 +140,12 @@ export interface PolymorphicTableProps<T> {
   // Hints tap-to-open on the mobile/tablet card list with a trailing chevron,
   // for tables whose rows navigate to a detail page on click.
   showCardChevron?: boolean;
+
+  // Suppresses the built-in "Showing X to Y of Z" + Rows/page-nav footer, for
+  // callers that already paginate server-side and render their own accurate
+  // footer above/below this table (the built-in one only knows about the
+  // current page's worth of rows, which would show a confusingly smaller total).
+  hideFooter?: boolean;
 }
 
 export function PolymorphicTable<T extends { id: string | number }>({
@@ -169,6 +175,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   urlKey,
   forceCardView = false,
   showCardChevron = false,
+  hideFooter = false,
 }: PolymorphicTableProps<T>) {
   const [initialUrlState] = useState(() => readTableStateFromUrl(urlKey));
   const [location, setLocation] = useLocation();
@@ -807,7 +814,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
         </DialogContent>
       </Dialog>
 
-
+      {!hideFooter && (
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 py-2">
         <div className="flex items-center gap-4">
           <p className="text-xs text-muted-foreground">
@@ -880,6 +887,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

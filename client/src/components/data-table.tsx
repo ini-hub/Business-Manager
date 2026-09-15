@@ -46,6 +46,10 @@ export interface DataTableProps<T> {
 
   // Hints tap-to-open on the mobile/tablet card list with a trailing chevron.
   showCardChevron?: boolean;
+
+  // Suppresses the built-in pagination/rows-per-page footer, for callers that
+  // paginate server-side and render their own footer instead.
+  hideFooter?: boolean;
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -69,6 +73,7 @@ export function DataTable<T extends { id: string | number }>({
   urlKey,
   forceCardView,
   showCardChevron,
+  hideFooter,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -100,6 +105,7 @@ export function DataTable<T extends { id: string | number }>({
       urlKey={urlKey}
       forceCardView={forceCardView}
       showCardChevron={showCardChevron}
+      hideFooter={hideFooter}
     />
   );
 }
