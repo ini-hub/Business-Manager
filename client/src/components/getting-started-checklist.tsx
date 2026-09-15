@@ -46,7 +46,7 @@ export function GettingStartedChecklist() {
 
   return (
     <Card className="border-primary/30 bg-primary/5" data-testid="card-getting-started-checklist">
-      <CardContent className="py-4 space-y-3">
+      <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between gap-3">
           <p className="font-medium text-sm">Set up your business</p>
           <p className="text-xs font-medium text-primary">{completed} of {steps.length}</p>
@@ -59,17 +59,17 @@ export function GettingStartedChecklist() {
           />
         </div>
 
-        <ul className="space-y-2">
+        <ul className="space-y-1.5">
           {steps.map((step) => {
             const row = (
-              <span className={cn("flex items-center gap-2 text-sm", step.done ? "text-muted-foreground line-through" : "text-foreground")}>
+              <span className={cn("flex items-center gap-1.5 text-xs", step.done ? "text-muted-foreground line-through" : "text-foreground")}>
                 {step.done ? (
-                  <Check className="h-4 w-4 text-primary shrink-0" />
+                  <Check className="h-3.5 w-3.5 text-primary shrink-0" />
                 ) : (
-                  <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 )}
                 {step.label}
-                {!step.done && <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />}
+                {!step.done && <ArrowRight className="h-3 w-3 text-primary shrink-0" />}
               </span>
             );
             return (

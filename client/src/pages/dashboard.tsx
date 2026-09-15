@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, Plus, ChevronRight } from "lucide-react";
-import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
-import { MetricGrid } from "@/components/metric-grid";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { format, startOfDay, endOfDay, isSameDay } from "date-fns";
@@ -181,49 +180,113 @@ export default function Dashboard() {
     );
   }
 
+  const totalsRows: { key: string; label: string; icon: React.ReactNode; value: React.ReactNode; href: string }[] = [
+    {
+      key: "customers",
+      label: "Customers",
+      icon: <Users className="h-3.5 w-3.5 text-muted-foreground" />,
+      value: stats?.totalCustomers ?? 0,
+      href: "/customers",
+    },
+    {
+      key: "staff",
+      label: "Staff",
+      icon: <UserCog className="h-3.5 w-3.5 text-muted-foreground" />,
+      value: stats?.totalStaff ?? 0,
+      href: "/staffs",
+    },
+    {
+      key: "inventory",
+      label: "Inventory",
+      icon: <Package className="h-3.5 w-3.5 text-muted-foreground" />,
+      value: (
+        <>
+          {stats?.totalInventory ?? 0}{" "}
+          <span className="text-[11px] font-normal text-muted-foreground">
+            ({stats?.totalProducts ?? 0} products, {stats?.totalServices ?? 0} services)
+          </span>
+        </>
+      ),
+      href: "/inventory",
+    },
+  ];
+
+  const periodRows: { key: string; label: string; value: React.ReactNode; href: string }[] = [
+    {
+      key: "profit",
+      label: "Gross Profit",
+      value: formatCurrency(stats?.totalProfit ?? 0),
+      href: `/profit-loss${deepLinkQuery}`,
+    },
+    {
+      key: "gross-revenue",
+      label: "Gross Revenue",
+      value: (
+        <>
+          {formatCurrency(stats?.grossRevenue ?? stats?.totalRevenue ?? 0)}
+          {stats?.returnedRevenue && stats.returnedRevenue > 0 ? (
+            <span className="text-[11px] font-normal text-muted-foreground ml-1">
+              (−{formatCurrency(stats.returnedRevenue)} refunded)
+            </span>
+          ) : null}
+        </>
+      ),
+      href: `/profit-loss${deepLinkQuery}`,
+    },
+  ];
+
   return (
-    <div className="space-y-8">
-      <p className="text-sm text-muted-foreground" data-testid="text-dashboard-greeting">
-        {greeting}, {firstName}
-      </p>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-muted-foreground leading-tight">
+            {greeting}, {firstName}
+            {currentStore?.id === "all" && ` · All ${stores.length} branches`}
+          </p>
+          <h1 className="text-xl font-bold tracking-tight leading-tight">Dashboard</h1>
+        </div>
+        <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} />
+      </div>
 
-      <PageHeader
-        title="Dashboard"
-        description={currentStore?.id === "all" ? `Consolidated overview for all ${stores.length} branches` : `Overview for ${currentStore?.name}`}
-        actions={<DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} timezone={currentStore?.timezone} />}
-      />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg bg-muted/50 p-3">
+          <p className="text-xs text-muted-foreground">{isToday ? "Sales today" : "Sales (period)"}</p>
+          {isLoading ? (
+            <Skeleton className="h-6 w-20 mt-1" />
+          ) : (
+            <p className="text-lg font-bold font-mono tabular-nums mt-0.5 truncate" title={formatCurrency(stats?.totalRevenue ?? 0)}>
+              <span className="sm:hidden">{formatCompact(stats?.totalRevenue ?? 0)}</span>
+              <span className="hidden sm:inline">{formatCurrency(stats?.totalRevenue ?? 0)}</span>
+            </p>
+          )}
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {stats?.totalTransactions ?? 0} transaction{(stats?.totalTransactions ?? 0) === 1 ? "" : "s"}
+          </p>
+        </div>
+        <div className="rounded-lg bg-muted/50 p-3">
+          <p className="text-xs text-muted-foreground">Avg. sale</p>
+          {isLoading ? (
+            <Skeleton className="h-6 w-20 mt-1" />
+          ) : (
+            <p className="text-lg font-bold font-mono tabular-nums mt-0.5 truncate" title={formatCurrency(avgSale)}>
+              <span className="sm:hidden">{formatCompact(avgSale)}</span>
+              <span className="hidden sm:inline">{formatCurrency(avgSale)}</span>
+            </p>
+          )}
+          <p className="text-[11px] text-muted-foreground mt-0.5">per transaction</p>
+        </div>
+      </div>
 
-      <MetricGrid>
-        <MetricCard
-          title={isToday ? "Sales Today" : "Sales (Selected Period)"}
-          value={formatCurrency(stats?.totalRevenue ?? 0)}
-          compactValue={formatCompact(stats?.totalRevenue ?? 0)}
-          description={`${stats?.totalTransactions ?? 0} transaction${(stats?.totalTransactions ?? 0) === 1 ? "" : "s"}`}
-          isLoading={isLoading}
-          href={`/transactions${deepLinkQuery}`}
-          valueClassName="text-xl sm:text-3xl"
-        />
-        <MetricCard
-          title="Avg. Sale"
-          value={formatCurrency(avgSale)}
-          compactValue={formatCompact(avgSale)}
-          description="per transaction"
-          isLoading={isLoading}
-          href={`/profit-loss${deepLinkQuery}`}
-          valueClassName="text-xl sm:text-3xl"
-        />
-      </MetricGrid>
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <Button asChild size="lg" data-testid="button-new-sale" className="flex-1">
+      <div className="flex gap-2">
+        <Button asChild data-testid="button-new-sale" className="flex-1">
           <Link href="/sales/new">
             <ShoppingCart className="mr-2 h-4 w-4" />
-            New Sale
+            New sale
           </Link>
         </Button>
-        <Button asChild size="lg" variant="outline" data-testid="button-add-item">
+        <Button asChild variant="outline" data-testid="button-add-item">
           <Link href="/inventory/new">
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-1.5 h-4 w-4" />
             Item
           </Link>
         </Button>
@@ -231,84 +294,56 @@ export default function Dashboard() {
 
       <GettingStartedChecklist />
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-muted-foreground">All-time totals</p>
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">All-time totals</p>
         <Card>
           <CardContent className="p-0">
-            <Link
-              href="/customers"
-              className="flex items-center justify-between gap-3 px-4 py-3.5 border-b hover-elevate"
-              data-testid="row-total-customers"
-            >
-              <span className="flex items-center gap-3 text-sm font-medium">
-                <Users className="h-4 w-4 text-muted-foreground" /> Customers
-              </span>
-              <span className="flex items-center gap-1.5 font-mono font-semibold">
-                {isLoading ? <Skeleton className="h-5 w-8" /> : stats?.totalCustomers ?? 0}
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </span>
-            </Link>
-            <Link
-              href="/staffs"
-              className="flex items-center justify-between gap-3 px-4 py-3.5 border-b hover-elevate"
-              data-testid="row-total-staff"
-            >
-              <span className="flex items-center gap-3 text-sm font-medium">
-                <UserCog className="h-4 w-4 text-muted-foreground" /> Staff
-              </span>
-              <span className="flex items-center gap-1.5 font-mono font-semibold">
-                {isLoading ? <Skeleton className="h-5 w-8" /> : stats?.totalStaff ?? 0}
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </span>
-            </Link>
-            <Link
-              href="/inventory"
-              className="flex items-center justify-between gap-3 px-4 py-3.5 hover-elevate"
-              data-testid="row-total-inventory"
-            >
-              <span className="flex items-center gap-3 text-sm font-medium">
-                <Package className="h-4 w-4 text-muted-foreground" /> Inventory
-              </span>
-              <span className="flex items-center gap-1.5 font-mono font-semibold">
-                {isLoading ? (
-                  <Skeleton className="h-5 w-8" />
-                ) : (
-                  <>
-                    {stats?.totalInventory ?? 0}
-                    <span className="text-xs font-normal text-muted-foreground">
-                      ({stats?.totalProducts ?? 0} products, {stats?.totalServices ?? 0} services)
-                    </span>
-                  </>
+            {totalsRows.map((row, i) => (
+              <Link
+                key={row.key}
+                href={row.href}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover-elevate",
+                  i < totalsRows.length - 1 && "border-b",
                 )}
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </span>
-            </Link>
+                data-testid={`row-total-${row.key}`}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  {row.icon} {row.label}
+                </span>
+                <span className="flex items-center gap-1 font-mono font-semibold">
+                  {isLoading ? <Skeleton className="h-4 w-8" /> : row.value}
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                </span>
+              </Link>
+            ))}
           </CardContent>
         </Card>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-muted-foreground">For selected period</p>
-        <MetricGrid>
-          <MetricCard
-            title="Gross Profit"
-            value={formatCurrency(stats?.totalProfit ?? 0)}
-            compactValue={formatCompact(stats?.totalProfit ?? 0)}
-            icon={<TrendingUp className="h-4 w-4" />}
-            trend={(stats?.totalProfit ?? 0) >= 0 ? "up" : "down"}
-            isLoading={isLoading}
-            href={`/profit-loss${deepLinkQuery}`}
-          />
-          <MetricCard
-            title="Revenue Breakdown"
-            value={formatCurrency(stats?.grossRevenue ?? stats?.totalRevenue ?? 0)}
-            compactValue={formatCompact(stats?.grossRevenue ?? stats?.totalRevenue ?? 0)}
-            description={stats?.returnedRevenue && stats.returnedRevenue > 0 ? `Refunded: ${formatCurrency(stats.returnedRevenue)}` : "Gross, before returns"}
-            icon={<Coins className="h-4 w-4" />}
-            isLoading={isLoading}
-            href={`/profit-loss${deepLinkQuery}`}
-          />
-        </MetricGrid>
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">For selected period</p>
+        <Card>
+          <CardContent className="p-0">
+            {periodRows.map((row, i) => (
+              <Link
+                key={row.key}
+                href={row.href}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover-elevate",
+                  i < periodRows.length - 1 && "border-b",
+                )}
+                data-testid={`row-period-${row.key}`}
+              >
+                <span className="font-medium">{row.label}</span>
+                <span className="flex items-center gap-1 font-mono font-semibold">
+                  {isLoading ? <Skeleton className="h-4 w-16" /> : row.value}
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
