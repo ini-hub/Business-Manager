@@ -20,7 +20,7 @@ import { GettingStartedChecklist } from "@/components/getting-started-checklist"
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { format, startOfDay, endOfDay, isSameDay, subDays, startOfMonth } from "date-fns";
+import { format, startOfDay, endOfDay, isSameDay, subDays, startOfMonth, startOfYear } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -44,7 +44,7 @@ interface DashboardStats {
   lowStockCount?: number;
 }
 
-type DatePreset = "today" | "7d" | "month" | "custom";
+type DatePreset = "today" | "7d" | "30d" | "month" | "year" | "all" | "custom";
 
 /** % change from `prev` to `cur`, rounded. Undefined when there's no baseline to compare against. */
 function pctChange(cur: number, prev: number): number | undefined {
@@ -53,17 +53,28 @@ function pctChange(cur: number, prev: number): number | undefined {
 }
 
 /**
- * Comparison window for a given preset: "Today" compares to yesterday, "7d" to
- * the 7 days immediately before, "Month" to the same day-of-month span in the
- * previous calendar month (so "1-15 Sep" compares to "1-15 Aug", not a raw
- * 15-day shift which would land mid-August). Anything else falls back to an
+ * Comparison window for a given preset: "Today" compares to yesterday, "7d"/"30d"
+ * to the same number of days immediately before, "Month" to the same
+ * day-of-month span in the previous calendar month (so "1-15 Sep" compares to
+ * "1-15 Aug", not a raw 15-day shift which would land mid-August), and "Year"
+ * to the same day-of-year span in the previous calendar year. "All time" has
+ * no baseline to compare against — returns an empty range, which the caller
+ * uses to skip the comparison query entirely. Custom ranges fall back to an
  * equal-length immediately-preceding window.
  */
 function getPreviousPeriod(preset: DatePreset, from: Date, to: Date): DateRange {
+  if (preset === "all") {
+    return { from: undefined, to: undefined };
+  }
   if (preset === "month") {
     const dayOffset = to.getDate() - from.getDate();
     const prevFrom = new Date(from.getFullYear(), from.getMonth() - 1, from.getDate());
     const prevTo = new Date(prevFrom.getFullYear(), prevFrom.getMonth(), prevFrom.getDate() + dayOffset);
+    return { from: startOfDay(prevFrom), to: endOfDay(prevTo) };
+  }
+  if (preset === "year") {
+    const prevFrom = new Date(from.getFullYear() - 1, from.getMonth(), from.getDate());
+    const prevTo = new Date(to.getFullYear() - 1, to.getMonth(), to.getDate());
     return { from: startOfDay(prevFrom), to: endOfDay(prevTo) };
   }
   const spanMs = endOfDay(to).getTime() - startOfDay(from).getTime();
@@ -98,7 +109,10 @@ export default function Dashboard() {
     const range: DateRange =
       preset === "today" ? { from: startOfDay(now), to: endOfDay(now) } :
       preset === "7d" ? { from: startOfDay(subDays(now, 6)), to: endOfDay(now) } :
+      preset === "30d" ? { from: startOfDay(subDays(now, 29)), to: endOfDay(now) } :
       preset === "month" ? { from: startOfDay(startOfMonth(now)), to: endOfDay(now) } :
+      preset === "year" ? { from: startOfDay(startOfYear(now)), to: endOfDay(now) } :
+      preset === "all" ? { from: undefined, to: undefined } :
       dateRange;
     setDatePreset(preset);
     if (preset !== "custom") setDateRange(range);
@@ -682,18 +696,25 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-md border p-0.5">
-              {(["today", "7d", "month"] as DatePreset[]).map((preset) => (
+              {([
+                ["today", "Today"],
+                ["7d", "7d"],
+                ["30d", "30d"],
+                ["month", "Month"],
+                ["year", "Year"],
+                ["all", "All time"],
+              ] as [DatePreset, string][]).map(([preset, label]) => (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => applyDatePreset(preset)}
                   className={cn(
-                    "px-3 py-1.5 text-sm rounded font-medium transition-colors",
+                    "px-3 py-1.5 text-sm rounded font-medium transition-colors whitespace-nowrap",
                     datePreset === preset ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground",
                   )}
                   data-testid={`button-preset-${preset}`}
                 >
-                  {preset === "today" ? "Today" : preset === "7d" ? "7d" : "Month"}
+                  {label}
                 </button>
               ))}
             </div>
