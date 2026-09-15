@@ -1,26 +1,26 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
-import { isOrgTrialing } from "@/lib/trial";
 import { Card, CardContent } from "@/components/ui/card";
 import { Check, Circle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Onboarding's "Skip for now" buttons let a trial user reach checkout with no
+ * Onboarding's "Skip for now" buttons let a user reach checkout with no
  * staff/inventory set up, which used to just dead-end at checkout's validation
  * errors with no path back. This banner stays visible (dashboard + new-sale)
  * until both exist, deep-linking straight to the form that's still missing.
- * Trial-gated: never renders for a pre-existing (non-trialing) organisation.
+ * Shows for any store with a pending step, regardless of trial status — an
+ * account whose trial has since ended, or a pre-trial-system account, can
+ * still genuinely be missing staff/inventory and needs the same nudge.
  *
  * "Create account" is always shown as done — reaching this screen at all
  * implies the account step is complete — so it's a display-only checklist
  * entry, not a fetched condition like the other two.
  */
 export function GettingStartedChecklist() {
-  const { business, currentStore } = useStore();
-  const trialing = isOrgTrialing(business);
-  const enabled = trialing && !!currentStore?.id && currentStore.id !== "all";
+  const { currentStore } = useStore();
+  const enabled = !!currentStore?.id && currentStore.id !== "all";
 
   const { data: staffList = [] } = useQuery<any[]>({
     queryKey: ["/api/staff", currentStore?.id],
