@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { format, subDays, startOfMonth, endOfMonth, startOfYear, startOfDay, endOfDay } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Calendar as CalendarIcon } from "lucide-react";
+import { Calendar as CalendarIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -82,9 +82,9 @@ export function DateRangeFilter({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
       <Select value={selectedPreset} onValueChange={handlePresetChange}>
-        <SelectTrigger className="w-[140px]" data-testid="select-date-preset">
+        <SelectTrigger className="h-9 min-w-[120px] flex-1 sm:flex-initial" data-testid="select-date-preset">
           <SelectValue placeholder="Select range" />
         </SelectTrigger>
         <SelectContent>
@@ -103,13 +103,13 @@ export function DateRangeFilter({
               <Button
                 variant="outline"
                 className={cn(
-                  "w-[130px] justify-start text-left font-normal",
+                  "h-9 justify-start text-left font-normal min-w-[110px] flex-1 sm:flex-initial",
                   !dateRange.from && "text-muted-foreground"
                 )}
                 data-testid="button-date-from"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateRange.from ? format(dateRange.from, "MMM d, yyyy") : "From"}
+                {dateRange.from ? format(dateRange.from, "MMM d") : "From"}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
@@ -124,20 +124,18 @@ export function DateRangeFilter({
             </PopoverContent>
           </Popover>
 
-          <span className="text-muted-foreground">to</span>
-
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
                 className={cn(
-                  "w-[130px] justify-start text-left font-normal",
+                  "h-9 justify-start text-left font-normal min-w-[110px] flex-1 sm:flex-initial",
                   !dateRange.to && "text-muted-foreground"
                 )}
                 data-testid="button-date-to"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateRange.to ? format(dateRange.to, "MMM d, yyyy") : "To"}
+                {dateRange.to ? format(dateRange.to, "MMM d") : "To"}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
@@ -160,14 +158,16 @@ export function DateRangeFilter({
       {(dateRange.from || dateRange.to) && selectedPreset !== "all" && (
         <Button
           variant="ghost"
-          size="sm"
+          size="icon"
+          className="h-9 w-9"
           onClick={() => {
             setSelectedPreset("all");
             onDateRangeChange({ from: undefined, to: undefined });
           }}
           data-testid="button-clear-dates"
+          title="Clear dates"
         >
-          Clear
+          <X className="h-4 w-4" />
         </Button>
       )}
     </div>
