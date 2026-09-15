@@ -42,7 +42,14 @@ export const PolymorphicTabsList = React.forwardRef<
         variant === "solid" && "bg-muted/40 p-0.5 rounded-lg border border-border/40 gap-1",
         variant === "bordered" && "bg-transparent border-b border-border rounded-none p-0 gap-4 mb-4",
         
-        // Scrollable vs Grid strategy
+        // Scrollable vs Grid strategy.
+        // NOTE: spec calls for an edge-fade + chevron indicator when tabs overflow.
+        // A static fade would incorrectly cut off the last tab's edge on the (more
+        // common) case of a tab bar that already fits on screen, so that needs
+        // scroll-position tracking (compare scrollWidth vs clientWidth) to only
+        // render when there's actually more to scroll to — left as a follow-up
+        // rather than shipped half-right here. The core defect (tabs clipped with
+        // *no* way to reach them at all) is already fixed by overflow-x-auto below.
         scrollable
           ? "flex w-full items-center justify-start overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           : "grid w-full grid-cols-2 md:grid-cols-6",

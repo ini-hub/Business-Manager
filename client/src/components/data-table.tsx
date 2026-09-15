@@ -9,6 +9,8 @@ export interface Column<T> {
   header: string;
   render?: (item: T) => React.ReactNode;
   className?: string;
+  /** See ColumnConfig.priority — responsive display tier for the mobile/tablet card view. */
+  priority?: 1 | 2 | 3;
 }
 
 export interface DataTableProps<T> {
@@ -113,6 +115,7 @@ export function DataTable<T extends { id: string | number }>({
     header: col.header,
     className: col.className,
     render: col.render,
+    priority: col.priority,
   }));
 
   return (

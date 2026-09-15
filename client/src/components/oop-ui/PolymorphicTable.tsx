@@ -110,6 +110,19 @@ export interface ColumnConfig<T> {
   badgeVariants?: (val: any) => "default" | "secondary" | "destructive" | "outline";
   render?: (item: T) => React.ReactNode;
   filterable?: boolean;
+  /**
+   * Responsive display tier for the mobile/tablet card view: 1 = always shown
+   * (in addition to the card's implicit primary/first-column line), 2-3 =
+   * progressively less important. Omit (undefined) to always show, which is
+   * the pre-existing behavior for every column that doesn't set this — the
+   * card view otherwise renders every non-actions column as a label:value
+   * row, which for a wide table (e.g. Type/Cost/Price/Margin, several "n/a"
+   * for services) reads as mostly dashes. Only tiers 1-2 render in the card;
+   * tier 3 and unset-but-low-value columns can be pushed to a detail view
+   * instead by the caller. Purely advisory to this component's card
+   * renderer — desktop table always shows every column regardless.
+   */
+  priority?: 1 | 2 | 3;
 }
 
 /**
@@ -894,7 +907,15 @@ export function PolymorphicTable<T extends { id: string | number }>({
             {paginatedData.map((item) => {
               const isSelected = currentSelectedIds.includes(item.id);
               const actionsCol = columns.find(col => col.key === "actions");
-              const dataCols = columns.filter(col => col.key !== "actions");
+              const allDataCols = columns.filter(col => col.key !== "actions");
+              // Opt-in decluttering: only once a table tags at least one column with a
+              // priority do lower-priority ones drop out of the card view. Tables that
+              // haven't adopted `priority` yet (every column undefined) see every column,
+              // exactly as before — this is what keeps existing pages unaffected.
+              const hasPriorities = allDataCols.some((col) => col.priority !== undefined);
+              const dataCols = hasPriorities
+                ? allDataCols.filter((col) => col.priority === undefined || col.priority <= 2)
+                : allDataCols;
               const primaryCol = dataCols[0];
               const otherCols = dataCols.slice(1);
 
