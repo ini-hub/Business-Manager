@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, Plus, ChevronRight } from "lucide-react";
+import { Users, UserCog, Package, Receipt, TrendingUp, Coins, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, Calendar as CalendarIcon, PackagePlus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +19,11 @@ import { GettingStartedChecklist } from "@/components/getting-started-checklist"
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import type { Inventory, ProfitLossWithInventory } from "@shared/schema";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { format, startOfDay, endOfDay, isSameDay } from "date-fns";
+import { format, startOfDay, endOfDay, isSameDay, subDays, startOfMonth, eachDayOfInterval } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 interface DashboardStats {
   totalCustomers: number;
@@ -30,11 +32,44 @@ interface DashboardStats {
   totalProducts: number;
   totalServices: number;
   totalTransactions: number;
+  uniqueCustomersInPeriod?: number;
   totalRevenue: number;
   grossRevenue?: number;
   returnedRevenue?: number;
   totalProfit: number;
+  revenueMix?: { services: number; products: number };
+  lowStockThreshold?: number;
   lowStockItems: Inventory[];
+  outOfStockCount?: number;
+  lowStockCount?: number;
+}
+
+type DatePreset = "today" | "7d" | "month" | "custom";
+
+/** % change from `prev` to `cur`, rounded. Undefined when there's no baseline to compare against. */
+function pctChange(cur: number, prev: number): number | undefined {
+  if (prev === 0) return cur === 0 ? undefined : 100;
+  return Math.round(((cur - prev) / prev) * 100);
+}
+
+/**
+ * Comparison window for a given preset: "Today" compares to yesterday, "7d" to
+ * the 7 days immediately before, "Month" to the same day-of-month span in the
+ * previous calendar month (so "1-15 Sep" compares to "1-15 Aug", not a raw
+ * 15-day shift which would land mid-August). Anything else falls back to an
+ * equal-length immediately-preceding window.
+ */
+function getPreviousPeriod(preset: DatePreset, from: Date, to: Date): DateRange {
+  if (preset === "month") {
+    const dayOffset = to.getDate() - from.getDate();
+    const prevFrom = new Date(from.getFullYear(), from.getMonth() - 1, from.getDate());
+    const prevTo = new Date(prevFrom.getFullYear(), prevFrom.getMonth(), prevFrom.getDate() + dayOffset);
+    return { from: startOfDay(prevFrom), to: endOfDay(prevTo) };
+  }
+  const spanMs = endOfDay(to).getTime() - startOfDay(from).getTime();
+  const prevTo = new Date(startOfDay(from).getTime() - 1);
+  const prevFrom = new Date(prevTo.getTime() - spanMs);
+  return { from: startOfDay(prevFrom), to: endOfDay(prevTo) };
 }
 
 export default function Dashboard() {
@@ -52,11 +87,36 @@ export default function Dashboard() {
         to: endOfDay(new Date()),
       },
   );
+  // Tracks which segmented preset produced `dateRange`, so the desktop header can
+  // highlight the right button and compute the correct comparison window (see
+  // getPreviousPeriod). Defaults to "month" to match the desktop-first mockup;
+  // has no effect on the separate mobile compact date pill below.
+  const [datePreset, setDatePreset] = useState<DatePreset>("month");
+
+  const applyDatePreset = (preset: DatePreset) => {
+    const now = new Date();
+    const range: DateRange =
+      preset === "today" ? { from: startOfDay(now), to: endOfDay(now) } :
+      preset === "7d" ? { from: startOfDay(subDays(now, 6)), to: endOfDay(now) } :
+      preset === "month" ? { from: startOfDay(startOfMonth(now)), to: endOfDay(now) } :
+      dateRange;
+    setDatePreset(preset);
+    if (preset !== "custom") setDateRange(range);
+  };
+
+  const previousRange = dateRange.from && dateRange.to
+    ? getPreviousPeriod(datePreset, dateRange.from, dateRange.to)
+    : { from: undefined, to: undefined };
 
   const queryParams = new URLSearchParams();
   if (dateRange.from) queryParams.set("from", format(dateRange.from, "yyyy-MM-dd"));
   if (dateRange.to) queryParams.set("to", format(dateRange.to, "yyyy-MM-dd"));
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : "";
+
+  const prevQueryParams = new URLSearchParams();
+  if (previousRange.from) prevQueryParams.set("from", format(previousRange.from, "yyyy-MM-dd"));
+  if (previousRange.to) prevQueryParams.set("to", format(previousRange.to, "yyyy-MM-dd"));
+  const prevQueryString = prevQueryParams.toString() ? `?${prevQueryParams.toString()}` : "";
 
   const deepLinkParams = new URLSearchParams();
   if (dateRange.from) deepLinkParams.set("startDate", format(dateRange.from, "yyyy-MM-dd"));
@@ -75,6 +135,46 @@ export default function Dashboard() {
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
+  });
+
+  // Desktop-only comparison stats: same query, shifted to the preceding window
+  // (see getPreviousPeriod) — powers the "▲18% vs last period" deltas.
+  const { data: prevStats } = useQuery<DashboardStats>({
+    queryKey: ["/api/dashboard/stats", currentStore?.id, business?.id, prevQueryString, "previous"],
+    queryFn: async () => {
+      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
+      const res = await fetch(`/api/dashboard/stats?${param}${prevQueryString ? '&' + prevQueryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch previous-period dashboard stats");
+      return res.json();
+    },
+    enabled: (currentStore?.id === "all" ? !!business?.id : !!currentStore?.id) && !!previousRange.from,
+    staleTime: STALE_TIMES.live,
+  });
+
+  // Desktop-only "Daily net revenue" chart: current period's daily bars, plus the
+  // previous period's daily average for the dashed reference line.
+  const { data: dailyRevenue = [] } = useQuery<{ date: string; revenue: number; transactions: number }[]>({
+    queryKey: ["/api/charts/sales-trends", currentStore?.id, business?.id, queryString],
+    queryFn: async () => {
+      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
+      const res = await fetch(`/api/charts/sales-trends?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch sales trends");
+      return res.json();
+    },
+    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
+    staleTime: STALE_TIMES.live,
+  });
+
+  const { data: prevDailyRevenue = [] } = useQuery<{ date: string; revenue: number; transactions: number }[]>({
+    queryKey: ["/api/charts/sales-trends", currentStore?.id, business?.id, prevQueryString, "previous"],
+    queryFn: async () => {
+      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
+      const res = await fetch(`/api/charts/sales-trends?${param}${prevQueryString ? '&' + prevQueryString.substring(1) : ''}`);
+      if (!res.ok) throw new Error("Failed to fetch previous-period sales trends");
+      return res.json();
+    },
+    enabled: (currentStore?.id === "all" ? !!business?.id : !!currentStore?.id) && !!previousRange.from,
+    staleTime: STALE_TIMES.live,
   });
 
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
@@ -167,6 +267,45 @@ export default function Dashboard() {
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const isToday = !!dateRange.from && !!dateRange.to && isSameDay(dateRange.from, new Date()) && isSameDay(dateRange.to, new Date());
   const avgSale = (stats?.totalTransactions ?? 0) > 0 ? (stats?.totalRevenue ?? 0) / (stats?.totalTransactions ?? 1) : 0;
+  const prevAvgSale = (prevStats?.totalTransactions ?? 0) > 0 ? (prevStats?.totalRevenue ?? 0) / (prevStats?.totalTransactions ?? 1) : 0;
+
+  // Desktop metric-tile deltas vs the comparison window computed by getPreviousPeriod.
+  const revenueChangePct = prevStats ? pctChange(stats?.totalRevenue ?? 0, prevStats.totalRevenue) : undefined;
+  const profitChangePct = prevStats ? pctChange(stats?.totalProfit ?? 0, prevStats.totalProfit) : undefined;
+  const transactionsChangePct = prevStats ? pctChange(stats?.totalTransactions ?? 0, prevStats.totalTransactions) : undefined;
+  const avgSaleChangePct = prevStats ? pctChange(avgSale, prevAvgSale) : undefined;
+  const grossMarginPct = (stats?.totalRevenue ?? 0) > 0 ? Math.round(((stats?.totalProfit ?? 0) / (stats!.totalRevenue)) * 100) : 0;
+
+  // Zero-fill every day in the selected range so no-sales days render as gaps
+  // between bars instead of the chart silently compressing sparse data together.
+  const dailyRevenueFilled = dateRange.from && dateRange.to
+    ? eachDayOfInterval({ start: dateRange.from, end: dateRange.to }).map((d) => {
+        const key = format(d, "yyyy-MM-dd");
+        const match = dailyRevenue.find((r) => r.date === key);
+        return { date: key, label: format(d, "MMM d"), revenue: match?.revenue ?? 0 };
+      })
+    : [];
+  const prevDailyAvg = prevDailyRevenue.length > 0
+    ? prevDailyRevenue.reduce((sum, r) => sum + r.revenue, 0) / prevDailyRevenue.length
+    : 0;
+
+  const revenueMixTotal = (stats?.revenueMix?.services ?? 0) + (stats?.revenueMix?.products ?? 0);
+  const servicesSharePct = revenueMixTotal > 0 ? Math.round(((stats?.revenueMix?.services ?? 0) / revenueMixTotal) * 100) : 0;
+  const productsSharePct = revenueMixTotal > 0 ? 100 - servicesSharePct : 0;
+
+  const outOfStockItems = (stats?.lowStockItems ?? []).filter((i) => i.quantity === 0);
+  const lowStockOnlyItems = (stats?.lowStockItems ?? []).filter((i) => i.quantity > 0);
+  const stockAlertItems = [...outOfStockItems, ...lowStockOnlyItems];
+
+  const topCustomersTotalSpend = topCustomers.reduce((sum: number, c: any) => sum + (c.totalSpent ?? 0), 0);
+  const topItemsSorted = [...(profitLoss ?? [])].sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 5);
+
+  const dateRangeLabel = dateRange.from && dateRange.to
+    ? `${format(dateRange.from, "d MMM")} to ${format(dateRange.to, "d MMM yyyy")}`
+    : "";
+  const prevRangeLabel = previousRange.from && previousRange.to
+    ? `${format(previousRange.from, "d MMM")} to ${format(previousRange.to, "d MMM")}`
+    : "";
 
   if (!currentStore) {
     return (
@@ -236,7 +375,9 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
+      {/* ─── Mobile / tablet (<lg): compact space-optimized layout ─── */}
+      <div className="lg:hidden space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs text-muted-foreground leading-tight">
@@ -564,6 +705,323 @@ export default function Dashboard() {
           </Link>
         </Card>
       </div>
+      </div>
+      {/* ─── End mobile / tablet layout ─── */}
+
+      {/* ─── Desktop (lg+): dense analytics layout ─── */}
+      <div className="hidden lg:block space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {currentStore?.id === "all" ? `All ${stores.length} branches` : currentStore?.name}
+              {dateRangeLabel && ` · ${dateRangeLabel}`}
+              {prevRangeLabel && ` vs ${prevRangeLabel}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center rounded-md border p-0.5">
+              {(["today", "7d", "month"] as DatePreset[]).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => applyDatePreset(preset)}
+                  className={cn(
+                    "px-3 py-1.5 text-sm rounded font-medium transition-colors",
+                    datePreset === preset ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground",
+                  )}
+                  data-testid={`button-preset-${preset}`}
+                >
+                  {preset === "today" ? "Today" : preset === "7d" ? "7d" : "Month"}
+                </button>
+              ))}
+            </div>
+            <DateRangeFilter
+              dateRange={dateRange}
+              onDateRangeChange={(r) => { setDatePreset("custom"); setDateRange(r); }}
+              timezone={currentStore?.timezone}
+              compact
+            />
+            <Button asChild data-testid="button-new-sale-desktop">
+              <Link href="/sales/new">
+                <ShoppingCart className="mr-2 h-4 w-4" />
+                New sale
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* 4 headline metrics with period-over-period deltas */}
+        <div className="grid grid-cols-4 gap-4">
+          {[
+            {
+              key: "revenue",
+              title: "Net revenue",
+              value: formatCurrency(stats?.totalRevenue ?? 0),
+              change: revenueChangePct,
+              sub: (stats?.returnedRevenue ?? 0) > 0 ? `${formatCurrency(stats!.returnedRevenue!)} refunded` : undefined,
+              href: `/profit-loss${deepLinkQuery}`,
+            },
+            {
+              key: "profit",
+              title: "Gross profit",
+              value: formatCurrency(stats?.totalProfit ?? 0),
+              change: profitChangePct,
+              sub: `${grossMarginPct}% margin`,
+              href: `/profit-loss${deepLinkQuery}`,
+            },
+            {
+              key: "transactions",
+              title: "Transactions",
+              value: String(stats?.totalTransactions ?? 0),
+              change: transactionsChangePct,
+              sub: `${stats?.uniqueCustomersInPeriod ?? 0} customer${(stats?.uniqueCustomersInPeriod ?? 0) === 1 ? "" : "s"}`,
+              href: `/transactions${deepLinkQuery}`,
+            },
+            {
+              key: "avg-sale",
+              title: "Avg. sale",
+              value: formatCurrency(avgSale),
+              change: avgSaleChangePct,
+              sub: "vs last period",
+              href: `/transactions${deepLinkQuery}`,
+            },
+          ].map((tile) => (
+            <Link key={tile.key} href={tile.href} className="block">
+              <Card className="hover-elevate h-full">
+                <CardContent className="p-4">
+                  <p className="text-sm text-muted-foreground">{tile.title}</p>
+                  {isLoading ? (
+                    <Skeleton className="h-8 w-28 mt-1.5" />
+                  ) : (
+                    <p className="text-2xl font-bold font-mono tabular-nums mt-1">{tile.value}</p>
+                  )}
+                  <div className="flex items-center gap-1.5 mt-1.5 text-xs">
+                    {tile.change !== undefined && (
+                      <span className={cn("flex items-center gap-0.5 font-medium", tile.change >= 0 ? "text-emerald-600" : "text-red-600")}>
+                        {tile.change >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                        {Math.abs(tile.change)}%
+                      </span>
+                    )}
+                    {tile.sub && <span className="text-muted-foreground">{tile.change !== undefined ? `· ${tile.sub}` : tile.sub}</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+
+        {/* Daily net revenue bars + revenue mix */}
+        <div className="grid grid-cols-3 gap-6">
+          <Card className="col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Daily net revenue</CardTitle>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary inline-block" /> This period</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block w-3 border-t border-dashed border-muted-foreground" /> Prev. daily avg</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[280px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyRevenueFilled} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted/40" />
+                    <XAxis
+                      dataKey="label"
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} width={0} />
+                    <Tooltip
+                      cursor={{ fill: "hsl(var(--muted)/0.15)" }}
+                      formatter={(value: number) => [formatCurrency(value), "Revenue"]}
+                    />
+                    {prevDailyAvg > 0 && (
+                      <ReferenceLine y={prevDailyAvg} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />
+                    )}
+                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} maxBarSize={36} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold">Revenue mix</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="h-2.5 w-full rounded-full overflow-hidden bg-muted flex">
+                <div className="h-full bg-primary" style={{ width: `${servicesSharePct}%` }} />
+                <div className="h-full bg-muted-foreground/30" style={{ width: `${productsSharePct}%` }} />
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-primary inline-block" /> Services</span>
+                  <span className="font-mono">
+                    {formatCurrency(stats?.revenueMix?.services ?? 0)} <span className="text-muted-foreground text-xs">{servicesSharePct}%</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-muted-foreground/30 inline-block" /> Products</span>
+                  <span className="font-mono">
+                    {formatCurrency(stats?.revenueMix?.products ?? 0)} <span className="text-muted-foreground text-xs">{productsSharePct}%</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Business size</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Customers</span>
+                  <span className="font-mono font-semibold">{stats?.totalCustomers ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Staff</span>
+                  <span className="font-mono font-semibold">{stats?.totalStaff ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Catalogue</span>
+                  <span className="font-mono font-semibold">
+                    {stats?.totalInventory ?? 0}{" "}
+                    <span className="text-muted-foreground text-xs font-normal">
+                      ({stats?.totalProducts ?? 0} products, {stats?.totalServices ?? 0} services)
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Stock alerts / Top items / Top customers */}
+        <div className="grid grid-cols-3 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" /> Stock alerts
+              </CardTitle>
+              <Link href="/inventory" className="text-xs text-primary font-medium hover:underline">
+                All {stats?.lowStockItems?.length ?? 0}
+              </Link>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="destructive" className="text-xs">{stats?.outOfStockCount ?? 0} out</Badge>
+                <Badge variant="secondary" className="text-xs">{stats?.lowStockCount ?? 0} low</Badge>
+              </div>
+              {isLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              ) : stockAlertItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">All items are well stocked</p>
+              ) : (
+                <div className="space-y-1">
+                  {stockAlertItems.slice(0, 4).map((item) => {
+                    const threshold = item.reorderPoint != null ? item.reorderPoint : (stats?.lowStockThreshold ?? 5);
+                    return (
+                      <div key={item.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{item.name}</p>
+                          <p className="text-xs text-muted-foreground">Reorder {threshold}</p>
+                        </div>
+                        <Badge variant={item.quantity === 0 ? "destructive" : "secondary"} className="text-xs shrink-0">
+                          {item.quantity === 0 ? "Out" : `${item.quantity} left`}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <Button asChild variant="outline" size="sm" className="w-full">
+                <Link href="/purchase-orders/new">
+                  <PackagePlus className="mr-2 h-3.5 w-3.5" />
+                  Create purchase order
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Top items</CardTitle>
+              <Link href={`/profit-loss${deepLinkQuery}`} className="text-xs text-primary font-medium hover:underline">
+                Report
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {plLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              ) : topItemsSorted.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No sales data yet</p>
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-1.5 border-b">
+                    <span>Item</span>
+                    <span>Sold · Revenue</span>
+                  </div>
+                  {topItemsSorted.map((pl) => (
+                    <div key={pl.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                      <span className="text-sm truncate">{pl.inventory?.name ?? "Unknown"}</span>
+                      <span className="text-sm font-mono shrink-0">
+                        {pl.totalQuantitySold} · {formatCurrency(pl.totalRevenue)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Top customers</CardTitle>
+              <Link href="/customers" className="text-xs text-primary font-medium hover:underline">
+                All customers
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {topCustomers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No customer data yet</p>
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-1.5 border-b">
+                    <span>Customer</span>
+                    <span>Share of revenue</span>
+                  </div>
+                  {topCustomers.slice(0, 5).map((customer: any) => {
+                    const share = topCustomersTotalSpend > 0 ? Math.round((customer.totalSpent / topCustomersTotalSpend) * 100) : 0;
+                    return (
+                      <Link
+                        key={customer.id}
+                        href={appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search)}
+                        className="block py-1.5 border-b last:border-0 hover-elevate -mx-2 px-2 rounded"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm truncate">
+                            {customer.name} <span className="text-xs text-muted-foreground">{customer.transactionCount} orders</span>
+                          </span>
+                          <span className="text-sm font-mono shrink-0">{formatCurrency(customer.totalSpent)}</span>
+                        </div>
+                        <div className="h-1 w-full rounded-full bg-muted mt-1 overflow-hidden">
+                          <div className="h-full bg-primary rounded-full" style={{ width: `${share}%` }} />
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+      {/* ─── End desktop layout ─── */}
     </div>
   );
 }
