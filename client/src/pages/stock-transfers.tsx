@@ -557,6 +557,12 @@ export default function StockTransfersPage() {
 
                 <div className="space-y-2">
                   <Label>Required Items Grid</Label>
+                  {inventoryItems.filter((inv) => inv.quantity > 0).length === 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                      <span className="text-amber-700 text-sm font-medium">⚠️ No inventory items available to transfer</span>
+                      <p className="text-amber-600 text-xs">All items at {currentStore.name} are out of stock. Build inventory or select a different source store.</p>
+                    </div>
+                  )}
                   <div className="space-y-3">
                     {items.map((item, index) => {
                       const selectedInv = inventoryItems.find(i => i.id === item.inventoryId);
@@ -574,11 +580,17 @@ export default function StockTransfersPage() {
                                 <SelectValue placeholder="Choose item" />
                               </SelectTrigger>
                               <SelectContent>
-                                {inventoryItems.filter((inv) => inv.quantity > 0).map((inv) => (
-                                  <SelectItem key={inv.id} value={inv.id}>
-                                    {inv.name} (SKU: {inv.id.substring(0, 8).toUpperCase()}) | Stock: {inv.quantity}
-                                  </SelectItem>
-                                ))}
+                                {inventoryItems.filter((inv) => inv.quantity > 0).length === 0 ? (
+                                  <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">
+                                    No items with available stock
+                                  </div>
+                                ) : (
+                                  inventoryItems.filter((inv) => inv.quantity > 0).map((inv) => (
+                                    <SelectItem key={inv.id} value={inv.id}>
+                                      {inv.name} (SKU: {inv.id.substring(0, 8).toUpperCase()}) | Stock: {inv.quantity}
+                                    </SelectItem>
+                                  ))
+                                )}
                               </SelectContent>
                             </Select>
                           </div>
