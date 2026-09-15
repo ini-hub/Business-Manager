@@ -819,6 +819,12 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         return res.status(400).json({ error: result.message });
       }
 
+      // Notify all staff at both stores
+      const fromStore = transfer.fromStore.name || transfer.fromStoreId;
+      const toStore = transfer.toStore.name || transfer.toStoreId;
+      await storage.notifyAllStaff(transfer.fromStoreId, "stock_transfer", `Transfer to ${toStore} has been accepted.`);
+      await storage.notifyAllStaff(transfer.toStoreId, "stock_transfer", `Transfer from ${fromStore} has been accepted. Next: source will schedule delivery.`);
+
       auditLogger.log({ action: "STOCK_TRANSFER_ACCEPT", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success" });
       res.json(result);
     } catch (error) {
@@ -842,6 +848,12 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!result.success) {
         return res.status(400).json({ error: result.message });
       }
+
+      // Notify all staff at both stores
+      const fromStore = transfer.fromStore.name || transfer.fromStoreId;
+      const toStore = transfer.toStore.name || transfer.toStoreId;
+      await storage.notifyAllStaff(transfer.fromStoreId, "stock_transfer", `Transfer to ${toStore} has been rejected. Reason: ${reason}`);
+      await storage.notifyAllStaff(transfer.toStoreId, "stock_transfer", `Transfer from ${fromStore} has been rejected.`);
 
       auditLogger.log({ action: "STOCK_TRANSFER_REJECT", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { reason } });
       res.json(result);
@@ -869,6 +881,12 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         return res.status(400).json({ error: result.message });
       }
 
+      // Notify all staff at both stores
+      const toStore = transfer.toStore.name || transfer.toStoreId;
+      const fromStore = transfer.fromStore.name || transfer.fromStoreId;
+      await storage.notifyAllStaff(transfer.fromStoreId, "stock_transfer", `Transfer to ${toStore} scheduled for ${deliveryDate} via ${deliveryMethod}.`);
+      await storage.notifyAllStaff(transfer.toStoreId, "stock_transfer", `Transfer from ${fromStore} scheduled to arrive on ${deliveryDate}.`);
+
       auditLogger.log({ action: "STOCK_TRANSFER_SCHEDULE", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { deliveryDate, deliveryMethod } });
       res.json(result);
     } catch (error) {
@@ -889,6 +907,11 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!result.success) {
         return res.status(400).json({ error: result.message });
       }
+
+      // Notify all staff at both stores
+      const toStore = transfer.toStore.name || transfer.toStoreId;
+      await storage.notifyAllStaff(transfer.fromStoreId, "stock_transfer", `Transfer to ${toStore} has been dispatched.`);
+      await storage.notifyAllStaff(transfer.toStoreId, "stock_transfer", `Transfer has been dispatched and is in transit. Confirm receipt when it arrives.`);
 
       auditLogger.log({ action: "STOCK_TRANSFER_DELIVER", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success" });
       res.json(result);
@@ -915,6 +938,12 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!result.success) {
         return res.status(400).json({ error: result.message });
       }
+
+      // Notify all staff at both stores
+      const fromStore = transfer.fromStore.name || transfer.fromStoreId;
+      const toStore = transfer.toStore.name || transfer.toStoreId;
+      await storage.notifyAllStaff(transfer.fromStoreId, "stock_transfer", `Transfer to ${toStore} has been received and confirmed.`);
+      await storage.notifyAllStaff(transfer.toStoreId, "stock_transfer", `Transfer from ${fromStore} has been received and stock has been added to inventory.`);
 
       auditLogger.log({ action: "STOCK_TRANSFER_CONFIRM", resource: "stock_transfer", resourceId: req.params.id, userId, ip: getClientIp(req), status: "success", details: { confirmedQuantities } });
       res.json(result);

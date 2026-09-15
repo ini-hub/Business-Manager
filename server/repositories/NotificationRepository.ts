@@ -89,4 +89,34 @@ export class NotificationRepository {
       });
     }
   }
+
+  async notifyAllStaff(storeId: string, type: string, message: string): Promise<void> {
+    const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
+    if (!store) return;
+
+    // Notify all business owners
+    const owners = await db.select({ id: users.id }).from(users).where(
+      and(eq(users.businessId, store.businessId), eq(users.role, "owner"))
+    );
+
+    const recipientIds = new Set(owners.map((owner) => owner.id));
+
+    // Notify all staff members at this store who have an associated user account
+    const storeStaff = await db.select({ userId: staff.userId }).from(staff).where(
+      and(eq(staff.storeId, storeId), eq(staff.isArchived, false))
+    );
+
+    for (const s of storeStaff) {
+      if (s.userId) recipientIds.add(s.userId);
+    }
+
+    for (const userId of Array.from(recipientIds)) {
+      await this.createNotification({
+        storeId,
+        userId,
+        type,
+        message,
+      });
+    }
+  }
 }

@@ -1916,6 +1916,10 @@ export class DatabaseStorage implements IStorage {
     return this.notificationRepo.notifyManagers(storeId, type, message);
   }
 
+  async notifyAllStaff(storeId: string, type: string, message: string): Promise<void> {
+    return this.notificationRepo.notifyAllStaff(storeId, type, message);
+  }
+
   async getAuditLogs(businessId: string, filters?: {
     action?: string;
     resource?: string;
