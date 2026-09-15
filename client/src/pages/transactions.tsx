@@ -29,7 +29,8 @@ import { formatCurrencyCompact } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { type TransactionWithRelations } from "@shared/schema";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { AlertCircle, Clock } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -660,10 +661,13 @@ export default function Transactions() {
       />
 
       <Tabs defaultValue="transactions" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="transactions">Sales Ledger</TabsTrigger>
-          <TabsTrigger value="drawer-shifts">Register Shifts</TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList
+          tabs={[
+            { value: "transactions", label: "Sales Ledger" },
+            { value: "drawer-shifts", label: "Register Shifts" },
+          ]}
+          variant="default"
+        />
 
         <TabsContent value="transactions" className="space-y-6 animate-in fade-in duration-300">
           <MetricGrid>

@@ -32,7 +32,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { ClearableInput } from "@/components/clearable-input";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import {
   Select,
   SelectContent,
@@ -792,17 +793,14 @@ export default function Customers() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="active" data-testid="tab-active-customers">
-            Active ({activeCustomers.length})
-          </TabsTrigger>
-          <TabsTrigger value="archived" data-testid="tab-archived-customers">
-            Archived ({archivedCustomers.length})
-          </TabsTrigger>
-          <TabsTrigger value="analytics" data-testid="tab-analytics-customers">
-            Analytics & Retention
-          </TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList
+          tabs={[
+            { value: "active", label: `Active (${activeCustomers.length})` },
+            { value: "archived", label: `Archived (${archivedCustomers.length})` },
+            { value: "analytics", label: "Analytics & Retention" },
+          ]}
+          variant="default"
+        />
         {(() => {
           const filterConfigs = [
             { key: "createdAt", label: "Date Added", type: "date-range" as const },

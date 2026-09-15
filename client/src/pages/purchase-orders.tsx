@@ -14,7 +14,8 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import {
   Dialog,
   DialogContent,
@@ -641,17 +642,15 @@ export default function PurchaseOrdersPage() {
 
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="list" className="gap-2">
-            <FileText className="h-4 w-4" /> Transit Registry
-          </TabsTrigger>
-          <TabsTrigger value="create" className="gap-2">
-            <Plus className="h-4 w-4" /> Create Procurement Form
-          </TabsTrigger>
-          <TabsTrigger value="bills" className="gap-2">
-            <Coins className="h-4 w-4" /> Vendor Bills & Payables
-          </TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList
+          tabs={[
+            { value: "list", label: "Transit Registry", icon: <FileText className="h-4 w-4" /> },
+            { value: "create", label: "Create Procurement Form", icon: <Plus className="h-4 w-4" /> },
+            { value: "bills", label: "Vendor Bills & Payables", icon: <Coins className="h-4 w-4" /> },
+          ]}
+          variant="default"
+          className="mb-4"
+        />
 
         <TabsContent value="list" className="space-y-6">
           <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
