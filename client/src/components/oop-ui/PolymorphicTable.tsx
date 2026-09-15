@@ -49,6 +49,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { DropdownFilter, MobileFilterChip } from "./PolymorphicTableFilters";
+import {
+  type SelectionMode,
+  type SelectionState,
+  toggleRow as toggleRowSelection,
+  toggleRange as toggleRangeSelection,
+  toggleSelectAllOnPage,
+  headerCheckboxState,
+  shouldShowSelectAllBanner,
+} from "./table-selection";
+import { BulkActionsBar, type BulkAction, pluralize as pluralizeNoun } from "./BulkActionsBar";
 
 const getNestedValue = (obj: any, path: string): any => {
   let val = obj;
@@ -187,6 +197,19 @@ export interface PolymorphicTableProps<T> {
   // the page size instead of the true total (e.g. "25 of 25" instead of the
   // real "50 customers").
   resultCountLabel?: React.ReactNode;
+
+  // Opts into the full multiselect + bulk-actions system: a sticky
+  // bottom-of-viewport action bar (BulkActionsBar), a "Select all {total}"
+  // banner once every row on the page is checked, and safe/reversible/
+  // destructive action semantics (destructive actions always confirm, with a
+  // typed-count guard above 5). Requires `multiselect` and `entityNoun`.
+  // Without this, `multiselect` still works exactly as before (plain
+  // checkboxes, no bar) for pages that haven't migrated yet.
+  bulkActions?: BulkAction<T>[];
+
+  // Singular/plural noun for bulk-action copy ("3 customers selected",
+  // "Archive customer" vs "Archive customers"). Required when bulkActions is set.
+  entityNoun?: { singular: string; plural: string };
 }
 
 /** Kebab trigger + dropdown rendered by the auto-generated "actions" column. */
@@ -254,6 +277,8 @@ export function PolymorphicTable<T extends { id: string | number }>({
   rowActions,
   searchSlot,
   resultCountLabel,
+  bulkActions,
+  entityNoun,
 }: PolymorphicTableProps<T>) {
   const columns = useMemo(() => {
     if (!rowActions || rawColumns.some((c) => c.key === "actions")) return rawColumns;
@@ -285,6 +310,14 @@ export function PolymorphicTable<T extends { id: string | number }>({
   const [localSelectedIds, setLocalSelectedIds] = useState<(string | number)[]>([]);
   const isControlled = selectedIds !== undefined;
   const currentSelectedIds = isControlled ? selectedIds : localSelectedIds;
+
+  // "page" vs "all" — see table-selection.ts. Kept alongside the flat currentSelectedIds
+  // array (which remains the single source of truth callers see via onSelectedIdsChange)
+  // purely to drive the select-all banner copy and the "deselecting one row while in all
+  // mode falls back to the current page" rule; "all" mode always keeps currentSelectedIds
+  // populated with every currently-filtered id, so every existing `.includes()` check
+  // elsewhere in this component keeps working unchanged.
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>("page");
 
   const handleHeaderClick = (columnKey: string) => {
     if (sortColumn === columnKey) {
@@ -461,34 +494,64 @@ export function PolymorphicTable<T extends { id: string | number }>({
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   };
 
-  const handleSelectRow = (id: string | number) => {
-    const nextSelected = currentSelectedIds.includes(id)
-      ? currentSelectedIds.filter((selectedId) => selectedId !== id)
-      : [...currentSelectedIds, id];
+  const currentPageIds = paginatedData.map((item) => item.id);
 
+  const applySelection = (next: SelectionState<string | number>) => {
+    setSelectionMode(next.mode);
+    const nextIds = next.mode === "all" ? sortedData.map((item) => item.id) : Array.from(next.ids);
     if (!isControlled) {
-      setLocalSelectedIds(nextSelected);
+      setLocalSelectedIds(nextIds);
     }
-    onSelectedIdsChange?.(nextSelected);
+    onSelectedIdsChange?.(nextIds);
   };
 
+  const asSelectionState = (): SelectionState<string | number> => ({
+    mode: selectionMode,
+    ids: new Set(currentSelectedIds),
+    anchorId: null,
+  });
+
+  const handleSelectRow = (id: string | number, rangeFrom?: boolean) => {
+    const state = asSelectionState();
+    applySelection(rangeFrom ? toggleRangeSelection(state, id, currentPageIds) : toggleRowSelection(state, id, currentPageIds));
+  };
+
+  // Header checkbox: current page only — the fix for the defect where this silently
+  // selected every row matching the filter across every page with no indication.
   const handleSelectAll = () => {
-    const allFilteredIds = sortedData.map((item) => item.id);
-    const allSelected = allFilteredIds.every((id) => currentSelectedIds.includes(id));
-
-    let nextSelected: (string | number)[];
-    if (allSelected) {
-      nextSelected = currentSelectedIds.filter((id) => !allFilteredIds.includes(id));
-    } else {
-      const newIds = allFilteredIds.filter((id) => !currentSelectedIds.includes(id));
-      nextSelected = [...currentSelectedIds, ...newIds];
-    }
-
-    if (!isControlled) {
-      setLocalSelectedIds(nextSelected);
-    }
-    onSelectedIdsChange?.(nextSelected);
+    applySelection(toggleSelectAllOnPage(asSelectionState(), currentPageIds));
   };
+
+  // "Select all {total}" banner action — promotes to "all" mode.
+  const handleSelectAllMatching = () => {
+    setSelectionMode("all");
+    const allIds = sortedData.map((item) => item.id);
+    if (!isControlled) setLocalSelectedIds(allIds);
+    onSelectedIdsChange?.(allIds);
+  };
+
+  const handleClearSelection = () => {
+    setSelectionMode("page");
+    if (!isControlled) setLocalSelectedIds([]);
+    onSelectedIdsChange?.([]);
+  };
+
+  // Selection is scoped to one filtered/searched view — a stale selection surviving a
+  // filter change could silently apply a bulk action to rows the user can no longer see.
+  useEffect(() => {
+    handleClearSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, JSON.stringify(activeFilters)]);
+
+  useEffect(() => {
+    if (currentSelectedIds.length === 0) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClearSelection();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSelectedIds.length]);
 
   const renderSortIcon = (columnKey: string) => {
     if (sortColumn !== columnKey) {
@@ -575,8 +638,10 @@ export function PolymorphicTable<T extends { id: string | number }>({
     );
   }
 
+  const hasBulkBarVisible = !!bulkActions && currentSelectedIds.length > 0;
+
   return (
-    <div className={cn("space-y-4 w-full min-w-0 overflow-hidden", className)}>
+    <div className={cn("space-y-4 w-full min-w-0 overflow-hidden", hasBulkBarVisible && "pb-16", className)}>
       {/* Search & Dynamic Horizontal Filter Toolbar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 pb-2 border-b border-muted/30">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
@@ -601,9 +666,13 @@ export function PolymorphicTable<T extends { id: string | number }>({
             </div>
           )}
           
-          {/* Desktop Filters: Horizontal Toolbar beside Search */}
+          {/* Desktop Filters: Horizontal Toolbar beside Search.
+              lg (1024px), not md (768px): below that, search + a handful of filter pills
+              don't reliably fit on one line and flex-wrap mid-toolbar — verified defect at
+              ~938px width. The horizontal-scroll chip row below already solves this safely,
+              so tablet gets that instead of wrapping inline pills. */}
           {filterConfigs.length > 0 && (
-            <div className="hidden md:flex items-center gap-2 flex-wrap">
+            <div className="hidden lg:flex items-center gap-2 flex-wrap">
               {filterConfigs.map((config) => (
                 <DropdownFilter
                   key={config.key}
@@ -627,11 +696,11 @@ export function PolymorphicTable<T extends { id: string | number }>({
             </div>
           )}
           
-          {/* Mobile Filters: one chip per filter, mirroring the desktop toolbar above —
+          {/* Tablet + mobile Filters: one chip per filter, mirroring the desktop toolbar above —
               tapping a chip opens a bottom sheet scoped to just that filter, instead of
               one combined form covering every filter at once. */}
           {filterConfigs.length > 0 && (
-            <div className="md:hidden flex items-center gap-2 w-full">
+            <div className="lg:hidden flex items-center gap-2 w-full">
               <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {filterConfigs.map((config) => (
                   <MobileFilterChip
@@ -666,22 +735,42 @@ export function PolymorphicTable<T extends { id: string | number }>({
         </div>
       </div>
 
+      {multiselect && shouldShowSelectAllBanner(asSelectionState(), currentPageIds, sortedData.length) && (
+        <div className="flex items-center justify-center gap-1.5 rounded-md bg-primary/10 text-primary text-xs font-medium px-3 py-2" data-testid="banner-select-all">
+          {selectionMode === "all" ? (
+            <>
+              All {sortedData.length} {entityNoun ? pluralizeNoun(sortedData.length, entityNoun) : "records"} selected.{" "}
+              <button type="button" className="underline hover:no-underline" onClick={handleClearSelection} data-testid="button-clear-select-all">
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <>
+              {currentPageIds.length} {entityNoun ? pluralizeNoun(currentPageIds.length, entityNoun) : "records"} on this page selected.{" "}
+              <button type="button" className="underline hover:no-underline" onClick={handleSelectAllMatching} data-testid="button-select-all-matching">
+                Select all {sortedData.length}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className={cn(forceCardView ? "hidden" : "hidden lg:block", "rounded-md border bg-card text-card-foreground overflow-x-auto max-w-full")}>
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30">
-              {multiselect && (
-                <TableHead className="w-12 px-4 py-3 text-center select-none">
-                  <Checkbox
-                    checked={
-                      sortedData.length > 0 &&
-                      sortedData.every((item) => currentSelectedIds.includes(item.id))
-                    }
-                    onCheckedChange={handleSelectAll}
-                    aria-label="Select all"
-                  />
-                </TableHead>
-              )}
+              {multiselect && (() => {
+                const headerState = headerCheckboxState(asSelectionState(), currentPageIds);
+                return (
+                  <TableHead className="w-12 px-4 py-3 text-center select-none">
+                    <Checkbox
+                      checked={headerState === "indeterminate" ? "indeterminate" : headerState === "checked"}
+                      onCheckedChange={handleSelectAll}
+                      aria-label="Select all on this page"
+                    />
+                  </TableHead>
+                );
+              })()}
               {columns.map((column) => (
                 <TableHead
                   key={column.key}
@@ -982,6 +1071,20 @@ export function PolymorphicTable<T extends { id: string | number }>({
           </div>
         )}
       </div>
+      )}
+
+      {bulkActions && entityNoun && (
+        <BulkActionsBar
+          selection={{
+            mode: selectionMode,
+            ids: currentSelectedIds,
+            items: sortedData.filter((item) => currentSelectedIds.includes(item.id)),
+            count: currentSelectedIds.length,
+          }}
+          entityNoun={entityNoun}
+          actions={bulkActions}
+          onClear={handleClearSelection}
+        />
       )}
     </div>
   );

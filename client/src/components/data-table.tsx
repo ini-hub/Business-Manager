@@ -1,6 +1,8 @@
 import { PolymorphicTable, ColumnConfig, TableFilterConfig, RowAction } from "./oop-ui/PolymorphicTable";
+import type { BulkAction } from "./oop-ui/BulkActionsBar";
 
 export type { RowAction };
+export type { BulkAction, BulkActionSelection, BulkActionPrecheck, BulkActionResult } from "./oop-ui/BulkActionsBar";
 
 export interface Column<T> {
   key: keyof T | string;
@@ -66,6 +68,15 @@ export interface DataTableProps<T> {
   // `data` is only the current server page (X/Y would otherwise reflect the
   // page size, not the true total).
   resultCountLabel?: React.ReactNode;
+
+  // Opts into the full multiselect + bulk-actions system: sticky bottom
+  // action bar, "Select all {total}" banner, safe/reversible/destructive
+  // action semantics. Requires `multiselect` and `entityNoun`. Without this,
+  // `multiselect` alone still works as plain checkboxes with no action bar.
+  bulkActions?: BulkAction<T>[];
+
+  // Singular/plural noun for bulk-action copy. Required when bulkActions is set.
+  entityNoun?: { singular: string; plural: string };
 }
 
 export function DataTable<T extends { id: string | number }>({
@@ -93,6 +104,8 @@ export function DataTable<T extends { id: string | number }>({
   rowActions,
   searchSlot,
   resultCountLabel,
+  bulkActions,
+  entityNoun,
 }: DataTableProps<T>) {
   // Map standard Column format to PolymorphicTable ColumnConfig
   const mappedColumns: ColumnConfig<T>[] = columns.map((col) => ({
@@ -128,6 +141,8 @@ export function DataTable<T extends { id: string | number }>({
       rowActions={rowActions}
       searchSlot={searchSlot}
       resultCountLabel={resultCountLabel}
+      bulkActions={bulkActions}
+      entityNoun={entityNoun}
     />
   );
 }
