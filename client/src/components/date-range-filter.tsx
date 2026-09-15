@@ -87,7 +87,7 @@ export function DateRangeFilter({
   const activePreset = presets.find((p) => p.value === selectedPreset);
 
   return (
-    <div className={cn("flex flex-col sm:flex-row items-stretch sm:items-center gap-2", compact && "sm:flex-row items-center")}>
+    <div className={cn(compact ? "flex flex-row items-center gap-2" : "flex flex-col sm:flex-row items-stretch sm:items-center gap-2")}>
       <Select value={selectedPreset} onValueChange={handlePresetChange}>
         <SelectTrigger
           className={cn(
