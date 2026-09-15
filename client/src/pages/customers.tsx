@@ -599,14 +599,14 @@ export default function Customers() {
     },
     {
       key: "totalSpend",
-      header: "Total Spend",
+      header: "Total spend",
       render: (customer: CustomerRow) => (
         <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
       ),
     },
     {
       key: "lastVisited",
-      header: "Last Visited",
+      header: "Last visit",
       render: (customer: CustomerRow) => (
         <div className="text-sm">
           <div>{formatDate(customer.lastVisited)}</div>
@@ -675,14 +675,14 @@ export default function Customers() {
     },
     {
       key: "totalSpend",
-      header: "Total Spend",
+      header: "Total spend",
       render: (customer: CustomerRow) => (
         <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
       ),
     },
     {
       key: "lastVisited",
-      header: "Last Visited",
+      header: "Last visit",
       render: (customer: CustomerRow) => (
         <span className="text-sm">{formatDate(customer.lastVisited)}</span>
       ),
@@ -880,8 +880,8 @@ export default function Customers() {
         />
         {(() => {
           const filterConfigs = [
-            { key: "createdAt", label: "Date Added", type: "date-range" as const },
-            { key: "lastVisited", label: "Last Visited", type: "date-range" as const },
+            { key: "createdAt", label: "Date added", type: "date-range" as const },
+            { key: "lastVisited", label: "Last visited", type: "date-range" as const },
             { key: "totalSpend", label: "Spend", type: "range" as const, currencySymbol: currentStore?.currency === "USD" ? "$" : "₦" }
           ];
 
@@ -909,7 +909,7 @@ export default function Customers() {
                 {currentStore?.id !== "all" && (
                   <div className="mb-3">
                     <ClearableInput
-                      placeholder="Search active customers..."
+                      placeholder="Name, phone or ID"
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                       onClear={() => setSearchInput("")}
@@ -921,7 +921,7 @@ export default function Customers() {
                   data={activeTableData}
                   columns={activeColumns}
                   searchable={currentStore?.id === "all"}
-                  searchPlaceholder="Search active customers..."
+                  searchPlaceholder="Name, phone or ID"
                   searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
                   isLoading={isLoading}
                   emptyMessage="Add active profiles to start tracking their credit limits, transactions, and retention logs."
