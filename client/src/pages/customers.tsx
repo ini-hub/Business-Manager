@@ -534,7 +534,7 @@ export default function Customers() {
   const CustomerCardNameCell = ({ customer }: { customer: Customer }) => (
     <div className="flex flex-col min-w-0">
       <span className="truncate">{customer.name}</span>
-      <span className="text-[11px] font-normal text-muted-foreground font-mono truncate">
+      <span className="text-[11px] font-normal text-muted-foreground truncate">
         {customer.customerNumber}
       </span>
     </div>
@@ -593,7 +593,7 @@ export default function Customers() {
       header: "Total spend",
       priority: 1 as const,
       render: (customer: CustomerRow) => (
-        <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
+        <span className="text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
       ),
     },
     {
@@ -674,7 +674,7 @@ export default function Customers() {
       header: "Total spend",
       priority: 1 as const,
       render: (customer: CustomerRow) => (
-        <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
+        <span className="text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
       ),
     },
     {
