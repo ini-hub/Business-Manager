@@ -6,6 +6,7 @@ import { useUrlState } from "@/hooks/use-url-state";
 import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench, BarChart3, UserX, Wallet, UserPlus2, SlidersHorizontal, ArrowUpDown, X, Search } from "lucide-react";
 import { FiltersSheet, SortSheet } from "@/components/customer-filter-sheets";
 import { cn } from "@/lib/utils";
+import { getCustomerInitials, formatRelativeDate } from "@/lib/customer-detail-utils";
 import {
   type CustomerFilterState,
   type CustomerSortState,
@@ -503,31 +504,13 @@ export default function Customers() {
     return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric" }).format(new Date(date));
   };
 
-  const formatRelativeDate = (date: string | Date | null) => {
-    if (!date) return null;
-    const diffMs = Date.now() - new Date(date).getTime();
-    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    if (days <= 0) return "Today";
-    if (days === 1) return "Yesterday";
-    if (days < 7) return `${days} d ago`;
-    if (days < 30) return `${Math.floor(days / 7)} wk ago`;
-    if (days < 365) return `${Math.floor(days / 30)} mo ago`;
-    return `${Math.floor(days / 365)} yr ago`;
-  };
-
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return "?";
-    return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
-  };
-
   const CustomerNameCell = ({ customer }: { customer: Customer }) => {
     const presenter = new CustomerPresenter(customer);
     return (
       <div className="flex items-center gap-2.5">
         <Avatar className="h-8 w-8 shrink-0">
           <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-xs font-semibold">
-            {getInitials(customer.name)}
+            {getCustomerInitials(customer.name)}
           </AvatarFallback>
         </Avatar>
         <EntityDisplay presenter={presenter} />

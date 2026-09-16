@@ -561,6 +561,8 @@ export default function NewSale() {
 
   const searchParams = new URLSearchParams(window.location.search);
   const bookingId = searchParams.get("bookingId");
+  // Deep-linked from a customer's detail page "New sale" button.
+  const preselectedCustomerId = searchParams.get("customerId");
 
   const { data: bookingDetails } = useQuery<any>({
     queryKey: ["/api/bookings", bookingId],
@@ -699,6 +701,12 @@ export default function NewSale() {
       window.removeEventListener("offline", handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (preselectedCustomerId && cart.length === 0) setSelectedCustomer(preselectedCustomerId);
+    // Only meant to apply once, on arrival via the deep link — not on every cart change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedCustomerId]);
 
   useEffect(() => {
     if (bookingDetails && inventory.length > 0 && cart.length === 0) {

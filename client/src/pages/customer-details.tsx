@@ -4,23 +4,33 @@ import { useReturnTo, appendReturnTo } from "@/lib/return-to";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation, useSearch } from "wouter";
-import { ArrowLeft, User, Phone, MapPin, Hash, Calendar, Package, Coins, CreditCard, Receipt, AlertCircle, BookOpen, Check } from "lucide-react";
+import { ArrowLeft, Phone, MapPin, Calendar, Coins, Receipt, AlertCircle, BookOpen, MoreVertical, Edit, Archive, RotateCcw, PhoneCall, MessageCircle, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/page-header";
-import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
 import { MetricGrid } from "@/components/metric-grid";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatCurrencyCompact } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
+import { normalizePhoneForStorage } from "@shared/phone-utils";
+import { getCustomerInitials, formatRelativeDate, groupByDay, deriveTransactionStatus } from "@/lib/customer-detail-utils";
+import { getUserFriendlyError } from "@/lib/error-utils";
 import { Link } from "wouter";
 import type { Customer, TransactionWithRelations } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import {
   Table,
@@ -92,6 +102,33 @@ export default function CustomerDetails() {
     dismissMutation.mutate({ targetId, duplicateId });
   };
 
+  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/customers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Customer archived successfully" });
+      setIsArchiveConfirmOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't Archive Customer", description: getUserFriendlyError(error), variant: "destructive" });
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/customers/${id}/restore`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Customer restored successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't Restore Customer", description: getUserFriendlyError(error), variant: "destructive" });
+    },
+  });
+
   // Fetch the full customer list — used for slug resolution, duplicate lookups, and sub-queries
   const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
@@ -145,22 +182,6 @@ export default function CustomerDetails() {
     }).format(value);
   };
 
-  const formatDualCurrency = (value: number) => {
-    const storeCurrency = currentStore?.currency || "NGN";
-    const primaryAmount = formatCurrency(value, storeCurrency);
-    if (storeCurrency === "USD") {
-      return primaryAmount;
-    }
-    const usdRate = 1500;
-    const usdAmount = formatCurrency(value / usdRate, "USD");
-    return (
-      <div className="flex flex-col">
-        <span className="font-mono font-medium">{primaryAmount}</span>
-        <span className="text-xs text-muted-foreground font-mono">{usdAmount}</span>
-      </div>
-    );
-  };
-
   const formatDate = (date: string | Date) => {
     return new Intl.DateTimeFormat("en-US", {
       year: "numeric",
@@ -175,66 +196,6 @@ export default function CustomerDetails() {
     (sum, tx) => sum + (tx.checkout?.totalPrice ?? 0),
     0
   );
-
-  const columns = [
-    {
-      key: "transactionDate",
-      header: "Date",
-      render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <Calendar className="h-3 w-3 text-muted-foreground" />
-          <span className="text-sm">{formatDate(tx.transactionDate)}</span>
-        </div>
-      ),
-    },
-    {
-      key: "inventory",
-      header: "Item",
-      render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <Package className="h-3 w-3 text-muted-foreground" />
-          <div>
-            {tx.inventory?.id ? (
-              <EntityLink href={`/inventory/${buildSlug(tx.inventory.name, tx.inventory.id)}`}>
-                <p className="font-medium text-sm">{tx.inventory.name}</p>
-              </EntityLink>
-            ) : (
-              <p className="font-medium text-sm">{tx.inventory?.name ?? "Unknown"}</p>
-            )}
-            <Badge variant="outline" className={`text-xs capitalize mt-1 ${
-              tx.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
-              : tx.inventory?.type === "product" ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
-              : tx.inventory?.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
-              : ""}`}>
-              {tx.inventory?.type ?? "unknown"}
-            </Badge>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: "paymentMethod",
-      header: "Payment",
-      render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <CreditCard className="h-3 w-3 text-muted-foreground" />
-          <Badge variant="secondary" className="capitalize">
-            {tx.checkout?.paymentMethod ?? "cash"}
-          </Badge>
-        </div>
-      ),
-    },
-    {
-      key: "checkout",
-      header: "Amount",
-      render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-2">
-          <Coins className="h-3 w-3 text-muted-foreground" />
-          {formatDualCurrency(tx.checkout?.totalPrice ?? 0)}
-        </div>
-      ),
-    },
-  ];
 
   if (!match) {
     return null;
@@ -291,33 +252,171 @@ export default function CustomerDetails() {
   const detailTabItems: TabItem[] = [
     {
       value: "transactions",
-      label: `Transaction History (${transactions.length})`,
+      label: "Transactions",
       icon: <Receipt className="h-3.5 w-3.5" />,
+      badge: transactions.length > 0 ? transactions.length : undefined,
     },
     {
       value: "credit",
-      label: `Credit Sales Ledger (${creditEntries.length})`,
+      label: "Credit",
       icon: <BookOpen className="h-3.5 w-3.5 text-amber-500" />,
+      badge: creditEntries.length > 0 ? creditEntries.length : undefined,
     },
     {
       value: "bookings",
-      label: `Bookings (${bookings.length})`,
+      label: "Bookings",
       icon: <Calendar className="h-3.5 w-3.5 text-blue-500" />,
+      badge: bookings.length > 0 ? bookings.length : undefined,
     },
   ];
 
+  const lastVisitDate = transactions.reduce<Date | null>((latest, tx) => {
+    const d = new Date(tx.transactionDate);
+    return !latest || d > latest ? d : latest;
+  }, null);
+
+  const rawPhone = customer.mobileNumber
+    ? normalizePhoneForStorage(customer.mobileNumber, customer.countryCode || "+234")
+    : null;
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={customer.name}
-        description={`Customer details and transaction history`}
-        actions={
-          <Button variant="outline" onClick={() => setLocation(backHref)} data-testid="button-back">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Customers
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setLocation(backHref)}
+          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+          data-testid="button-back"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Customers
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-customer-menu">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`)}
+              data-testid="menu-edit-customer"
+            >
+              <Edit className="mr-2 h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+            {customer.isArchived ? (
+              <DropdownMenuItem onClick={() => restoreMutation.mutate(customer.id)} data-testid="menu-restore-customer">
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Restore
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => setIsArchiveConfirmOpen(true)}
+                className="text-destructive focus:text-destructive"
+                data-testid="menu-archive-customer"
+              >
+                <Archive className="mr-2 h-4 w-4" />
+                Archive
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar className="h-12 w-12 shrink-0">
+            <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-base font-semibold">
+              {getCustomerInitials(customer.name)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold tracking-tight truncate">{customer.name}</h1>
+            <p className="text-xs text-muted-foreground truncate">
+              {customer.customerNumber} · Customer since{" "}
+              {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(new Date(customer.createdAt))}
+            </p>
+          </div>
+        </div>
+        <Badge
+          variant={customer.isArchived ? "secondary" : "default"}
+          className={cn("shrink-0", !customer.isArchived && "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300")}
+        >
+          {customer.isArchived ? "Archived" : "Active"}
+        </Badge>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {rawPhone && (
+          <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-call">
+            <a href={`tel:${rawPhone}`} aria-label="Call customer">
+              <PhoneCall className="h-4 w-4" />
+            </a>
           </Button>
-        }
-      />
+        )}
+        {rawPhone && (
+          <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-whatsapp">
+            <a href={`https://wa.me/${rawPhone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="Message on WhatsApp">
+              <MessageCircle className="h-4 w-4" />
+            </a>
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-10 w-10 rounded-full shrink-0"
+          onClick={() => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`)}
+          aria-label="Edit customer"
+          data-testid="button-quick-edit"
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+        <Button
+          className="flex-1"
+          onClick={() => setLocation(`/new-sale?customerId=${customer.id}`)}
+          data-testid="button-new-sale"
+        >
+          <ShoppingCart className="mr-2 h-4 w-4" />
+          New sale
+        </Button>
+      </div>
+
+      {(customer.mobileNumber || customer.address) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          {customer.mobileNumber && (
+            <span className="flex items-center gap-1.5">
+              <Phone className="h-3.5 w-3.5" />
+              {formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "")}
+            </span>
+          )}
+          {customer.address && (
+            <span className="flex items-center gap-1.5 min-w-0">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{customer.address}</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      <MetricGrid>
+        <MetricCard
+          title="Total spent"
+          value={formatCurrency(totalSpent, currentStore?.currency || "NGN")}
+          compactValue={formatCurrencyCompact(totalSpent, currentStore?.currency || "NGN")}
+          icon={<Coins className="h-4 w-4" />}
+        />
+        <MetricCard
+          title="Visits"
+          value={transactions.length}
+          icon={<Receipt className="h-4 w-4" />}
+        />
+        <MetricCard
+          title="Last visit"
+          value={lastVisitDate ? formatRelativeDate(lastVisitDate) ?? "-" : "-"}
+          icon={<Calendar className="h-4 w-4" />}
+        />
+      </MetricGrid>
 
       {customer.duplicateOfId && (
         <Alert className="border-amber-500/35 bg-amber-500/5 text-amber-500 rounded-2xl flex items-center justify-between gap-4 p-4 animate-in fade-in duration-300">
@@ -361,76 +460,7 @@ export default function CustomerDetails() {
         </Alert>
       )}
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <User className="h-4 w-4" />
-              Customer Information
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Hash className="h-3 w-3" />
-                Customer ID
-              </p>
-              <p className="font-mono text-sm font-medium" data-testid="text-customer-number">
-                {customer.customerNumber}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Phone className="h-3 w-3" />
-                Phone
-              </p>
-              <p className="text-sm" data-testid="text-customer-phone">
-                {formatPhoneDisplay(customer.mobileNumber || "", customer.countryCode || "")}
-              </p>
-            </div>
-            {customer.address && (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  Address
-                </p>
-                <p className="text-sm" data-testid="text-customer-address">
-                  {customer.address}
-                </p>
-              </div>
-            )}
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                Last Updated
-              </p>
-              <p className="text-sm" data-testid="text-customer-updated-at">
-                {formatDate(customer.updatedAt)}
-              </p>
-            </div>
-            <div className="pt-2">
-              <Badge variant={customer.isArchived ? "secondary" : "default"}>
-                {customer.isArchived ? "Archived" : "Active"}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="md:col-span-2 space-y-6">
-          <MetricGrid>
-            <MetricCard
-              title="Total Transactions"
-              value={transactions.length}
-              icon={<Receipt className="h-4 w-4" />}
-            />
-            <MetricCard
-              title="Total Spent"
-              value={formatCurrency(totalSpent, currentStore?.currency || "NGN")}
-              compactValue={formatCurrencyCompact(totalSpent, currentStore?.currency || "NGN")}
-              icon={<Coins className="h-4 w-4" />}
-            />
-          </MetricGrid>
-
+      <div className="space-y-6">
           <Card className="glassmorphism border border-border/80">
             <CardHeader className="pb-3 border-b">
               <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
@@ -457,11 +487,59 @@ export default function CustomerDetails() {
                       </p>
                     </div>
                   ) : (
-                    <DataTable
-                      columns={columns}
-                      data={transactions}
-                      onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
-                    />
+                    <div className="space-y-5">
+                      {groupByDay(transactions, (tx) => tx.transactionDate).map((group) => (
+                        <div key={group.label} className="space-y-2">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group.label}</p>
+                          <div className="divide-y rounded-md border">
+                            {group.items.map((tx) => {
+                              const status = deriveTransactionStatus(tx.id, tx.checkout?.paymentStatus, creditEntries);
+                              const itemCount = (tx.checkout as any)?.basketItemCount ?? 1;
+                              return (
+                                <div
+                                  key={tx.id}
+                                  className="flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer hover-elevate"
+                                  onClick={() => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
+                                  data-testid={`row-transaction-${tx.id}`}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium truncate">
+                                      {tx.inventory?.name ?? "Unknown"}
+                                      {itemCount > 1 && (
+                                        <span className="text-muted-foreground font-normal"> +{itemCount - 1} items</span>
+                                      )}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" }).format(new Date(tx.transactionDate))}
+                                      {" · "}
+                                      <span className="capitalize">{tx.checkout?.paymentMethod ?? "cash"}</span>
+                                      {tx.checkout?.receiptNumber && <> · #{tx.checkout.receiptNumber}</>}
+                                    </p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-sm font-mono font-medium">
+                                      {formatCurrency(tx.checkout?.totalPrice ?? 0, currentStore?.currency || "NGN")}
+                                    </p>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-[10px] px-1.5 py-0 h-4 mt-0.5",
+                                        status.tone === "success" && "border-emerald-500 text-emerald-600 bg-emerald-500/5 dark:text-emerald-400",
+                                        status.tone === "warning" && "border-amber-500 text-amber-600 bg-amber-500/5 dark:text-amber-400",
+                                        status.tone === "destructive" && "border-rose-500 text-rose-600 bg-rose-500/5 dark:text-rose-400",
+                                        status.tone === "muted" && "border-muted-foreground/30 text-muted-foreground"
+                                      )}
+                                    >
+                                      {status.label}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </TabsContent>
 
@@ -630,8 +708,18 @@ export default function CustomerDetails() {
               </Tabs>
             </CardContent>
           </Card>
-        </div>
       </div>
+
+      <ConfirmDialog
+        open={isArchiveConfirmOpen}
+        onOpenChange={setIsArchiveConfirmOpen}
+        title="Archive Customer"
+        description={`Are you sure you want to archive "${customer.name}"? You can restore them later from the Archived tab.`}
+        confirmText="Archive"
+        onConfirm={() => archiveMutation.mutate(customer.id)}
+        isDestructive
+        isLoading={archiveMutation.isPending}
+      />
 
       <Dialog open={isMergeWizardOpen} onOpenChange={setIsMergeWizardOpen}>
         <DialogContent className="max-w-2xl bg-slate-900 border border-slate-800 text-white rounded-3xl p-6">
