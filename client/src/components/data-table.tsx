@@ -53,6 +53,10 @@ export interface DataTableProps<T> {
   // Hints tap-to-open on the mobile/tablet card list with a trailing chevron.
   showCardChevron?: boolean;
 
+  // See PolymorphicTable's cardLayout — "compact-grid" lays the first 4
+  // priority columns out as a 2x2 grid instead of a vertical label:value list.
+  cardLayout?: "list" | "compact-grid";
+
   // Suppresses the built-in pagination/rows-per-page footer, for callers that
   // paginate server-side and render their own footer instead.
   hideFooter?: boolean;
@@ -102,6 +106,7 @@ export function DataTable<T extends { id: string | number }>({
   urlKey,
   forceCardView,
   showCardChevron,
+  cardLayout,
   hideFooter,
   rowActions,
   searchSlot,
@@ -140,6 +145,7 @@ export function DataTable<T extends { id: string | number }>({
       urlKey={urlKey}
       forceCardView={forceCardView}
       showCardChevron={showCardChevron}
+      cardLayout={cardLayout}
       hideFooter={hideFooter}
       rowActions={rowActions}
       searchSlot={searchSlot}

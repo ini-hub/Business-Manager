@@ -6,7 +6,7 @@ import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
 type AuditPerson = { name?: string; email?: string };
 type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
-import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2, ChevronRight } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
@@ -757,6 +757,7 @@ export default function InventoryPage() {
       <PageHeader
         title="Inventory"
         description={`Managing inventory for ${currentStore.name}`}
+        compact
         actions={
           <div className="flex items-center gap-2">
             {filterType === "audits" ? (
@@ -867,13 +868,13 @@ export default function InventoryPage() {
       </MetricGrid>
 
       {lowStockCount > 0 && filterType !== "audits" && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
-          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-          <div className="flex-1">
-            <p className="font-medium text-amber-800 dark:text-amber-200">
+        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:p-4 dark:border-amber-900 dark:bg-amber-950">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-amber-800 dark:text-amber-200 truncate">
               Low Stock Alert
             </p>
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+            <p className="hidden sm:block text-sm text-amber-700 dark:text-amber-300">
               {formatStockAlertCopy(outOfStockCount, lowStockOnlyCount)}
               {outOfStockCount > 0 && ` (${outOfStockCount} out of stock, ${lowStockOnlyCount} low)`}
             </p>
@@ -882,11 +883,21 @@ export default function InventoryPage() {
             variant="outline"
             size="sm"
             onClick={() => setFilterType("low-stock")}
-            className="border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
+            className="hidden sm:inline-flex border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
             data-testid="button-view-low-stock"
           >
             <ShoppingCart className="mr-2 h-4 w-4" />
             View Items
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setFilterType("low-stock")}
+            className="sm:hidden h-8 w-8 flex-shrink-0 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900"
+            aria-label="View low stock items"
+            data-testid="button-view-low-stock-mobile"
+          >
+            <ChevronRight className="h-5 w-5" />
           </Button>
         </div>
       )}

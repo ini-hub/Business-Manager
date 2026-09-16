@@ -40,6 +40,7 @@ import {
   ArrowDown,
   PackageOpen,
   MoreHorizontal,
+  X,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -185,6 +186,16 @@ export interface PolymorphicTableProps<T> {
   // for tables whose rows navigate to a detail page on click.
   showCardChevron?: boolean;
 
+  // "list" (default): primary column as a bold header line, every other
+  // priority column below it as a label:value row — the original card shape.
+  // "compact-grid": the first 4 priority columns (in the order they're
+  // declared) lay out as a 2x2 grid — [0] top-left bold, [1] top-right,
+  // [2] bottom-left muted, [3] bottom-right muted — for a name+detail /
+  // value+meta row (e.g. Name+Phone left, Spend+Last visit right) instead of
+  // a vertical list of every field. Requires `priority` set on columns;
+  // falls back to "list" if fewer than 2 columns have one.
+  cardLayout?: "list" | "compact-grid";
+
   // Suppresses the built-in "Showing X to Y of Z" + Rows/page-nav footer, for
   // callers that already paginate server-side and render their own accurate
   // footer above/below this table (the built-in one only knows about the
@@ -286,6 +297,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   urlKey,
   forceCardView = false,
   showCardChevron = false,
+  cardLayout = "list",
   hideFooter = false,
   rowActions,
   searchSlot,
@@ -655,13 +667,15 @@ export function PolymorphicTable<T extends { id: string | number }>({
 
   return (
     <div className={cn("space-y-4 w-full min-w-0 overflow-hidden", hasBulkBarVisible && "pb-16", className)}>
-      {/* Search & Dynamic Horizontal Filter Toolbar */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 pb-2 border-b border-muted/30">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+      {/* Search & Dynamic Horizontal Filter Toolbar — kept as one row at every
+          width: search takes a capped share, filters get the rest and scroll
+          horizontally in place rather than wrapping onto a second/third row. */}
+      <div className="flex flex-row items-center gap-2 pb-2 border-b border-muted/30">
+        <div className="flex flex-row items-center gap-2 flex-1 min-w-0">
           {searchSlot ? (
-            <div className="w-full sm:max-w-xs md:max-w-sm">{searchSlot}</div>
+            <div className="flex-1 min-w-[96px] sm:flex-initial sm:w-auto sm:max-w-xs md:max-w-sm">{searchSlot}</div>
           ) : searchable && (
-            <div className="relative w-full sm:max-w-xs md:max-w-sm">
+            <div className="relative flex-1 min-w-[96px] sm:flex-initial sm:w-56 sm:max-w-xs md:max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <ClearableInput
                 placeholder={searchPlaceholder}
@@ -678,7 +692,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
               />
             </div>
           )}
-          
+
           {/* Desktop Filters: Horizontal Toolbar beside Search.
               lg (1024px), not md (768px): below that, search + a handful of filter pills
               don't reliably fit on one line and flex-wrap mid-toolbar — verified defect at
@@ -695,7 +709,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                   onChange={(val) => handleFilterChange(config.key, val)}
                 />
               ))}
-              
+
               {hasActiveFilters && (
                 <Button
                   variant="ghost"
@@ -708,13 +722,15 @@ export function PolymorphicTable<T extends { id: string | number }>({
               )}
             </div>
           )}
-          
+
           {/* Tablet + mobile Filters: one chip per filter, mirroring the desktop toolbar above —
               tapping a chip opens a bottom sheet scoped to just that filter, instead of
-              one combined form covering every filter at once. */}
+              one combined form covering every filter at once. Shares the row with search
+              (rather than a full-width row below it) and scrolls internally so it never
+              forces a second line. */}
           {filterConfigs.length > 0 && (
-            <div className="lg:hidden flex items-center gap-2 w-full">
-              <div className="flex items-center gap-2 overflow-x-auto flex-1 min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5">
+            <div className="lg:hidden flex items-center gap-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {filterConfigs.map((config) => (
                   <MobileFilterChip
                     key={config.key}
@@ -729,21 +745,31 @@ export function PolymorphicTable<T extends { id: string | number }>({
               {hasActiveFilters && (
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={clearAllFilters}
-                  className="text-xs text-muted-foreground px-2 h-9 flex-shrink-0"
+                  className="h-9 w-9 flex-shrink-0 text-muted-foreground"
+                  aria-label="Clear all filters"
+                  title="Clear all filters"
                 >
-                  Clear All
+                  <X className="h-4 w-4" />
                 </Button>
               )}
             </div>
           )}
         </div>
-        
+
         {/* Record count indicator */}
-        <div className="text-xs font-semibold text-muted-foreground whitespace-nowrap self-end md:self-center">
+        <div className="text-xs font-semibold text-muted-foreground whitespace-nowrap flex-shrink-0">
           {resultCountLabel ?? (
-            <>Showing <span className="text-foreground font-bold">{filteredData.length}</span> of <span className="text-foreground font-bold">{data.length}</span> records</>
+            <>
+              <span className="hidden sm:inline">
+                Showing <span className="text-foreground font-bold">{filteredData.length}</span> of{" "}
+                <span className="text-foreground font-bold">{data.length}</span> records
+              </span>
+              <span className="sm:hidden text-foreground font-bold">
+                {filteredData.length}/{data.length}
+              </span>
+            </>
           )}
         </div>
       </div>
@@ -919,6 +945,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                 : allDataCols;
               const primaryCol = dataCols[0];
               const otherCols = dataCols.slice(1);
+              const useCompactGrid = cardLayout === "compact-grid" && dataCols.length >= 2;
 
               return (
                 <div
@@ -931,16 +958,16 @@ export function PolymorphicTable<T extends { id: string | number }>({
                     }
                   }}
                   className={cn(
-                    "relative bg-card text-card-foreground border rounded-xl p-4 shadow-xs hover:border-primary/45 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3 group border-muted/80 min-w-0 overflow-hidden",
+                    "relative bg-card text-card-foreground border rounded-xl transition-all cursor-pointer group border-muted/80 min-w-0 overflow-hidden",
+                    useCompactGrid ? "p-3.5 hover-elevate" : "shadow-xs hover:border-primary/45 hover:shadow-md flex flex-col gap-3 p-4",
                     isSelected && "border-primary/50 bg-primary/5"
                   )}
                 >
-                  {/* Card Header */}
-                  <div className="flex items-start justify-between gap-2 pr-8">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                  {useCompactGrid ? (
+                    <div className="flex items-start gap-2.5 min-w-0">
                       {multiselect && (
                         <div
-                          className="shrink-0"
+                          className="shrink-0 pt-0.5"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleSelectRow(item.id);
@@ -953,40 +980,90 @@ export function PolymorphicTable<T extends { id: string | number }>({
                           />
                         </div>
                       )}
-                      <div className="font-bold text-sm text-foreground truncate min-w-0 leading-tight">
-                        {primaryCol ? formatCellValue(item, primaryCol) : `Record #${item.id}`}
+                      {/* 2x2 grid: [0] name (bold) top-left, [1] value top-right,
+                          [2] detail (muted) bottom-left, [3] meta (muted) bottom-right —
+                          a compact name+detail / value+meta row instead of a vertical
+                          label:value list, for tables where every field doesn't need
+                          its own line (e.g. Name+Phone vs. Spend+Last visit). */}
+                      <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                        <div className="font-semibold text-sm text-foreground truncate">
+                          {formatCellValue(item, dataCols[0])}
+                        </div>
+                        <div className="text-sm text-foreground font-semibold text-right truncate">
+                          {dataCols[1] ? formatCellValue(item, dataCols[1]) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {dataCols[2] ? formatCellValue(item, dataCols[2]) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground text-right truncate">
+                          {dataCols[3] ? formatCellValue(item, dataCols[3]) : null}
+                        </div>
                       </div>
+                      {actionsCol && (
+                        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {formatCellValue(item, actionsCol)}
+                        </div>
+                      )}
+                      {showCardChevron && !actionsCol && (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0 self-center" />
+                      )}
                     </div>
-                    
-                    {/* Floating Actions button in card top-right */}
-                    {actionsCol && (
-                      <div 
-                        className="absolute top-3 right-3 z-10 shrink-0" 
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {formatCellValue(item, actionsCol)}
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Card Body Key-Values */}
-                  {otherCols.length > 0 && (
-                    <div className="flex flex-col gap-2 pt-3 border-t border-muted/40">
-                      {otherCols.map((col) => (
-                        <div key={col.key} className="flex justify-between items-center min-w-0 gap-4">
-                          <span className="text-xs font-medium text-muted-foreground shrink-0">
-                            {col.header}
-                          </span>
-                          <div className="text-sm text-foreground font-semibold truncate text-right">
-                            {formatCellValue(item, col)}
+                  ) : (
+                    <>
+                      {/* Card Header */}
+                      <div className="flex items-start justify-between gap-2 pr-8">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {multiselect && (
+                            <div
+                              className="shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectRow(item.id);
+                              }}
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => handleSelectRow(item.id)}
+                                aria-label={`Select row ${item.id}`}
+                              />
+                            </div>
+                          )}
+                          <div className="font-bold text-sm text-foreground truncate min-w-0 leading-tight">
+                            {primaryCol ? formatCellValue(item, primaryCol) : `Record #${item.id}`}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
 
-                  {showCardChevron && (
-                    <ChevronRight className="absolute bottom-3.5 right-3 h-4 w-4 text-muted-foreground/50" />
+                        {/* Floating Actions button in card top-right */}
+                        {actionsCol && (
+                          <div
+                            className="absolute top-3 right-3 z-10 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {formatCellValue(item, actionsCol)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Card Body Key-Values */}
+                      {otherCols.length > 0 && (
+                        <div className="flex flex-col gap-2 pt-3 border-t border-muted/40">
+                          {otherCols.map((col) => (
+                            <div key={col.key} className="flex justify-between items-center min-w-0 gap-4">
+                              <span className="text-xs font-medium text-muted-foreground shrink-0">
+                                {col.header}
+                              </span>
+                              <div className="text-sm text-foreground font-semibold truncate text-right">
+                                {formatCellValue(item, col)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {showCardChevron && (
+                        <ChevronRight className="absolute bottom-3.5 right-3 h-4 w-4 text-muted-foreground/50" />
+                      )}
+                    </>
                   )}
                 </div>
               );

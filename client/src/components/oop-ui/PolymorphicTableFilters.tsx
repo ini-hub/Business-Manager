@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter } from "lucide-react";
+import { Search, Filter, ListFilter, SlidersHorizontal, CalendarRange } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -349,9 +349,21 @@ export function DropdownFilter({ config, data, value, onChange }: FilterFieldPro
 // Mobile: one chip per filter (mirrors the desktop row) — tapping a chip opens a bottom
 // sheet scoped to just that filter's options, instead of one combined form covering
 // every filter at once.
+function filterTypeIcon(type: TableFilterConfig["type"]) {
+  switch (type) {
+    case "date-range":
+      return CalendarRange;
+    case "range":
+      return SlidersHorizontal;
+    default:
+      return ListFilter;
+  }
+}
+
 export function MobileFilterChip({ config, data, value, onChange }: FilterFieldProps) {
   const [open, setOpen] = useState(false);
   const controller = useFilterFieldController(config, data, value, onChange);
+  const Icon = filterTypeIcon(config.type);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -360,10 +372,11 @@ export function MobileFilterChip({ config, data, value, onChange }: FilterFieldP
           variant={controller.isActive ? "secondary" : "outline"}
           size="sm"
           className={cn(
-            "h-9 px-3 text-xs font-semibold gap-1.5 border transition-all flex-shrink-0 whitespace-nowrap",
+            "h-9 px-2.5 text-xs font-semibold gap-1.5 border transition-all flex-shrink-0 whitespace-nowrap",
             controller.isActive && "bg-primary/5 border-primary/30 text-primary shadow-xs"
           )}
         >
+          <Icon className="h-3.5 w-3.5 opacity-70" />
           <span>{config.label}</span>
           {controller.badge && (
             <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded-full text-[10px] font-bold">

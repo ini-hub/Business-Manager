@@ -3,6 +3,7 @@ import { useLocation, Link } from "wouter";
 import { ChevronRight, HelpCircle, Lightbulb, BookOpen, X, ChevronDown, CheckCircle } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface GuideContent {
   title: string;
@@ -272,9 +273,14 @@ interface PageHeaderProps {
   description?: string;
   actions?: React.ReactNode;
   isLoading?: boolean;
+  // Keeps title/description and actions on a single row at every width
+  // instead of stacking the actions below `sm:` — for pages whose actions
+  // are already compact enough (icon-only/chevron below `lg`) to sit beside
+  // a short title, saving a full row of vertical space on mobile/tablet.
+  compact?: boolean;
 }
 
-export function PageHeader({ title, description, actions, isLoading = false }: PageHeaderProps) {
+export function PageHeader({ title, description, actions, isLoading = false, compact = false }: PageHeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [location] = useLocation();
 
@@ -327,9 +333,14 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          {segments.length > 0 && (
+      <div
+        className={cn(
+          "flex gap-3",
+          compact ? "flex-row items-center justify-between" : "flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+        )}
+      >
+        <div className={cn("min-w-0", compact ? "space-y-0" : "space-y-1")}>
+          {segments.length > 0 && !compact && (
             <div className="flex items-center text-xs text-muted-foreground mb-2">
               <Link href="/" className="hover:text-foreground transition-colors">Home</Link>
               {segments.map((seg, i) => {
@@ -349,9 +360,11 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
               })}
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-            {guide && (
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className={cn("font-semibold tracking-tight truncate", compact ? "text-lg sm:text-2xl" : "text-2xl")}>
+              {title}
+            </h1>
+            {guide && !compact && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -364,10 +377,16 @@ export function PageHeader({ title, description, actions, isLoading = false }: P
             )}
           </div>
           {description && (
-            <p className="text-sm text-muted-foreground">{description}</p>
+            <p className={cn("text-muted-foreground", compact ? "text-xs sm:text-sm truncate" : "text-sm")}>
+              {description}
+            </p>
           )}
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">{actions}</div>}
+        {actions && (
+          <div className={cn("flex items-center gap-2 sm:gap-4 shrink-0", compact ? "" : "flex-wrap w-full sm:w-auto")}>
+            {actions}
+          </div>
+        )}
       </div>
 
       {isOpen && guide && (
