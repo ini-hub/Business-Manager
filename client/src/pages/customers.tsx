@@ -3,7 +3,21 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
-import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, ChevronRight, ChevronLeft, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench, BarChart3, UserX, Wallet, UserPlus2 } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, Hash, AlertCircle, RotateCcw, Archive, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench, BarChart3, UserX, Wallet, UserPlus2, SlidersHorizontal, ArrowUpDown, X, Search } from "lucide-react";
+import { FiltersSheet, SortSheet } from "@/components/customer-filter-sheets";
+import { cn } from "@/lib/utils";
+import {
+  type CustomerFilterState,
+  type CustomerSortState,
+  EMPTY_CUSTOMER_FILTERS,
+  customerMatchesFilters,
+  computeTopSpendThreshold,
+  countActiveCustomerFilters,
+  buildCustomerFilterChips,
+  clearCustomerFilterChip,
+  customerSortLabel,
+  sortCustomers,
+} from "@/lib/customer-filters";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
@@ -28,13 +42,6 @@ import { ClearableInput } from "@/components/clearable-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { DataTable, type RowAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -80,8 +87,6 @@ const customerFormSchema = insertCustomerSchema.extend({
   customerNumber: z.string().optional().default(""),
 });
 
-const DEFAULT_PAGE_LIMIT = 25;
-
 export default function Customers() {
   const { toast } = useToast();
   const { currentStore, stores, business } = useStore();
@@ -95,26 +100,16 @@ export default function Customers() {
   const [duplicateCustomer, setDuplicateCustomer] = useState<any | null>(null);
   const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
   const [pendingSubmitValues, setPendingSubmitValues] = useState<any | null>(null);
-  const [page, setPage] = useUrlState("page", 1, Number);
-  const [pageSize, setPageSize] = useUrlState("pageSize", DEFAULT_PAGE_LIMIT, Number);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [searchInput, setSearchInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  // Debounce search: wait 350ms after the user stops typing before sending to server
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchInput), 350);
-    return () => clearTimeout(t);
-  }, [searchInput]);
-
-  // Reset search and page when store changes
-  useEffect(() => { setSearchInput(""); setPage(1); }, [currentStore?.id]);
-  // Reset page when debounced search or page size changes
-  useEffect(() => { setPage(1); }, [debouncedSearch, pageSize]);
-
+  const [customerSearchTerm, setCustomerSearchTerm] = useState("");
+  const [customerFilters, setCustomerFilters] = useState<CustomerFilterState>(EMPTY_CUSTOMER_FILTERS);
+  const [customerSort, setCustomerSort] = useState<CustomerSortState | null>(null);
+  // Full customer list is always loaded client-side (matching every other
+  // list page in this app, e.g. Inventory/Vendors) rather than paged from
+  // the server — the Filters/Sort sheets need to compute accurate counts
+  // and sort/filter across the *entire* list, which a server-paginated
+  // slice can't support correctly.
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(","), page, pageSize, debouncedSearch],
+    queryKey: ["/api/customers", currentStore?.id, stores.map(s => s.id).join(",")],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
@@ -143,23 +138,11 @@ export default function Customers() {
             }
           }
         }
-        const merged = Array.from(mergedMap.values());
-        setTotalPages(1);
-        setTotalCount(merged.length);
-        return merged;
+        return Array.from(mergedMap.values());
       }
-      const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : "";
-      const res = await fetch(`/api/customers?storeId=${currentStore?.id}&page=${page}&limit=${pageSize}${searchParam}`);
+      const res = await fetch(`/api/customers?storeId=${currentStore?.id}`);
       if (!res.ok) throw new Error("Failed to fetch customers");
-      const json = await res.json();
-      if (Array.isArray(json)) {
-        setTotalPages(1);
-        setTotalCount(json.length);
-        return json;
-      }
-      setTotalPages(json.pagination?.totalPages ?? 1);
-      setTotalCount(json.pagination?.total ?? json.data?.length ?? 0);
-      return json.data as Customer[];
+      return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
@@ -793,7 +776,7 @@ export default function Customers() {
     <div className="space-y-6">
       <PageHeader
         title="Customers"
-        description={currentStore.name}
+        description={<span className="hidden md:inline">{currentStore.name}</span>}
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -836,7 +819,7 @@ export default function Customers() {
               />
             </div>
             {user?.role !== "staff" && (
-              <Button onClick={openCreateForm} data-testid="button-add-customer">
+              <Button onClick={openCreateForm} data-testid="button-add-customer" className="hidden md:inline-flex">
                 <Plus className="mr-2 h-4 w-4" />
                 <span className="hidden lg:inline">Add Customer</span>
                 <span className="lg:hidden">Add</span>
@@ -887,11 +870,12 @@ export default function Customers() {
           variant="bordered"
         />
         {(() => {
-          const filterConfigs = [
+          const archivedFilterConfigs = [
             { key: "createdAt", label: "Date added", type: "date-range" as const },
             { key: "lastVisited", label: "Last visited", type: "date-range" as const },
             { key: "totalSpend", label: "Spend", type: "range" as const, currencySymbol: currentStore?.currency === "USD" ? "$" : "₦" }
           ];
+          const currencySymbol = currentStore?.currency === "USD" ? "$" : "₦";
 
           const activeTableData: CustomerRow[] = activeCustomers.map((c) => ({
             ...c,
@@ -907,43 +891,117 @@ export default function Customers() {
             createdAt: c.createdAt
           }));
 
-          const isServerPaginated = currentStore?.id !== "all";
-          const showPagination = isServerPaginated && totalCount > 0;
+          const topSpendThreshold = computeTopSpendThreshold(activeTableData.map((c) => c.totalSpend));
+          const searchTerm = customerSearchTerm.trim().toLowerCase();
+          const searchedActive = searchTerm
+            ? activeTableData.filter((c) =>
+                c.name.toLowerCase().includes(searchTerm) ||
+                c.customerNumber?.toLowerCase().includes(searchTerm) ||
+                c.mobileNumber?.toLowerCase().includes(searchTerm) ||
+                c.address?.toLowerCase().includes(searchTerm)
+              )
+            : activeTableData;
+          const filteredActive = searchedActive.filter((c) => customerMatchesFilters(c, customerFilters, topSpendThreshold));
+          const visibleActive = sortCustomers(filteredActive, customerSort);
+          const activeFilterCount = countActiveCustomerFilters(customerFilters);
+          const activeFilterChips = buildCustomerFilterChips(customerFilters, currencySymbol);
+          const hasActiveFiltersOrSort = activeFilterCount > 0 || customerSort !== null;
 
           return (
             <>
-              <TabsContent value="active" className="mt-4">
+              <TabsContent value="active" className="mt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <ClearableInput
+                      placeholder="Search"
+                      value={customerSearchTerm}
+                      onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                      onClear={() => setCustomerSearchTerm("")}
+                      className="pl-9 h-9"
+                    />
+                  </div>
+                  <FiltersSheet
+                    filters={customerFilters}
+                    onApply={setCustomerFilters}
+                    currencySymbol={currencySymbol}
+                    resultCountFor={(draft) => searchedActive.filter((c) => customerMatchesFilters(c, draft, topSpendThreshold)).length}
+                    trigger={
+                      <Button
+                        variant={activeFilterCount > 0 ? "secondary" : "outline"}
+                        size="sm"
+                        className={cn("h-9 shrink-0 gap-1.5", activeFilterCount > 0 && "bg-primary/10 border-primary/30 text-primary")}
+                        data-testid="button-customer-filters"
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                        {activeFilterCount > 0 ? `Filters ${activeFilterCount}` : "Filters"}
+                      </Button>
+                    }
+                  />
+                  <SortSheet
+                    sort={customerSort}
+                    onChange={setCustomerSort}
+                    trigger={
+                      <Button
+                        variant={customerSort ? "secondary" : "outline"}
+                        size="sm"
+                        className={cn("h-9 shrink-0 gap-1.5", customerSort && "bg-primary/10 border-primary/30 text-primary")}
+                        data-testid="button-customer-sort"
+                      >
+                        <ArrowUpDown className="h-3.5 w-3.5" />
+                        {customerSortLabel(customerSort)}
+                      </Button>
+                    }
+                  />
+                </div>
+
+                {hasActiveFiltersOrSort && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeFilterChips.map((chip) => (
+                      <span
+                        key={chip.key}
+                        className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium"
+                      >
+                        {chip.label}
+                        <button
+                          type="button"
+                          onClick={() => setCustomerFilters((f) => clearCustomerFilterChip(f, chip.key))}
+                          aria-label={`Remove ${chip.label} filter`}
+                          className="rounded-full p-0.5 hover:bg-muted"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                      {visibleActive.length} customer{visibleActive.length === 1 ? "" : "s"}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-primary hover:underline shrink-0"
+                      onClick={() => {
+                        setCustomerFilters(EMPTY_CUSTOMER_FILTERS);
+                        setCustomerSort(null);
+                      }}
+                      data-testid="button-customer-clear-all"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+
                 <DataTable
-                  data={activeTableData}
+                  data={visibleActive}
                   columns={activeColumns}
-                  searchable={currentStore?.id === "all"}
-                  searchPlaceholder="Name, phone or ID"
-                  searchKeys={["name", "customerNumber", "mobileNumber", "address"]}
-                  // Single store: search is server-side (debounced query + pagination), so it's
-                  // slotted into the same toolbar row as the filters instead of the built-in
-                  // client-side search, which would only ever filter within the current page.
-                  searchSlot={
-                    isServerPaginated ? (
-                      <ClearableInput
-                        placeholder="Name, phone or ID"
-                        value={searchInput}
-                        onChange={(e) => setSearchInput(e.target.value)}
-                        onClear={() => setSearchInput("")}
-                        className="h-9"
-                      />
-                    ) : undefined
-                  }
-                  resultCountLabel={isServerPaginated ? `${totalCount} customers` : undefined}
+                  hideToolbar
                   isLoading={isLoading}
                   emptyMessage="Add active profiles to start tracking their credit limits, transactions, and retention logs."
                   onRowClick={navigateToCustomerDetails}
                   rowActions={user?.role !== "staff" ? activeRowActions : undefined}
-                  filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="active"
                   showCardChevron
                   cardLayout="compact-grid"
-                  hideFooter={isServerPaginated}
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
                   emptyAction={
@@ -955,47 +1013,6 @@ export default function Customers() {
                     )
                   }
                 />
-                {showPagination && (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 text-sm text-muted-foreground">
-                    <span>
-                      {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount}
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                        <SelectTrigger className="h-8 w-auto min-w-0 gap-1.5 text-xs" data-testid="select-page-size">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[25, 50, 100].map((n) => (
-                            <SelectItem key={n} value={String(n)}>{n} per page</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setPage(p => Math.max(1, p - 1))}
-                          disabled={page === 1}
-                          data-testid="button-page-prev"
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                          disabled={page === totalPages}
-                          data-testid="button-page-next"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </TabsContent>
               <TabsContent value="archived" className="mt-4">
                 <DataTable
@@ -1008,7 +1025,7 @@ export default function Customers() {
                   emptyMessage="Archived or deleted customers will be filed here for compliance histories."
                   onRowClick={navigateToCustomerDetails}
                   rowActions={user?.role !== "staff" ? archivedRowActions : undefined}
-                  filterConfigs={filterConfigs}
+                  filterConfigs={archivedFilterConfigs}
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="archivedTbl"
                   showCardChevron
@@ -1214,6 +1231,7 @@ export default function Customers() {
 
       {user?.role !== "staff" && activeTab !== "analytics" && (
         <SpeedDialFAB
+          className="md:hidden"
           actions={[
             {
               label: "Add Customer",

@@ -12,6 +12,8 @@ export interface SpeedDialAction {
 
 interface SpeedDialFABProps {
   actions: SpeedDialAction[];
+  /** Applied to the FAB's positioned root — e.g. "md:hidden" to only show it below a breakpoint. */
+  className?: string;
 }
 
 const FAB_SIZE = 56;          // h-14 w-14 in px
@@ -44,7 +46,7 @@ function loadPosition(): { x: number; y: number } {
   return defaultPosition();
 }
 
-export function SpeedDialFAB({ actions }: SpeedDialFABProps) {
+export function SpeedDialFAB({ actions, className }: SpeedDialFABProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>(defaultPosition);
 
@@ -148,7 +150,7 @@ export function SpeedDialFAB({ actions }: SpeedDialFABProps) {
 
       {/* FAB container — absolutely positioned */}
       <div
-        className="fixed z-[9999]"
+        className={cn("fixed z-[9999]", className)}
         style={{ left: pos.x, top: pos.y, width: FAB_SIZE, height: FAB_SIZE }}
       >
         {/* Action items */}

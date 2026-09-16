@@ -270,7 +270,7 @@ const PAGE_GUIDES: Record<string, GuideContent> = {
 
 interface PageHeaderProps {
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   actions?: React.ReactNode;
   isLoading?: boolean;
   // Keeps title/description and actions on a single row at every width
