@@ -908,13 +908,14 @@ export function PolymorphicTable<T extends { id: string | number }>({
               const isSelected = currentSelectedIds.includes(item.id);
               const actionsCol = columns.find(col => col.key === "actions");
               const allDataCols = columns.filter(col => col.key !== "actions");
-              // Opt-in decluttering: only once a table tags at least one column with a
-              // priority do lower-priority ones drop out of the card view. Tables that
-              // haven't adopted `priority` yet (every column undefined) see every column,
-              // exactly as before — this is what keeps existing pages unaffected.
+              // Opt-in decluttering: once a table tags at least one column with a priority,
+              // only priority 1-3 columns show in the card ("priority: none" means hide on
+              // card, per spec's column table) — undefined-priority columns disappear rather
+              // than default to visible. Tables that haven't adopted `priority` yet (every
+              // column undefined) see every column, exactly as before.
               const hasPriorities = allDataCols.some((col) => col.priority !== undefined);
               const dataCols = hasPriorities
-                ? allDataCols.filter((col) => col.priority === undefined || col.priority <= 2)
+                ? allDataCols.filter((col) => col.priority !== undefined)
                 : allDataCols;
               const primaryCol = dataCols[0];
               const otherCols = dataCols.slice(1);

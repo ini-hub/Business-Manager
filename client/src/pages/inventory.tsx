@@ -59,6 +59,13 @@ import { MetricGrid } from "@/components/metric-grid";
 import { buildSlug } from "@/lib/slug";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
+import {
+  calculateProjectedGrossMargin,
+  formatProjectedGrossMargin,
+  isOutOfStock,
+  isAtOrBelowReorderPoint,
+  formatStockAlertCopy,
+} from "@/lib/inventory-metrics";
 
 type FilterType = "all" | "product" | "service" | "supply" | "low-stock" | "audits" | "archived";
 
@@ -216,20 +223,29 @@ export default function InventoryPage() {
         return inventoryList.filter((item) => item.type === "supply");
       case "low-stock":
         // Supplies run out too — running dry on shampoo stops services just as
-        // surely as running dry on retail stock.
+        // surely as running dry on retail stock. Each variant's own reorderPoint
+        // overrides the store-wide threshold when set.
         return inventoryList.filter(
-          (item) => item.type !== "service" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
+          (item) => item.type !== "service" && item.variants?.some((v: any) => isAtOrBelowReorderPoint(v, lowStockThreshold))
         );
       default:
         return inventoryList;
     }
   }, [inventoryList, filterType, lowStockThreshold]);
 
-  const lowStockCount = useMemo(() => {
+  const outOfStockCount = useMemo(() => {
     return inventoryList.filter(
-      (item) => item.type !== "service" && item.variants?.some((v: any) => v.quantity <= lowStockThreshold)
+      (item) => item.type !== "service" && item.variants?.some((v: any) => isOutOfStock(v))
+    ).length;
+  }, [inventoryList]);
+
+  const lowStockOnlyCount = useMemo(() => {
+    return inventoryList.filter(
+      (item) => item.type !== "service" && item.variants?.some((v: any) => isAtOrBelowReorderPoint(v, lowStockThreshold) && !isOutOfStock(v))
     ).length;
   }, [inventoryList, lowStockThreshold]);
+
+  const lowStockCount = outOfStockCount + lowStockOnlyCount;
 
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/inventory/${selectedItem?.id}`),
@@ -416,7 +432,8 @@ export default function InventoryPage() {
     const retail = item.variants?.reduce((sum: number, v: any) => sum + (v.sellingPrice * v.quantity), 0) ?? 0;
     return acc + retail;
   }, 0);
-  const projectedGrossMargin = totalRetailValue > 0 ? ((totalRetailValue - totalCostValue) / totalRetailValue) * 100 : 0;
+  const projectedGrossMargin = calculateProjectedGrossMargin(totalCostValue, totalRetailValue);
+  const projectedGrossMarginDisplay = formatProjectedGrossMargin(totalCostValue, totalRetailValue);
 
   const stockStatusTone = (status: string): ReportStatusTone => {
     if (status === "Out of Stock") return "critical";
@@ -501,7 +518,7 @@ export default function InventoryPage() {
       kpis: [
         { label: "Cost Value", value: formatCurrency(totalCostValue) },
         { label: "Retail Value", value: formatCurrency(totalRetailValue) },
-        { label: "Gross Margin", value: `${projectedGrossMargin.toFixed(1)}%` },
+        { label: "Gross Margin", value: projectedGrossMarginDisplay },
         {
           label: "Low Stock Items",
           value: String(lowStockCount),
@@ -859,7 +876,7 @@ export default function InventoryPage() {
             />
             <MetricCard
               title="Projected Gross Margin"
-              value={`${projectedGrossMargin.toFixed(1)}%`}
+              value={projectedGrossMarginDisplay}
               icon={<BarChart3 className="h-4 w-4" />}
               description="Based on current stock value"
               isLoading={isLoading}
@@ -876,7 +893,8 @@ export default function InventoryPage() {
               Low Stock Alert
             </p>
             <p className="text-sm text-amber-700 dark:text-amber-300">
-              {lowStockCount} item{lowStockCount !== 1 ? "s" : ""} {lowStockCount !== 1 ? "are" : "is"} running low on stock (below {lowStockThreshold} units)
+              {formatStockAlertCopy(outOfStockCount, lowStockOnlyCount)}
+              {outOfStockCount > 0 && ` (${outOfStockCount} out of stock, ${lowStockOnlyCount} low)`}
             </p>
           </div>
           <Button
