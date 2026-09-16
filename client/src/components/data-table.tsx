@@ -61,6 +61,10 @@ export interface DataTableProps<T> {
   // paginate server-side and render their own footer instead.
   hideFooter?: boolean;
 
+  // See PolymorphicTable's hideToolbar — suppresses the built-in
+  // search/filter/count row for a fully custom toolbar rendered by the caller.
+  hideToolbar?: boolean;
+
   // Auto-generates a single "..." row-actions menu instead of a hand-rolled
   // "actions" column of icon buttons. Ignored if `columns` already has one.
   rowActions?: (item: T) => RowAction[];
@@ -108,6 +112,7 @@ export function DataTable<T extends { id: string | number }>({
   showCardChevron,
   cardLayout,
   hideFooter,
+  hideToolbar,
   rowActions,
   searchSlot,
   resultCountLabel,
@@ -147,6 +152,7 @@ export function DataTable<T extends { id: string | number }>({
       showCardChevron={showCardChevron}
       cardLayout={cardLayout}
       hideFooter={hideFooter}
+      hideToolbar={hideToolbar}
       rowActions={rowActions}
       searchSlot={searchSlot}
       resultCountLabel={resultCountLabel}

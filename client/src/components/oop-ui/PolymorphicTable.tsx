@@ -202,6 +202,13 @@ export interface PolymorphicTableProps<T> {
   // current page's worth of rows, which would show a confusingly smaller total).
   hideFooter?: boolean;
 
+  // Suppresses the built-in search/filter-chip/record-count toolbar row
+  // entirely, for callers whose filter/sort UX is bespoke enough (grouped
+  // preset chips, a live-count apply button, a separate sort sheet) that it
+  // doesn't fit the generic per-filter chip/popover model — they render their
+  // own toolbar above this table and drive `data` themselves instead.
+  hideToolbar?: boolean;
+
   // Auto-generates a single "..." row-actions menu (desktop table cell and
   // card-view floating button alike) instead of requiring callers to hand-roll
   // an "actions" column of individual icon buttons. Ignored if `columns`
@@ -299,6 +306,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   showCardChevron = false,
   cardLayout = "list",
   hideFooter = false,
+  hideToolbar = false,
   rowActions,
   searchSlot,
   resultCountLabel,
@@ -670,6 +678,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
       {/* Search & Dynamic Horizontal Filter Toolbar — kept as one row at every
           width: search takes a capped share, filters get the rest and scroll
           horizontally in place rather than wrapping onto a second/third row. */}
+      {!hideToolbar && (
       <div className="flex flex-row items-center gap-2 pb-2 border-b border-muted/30">
         <div className="flex flex-row items-center gap-2 flex-1 min-w-0">
           {searchSlot ? (
@@ -773,6 +782,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
           )}
         </div>
       </div>
+      )}
 
       {multiselect && shouldShowSelectAllBanner(asSelectionState(), currentPageIds, sortedData.length) && (
         <div className="flex items-center justify-center gap-1.5 rounded-md bg-primary/10 text-primary text-xs font-medium px-3 py-2" data-testid="banner-select-all">
