@@ -8,6 +8,7 @@ type AuditPerson = { name?: string; email?: string };
 type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
 import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -755,7 +756,7 @@ export default function InventoryPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Inventory"
-        description={currentStore.name}
+        description={`Managing inventory for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
             {filterType === "audits" ? (
@@ -1435,6 +1436,34 @@ export default function InventoryPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <SpeedDialFAB
+        actions={
+          filterType === "audits"
+            ? [
+                {
+                  label: "New Audit",
+                  icon: <ClipboardList className="h-5 w-5" />,
+                  onClick: () => setLocation("/inventory/audits/new"),
+                  testId: "fab-new-audit",
+                },
+              ]
+            : [
+                {
+                  label: "Add Item",
+                  icon: <Package className="h-5 w-5" />,
+                  onClick: openCreateForm,
+                  testId: "fab-add-item",
+                },
+                {
+                  label: "New Audit",
+                  icon: <ClipboardList className="h-5 w-5" />,
+                  onClick: () => setLocation("/inventory/audits/new"),
+                  testId: "fab-new-audit",
+                },
+              ]
+        }
+      />
     </div>
   );
 }
