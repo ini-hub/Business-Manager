@@ -8,7 +8,7 @@ import { FiltersSheet, SortSheet } from "@/components/customer-filter-sheets";
 import { cn } from "@/lib/utils";
 import { getCustomerInitials, formatRelativeDate } from "@/lib/customer-detail-utils";
 import {
-  type CustomerFilterState,
+  type CustomerFilterState ,
   type CustomerSortState,
   EMPTY_CUSTOMER_FILTERS,
   customerMatchesFilters,
