@@ -858,36 +858,33 @@ export default function Customers() {
         }
       />
 
-      {/* Mockup only shows this summary row at desktop width (1280px+) — tablet
-          and mobile go straight from the header to the tabs. */}
-      <div className="hidden lg:block">
-        <MetricGrid>
-          <MetricCard
-            title="Active"
-            value={activeCustomers.length}
-            icon={<Users className="h-4 w-4" />}
-            isLoading={isLoading}
-          />
-          <MetricCard
-            title="New this month"
-            value={newThisMonth}
-            icon={<UserPlus2 className="h-4 w-4" />}
-            isLoading={isLoading || isLoadingTxs}
-          />
-          <MetricCard
-            title="Avg. spend"
-            value={formatCurrency(avgSpendPerActiveCustomer)}
-            icon={<Wallet className="h-4 w-4" />}
-            isLoading={isLoading || isLoadingTxs}
-          />
-          <MetricCard
-            title="Inactive 30d+"
-            value={inactive30dCount}
-            icon={<UserX className="h-4 w-4" />}
-            isLoading={isLoading || isLoadingTxs}
-          />
-        </MetricGrid>
-      </div>
+      {(() => {
+        const customerMetrics = [
+          { title: "Active", value: activeCustomers.length, icon: <Users className="h-4 w-4" />, isLoading },
+          { title: "New this month", value: newThisMonth, icon: <UserPlus2 className="h-4 w-4" />, isLoading: isLoading || isLoadingTxs },
+          { title: "Avg. spend", value: formatCurrency(avgSpendPerActiveCustomer), icon: <Wallet className="h-4 w-4" />, isLoading: isLoading || isLoadingTxs },
+          { title: "Inactive 30d+", value: inactive30dCount, icon: <UserX className="h-4 w-4" />, isLoading: isLoading || isLoadingTxs },
+        ];
+        return (
+          <>
+            {/* Tablet/mobile: same 4 metrics as a horizontally-scrollable row
+                instead of the desktop grid — fixed-width tiles so they don't
+                get squished. */}
+            <div className="lg:hidden -mx-4 px-4 sm:-mx-6 sm:px-6 flex gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {customerMetrics.map((m) => (
+                <MetricCard key={m.title} className="min-w-[150px] shrink-0" {...m} />
+              ))}
+            </div>
+
+            {/* Desktop (1280px+): the same 4 metrics as a static grid instead. */}
+            <div className="hidden lg:block">
+              <MetricGrid>
+                {customerMetrics.map((m) => <MetricCard key={m.title} {...m} />)}
+              </MetricGrid>
+            </div>
+          </>
+        );
+      })()}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <PolymorphicTabsList
