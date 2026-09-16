@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2, ShoppingCart } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   FormControl,
@@ -71,16 +72,15 @@ export function StepItems({ form, onBack, onNext }: StepItemsProps) {
                   Item {index + 1}
                 </span>
                 {fields.length > 1 && (
-                  <Button
+                  <IconButton
                     type="button"
                     variant="ghost"
-                    size="icon"
                     className="h-7 w-7 text-destructive hover:bg-destructive/10"
                     onClick={() => remove(index)}
-                    aria-label={`Remove item ${index + 1}`}
+                    label={`Remove item ${index + 1}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  </IconButton>
                 )}
               </div>
 

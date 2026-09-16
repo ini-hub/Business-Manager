@@ -3,6 +3,7 @@ import { format, subDays, startOfMonth, endOfMonth, startOfYear, startOfDay, end
 import { toZonedTime } from "date-fns-tz";
 import { Calendar as CalendarIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -175,19 +176,18 @@ export function DateRangeFilter({
       )}
 
       {(dateRange.from || dateRange.to) && selectedPreset !== "all" && (
-        <Button
+        <IconButton
           variant="ghost"
-          size="icon"
+          label="Clear dates"
           className={compact ? "h-8 w-8" : "h-9 w-9"}
           onClick={() => {
             setSelectedPreset("all");
             onDateRangeChange({ from: undefined, to: undefined });
           }}
           data-testid="button-clear-dates"
-          title="Clear dates"
         >
           <X className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
-        </Button>
+        </IconButton>
       )}
     </div>
   );

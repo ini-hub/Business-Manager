@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent } from "react";
 import { Minus, Plus, Trash2, UserCog, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -85,28 +86,28 @@ export function CartItemRow({
             )}
           </div>
         </div>
-        <Button
+        <IconButton
+          label="Remove item"
           variant="ghost"
-          size="icon"
           className="h-7 w-7 text-destructive shrink-0 self-start"
           onClick={() => onRemove(item.inventory.id)}
           data-testid={`button-remove-${item.inventory.id}`}
         >
           <Trash2 className="h-3 w-3" />
-        </Button>
+        </IconButton>
       </div>
 
       {/* Row 2a: qty stepper + total + staff toggle — wraps instead of overflowing when the cart panel is narrow, but stays packed together (no ml-auto/justify-between) so it doesn't stretch apart when the panel is wide */}
       <div className="flex items-center gap-1 flex-wrap">
-        <Button
+        <IconButton
+          label="Decrease quantity"
           variant="outline"
-          size="icon"
           className="h-7 w-7 shrink-0"
           onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? -0.5 : -1)}
           data-testid={`button-decrease-${item.inventory.id}`}
         >
           <Minus className="h-3 w-3" />
-        </Button>
+        </IconButton>
         <Input
           type="number"
           step={quantityStep(item.inventory.allowFractional ?? false)}
@@ -124,16 +125,16 @@ export function CartItemRow({
         {item.inventory.unit && (
           <span className="text-xs text-muted-foreground font-medium shrink-0">{item.inventory.unit}</span>
         )}
-        <Button
+        <IconButton
+          label="Increase quantity"
           variant="outline"
-          size="icon"
           className="h-7 w-7 shrink-0"
           onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : 1)}
           disabled={!item.inventory.allowFractional && item.quantity >= (item.inventory.type === "service" ? 999 : item.inventory.quantity)}
           data-testid={`button-increase-${item.inventory.id}`}
         >
           <Plus className="h-3 w-3" />
-        </Button>
+        </IconButton>
         <span className="font-mono text-sm font-medium shrink-0 ml-2">
           {formatCurrency(item.totalPrice)}
         </span>

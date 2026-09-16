@@ -90,6 +90,8 @@ export function ExportToolbar<T extends Record<string, unknown>, P extends Recor
             size="icon"
             disabled={disabled || data.length === 0}
             data-testid="button-export"
+            title="Export"
+            aria-label="Export"
           >
             <MoreHorizontal className="h-4 w-4" />
           </Button>

@@ -8,6 +8,7 @@ import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar, Bankn
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
@@ -589,24 +590,22 @@ export default function ExpensesPage() {
         return (
           <div className="flex items-center gap-1">
             {canEdit && (
-              <Button
+              <IconButton
+                label="Edit expense"
                 variant="ghost"
-                size="icon"
                 onClick={() => handleEditClick(e)}
-                title="Edit expense"
               >
                 <Edit className="h-4 w-4 text-blue-500" />
-              </Button>
+              </IconButton>
             )}
             {canDelete && (
-              <Button
+              <IconButton
+                label="Delete expense"
                 variant="ghost"
-                size="icon"
                 onClick={() => setExpenseToDelete(e)}
-                title="Delete expense"
               >
                 <Trash2 className="h-4 w-4 text-red-500" />
-              </Button>
+              </IconButton>
             )}
           </div>
         );

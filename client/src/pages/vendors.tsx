@@ -8,6 +8,7 @@ import { STALE_TIMES } from "@/lib/queryClient";
 import { Plus, Edit, Trash2, Phone, Mail, MapPin, FileText, Building2, Archive, RotateCcw } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -361,10 +362,10 @@ export default function VendorsPage() {
     )},
     { key: "actions", header: "", render: (v: VendorWithStats) => isManagerOrOwner && (
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(v)} title="Edit vendor"><Edit className="h-3.5 w-3.5" /></Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => archiveMutation.mutate(v.id)} title="Archive vendor" disabled={archiveMutation.isPending}>
+        <IconButton label="Edit vendor" variant="ghost" className="h-7 w-7" onClick={() => openEdit(v)}><Edit className="h-3.5 w-3.5" /></IconButton>
+        <IconButton label="Archive vendor" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => archiveMutation.mutate(v.id)} disabled={archiveMutation.isPending}>
           <Archive className="h-3.5 w-3.5" />
-        </Button>
+        </IconButton>
       </div>
     )},
   ];
@@ -384,14 +385,14 @@ export default function VendorsPage() {
     )},
     { key: "actions", header: "", render: (v: VendorWithStats) => isManagerOrOwner && (
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => restoreMutation.mutate(v.id)} title="Restore vendor" disabled={restoreMutation.isPending}>
+        <IconButton label="Restore vendor" variant="ghost" className="h-7 w-7 text-emerald-600" onClick={() => restoreMutation.mutate(v.id)} disabled={restoreMutation.isPending}>
           <RotateCcw className="h-3.5 w-3.5" />
-        </Button>
+        </IconButton>
         {/* Permanent delete matches the server's owner-only requireRole("owner") gate on DELETE /api/vendors/:id */}
         {isOwner && (
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)} title="Permanently delete" disabled={deleteMutation.isPending}>
+          <IconButton label="Permanently delete" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)} disabled={deleteMutation.isPending}>
             <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          </IconButton>
         )}
       </div>
     )},

@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -137,9 +138,9 @@ export function ResolvePendingDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {mode !== "choose" && (
-              <Button variant="ghost" size="icon" className="h-7 w-7 -ml-1 mr-1" onClick={() => setMode("choose")} disabled={isPending}>
+              <IconButton variant="ghost" label="Back" className="h-7 w-7 -ml-1 mr-1" onClick={() => setMode("choose")} disabled={isPending}>
                 <ArrowLeft className="h-4 w-4" />
-              </Button>
+              </IconButton>
             )}
             {mode === "choose" && "Resolve Pending Payment"}
             {mode === "mark-paid" && "Mark as Paid"}

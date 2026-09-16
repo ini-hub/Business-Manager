@@ -8,6 +8,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -227,16 +228,16 @@ export function AddendumDialog({
                       </span>
                     </div>
                     <span className="font-mono text-xs shrink-0">{fmt(c.quantity * c.price)}</span>
-                    <Button
+                    <IconButton
                       type="button"
                       variant="ghost"
-                      size="icon"
+                      label="Remove item"
                       className="h-6 w-6 shrink-0"
                       onClick={() => removeFromCart(c.key)}
                       disabled={addendumMutation.isPending}
                     >
                       ×
-                    </Button>
+                    </IconButton>
                   </div>
                 ))}
               </div>

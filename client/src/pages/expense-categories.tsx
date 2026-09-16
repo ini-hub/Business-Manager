@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { ChevronLeft, Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -156,43 +157,43 @@ export default function ExpenseCategoriesPage() {
                         className="h-8 text-sm flex-1"
                         autoFocus
                       />
-                      <Button
-                        size="icon"
+                      <IconButton
+                        label="Save category name"
                         variant="ghost"
                         className="h-8 w-8 text-primary"
                         onClick={() => updateMutation.mutate({ id: cat.id, name: editName })}
                         disabled={updateMutation.isPending}
                       >
                         <Check className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
+                      </IconButton>
+                      <IconButton
+                        label="Cancel edit"
                         variant="ghost"
                         className="h-8 w-8"
                         onClick={() => setEditingId(null)}
                       >
                         <X className="h-4 w-4" />
-                      </Button>
+                      </IconButton>
                     </>
                   ) : (
                     <>
                       <span className="flex-1 text-sm">{cat.name}</span>
-                      <Button
-                        size="icon"
+                      <IconButton
+                        label="Edit category"
                         variant="ghost"
                         className="h-8 w-8"
                         onClick={() => { setEditingId(cat.id); setEditName(cat.name); }}
                       >
                         <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="icon"
+                      </IconButton>
+                      <IconButton
+                        label="Delete category"
                         variant="ghost"
                         className="h-8 w-8 text-destructive hover:text-destructive"
                         onClick={() => setDeleteId(cat.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      </IconButton>
                     </>
                   )}
                 </div>

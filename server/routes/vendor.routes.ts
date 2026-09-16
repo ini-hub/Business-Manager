@@ -559,7 +559,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   // Create PO
   app.post("/api/purchase-orders", requireManagerOrOwner, async (req, res) => {
     try {
-      const { storeId, vendorId, poNumber, expectedDelivery, items } = req.body;
+      const { storeId, vendorId, poNumber, expectedDelivery, items, status } = req.body;
       if (!storeId || !vendorId || !poNumber || !Array.isArray(items)) {
         return res.status(400).json({ error: "storeId, vendorId, poNumber, and items array are required." });
       }
@@ -571,7 +571,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
         vendorId,
         poNumber,
         expectedDelivery: expectedDelivery ? new Date(expectedDelivery) : null,
-        status: "draft",
+        // "Send to supplier" creates it already-ordered in one call; anything else (or
+        // omitted) falls back to draft.
+        status: status === "ordered" ? "ordered" : "draft",
         items: items.map((i: any) => ({
           inventoryId: i.inventoryId,
           quantity: Number(i.quantity),

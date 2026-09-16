@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -190,14 +191,14 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
                     <Badge variant={ex.kind === "off" ? "secondary" : "outline"}>
                       {ex.kind === "off" ? "Off" : "Working"}
                     </Badge>
-                    <Button
+                    <IconButton
                       variant="ghost"
-                      size="icon"
+                      label="Remove exception"
                       onClick={() => removeException.mutate({ staffId: ex.staffId, date: ex.date })}
                       data-testid={`button-remove-exception-${ex.id}`}
                     >
                       <X className="h-4 w-4" />
-                    </Button>
+                    </IconButton>
                   </div>
                 </div>
               ))}

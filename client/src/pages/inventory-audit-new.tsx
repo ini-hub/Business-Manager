@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ClipboardList, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
@@ -175,14 +176,14 @@ export default function InventoryAuditNewPage() {
                   <div key={ai.inventoryId} className="rounded-lg border p-4 space-y-3 bg-muted/10">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-sm">{ai.name}</span>
-                      <Button
+                      <IconButton
+                        label="Remove item"
                         variant="ghost"
-                        size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-destructive"
                         onClick={() => removeItem(ai.inventoryId)}
                       >
                         <X className="h-4 w-4" />
-                      </Button>
+                      </IconButton>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <div>

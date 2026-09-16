@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -233,7 +234,7 @@ export default function CreditSalesPage() {
       render: (entry: any) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="Row actions" aria-label="Row actions">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -641,9 +642,9 @@ export default function CreditSalesPage() {
       <Card className="border-border/50 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-base font-medium">Credit Sales Ledger</CardTitle>
-          <Button variant="ghost" size="icon" onClick={() => refetchLedger()} title="Refresh list" className="h-8 w-8">
+          <IconButton variant="ghost" onClick={() => refetchLedger()} label="Refresh list" className="h-8 w-8">
             <RefreshCw className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </CardHeader>
         <CardContent className="space-y-3">
           {user?.role !== "staff" && (

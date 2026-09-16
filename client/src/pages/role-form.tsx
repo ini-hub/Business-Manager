@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -130,9 +131,9 @@ export default function RoleFormPage() {
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/roles")}>
+        <IconButton label="Back to roles" variant="ghost" onClick={() => setLocation("/settings/roles")}>
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <PageHeader
           title={id ? "Edit Custom Role" : "Create Custom Role"}
           description={id ? "Modify existing custom modular permissions" : "Establish a new access profile with custom features access"}

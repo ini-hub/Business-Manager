@@ -993,6 +993,7 @@ export default function Customers() {
                           type="button"
                           onClick={() => setCustomerFilters((f) => clearCustomerFilterChip(f, chip.key))}
                           aria-label={`Remove ${chip.label} filter`}
+                          title={`Remove ${chip.label} filter`}
                           className="rounded-full p-0.5 hover:bg-muted"
                         >
                           <X className="h-3 w-3" />

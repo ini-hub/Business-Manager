@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -294,9 +295,9 @@ export default function TaxesCompliancePage() {
       key: "actions",
       header: "",
       render: (rate: TaxRate) => (
-        <Button
+        <IconButton
+          label="Delete tax rate"
           variant="ghost"
-          size="icon"
           onClick={() => {
             if (confirm("Permanently delete this tax compliance rate?")) {
               deleteMutation.mutate(rate.id);
@@ -306,7 +307,7 @@ export default function TaxesCompliancePage() {
           className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
         >
           <Trash2 className="h-4 w-4" />
-        </Button>
+        </IconButton>
       ),
     },
   ];

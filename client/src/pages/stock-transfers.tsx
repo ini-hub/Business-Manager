@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, ArrowLeftRight, CheckCircle, XCircle, Clock, Trash2, ArrowUpRight, ArrowDownLeft, PlusCircle, Trash, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
@@ -633,14 +634,14 @@ export default function StockTransfersPage() {
                             />
                           </div>
 
-                          <Button
+                          <IconButton
+                            label="Remove line"
                             variant="ghost"
-                            size="icon"
                             onClick={() => removeItemRow(index)}
                             className="text-red-500 hover:text-red-700 self-end sm:self-auto sm:mt-5"
                           >
                             <Trash className="h-4 w-4" />
-                          </Button>
+                          </IconButton>
                         </div>
                       );
                     })}

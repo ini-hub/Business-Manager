@@ -42,6 +42,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useStore } from "@/lib/store-context";
@@ -435,16 +436,15 @@ export function AppSidebar() {
                   </span>
                 </div>
               </Link>
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <IconButton
+                variant="ghost"
+                label="Logout"
                 onClick={handleLogout}
                 className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                 data-testid="button-logout"
-                title="Logout"
               >
                 <LogOut className="h-4 w-4" />
-              </Button>
+              </IconButton>
             </div>
           </SidebarMenuItem>
         </SidebarMenu>

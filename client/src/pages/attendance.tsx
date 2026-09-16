@@ -16,6 +16,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -134,6 +135,7 @@ function LateMarker({
           size="icon"
           className={`h-7 w-7 ${!isLate ? "text-orange-600 dark:text-orange-400" : "bg-orange-500 hover:bg-orange-500/90"}`}
           title={isLate ? `Late by ${lateMinutes ?? 0} min - click to edit` : "Mark late"}
+          aria-label={isLate ? `Late by ${lateMinutes ?? 0} min - click to edit` : "Mark late"}
           disabled={disabled}
           data-testid="button-mark-late"
         >
@@ -442,17 +444,16 @@ export default function AttendancePage() {
                               const cfg = STATUS_CONFIG[st];
                               const Icon = cfg.icon;
                               return (
-                                <Button
+                                <IconButton
                                   key={st}
                                   variant={status === st ? "default" : "ghost"}
-                                  size="icon"
                                   className={`h-7 w-7 ${status !== st ? cfg.color : ""}`}
-                                  title={cfg.label}
+                                  label={cfg.label}
                                   onClick={() => markMutation.mutate({ staffId: s.id, date: dailyDate, status: st })}
                                   disabled={markMutation.isPending}
                                 >
                                   <Icon className="h-3.5 w-3.5" />
-                                </Button>
+                                </IconButton>
                               );
                             })}
                             <LateMarker
@@ -690,9 +691,9 @@ export default function AttendancePage() {
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="icon" onClick={navPrev}><ChevronLeft className="h-4 w-4" /></Button>
+          <IconButton variant="outline" onClick={navPrev} label="Previous period"><ChevronLeft className="h-4 w-4" /></IconButton>
           <span className="text-sm font-medium min-w-0 sm:min-w-[200px] text-center">{periodLabel}</span>
-          <Button variant="outline" size="icon" onClick={navNext}><ChevronRight className="h-4 w-4" /></Button>
+          <IconButton variant="outline" onClick={navNext} label="Next period"><ChevronRight className="h-4 w-4" /></IconButton>
           <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>Today</Button>
         </div>
       </div>

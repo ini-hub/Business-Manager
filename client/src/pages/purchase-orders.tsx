@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, FileText, Truck, CheckSquare, Clock, AlertTriangle, Printer, PlusCircle, Trash, RefreshCw, UserCheck, Inbox, Coins } from "lucide-react";
+import { FileText, Truck, CheckSquare, Clock, AlertTriangle, Printer, Trash, RefreshCw, UserCheck, Inbox, Coins } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ type FullPO = PurchaseOrder & {
 };
 
 export default function PurchaseOrdersPage() {
+  const [, setLocation] = useLocation();
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -61,51 +63,6 @@ export default function PurchaseOrdersPage() {
   const [payNotes, setPayNotes] = useState<string>("");
   const [isPayDialogOpen, setIsPayDialogOpen] = useState(false);
   const [selectedBill, setSelectedBill] = useState<any | null>(null);
-
-  // Quick Add Vendor State
-  const [isQuickVendorOpen, setIsQuickVendorOpen] = useState(false);
-  const [newVendorName, setNewVendorName] = useState("");
-  const [newVendorContact, setNewVendorContact] = useState("");
-  const [newVendorEmail, setNewVendorEmail] = useState("");
-  const [newVendorPhone, setNewVendorPhone] = useState("");
-  const [newVendorAddress, setNewVendorAddress] = useState("");
-  const [newVendorNotes, setNewVendorNotes] = useState("");
-  const [newVendorStoreId, setNewVendorStoreId] = useState("");
-
-  const createVendorMutation = useMutation({
-    mutationFn: async () => {
-      if (!newVendorName.trim()) throw new Error("Vendor name is required.");
-      const storeIdToUse = currentStore?.id === "all" ? newVendorStoreId : currentStore!.id;
-      if (!storeIdToUse) throw new Error("Please select a store location.");
-
-      await apiRequest("POST", "/api/vendors", {
-        storeId: storeIdToUse,
-        name: newVendorName.trim(),
-        contactName: newVendorContact.trim() || undefined,
-        email: newVendorEmail.trim() || undefined,
-        phone: newVendorPhone.trim() || undefined,
-        address: newVendorAddress.trim() || undefined,
-        notes: newVendorNotes.trim() || undefined,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors"] });
-      toast({ title: "Success", description: "Supplier / Vendor added successfully." });
-      setIsQuickVendorOpen(false);
-      // Reset form
-      setNewVendorName("");
-      setNewVendorContact("");
-      setNewVendorEmail("");
-      setNewVendorPhone("");
-      setNewVendorAddress("");
-      setNewVendorNotes("");
-      setNewVendorStoreId("");
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message || "Failed to create vendor.", variant: "destructive" });
-    },
-  });
-
 
   // Fetch Vendor Bills
   const { data: vendorBills = [], isLoading: isLoadingBills } = useQuery<any[]>({
@@ -160,12 +117,6 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  // New PO form state
-  const [vendorId, setVendorId] = useState<string>("");
-  const [poNumber, setPoNumber] = useState<string>(`PO-${Date.now().toString().slice(-6)}`);
-  const [expectedDelivery, setExpectedDelivery] = useState<string>("");
-  const [items, setItems] = useState<{ inventoryId: string; quantity: number; unitCost: number }[]>([]);
-
   // Receive PO form state
   const [receiveStaffId, setReceiveStaffId] = useState<string>("");
   const [itemsToReceive, setItemsToReceive] = useState<{ inventoryId: string; quantity: number }[]>([]);
@@ -190,31 +141,6 @@ export default function PurchaseOrdersPage() {
         return responses.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
       const res = await apiRequest("GET", `/api/purchase-orders?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
-
-  // Fetch Vendors
-  const { data: vendors = [] } = useQuery<Vendor[]>({
-    queryKey: ["/api/vendors", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/vendors?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as Vendor[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat();
-      }
-      const res = await apiRequest("GET", `/api/vendors?storeId=${currentStore!.id}`);
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
@@ -278,32 +204,6 @@ export default function PurchaseOrdersPage() {
       return res.json();
     },
     enabled: !!selectedPOId,
-  });
-
-  // Create PO mutation
-  const createPOMutation = useMutation({
-    mutationFn: async () => {
-      if (items.length === 0) throw new Error("At least one item is required.");
-      if (!vendorId) throw new Error("Please select a vendor.");
-      
-      const submission = {
-        storeId: currentStore!.id,
-        vendorId,
-        poNumber,
-        expectedDelivery: expectedDelivery || null,
-        items,
-      };
-      await apiRequest("POST", "/api/purchase-orders", submission);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      toast({ title: "Success", description: "Purchase Order drafted successfully." });
-      setActiveTab("list");
-      resetForm();
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: error.message || "Failed to draft Purchase Order.", variant: "destructive" });
-    },
   });
 
   // Receive PO items mutation
@@ -396,39 +296,8 @@ export default function PurchaseOrdersPage() {
     },
   ];
 
-  const resetForm = () => {
-    setVendorId("");
-    setPoNumber(`PO-${Date.now().toString().slice(-6)}`);
-    setExpectedDelivery("");
-    setItems([]);
-  };
-
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
-
-  const addItemRow = () => {
-    setItems([...items, { inventoryId: "", quantity: 1, unitCost: 0 }]);
-  };
-
-  const removeItemRow = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
-
-  const updateItemRow = (index: number, field: string, value: any) => {
-    const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
-
-    // Auto-populate cost if inventory item is selected
-    if (field === "inventoryId") {
-      const inv = inventoryItems.find(i => i.id === value);
-      if (inv) {
-        updated[index].unitCost = Number(inv.costPrice || 0);
-      }
-    }
-    setItems(updated);
-  };
-
-  const poTotal = items.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0);
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
@@ -674,7 +543,6 @@ export default function PurchaseOrdersPage() {
         <PolymorphicTabsList
           tabs={[
             { value: "list", label: "Transit Registry", icon: <FileText className="h-4 w-4" /> },
-            { value: "create", label: "Create Procurement Form", icon: <Plus className="h-4 w-4" /> },
             { value: "bills", label: "Vendor Bills & Payables", icon: <Coins className="h-4 w-4" /> },
           ]}
           variant="default"
@@ -822,160 +690,6 @@ export default function PurchaseOrdersPage() {
                 emptyMessage="No accounts payable invoices logged."
                 urlKey="bills"
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="create" className="space-y-6">
-          <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>New Purchase Order Form</CardTitle>
-              <CardDescription>Issue procurement requests to vendors, establishing contract terms and cost bases.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <Label htmlFor="vendor">Target Supplier / Vendor</Label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto p-0 text-xs font-semibold text-primary flex items-center gap-1 underline hover:no-underline hover:bg-transparent"
-                        onClick={() => setIsQuickVendorOpen(true)}
-                      >
-                        <Plus className="h-3 w-3" /> Quick Add
-                      </Button>
-                    </div>
-                    <Select value={vendorId} onValueChange={setVendorId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a supplier" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {vendors.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>{v.name} ({v.companyName || "No Company"})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-
-                  <div className="space-y-2">
-                    <Label htmlFor="poNumber">PO Identification Number</Label>
-                    <Input
-                      id="poNumber"
-                      value={poNumber}
-                      onChange={(e) => setPoNumber(e.target.value)}
-                      placeholder="e.g. PO-1002"
-                      className="font-mono"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="expectedDelivery">Expected Date of Arrival</Label>
-                    <Input
-                      id="expectedDelivery"
-                      type="date"
-                      value={expectedDelivery}
-                      onChange={(e) => setExpectedDelivery(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Required Items Grid</Label>
-                  <div className="space-y-3">
-                    {items.map((item, index) => (
-                      <div key={index} className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center bg-muted/40 p-3 rounded-lg border">
-                        <div className="flex-1 sm:min-w-[200px]">
-                          <Label className="text-xs text-muted-foreground">Select Product</Label>
-                          <Select
-                            value={item.inventoryId}
-                            onValueChange={(val) => updateItemRow(index, "inventoryId", val)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choose item" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {inventoryItems.map((inv) => (
-                                <SelectItem key={inv.id} value={inv.id}>
-                                  {inv.name} - SKU: {inv.id.substring(0, 8).toUpperCase()} (In Stock: {inv.quantity})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:flex gap-3 sm:gap-4">
-                          <div className="w-full sm:w-24">
-                            <Label className="text-xs text-muted-foreground">
-                              Order Qty{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}
-                            </Label>
-                            <Input
-                              type="number"
-                              min={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                              step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
-                                updateItemRow(index, "quantity", isFrac ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 1);
-                              }}
-                            />
-                          </div>
-
-                          <div className="w-full sm:w-32">
-                            <Label className="text-xs text-muted-foreground">Supplying Cost ({storeCurrency})</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={item.unitCost}
-                              onChange={(e) => updateItemRow(index, "unitCost", Number(e.target.value))}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between sm:block w-full sm:w-36 sm:text-right">
-                          <Label className="text-xs text-muted-foreground sm:block">Cost Total</Label>
-                          <span className="font-mono font-medium sm:block sm:mt-2">
-                            {formatCurrency(item.quantity * item.unitCost)}
-                          </span>
-                        </div>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeItemRow(index)}
-                          className="text-red-500 hover:text-red-700 self-end sm:self-auto sm:mt-5"
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-
-                    <Button variant="outline" onClick={addItemRow} className="w-full gap-2">
-                      <PlusCircle className="h-4 w-4" /> Add Procurement Line
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg border">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Total Procurement Estimate</span>
-                    <h2 className="text-2xl font-bold font-mono text-primary mt-1">{formatCurrency(poTotal)}</h2>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="ghost" onClick={resetForm}>Reset Form</Button>
-                    <Button
-                      onClick={() => createPOMutation.mutate()}
-                      disabled={createPOMutation.isPending || items.length === 0}
-                      className="px-6"
-                    >
-                      Authorize & Draft Purchase Order
-                    </Button>
-                  </div>
-                </div>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1225,112 +939,6 @@ export default function PurchaseOrdersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick Add Vendor Dialog */}
-      <Dialog open={isQuickVendorOpen} onOpenChange={setIsQuickVendorOpen}>
-        <DialogContent className="max-w-md border border-border bg-background/95 backdrop-blur-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-              <Plus className="h-5 w-5 text-primary" /> Quick Add Supplier
-            </DialogTitle>
-            <DialogDescription>
-              Create a new supplier / vendor profile to authorize procurement orders.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 pt-2">
-            {currentStore?.id === "all" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="vendor-store">Target Store Location</Label>
-                <Select value={newVendorStoreId} onValueChange={setNewVendorStoreId}>
-                  <SelectTrigger id="vendor-store">
-                    <SelectValue placeholder="Choose a branch..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stores.filter(s => s.id !== "all").map(s => (
-                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="vendor-name">Supplier Name</Label>
-              <Input
-                id="vendor-name"
-                placeholder="e.g. Acme Supplies Ltd"
-                value={newVendorName}
-                onChange={(e) => setNewVendorName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="vendor-contact">Contact Person / Organization / Company (Optional)</Label>
-              <Input
-                id="vendor-contact"
-                placeholder="e.g. John Doe or Acme Ltd."
-                value={newVendorContact}
-                onChange={(e) => setNewVendorContact(e.target.value)}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="vendor-email">Email (Optional)</Label>
-                <Input
-                  id="vendor-email"
-                  type="email"
-                  placeholder="e.g. acme@example.com"
-                  value={newVendorEmail}
-                  onChange={(e) => setNewVendorEmail(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="vendor-phone">Phone (Optional)</Label>
-                <Input
-                  id="vendor-phone"
-                  placeholder="e.g. +234 80 1234 5678"
-                  value={newVendorPhone}
-                  onChange={(e) => setNewVendorPhone(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="vendor-address">Address (Optional)</Label>
-              <Input
-                id="vendor-address"
-                placeholder="e.g. 12 Industrial Way, Lagos"
-                value={newVendorAddress}
-                onChange={(e) => setNewVendorAddress(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="vendor-notes">Notes (Optional)</Label>
-              <Input
-                id="vendor-notes"
-                placeholder="Preferred categories, lead times, etc."
-                value={newVendorNotes}
-                onChange={(e) => setNewVendorNotes(e.target.value)}
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setIsQuickVendorOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => createVendorMutation.mutate()}
-                disabled={createVendorMutation.isPending || !newVendorName.trim() || (currentStore?.id === "all" && !newVendorStoreId)}
-                className="px-6"
-              >
-                {createVendorMutation.isPending ? "Adding..." : "Add Supplier"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {activeTab === "list" && (
         <SpeedDialFAB
@@ -1338,7 +946,7 @@ export default function PurchaseOrdersPage() {
             {
               label: "New PO",
               icon: <FileText className="h-5 w-5" />,
-              onClick: () => setActiveTab("create"),
+              onClick: () => setLocation("/purchase-orders/new"),
               testId: "fab-new-po",
             },
           ]}

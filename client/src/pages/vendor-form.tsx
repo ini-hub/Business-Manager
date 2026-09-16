@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Building2, Phone, Mail, MapPin, FileText, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -109,9 +110,9 @@ export default function VendorFormPage() {
     <div className="min-h-screen bg-muted/20">
       {/* Top nav */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/vendors")}>
+        <IconButton label="Back to vendors" variant="ghost" className="h-8 w-8" onClick={() => setLocation("/vendors")}>
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-sm truncate">{isEdit ? "Edit Vendor" : "New Vendor"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>

@@ -11,6 +11,7 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/metric-card";
 import {
@@ -1065,16 +1066,15 @@ export default function InventoryPage() {
             <ShoppingCart className="mr-2 h-4 w-4" />
             View Items
           </Button>
-          <Button
+          <IconButton
+            label="View low stock items"
             variant="ghost"
-            size="icon"
             onClick={() => setFilterType("low-stock")}
             className="sm:hidden h-8 w-8 flex-shrink-0 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900"
-            aria-label="View low stock items"
             data-testid="button-view-low-stock-mobile"
           >
             <ChevronRight className="h-5 w-5" />
-          </Button>
+          </IconButton>
         </div>
       )}
 

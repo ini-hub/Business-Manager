@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ClearableInput } from "@/components/clearable-input";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -272,6 +273,8 @@ function RowActionsMenu({ actions }: { actions: RowAction[] }) {
           className="h-8 w-8"
           onClick={(e) => e.stopPropagation()}
           data-testid="button-row-actions"
+          title="Row actions"
+          aria-label="Row actions"
         >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
@@ -773,16 +776,14 @@ export function PolymorphicTable<T extends { id: string | number }>({
               </div>
 
               {hasActiveFilters && (
-                <Button
+                <IconButton
                   variant="ghost"
-                  size="icon"
                   onClick={clearAllFilters}
                   className="h-9 w-9 flex-shrink-0 text-muted-foreground"
-                  aria-label="Clear all filters"
-                  title="Clear all filters"
+                  label="Clear all filters"
                 >
                   <X className="h-4 w-4" />
-                </Button>
+                </IconButton>
               )}
             </div>
           )}
@@ -1166,45 +1167,45 @@ export function PolymorphicTable<T extends { id: string | number }>({
 
         {totalPages > 1 && (
           <div className="flex items-center gap-1">
-            <Button
+            <IconButton
               variant="outline"
-              size="icon"
               className="h-8 w-8"
               onClick={() => goToPage(1)}
               disabled={currentPage === 1}
+              label="First page"
             >
               <ChevronsLeft className="h-4 w-4" />
-            </Button>
-            <Button
+            </IconButton>
+            <IconButton
               variant="outline"
-              size="icon"
               className="h-8 w-8"
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage === 1}
+              label="Previous page"
             >
               <ChevronLeft className="h-4 w-4" />
-            </Button>
+            </IconButton>
             <span className="px-3 text-xs font-bold text-muted-foreground">
               Page {currentPage} of {totalPages}
             </span>
-            <Button
+            <IconButton
               variant="outline"
-              size="icon"
               className="h-8 w-8"
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage === totalPages}
+              label="Next page"
             >
               <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Button
+            </IconButton>
+            <IconButton
               variant="outline"
-              size="icon"
               className="h-8 w-8"
               onClick={() => goToPage(totalPages)}
               disabled={currentPage === totalPages}
+              label="Last page"
             >
               <ChevronsRight className="h-4 w-4" />
-            </Button>
+            </IconButton>
           </div>
         )}
       </div>

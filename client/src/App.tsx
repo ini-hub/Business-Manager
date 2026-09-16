@@ -88,6 +88,7 @@ const BookingFormPage = lazy(() => import("@/pages/booking-form"));
 const BookingDetailsPage = lazy(() => import("@/pages/booking-details"));
 const QuotesPage = lazy(() => import("@/pages/quotes"));
 const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
+const PurchaseOrderFormPage = lazy(() => import("@/pages/purchase-order-form"));
 const StockTransfersPage = lazy(() => import("@/pages/stock-transfers"));
 const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
 const ProfilePage = lazy(() => import("@/pages/profile"));
@@ -530,6 +531,7 @@ function AuthenticatedLayout() {
                   <Route path="/vendors/:vendorId/bills/new" component={VendorBillNewPage} />
                   <Route path="/vendors/bills/:billId/pay" component={VendorBillPayPage} />
                   <Route path="/quotes" component={QuotesPage} />
+                  <Route path="/purchase-orders/new" component={PurchaseOrderFormPage} />
                   <Route path="/purchase-orders" component={PurchaseOrdersPage} />
                   <Route path="/stock-transfers" component={StockTransfersPage} />
                   <Route path="/settings/taxes">

@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, User, Phone, MapPin, Hash, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -123,9 +124,9 @@ export default function CustomerFormPage() {
     <div className="min-h-screen bg-muted/20">
       {/* Top nav bar */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/customers")}>
+        <IconButton label="Back to customers" variant="ghost" className="h-8 w-8" onClick={() => setLocation("/customers")}>
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-sm truncate">
             {isEdit ? "Edit Customer" : "New Customer"}

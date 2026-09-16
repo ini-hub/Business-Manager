@@ -273,7 +273,7 @@ export function BulkOperations({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           {compact ? (
-            <Button variant="outline" size="icon" disabled={isLoading} data-testid={`button-bulk-${config.key}`}>
+            <Button variant="outline" size="icon" disabled={isLoading} data-testid={`button-bulk-${config.key}`} title="Bulk operations" aria-label="Bulk operations">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           ) : (

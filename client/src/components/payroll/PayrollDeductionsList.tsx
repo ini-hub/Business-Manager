@@ -4,6 +4,7 @@ import { Minus, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -237,10 +238,10 @@ export function PayrollDeductionsList({
                       Skip this period
                     </Button>
                   ) : (
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteDeductionMutation?.mutate(d.id)}>
+                    <IconButton variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                      onClick={() => deleteDeductionMutation?.mutate(d.id)} label="Remove deduction">
                       <Minus className="h-3 w-3" />
-                    </Button>
+                    </IconButton>
                   )
                 )}
               </div>

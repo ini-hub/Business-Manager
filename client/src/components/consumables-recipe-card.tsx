@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -208,9 +209,9 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="font-mono">{formatCurrency(r.costPerUnit)}</span>
                   {canEdit && (
-                    <Button size="icon" variant="ghost" onClick={() => remove.mutate(r.id)} disabled={remove.isPending}>
+                    <IconButton variant="ghost" label="Remove ingredient" onClick={() => remove.mutate(r.id)} disabled={remove.isPending}>
                       <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Button>
+                    </IconButton>
                   )}
                 </div>
               </div>

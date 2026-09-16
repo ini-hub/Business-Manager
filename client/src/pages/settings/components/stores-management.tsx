@@ -4,6 +4,7 @@ import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Plus, Store, Pencil, Archive, ArchiveRestore, Trash2, MapPin, Phone, Globe, Coins, User } from "lucide-react";
@@ -204,24 +205,23 @@ export function StoresManagementSection() {
                         </CardDescription>
                       </div>
                       <div className="flex gap-1">
-                        <Button
+                        <IconButton
+                          label="Edit store"
                           variant="ghost"
-                          size="icon"
                           onClick={() => openEditStore(store)}
                           data-testid={`button-edit-store-${store.id}`}
                         >
                           <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
+                        </IconButton>
+                        <IconButton
+                          label={activeStores.length === 1 ? "You must have at least one active store" : "Archive store"}
                           variant="ghost"
-                          size="icon"
                           onClick={() => setArchivingStore(store)}
                           disabled={activeStores.length === 1}
-                          title={activeStores.length === 1 ? "You must have at least one active store" : "Archive store"}
                           data-testid={`button-archive-store-${store.id}`}
                         >
                           <Archive className="h-4 w-4" />
-                        </Button>
+                        </IconButton>
                       </div>
                     </div>
                   </CardHeader>
@@ -261,24 +261,22 @@ export function StoresManagementSection() {
                         <CardDescription className="font-mono text-xs">Code: {store.code}</CardDescription>
                       </div>
                       <div className="flex gap-1">
-                        <Button
+                        <IconButton
+                          label="Restore store"
                           variant="ghost"
-                          size="icon"
                           onClick={() => setRestoringStore(store)}
-                          title="Restore store"
                           data-testid={`button-restore-store-${store.id}`}
                         >
                           <ArchiveRestore className="h-4 w-4" />
-                        </Button>
-                        <Button
+                        </IconButton>
+                        <IconButton
+                          label="Permanently delete store"
                           variant="ghost"
-                          size="icon"
                           onClick={() => setDeletingStore(store)}
-                          title="Permanently delete store"
                           data-testid={`button-delete-store-${store.id}`}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        </IconButton>
                       </div>
                     </div>
                   </CardHeader>

@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -60,28 +61,28 @@ export function QuoteItemRow({
             )}
           </div>
         </div>
-        <Button
+        <IconButton
+          label="Remove item"
           variant="ghost"
-          size="icon"
           className="h-7 w-7 text-destructive shrink-0 self-start"
           onClick={() => onRemove(item.inventory.id)}
           data-testid={`button-remove-quote-item-${item.inventory.id}`}
         >
           <Trash2 className="h-3 w-3" />
-        </Button>
+        </IconButton>
       </div>
 
       {/* Row 2: qty stepper + line total */}
       <div className="flex items-center gap-1 flex-wrap">
-        <Button
+        <IconButton
+          label="Decrease quantity"
           variant="outline"
-          size="icon"
           className="h-7 w-7 shrink-0"
           onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? -0.5 : -1)}
           data-testid={`button-decrease-quote-item-${item.inventory.id}`}
         >
           <Minus className="h-3 w-3" />
-        </Button>
+        </IconButton>
         <Input
           type="number"
           step={quantityStep(item.inventory.allowFractional ?? false)}
@@ -98,15 +99,15 @@ export function QuoteItemRow({
         {item.inventory.unit && (
           <span className="text-xs text-muted-foreground font-medium shrink-0">{item.inventory.unit}</span>
         )}
-        <Button
+        <IconButton
+          label="Increase quantity"
           variant="outline"
-          size="icon"
           className="h-7 w-7 shrink-0"
           onClick={() => onUpdateQuantity(item.inventory.id, item.inventory.allowFractional ? 0.5 : 1)}
           data-testid={`button-increase-quote-item-${item.inventory.id}`}
         >
           <Plus className="h-3 w-3" />
-        </Button>
+        </IconButton>
         <span className="font-mono text-sm font-medium shrink-0 ml-2">
           {formatCurrency(item.totalPrice)}
         </span>

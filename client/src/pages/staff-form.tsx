@@ -5,6 +5,7 @@ import { useReturnTo } from "@/lib/return-to";
 import { ArrowLeft, Mail, Shield, Phone, Hash, FileCheck, FileX, FileClock, User, Briefcase, Settings2, UserCheck, UserPlus, Unlink, Link2, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -441,9 +442,9 @@ export default function StaffFormPage() {
     <div className="min-h-screen bg-muted/20">
       {/* Sticky top nav */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation(backHref)}>
+        <IconButton label="Back to staff" variant="ghost" className="h-8 w-8" onClick={() => setLocation(backHref)}>
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-sm truncate">{staffId ? "Edit Staff Member" : "New Staff Member"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>

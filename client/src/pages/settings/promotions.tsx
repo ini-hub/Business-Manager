@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -240,9 +241,9 @@ export default function PromotionsPage() {
                       onCheckedChange={(checked) => toggleMutation.mutate({ id: promo.id, isActive: checked })}
                       disabled={toggleMutation.isPending}
                     />
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <IconButton
+                      label="Delete promotion"
+                      variant="ghost"
                       onClick={() => {
                         if (confirm("Are you sure you want to delete this promotion?")) {
                           deleteMutation.mutate(promo.id);
@@ -251,7 +252,7 @@ export default function PromotionsPage() {
                       className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     >
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </IconButton>
                   </div>
                 </div>
 

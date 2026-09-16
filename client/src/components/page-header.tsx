@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, Link } from "wouter";
 import { ChevronRight, HelpCircle, Lightbulb, BookOpen, X, ChevronDown, CheckCircle } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { cn } from "@/lib/utils";
 
 interface GuideContent {
@@ -365,15 +365,14 @@ export function PageHeader({ title, description, actions, isLoading = false, com
               {title}
             </h1>
             {guide && !compact && (
-              <Button
+              <IconButton
                 variant="ghost"
-                size="icon"
                 className="h-7 w-7 text-muted-foreground hover:text-primary rounded-full"
                 onClick={() => setIsOpen(!isOpen)}
-                title="Page User Guide"
+                label="Page user guide"
               >
                 <HelpCircle className={`h-4 w-4 transition-transform duration-300 ${isOpen ? 'rotate-180 text-primary' : ''}`} />
-              </Button>
+              </IconButton>
             )}
           </div>
           {description && (
@@ -405,14 +404,14 @@ export function PageHeader({ title, description, actions, isLoading = false, com
                 </h3>
               </div>
             </div>
-            <Button
+            <IconButton
               variant="ghost"
-              size="icon"
               className="h-6 w-6 rounded-md hover:bg-muted"
               onClick={() => setIsOpen(false)}
+              label="Close guide"
             >
               <X className="h-3.5 w-3.5" />
-            </Button>
+            </IconButton>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

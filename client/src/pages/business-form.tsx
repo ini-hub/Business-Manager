@@ -2,6 +2,7 @@ import { useLocation } from "wouter";
 import { ArrowLeft, Building2, MapPin, Phone, Globe, Coins, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Form,
@@ -127,9 +128,9 @@ export default function BusinessFormPage() {
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/business")}>
+        <IconButton variant="ghost" onClick={() => setLocation("/settings/business")} label="Back to business settings">
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <PageHeader
           title={business ? "Edit Business Profile" : "Set Up Business"}
           description={business ? `Updating parameters for ${business?.name}` : "Configure the high-level corporate entity"}

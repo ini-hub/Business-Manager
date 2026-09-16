@@ -4,6 +4,7 @@ import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { ShieldCheck, Plus, Lock, Check, Settings2, Pencil, Trash2 } from "lucide-react";
 import { getUserFriendlyError } from "@/lib/error-utils";
@@ -141,12 +142,12 @@ export function RolesPermissionsSection() {
                     {role.name}
                   </span>
                   <div className="flex items-center gap-1">
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => openEditRole(role)}>
+                    <IconButton label="Edit role" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => openEditRole(role)}>
                       <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteCustomRoleMutation.mutate(role.id)}>
+                    </IconButton>
+                    <IconButton label="Delete role" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteCustomRoleMutation.mutate(role.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    </IconButton>
                   </div>
                 </CardTitle>
                 <CardDescription className="text-xs">

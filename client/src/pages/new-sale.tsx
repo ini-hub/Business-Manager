@@ -28,6 +28,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -1907,14 +1908,13 @@ export default function NewSale() {
                   </PopoverContent>
                 </Popover>
                   {!bookingId && (
-                    <Button 
-                      variant="outline" 
-                      size="icon" 
+                    <IconButton
+                      label="Add new customer"
+                      variant="outline"
                       onClick={() => setNewCustomerDialogOpen(true)}
-                      title="Add New Customer"
                     >
                       <Plus className="h-4 w-4" />
-                    </Button>
+                    </IconButton>
                   )}
                 </div>
               </div>
@@ -2131,14 +2131,14 @@ export default function NewSale() {
                           </div>
                         </div>
                         {splitPayments.length > 1 && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
+                          <IconButton
+                            label="Remove split payment"
+                            variant="ghost"
                             className="h-8 w-8 mt-[18px] text-muted-foreground hover:text-destructive opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                             onClick={() => removeSplitPayment(index)}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </Button>
+                          </IconButton>
                         )}
                       </div>
                     ))}

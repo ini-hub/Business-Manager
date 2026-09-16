@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -326,16 +327,15 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  <Button
+                  <IconButton
                     variant="outline"
-                    size="icon"
                     type="button"
                     onClick={() => setNewCustomerDialogOpen(true)}
-                    title="Add New Customer"
+                    label="Add new customer"
                     id="booking-add-customer-btn"
                   >
                     <Plus className="h-4 w-4" />
-                  </Button>
+                  </IconButton>
                 </div>
                 <FormMessage />
               </FormItem>

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { ToastAction } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
@@ -213,16 +214,15 @@ export function BulkActionsBar<T>({
         aria-label="Bulk actions"
       >
         <div className="flex items-center gap-2 px-4 py-2.5 max-w-full overflow-x-auto">
-          <Button
+          <IconButton
             variant="ghost"
-            size="icon"
             className="h-8 w-8 shrink-0"
             onClick={onClear}
-            aria-label="Clear selection"
+            label="Clear selection"
             data-testid="button-bulk-clear"
           >
             <X className="h-4 w-4" />
-          </Button>
+          </IconButton>
 
           <span className="text-sm font-medium mr-auto shrink-0" aria-live="polite">
             {selection.count} {pluralize(selection.count, entityNoun)} selected

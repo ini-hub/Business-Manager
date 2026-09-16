@@ -19,6 +19,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
@@ -1089,8 +1090,9 @@ export default function InventoryDetails() {
                           {
                             key: "actions", header: "",
                             render: (row: any) => (
-                              <Button
-                                variant="ghost" size="icon"
+                              <IconButton
+                                label="Remove component"
+                                variant="ghost"
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
                                 onClick={() => {
                                   const updated = bundleComponents
@@ -1100,7 +1102,7 @@ export default function InventoryDetails() {
                                 }}
                               >
                                 <Trash2 className="h-4 w-4" />
-                              </Button>
+                              </IconButton>
                             )
                           },
                         ]}
@@ -1247,25 +1249,23 @@ export default function InventoryDetails() {
                       key: "action", header: "",
                       render: (row: any) => (
                         <div className="flex items-center gap-1">
-                          <Button
+                          <IconButton
+                            label="Edit prices / stock"
                             variant="ghost"
-                            size="icon"
                             className="h-7 w-7"
-                            title="Edit prices / stock"
                             onClick={(e) => { e.stopPropagation(); openVariantEdit(row); }}
                           >
                             <Pencil className="h-3.5 w-3.5" />
-                          </Button>
+                          </IconButton>
                           {row.type === "product" && (
                             <Button variant="outline" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}/restock`)}>
                               Restock
                             </Button>
                           )}
-                          <Button
+                          <IconButton
+                            label={row.hasSales ? "Archive variant" : "Delete variant"}
                             variant="ghost"
-                            size="icon"
                             className="h-7 w-7 text-muted-foreground"
-                            title={row.hasSales ? "Archive variant" : "Delete variant"}
                             onClick={(e) => {
                               e.stopPropagation();
                               setDeletingVariant(row);
@@ -1276,7 +1276,7 @@ export default function InventoryDetails() {
                               ? <Archive className="h-3.5 w-3.5 text-amber-500" />
                               : <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             }
-                          </Button>
+                          </IconButton>
                         </div>
                       )
                     },
@@ -1490,15 +1490,14 @@ export default function InventoryDetails() {
                                 {qtyDisplay}
                               </td>
                               <td className="px-4 py-3">
-                                <Button
+                                <IconButton
+                                  label="View details"
                                   variant="ghost"
-                                  size="icon"
                                   className="h-7 w-7"
                                   onClick={() => setSelectedActivityLog(log)}
-                                  title="View details"
                                 >
                                   <Eye className="h-3.5 w-3.5" />
-                                </Button>
+                                </IconButton>
                               </td>
                             </tr>
                           );

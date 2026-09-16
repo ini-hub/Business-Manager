@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export type CalendarPeriod = "day" | "month" | "year";
@@ -22,17 +23,17 @@ export function CalendarPeriodNav({ period, onPeriodChange, label, onPrev, onNex
       <div className="flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="sm" onClick={onToday}>{resetLabel}</Button>
         <div className="flex items-center rounded-md border [border-color:var(--button-outline)] overflow-hidden">
-          <Button
+          <IconButton
             variant="ghost"
-            size="icon"
+            label="Previous period"
             onClick={onPrev}
             className="h-8 w-8 rounded-none border-0 border-r [border-color:var(--button-outline)]"
           >
             <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={onNext} className="h-8 w-8 rounded-none border-0">
+          </IconButton>
+          <IconButton variant="ghost" label="Next period" onClick={onNext} className="h-8 w-8 rounded-none border-0">
             <ChevronRight className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </div>
         <Tabs value={period} onValueChange={(v) => onPeriodChange(v as CalendarPeriod)}>
           <TabsList className="grid grid-cols-3 w-full sm:w-auto">

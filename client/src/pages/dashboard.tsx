@@ -407,6 +407,8 @@ export default function Dashboard() {
                 variant="outline"
                 size="icon"
                 className={cn("h-8 w-8 shrink-0", datePreset === "custom" && "border-primary text-primary")}
+                title="Custom date range"
+                aria-label="Custom date range"
                 data-testid="button-mobile-custom-range"
               >
                 <CalendarIcon className="h-3.5 w-3.5" />

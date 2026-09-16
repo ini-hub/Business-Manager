@@ -6,6 +6,7 @@ import { Wallet, TrendingUp, Clock, ChevronRight, History, AlertCircle, Calendar
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MetricCard } from "@/components/metric-card";
 import { MetricGrid } from "@/components/metric-grid";
@@ -244,14 +245,14 @@ export default function MyPayrollPage() {
                       )}
                       <span className="text-[10px] text-green-600 font-medium">PAID</span>
                     </div>
-                    <Button
-                      variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+                    <IconButton
+                      label="Download payslip PDF"
+                      variant="ghost" className="h-8 w-8 shrink-0"
                       disabled={downloadingId === item.id}
-                      title="Download payslip PDF"
                       onClick={(e) => { e.stopPropagation(); handleDownload(item.id); }}
                     >
                       <Download className={`h-4 w-4 ${downloadingId === item.id ? "animate-pulse" : ""}`} />
-                    </Button>
+                    </IconButton>
                     <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>

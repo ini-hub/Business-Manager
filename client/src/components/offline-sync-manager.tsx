@@ -23,6 +23,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { ReceiptModal } from "@/components/receipt-modal";
 import {
@@ -376,15 +377,14 @@ export function OfflineSyncManager() {
                     <div className="flex items-center gap-1 shrink-0">
                       {/* View receipt (only for items that already synced successfully before being moved to failed — edge case) */}
                       {item.syncedCheckoutIds && item.syncedCheckoutIds.length > 0 && (
-                        <Button
-                          size="icon"
+                        <IconButton
                           variant="ghost"
                           className="h-7 w-7"
-                          title="View receipt"
+                          label="View receipt"
                           onClick={() => { setReceiptId(item.syncedCheckoutIds![0]); setPanelOpen(false); }}
                         >
                           <Receipt className="h-3.5 w-3.5" />
-                        </Button>
+                        </IconButton>
                       )}
                       {/* Retry failed item */}
                       {item.status === "failed" && isOnline && (
@@ -399,15 +399,14 @@ export function OfflineSyncManager() {
                       )}
                       {/* Cancel / remove */}
                       {item.status !== "syncing" && (
-                        <Button
-                          size="icon"
+                        <IconButton
                           variant="ghost"
                           className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          title="Remove from queue"
+                          label="Remove from queue"
                           onClick={() => cancelItem(item.id)}
                         >
                           <X className="h-3.5 w-3.5" />
-                        </Button>
+                        </IconButton>
                       )}
                     </div>
                   </div>

@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation, useSearch } from "wouter";
 import { ArrowLeft, Phone, MapPin, Calendar, Coins, Receipt, AlertCircle, BookOpen, MoreVertical, Edit, Archive, RotateCcw, PhoneCall, MessageCircle, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -295,7 +296,7 @@ export default function CustomerDetails() {
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-customer-menu">
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="Customer menu" aria-label="Customer menu" data-testid="button-customer-menu">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -351,29 +352,28 @@ export default function CustomerDetails() {
 
       <div className="flex items-center gap-2">
         {rawPhone && (
-          <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-call">
-            <a href={`tel:${rawPhone}`} aria-label="Call customer">
+          <IconButton label="Call customer" variant="outline" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-call">
+            <a href={`tel:${rawPhone}`}>
               <PhoneCall className="h-4 w-4" />
             </a>
-          </Button>
+          </IconButton>
         )}
         {rawPhone && (
-          <Button variant="outline" size="icon" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-whatsapp">
-            <a href={`https://wa.me/${rawPhone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" aria-label="Message on WhatsApp">
+          <IconButton label="Message on WhatsApp" variant="outline" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-whatsapp">
+            <a href={`https://wa.me/${rawPhone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">
               <MessageCircle className="h-4 w-4" />
             </a>
-          </Button>
+          </IconButton>
         )}
-        <Button
+        <IconButton
+          label="Edit customer"
           variant="outline"
-          size="icon"
           className="h-10 w-10 rounded-full shrink-0"
           onClick={() => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`)}
-          aria-label="Edit customer"
           data-testid="button-quick-edit"
         >
           <Edit className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <Button
           className="flex-1"
           onClick={() => setLocation(`/sales/new?customerId=${customer.id}`)}

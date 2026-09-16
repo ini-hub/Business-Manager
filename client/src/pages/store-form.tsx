@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { ArrowLeft, Building2, MapPin, Phone, User, Coins, CreditCard, ShieldCheck, Check, Globe } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Form,
@@ -184,9 +185,9 @@ export default function StoreFormPage() {
   return (
     <div className="space-y-6 pb-20">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/stores")}>
+        <IconButton label="Back to stores" variant="ghost" onClick={() => setLocation("/settings/stores")}>
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </IconButton>
         <PageHeader
           title={storeId ? "Edit Store Location" : "Add Store Location"}
           description={storeId ? `Updating parameters for ${store?.name}` : "Establish a new localized franchise branch"}

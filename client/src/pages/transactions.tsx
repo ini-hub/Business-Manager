@@ -896,6 +896,7 @@ export default function Transactions() {
                           type="button"
                           onClick={() => setSaleSort(null)}
                           aria-label="Remove sort"
+                          title="Remove sort"
                           className="rounded-full p-0.5 hover:bg-muted"
                         >
                           <X className="h-3 w-3" />
@@ -912,6 +913,7 @@ export default function Transactions() {
                           type="button"
                           onClick={() => setSaleFilters((f) => clearSaleFilterChip(f, chip.key))}
                           aria-label={`Remove ${chip.label} filter`}
+                          title={`Remove ${chip.label} filter`}
                           className="rounded-full p-0.5 hover:bg-muted"
                         >
                           <X className="h-3 w-3" />

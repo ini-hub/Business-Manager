@@ -20,6 +20,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/icon-button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -65,7 +66,6 @@ import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { type TransactionWithRelations, VOID_REASON_PRESETS } from "@shared/schema";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function TransactionDetailsPage() {
   const { id } = useParams();
@@ -503,25 +503,24 @@ export default function TransactionDetailsPage() {
           field (status, total, date) reads top-to-bottom below it, matching how
           a physical receipt is scanned. Corrections live behind "More actions". */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild className="shrink-0">
+        <IconButton variant="ghost" label="Back to transactions" asChild className="shrink-0">
           <Link href={backHref}>
             <ArrowLeft className="h-5 w-5" />
           </Link>
-        </Button>
+        </IconButton>
         <h1 className="text-lg font-bold tracking-tight flex-1 min-w-0 truncate">
           Receipt {tx.checkout?.receiptNumber}
         </h1>
         {canViewActivity && (
-          <Button
+          <IconButton
             variant="ghost"
-            size="icon"
+            label="View activity"
             className="shrink-0"
-            title="View activity"
             onClick={() => setDetailTab((t) => (t === "activity" ? "details" : "activity"))}
             data-testid="button-view-activity"
           >
             <History className="h-4 w-4" />
-          </Button>
+          </IconButton>
         )}
         {canManage && !isVoided && (
           // Desktop has a dedicated always-visible Corrections card in the right column
@@ -529,7 +528,7 @@ export default function TransactionDetailsPage() {
           // trigger is mobile/tablet only.
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" data-testid="button-more-actions-header">
+              <Button variant="ghost" size="icon" title="More actions" className="shrink-0 lg:hidden" data-testid="button-more-actions-header">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </SheetTrigger>
@@ -704,22 +703,17 @@ export default function TransactionDetailsPage() {
                                   <p className="font-medium text-sm text-foreground truncate">{item.inventory?.name || "Unknown Item"}</p>
                                 )}
                                 {canManage && !isVoided && item.inventory?.type === "service" && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 text-muted-foreground hover:text-foreground shrink-0"
-                                        onClick={() => setLogUsageTarget({
-                                          orderId: item.order.id,
-                                          serviceName: item.inventory.name,
-                                        })}
-                                      >
-                                        <Droplet className="h-3.5 w-3.5" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Log supply used for this service</TooltipContent>
-                                  </Tooltip>
+                                  <IconButton
+                                    variant="ghost"
+                                    label="Log supply used for this service"
+                                    className="h-6 w-6 text-muted-foreground hover:text-foreground shrink-0"
+                                    onClick={() => setLogUsageTarget({
+                                      orderId: item.order.id,
+                                      serviceName: item.inventory.name,
+                                    })}
+                                  >
+                                    <Droplet className="h-3.5 w-3.5" />
+                                  </IconButton>
                                 )}
                               </div>
                               <p className="text-xs text-muted-foreground font-mono mt-0.5">
