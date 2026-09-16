@@ -40,7 +40,9 @@ export const PolymorphicTabsList = React.forwardRef<
         // Variant strategy classes
         variant === "default" && "bg-muted/50 p-1 rounded-xl gap-1",
         variant === "solid" && "bg-muted/40 p-0.5 rounded-lg border border-border/40 gap-1",
-        variant === "bordered" && "bg-transparent border-b border-border rounded-none p-0 gap-4 mb-4",
+        // Pill background on mobile (compact, no full-width underline to draw),
+        // switching to the plain underline strip from `sm:` up where there's more room.
+        variant === "bordered" && "bg-muted/50 p-1 rounded-xl gap-1 mb-4 sm:bg-transparent sm:border-b sm:border-border sm:rounded-none sm:p-0 sm:gap-4",
         
         // Scrollable vs Grid strategy.
         // NOTE: spec calls for an edge-fade + chevron indicator when tabs overflow.
@@ -68,7 +70,9 @@ export const PolymorphicTabsList = React.forwardRef<
             // Polymorphic style strategies
             variant === "default" && "flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm text-xs md:text-sm px-3 md:px-4",
             variant === "solid" && "text-xs py-1.5 px-3 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm flex items-center gap-1.5",
-            variant === "bordered" && "bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none py-2 px-1 text-xs md:text-sm font-medium border-b-2 border-transparent",
+            variant === "bordered" &&
+              "flex items-center justify-center gap-2 rounded-lg py-2.5 px-3 text-xs font-medium data-[state=active]:bg-background data-[state=active]:shadow-sm " +
+              "sm:bg-transparent sm:rounded-none sm:shadow-none sm:py-2 sm:px-1 sm:text-sm sm:border-b-2 sm:border-transparent sm:data-[state=active]:bg-transparent sm:data-[state=active]:shadow-none sm:data-[state=active]:border-primary",
             
             // Enforce non-wrapping on horizontal scrolling lists
             scrollable && "shrink-0",

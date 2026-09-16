@@ -940,8 +940,12 @@ export function PolymorphicTable<T extends { id: string | number }>({
               // than default to visible. Tables that haven't adopted `priority` yet (every
               // column undefined) see every column, exactly as before.
               const hasPriorities = allDataCols.some((col) => col.priority !== undefined);
+              // Sort (stably — ties keep column-definition order) rather than just filter,
+              // so `priority` also controls card position, not only inclusion: e.g. two
+              // priority-1 columns fill the top row of a compact-grid card ahead of a
+              // priority-2/3 column, independent of where they sit in the desktop table.
               const dataCols = hasPriorities
-                ? allDataCols.filter((col) => col.priority !== undefined)
+                ? allDataCols.filter((col) => col.priority !== undefined).sort((a, b) => a.priority! - b.priority!)
                 : allDataCols;
               const primaryCol = dataCols[0];
               const otherCols = dataCols.slice(1);

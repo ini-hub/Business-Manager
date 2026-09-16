@@ -565,11 +565,13 @@ export default function Customers() {
     {
       key: "name",
       header: "Customer",
+      priority: 1 as const,
       render: (customer: Customer) => <CustomerNameCell customer={customer} />,
     },
     {
       key: "mobileNumber",
       header: "Contact",
+      priority: 2 as const,
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
           {customer.mobileNumber ? (
@@ -600,6 +602,7 @@ export default function Customers() {
     {
       key: "totalSpend",
       header: "Total spend",
+      priority: 1 as const,
       render: (customer: CustomerRow) => (
         <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
       ),
@@ -607,6 +610,7 @@ export default function Customers() {
     {
       key: "lastVisited",
       header: "Last visit",
+      priority: 3 as const,
       render: (customer: CustomerRow) => (
         <div className="text-sm">
           <div>{formatDate(customer.lastVisited)}</div>
@@ -650,6 +654,7 @@ export default function Customers() {
     {
       key: "name",
       header: "Customer",
+      priority: 1 as const,
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
           <CustomerNameCell customer={customer} />
@@ -660,6 +665,7 @@ export default function Customers() {
     {
       key: "mobileNumber",
       header: "Contact",
+      priority: 2 as const,
       render: (customer: Customer) => (
         <div className="flex items-center gap-2">
           {customer.mobileNumber ? (
@@ -676,6 +682,7 @@ export default function Customers() {
     {
       key: "totalSpend",
       header: "Total spend",
+      priority: 1 as const,
       render: (customer: CustomerRow) => (
         <span className="font-mono text-sm">{formatCurrency(customer.totalSpend ?? 0)}</span>
       ),
@@ -683,6 +690,7 @@ export default function Customers() {
     {
       key: "lastVisited",
       header: "Last visit",
+      priority: 3 as const,
       render: (customer: CustomerRow) => (
         <span className="text-sm">{formatDate(customer.lastVisited)}</span>
       ),
@@ -934,6 +942,7 @@ export default function Customers() {
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="active"
                   showCardChevron
+                  cardLayout="compact-grid"
                   hideFooter={isServerPaginated}
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
@@ -1003,6 +1012,7 @@ export default function Customers() {
                   onVisibleDataChange={setVisibleCustomerRows}
                   urlKey="archivedTbl"
                   showCardChevron
+                  cardLayout="compact-grid"
                   emptyIcon={<Users className="h-6 w-6 opacity-40" />}
                   emptyTitle="No Archived Profiles"
                 />
