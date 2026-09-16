@@ -531,13 +531,11 @@ export default function Customers() {
     </Avatar>
   );
 
+  // Mobile/tablet compact-grid card: name only — customer number moved to its
+  // own cell (below, replacing the now-hidden contact cell) rather than
+  // living as a subtitle here.
   const CustomerCardNameCell = ({ customer }: { customer: Customer }) => (
-    <div className="flex flex-col min-w-0">
-      <span className="truncate">{customer.name}</span>
-      <span className="text-xs font-normal text-muted-foreground truncate">
-        {customer.customerNumber}
-      </span>
-    </div>
+    <span className="truncate">{customer.name}</span>
   );
 
 
@@ -574,10 +572,10 @@ export default function Customers() {
           )}
         </div>
       ),
-      // Hidden on the mobile/tablet compact-grid card — "Call" lives in the
-      // row's "…" menu (activeRowActions/archivedRowActions) instead. Desktop
-      // table keeps showing the full number via the normal `render` above.
-      cardRender: () => null,
+      // Mobile/tablet compact-grid card: shows the customer number instead of
+      // the phone number — "Call" lives in the row's "…" menu instead. Desktop
+      // table is unchanged (full icon + formatted number via `render` above).
+      cardRender: (customer: Customer) => <span className="truncate">{customer.customerNumber}</span>,
     },
     {
       key: "address",
@@ -686,10 +684,10 @@ export default function Customers() {
           )}
         </div>
       ),
-      // Hidden on the mobile/tablet compact-grid card — "Call" lives in the
-      // row's "…" menu (activeRowActions/archivedRowActions) instead. Desktop
-      // table keeps showing the full number via the normal `render` above.
-      cardRender: () => null,
+      // Mobile/tablet compact-grid card: shows the customer number instead of
+      // the phone number — "Call" lives in the row's "…" menu instead. Desktop
+      // table is unchanged (full icon + formatted number via `render` above).
+      cardRender: (customer: Customer) => <span className="truncate">{customer.customerNumber}</span>,
     },
     {
       key: "totalSpend",
