@@ -575,7 +575,7 @@ export default function Customers() {
       // Mobile/tablet compact-grid card: shows the customer number instead of
       // the phone number — "Call" lives in the row's "…" menu instead. Desktop
       // table is unchanged (full icon + formatted number via `render` above).
-      cardRender: (customer: Customer) => <span className="truncate">{customer.customerNumber}</span>,
+      cardRender: (customer: Customer) => <span className="font-mono truncate">{customer.customerNumber}</span>,
     },
     {
       key: "address",
@@ -687,7 +687,7 @@ export default function Customers() {
       // Mobile/tablet compact-grid card: shows the customer number instead of
       // the phone number — "Call" lives in the row's "…" menu instead. Desktop
       // table is unchanged (full icon + formatted number via `render` above).
-      cardRender: (customer: Customer) => <span className="truncate">{customer.customerNumber}</span>,
+      cardRender: (customer: Customer) => <span className="font-mono truncate">{customer.customerNumber}</span>,
     },
     {
       key: "totalSpend",
