@@ -1,4 +1,4 @@
-import { FileDown, FileSpreadsheet, FileText } from "lucide-react";
+import { FileDown, FileSpreadsheet, FileText, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -41,6 +41,10 @@ interface ExportToolbarProps<T extends Record<string, unknown>, P extends Record
   onExportPDF?: () => void | Promise<void>;
   /** Same idea as `onExportPDF` but for the "current view" PDF action. */
   onExportFilteredPDF?: () => void | Promise<void>;
+  /** Renders the trigger as an icon-only "..." button instead of the labelled "Export"
+   * button — same convention as BulkOperations' `compact` prop, for headers too narrow
+   * to spare a text label. */
+  compact?: boolean;
 }
 
 export function ExportToolbar<T extends Record<string, unknown>, P extends Record<string, unknown> = T>({
@@ -54,6 +58,7 @@ export function ExportToolbar<T extends Record<string, unknown>, P extends Recor
   visiblePdfReport,
   onExportPDF,
   onExportFilteredPDF,
+  compact = false,
 }: ExportToolbarProps<T, P>) {
   const hasNarrowedView = !!visibleData && visibleData.length !== data.length;
 
@@ -79,15 +84,26 @@ export function ExportToolbar<T extends Record<string, unknown>, P extends Recor
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={disabled || data.length === 0}
-          data-testid="button-export"
-        >
-          <FileDown className="mr-2 h-4 w-4" />
-          Export
-        </Button>
+        {compact ? (
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={disabled || data.length === 0}
+            data-testid="button-export"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled || data.length === 0}
+            data-testid="button-export"
+          >
+            <FileDown className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => handleExportCSV()} data-testid="button-export-csv">

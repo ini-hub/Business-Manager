@@ -6,25 +6,23 @@ import {
   Calendar,
   User,
   CreditCard,
-  Hash,
   AlertCircle,
   Printer,
   Ban,
   Edit,
-  Coins,
   ShoppingBag,
   Loader2,
   Undo2,
-  Store,
   Tag,
-  ChevronRight,
   Plus,
   Droplet,
   History,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { BaseCard } from "@/components/oop-ui/BaseCard";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -112,6 +110,10 @@ export default function TransactionDetailsPage() {
   // Track return success to block re-opening until data is fresh
   const [isRefreshingAfterReturn, setIsRefreshingAfterReturn] = useState(false);
 
+  // Details/Activity tab — controlled so the header's history icon can jump straight
+  // to Activity instead of only being reachable via the TabsList.
+  const [detailTab, setDetailTab] = useState<"details" | "activity">("details");
+
   const storeCurrency = currentStore?.currency || "NGN";
 
   const formatCurrency = (value: number, currency: string = storeCurrency) => {
@@ -186,6 +188,30 @@ export default function TransactionDetailsPage() {
   const receiptDiscountPct = receiptDetails?.checkout?.discountPercent ?? 0;
   const receiptDiscountReason = receiptDetails?.checkout?.discountReason ?? "";
   const hasDiscount = receiptDiscount > 0;
+
+  // Total refunded across every return event on this receipt — receiptTotal is already net
+  // of this, so gross-charged (what the customer originally paid before any returns) is
+  // receiptTotal + totalRefundedAll.
+  const totalRefundedAll = (receiptDetails?.returnLogs ?? []).reduce(
+    (sum: number, log: any) => sum + Number(log.refundAmount || 0),
+    0
+  );
+  const grossCharged = receiptTotal + totalRefundedAll;
+  const isSettled = transaction?.checkout?.paymentStatus !== "pending";
+
+  // checkout.totalCharged is tax-inclusive (what the customer actually paid per line);
+  // item rows below show the pre-tax price instead, with tax broken out as its own line
+  // in the totals block — not folded invisibly into each item's displayed price.
+  const taxTotalAll = (receiptDetails?.items ?? []).reduce(
+    (sum: number, item: any) => sum + Number(item.checkout?.taxTotal || 0),
+    0
+  );
+  const grossChargedExclTax = grossCharged - taxTotalAll;
+  // Tax isn't stored as a rate anywhere on the checkout/order rows — only the computed
+  // amount is — so the effective percentage shown to the user is derived from the two
+  // totals rather than read from a field.
+  const effectiveTaxRatePct = grossChargedExclTax > 0 ? (taxTotalAll / grossChargedExclTax) * 100 : 0;
+  const formatTaxRate = (pct: number) => (Number.isInteger(pct) ? pct.toString() : pct.toFixed(1));
 
   const isFullyReturned =
     !isVoided &&
@@ -386,48 +412,177 @@ export default function TransactionDetailsPage() {
 
   const tx = transaction;
 
+  const statusBadge = isVoided ? (
+    <Badge variant="destructive" className="text-xs px-2.5 py-1">Voided</Badge>
+  ) : isFullyReturned ? (
+    <Badge variant="outline" className="text-xs px-2.5 py-1 text-red-600 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold">
+      Returned
+    </Badge>
+  ) : receiptDetails?.checkout?.isPartiallyReturned ? (
+    <Badge variant="outline" className="text-xs px-2.5 py-1 text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold">
+      Part returned
+    </Badge>
+  ) : null;
+
+  // Shared between the mobile "More actions" sheet (triggered from the header, since a
+  // phone screen has no room to show these inline) and the desktop inline Corrections
+  // card (shown always there — desktop has the width to spare, so hiding them behind a
+  // click only costs clicks for no space savings).
+  const correctionsList = (
+    <div className="space-y-1">
+      <button
+        type="button"
+        className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:hover:bg-transparent"
+        disabled={tx.checkout?.paymentStatus === "pending"}
+        onClick={openPaymentDialog}
+      >
+        <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div>
+          <p className="text-sm font-medium">{isFullyReturned ? "Correct Payment Record" : "Change payment method"}</p>
+          <p className="text-xs text-muted-foreground">
+            {tx.checkout?.paymentStatus === "pending"
+              ? "Resolve the pending payment first"
+              : "Record a different method or split payment"}
+          </p>
+        </div>
+      </button>
+
+      {tx.checkout?.paymentStatus !== "pending" && (
+        <button
+          type="button"
+          className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-muted/50 transition-colors"
+          onClick={() => setIsAddendumOpen(true)}
+        >
+          <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div>
+            <p className="text-sm font-medium">Add missed item</p>
+            <p className="text-xs text-muted-foreground">Adds to this receipt and records a balance due</p>
+          </div>
+        </button>
+      )}
+
+      {canEditDate && (
+        <button
+          type="button"
+          className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-muted/50 transition-colors"
+          onClick={openEditDateDialog}
+        >
+          <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div>
+            <p className="text-sm font-medium">Correct sale date</p>
+            <p className="text-xs text-muted-foreground">Owner only · moves revenue between reporting periods</p>
+          </div>
+        </button>
+      )}
+
+      {/* Void — disabled with an explanation once a return exists: stock &
+          refunds are already reversed by the return, so voiding on top would
+          double-count them. */}
+      <button
+        type="button"
+        className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-destructive/5 transition-colors disabled:opacity-50 disabled:hover:bg-transparent"
+        disabled={isFullyReturned || (receiptDetails?.checkout?.isPartiallyReturned ?? false)}
+        onClick={() => setIsVoidDialogOpen(true)}
+      >
+        <Ban className="h-4 w-4 text-destructive shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-destructive">Void sale</p>
+          <p className="text-xs text-muted-foreground">
+            {isFullyReturned || receiptDetails?.checkout?.isPartiallyReturned
+              ? "Unavailable after a return. Return the remaining items instead."
+              : "Reverses revenue and restores stock"}
+          </p>
+        </div>
+      </button>
+    </div>
+  );
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {/* Back Navigation */}
-      <div className="flex items-center gap-4">
+      {/* Header — receipt-first: title is the receipt number, and every other
+          field (status, total, date) reads top-to-bottom below it, matching how
+          a physical receipt is scanned. Corrections live behind "More actions". */}
+      <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild className="shrink-0">
           <Link href={backHref}>
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight">Transaction Details</h1>
-            {isVoided && (
-              <Badge variant="destructive" className="text-sm px-3 py-1">
-                VOIDED
-              </Badge>
-            )}
-            {isFullyReturned ? (
-              <Badge
-                variant="outline"
-                className="text-sm px-3 py-1 text-red-600 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold"
-              >
-                FULLY RETURNED
-              </Badge>
-            ) : receiptDetails?.checkout?.isPartiallyReturned ? (
-              <Badge
-                variant="outline"
-                className="text-sm px-3 py-1 text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold"
-              >
-                PARTIALLY RETURNED
-              </Badge>
-            ) : null}
-          </div>
-          <p className="text-sm text-muted-foreground font-mono mt-0.5">
-            {tx.checkout?.receiptNumber}
+        <h1 className="text-lg font-bold tracking-tight flex-1 min-w-0 truncate">
+          Receipt {tx.checkout?.receiptNumber}
+        </h1>
+        {canViewActivity && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            title="View activity"
+            onClick={() => setDetailTab((t) => (t === "activity" ? "details" : "activity"))}
+            data-testid="button-view-activity"
+          >
+            <History className="h-4 w-4" />
+          </Button>
+        )}
+        {canManage && !isVoided && (
+          // Desktop has a dedicated always-visible Corrections card in the right column
+          // (more spacing there, so a click-to-reveal sheet just costs clicks) — this
+          // trigger is mobile/tablet only.
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" data-testid="button-more-actions-header">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="rounded-t-xl p-5 gap-4">
+              <SheetHeader className="text-left p-0 space-y-0.5">
+                <SheetTitle className="text-lg">More actions</SheetTitle>
+                <p className="text-xs text-muted-foreground font-mono">Receipt {tx.checkout?.receiptNumber}</p>
+              </SheetHeader>
+
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1">
+                Corrections · reason required, logged in activity
+              </p>
+
+              {correctionsList}
+            </SheetContent>
+          </Sheet>
+        )}
+      </div>
+
+      {/* Net total headline */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Net total</p>
+          <p className={`text-3xl font-bold ${isVoided ? "line-through text-muted-foreground" : ""}`}>
+            {isReceiptLoading ? <span className="text-muted-foreground text-base">Loading…</span> : formatCurrency(receiptTotal)}
           </p>
-          {receiptDetails?.lastUpdate && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Last updated: {receiptDetails.lastUpdate.action}
-              {receiptDetails.lastUpdate.actorName ? ` by ${receiptDetails.lastUpdate.actorName}` : ""}
-              {" · "}{formatDate(receiptDetails.lastUpdate.at)}
-            </p>
+        </div>
+        {statusBadge}
+      </div>
+      <p className="text-sm text-muted-foreground -mt-4">
+        {formatDate(tx.transactionDate)} · <span className="font-mono">{tx.checkout?.receiptNumber}</span>
+      </p>
+
+      {/* Customer / Billed by — two compact tappable blocks */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg bg-muted/40 p-3">
+          <p className="text-xs text-muted-foreground">Customer</p>
+          {tx.customer?.id ? (
+            <EntityLink href={`/customers/${buildSlug(tx.customer.name, tx.customer.id)}`} className="font-semibold text-primary text-sm">
+              {tx.customer.name}
+            </EntityLink>
+          ) : (
+            <p className="font-semibold text-sm">Unknown</p>
+          )}
+        </div>
+        <div className="rounded-lg bg-muted/40 p-3">
+          <p className="text-xs text-muted-foreground">Billed by</p>
+          {tx.checkout?.staff?.id ? (
+            <EntityLink href={`/staffs/${tx.checkout.staff.id}/edit`} className="font-semibold text-primary text-sm">
+              {tx.checkout.staff.name}
+            </EntityLink>
+          ) : (
+            <p className="font-semibold text-sm">{tx.checkout?.staff?.name ?? "Unknown"}</p>
           )}
         </div>
       </div>
@@ -436,7 +591,7 @@ export default function TransactionDetailsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Section — Transaction Info */}
         <div className="lg:col-span-2 space-y-6">
-        <Tabs defaultValue="details">
+        <Tabs value={detailTab} onValueChange={(v) => setDetailTab(v as "details" | "activity")}>
           <TabsList>
             <TabsTrigger value="details">Details</TabsTrigger>
             {canViewActivity && <TabsTrigger value="activity">Activity</TabsTrigger>}
@@ -451,123 +606,9 @@ export default function TransactionDetailsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Receipt Number & Date */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Hash className="h-6 w-6" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm text-muted-foreground">Receipt Number</p>
-                    <p className="font-mono font-semibold text-lg truncate">
-                      {tx.checkout?.receiptNumber}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Calendar className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Date</p>
-                    <p className="font-semibold text-lg">
-                      {formatDate(tx.transactionDate)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Billed By & Customer */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0">
-                    <User className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Billed By</p>
-                    {tx.checkout?.staff?.id ? (
-                      <EntityLink href={`/staffs/${tx.checkout.staff.id}/edit`} className="font-semibold text-primary">
-                        {tx.checkout.staff.name}
-                      </EntityLink>
-                    ) : (
-                      <p className="font-semibold">{tx.checkout?.staff?.name ?? "Unknown"}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground font-mono">
-                      {tx.checkout?.staff?.staffNumber ?? "N/A"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-600 shrink-0">
-                    <User className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Customer</p>
-                    {tx.customer?.id ? (
-                      <EntityLink
-                        href={`/customers/${buildSlug(tx.customer.name, tx.customer.id)}`}
-                        className="font-semibold text-primary"
-                      >
-                        {tx.customer.name}
-                      </EntityLink>
-                    ) : (
-                      <p className="font-semibold">Unknown</p>
-                    )}
-                    <p className="text-xs text-muted-foreground font-mono">
-                      {tx.customer?.customerNumber}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Payment Method & Receipt Total */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-600 shrink-0">
-                    <CreditCard className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Payment Method</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="secondary" className="capitalize">
-                        {tx.checkout?.paymentMethod ?? "cash"}
-                      </Badge>
-                      {tx.checkout?.paymentStatus === "pending" && !isVoided && (
-                        <Badge
-                          variant="outline"
-                          className="text-amber-600 border-amber-300 bg-amber-50"
-                        >
-                          PENDING
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0">
-                    <Coins className="h-6 w-6" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm text-muted-foreground">Receipt Total</p>
-                    <p
-                      className={`font-bold text-2xl ${isVoided ? "line-through text-muted-foreground" : ""}`}
-                    >
-                      {isReceiptLoading ? (
-                        <span className="text-muted-foreground text-base">Loading…</span>
-                      ) : (
-                        formatCurrency(receiptTotal)
-                      )}
-                    </p>
-                  </div>
-                </div>
-              </div>
+              {/* Receipt number, date, customer, billed-by, payment method and net total
+                  all now live in the headline block and two-block row above — this card
+                  starts straight at whatever needs more room: discount, items, totals. */}
 
               {/* Discount row — only shown when a discount was applied */}
               {(hasDiscount || isReceiptLoading) && hasDiscount && (
@@ -599,97 +640,201 @@ export default function TransactionDetailsPage() {
                 <>
                   <Separator />
                   <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                      <ShoppingBag className="h-4 w-4 text-primary" />
-                      Purchased Items
-                    </h3>
-                    <div className="rounded-lg border bg-card overflow-x-auto">
-                      <table className="w-full min-w-[480px] text-left border-collapse text-xs">
-                        <thead>
-                          <tr className="bg-muted/40 border-b border-muted/50 font-semibold text-muted-foreground">
-                            <th className="p-3">Item</th>
-                            <th className="p-3 text-center">Qty</th>
-                            <th className="p-3 text-right">Unit Price</th>
-                            <th className="p-3 text-right">Total</th>
-                            <th className="p-3 text-center">Returned</th>
-                            {canManage && !isVoided && <th className="p-3 text-center">Supplies</th>}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-muted/40">
-                          {receiptDetails.items.map((item: any) => {
-                            const lineCharged = item.checkout.totalCharged ?? item.checkout.totalPrice;
-                            const unitPrice = item.order.quantity > 0 ? (lineCharged / item.order.quantity) : 0;
-                            const returnedQty = item.order.returnedQuantity || 0;
-                            return (
-                              <tr key={item.order.id} className="hover:bg-muted/10 transition-colors">
-                                <td className="p-3">
-                                  {item.inventory?.id ? (
-                                    <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`}>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <p className="font-medium text-foreground truncate max-w-[220px]">{item.inventory.name}</p>
-                                        </TooltipTrigger>
-                                        <TooltipContent>{item.inventory.name}</TooltipContent>
-                                      </Tooltip>
-                                    </EntityLink>
-                                  ) : (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <p className="font-medium text-foreground truncate max-w-[220px]">{item.inventory?.name || "Unknown Item"}</p>
-                                      </TooltipTrigger>
-                                      <TooltipContent>{item.inventory?.name || "Unknown Item"}</TooltipContent>
-                                    </Tooltip>
-                                  )}
-                                  <Badge variant="outline" className={`text-[10px] py-0 px-1 capitalize mt-0.5 ${
-                                    item.inventory?.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
-                                    : item.inventory?.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
-                                    : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
-                                    {item.inventory?.type || "product"}
-                                  </Badge>
-                                </td>
-                                <td className="p-3 text-center font-mono">{item.order.quantity}</td>
-                                <td className="p-3 text-right font-mono">{formatCurrency(unitPrice)}</td>
-                                <td className="p-3 text-right font-mono font-medium">{formatCurrency(lineCharged)}</td>
-                                <td className="p-3 text-center">
-                                  {returnedQty > 0 ? (
-                                    <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-mono text-[10px] font-semibold">
-                                      {returnedQty} returned
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground/50">-</span>
-                                  )}
-                                </td>
-                                {canManage && !isVoided && (
-                                  <td className="p-3 text-center">
-                                    {item.inventory?.type === "service" && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                            onClick={() => setLogUsageTarget({
-                                              orderId: item.order.id,
-                                              serviceName: item.inventory.name,
-                                            })}
-                                          >
-                                            <Droplet className="h-3.5 w-3.5" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Log supply used for this service</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </td>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <ShoppingBag className="h-4 w-4 text-primary" />
+                        {receiptDetails.items.length} item{receiptDetails.items.length === 1 ? "" : "s"}
+                      </h3>
+                      {taxTotalAll > 0 && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Prices shown are pre-tax · {formatTaxRate(effectiveTaxRatePct)}% tax added below
+                        </p>
+                      )}
+                    </div>
+                    {/* Data-quality flag: a fractional quantity on a piece-counted item (not a
+                        service, which can legitimately be sold in fractional units of time/usage)
+                        means checkout accepted a mistyped quantity — surface it rather than hide it. */}
+                    {receiptDetails.items
+                      .filter((item: any) => item.inventory?.type !== "service" && !Number.isInteger(Number(item.order.quantity)))
+                      .map((item: any) => (
+                        <div
+                          key={`qty-flag-${item.order.id}`}
+                          className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-400"
+                        >
+                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span>
+                            <strong>{item.inventory?.name ?? "This item"}</strong> has quantity {item.order.quantity}.
+                            Pieces should be whole numbers — this looks like a mistyped quantity at checkout
+                            and should be reviewed for correction.
+                          </span>
+                        </div>
+                      ))}
+                    {/* Stacked list instead of a table — name/qty/unit price stack vertically per
+                        item with the line total right-aligned, so nothing clips at phone widths
+                        (the old table needed horizontal scroll to reach "Total" and beyond). */}
+                    <div className="rounded-lg border divide-y divide-muted/40 bg-card">
+                      {receiptDetails.items.map((item: any) => {
+                        const lineCharged = item.checkout.totalCharged ?? item.checkout.totalPrice;
+                        // Pre-tax line amount — tax is broken out as its own line in the
+                        // totals block below rather than folded into each item's price.
+                        const lineExclTax = lineCharged - Number(item.checkout?.taxTotal || 0);
+                        const unitPrice = item.order.quantity > 0 ? (lineExclTax / item.order.quantity) : 0;
+                        const returnedQty = item.order.returnedQuantity || 0;
+                        // Per-line return amount: correlate this item's return logs by orderId
+                        // (a receipt can have several return events against the same line).
+                        const lineReturnLogs = (receiptDetails.returnLogs ?? []).filter(
+                          (log: any) => log.orderId === item.order.id
+                        );
+                        const lineReturnedAmount = lineReturnLogs.reduce(
+                          (sum: number, log: any) => sum + Number(log.refundAmount || 0) - Number(log.taxRefundAmount || 0),
+                          0
+                        );
+                        const latestLineReturn = lineReturnLogs
+                          .slice()
+                          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                        return (
+                          <div key={item.order.id} className="p-3 flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                {item.inventory?.id ? (
+                                  <EntityLink href={`/inventory/${buildSlug(item.inventory.name, item.inventory.id)}`}>
+                                    <p className="font-medium text-sm text-foreground truncate">{item.inventory.name}</p>
+                                  </EntityLink>
+                                ) : (
+                                  <p className="font-medium text-sm text-foreground truncate">{item.inventory?.name || "Unknown Item"}</p>
                                 )}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                                {canManage && !isVoided && item.inventory?.type === "service" && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 text-muted-foreground hover:text-foreground shrink-0"
+                                        onClick={() => setLogUsageTarget({
+                                          orderId: item.order.id,
+                                          serviceName: item.inventory.name,
+                                        })}
+                                      >
+                                        <Droplet className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Log supply used for this service</TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                                {item.order.quantity} × {formatCurrency(unitPrice)}
+                              </p>
+                              {returnedQty > 0 && (
+                                <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mt-1">
+                                  {returnedQty} returned
+                                  {latestLineReturn ? ` · ${new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" }).format(new Date(latestLineReturn.createdAt))}` : ""}
+                                  {lineReturnedAmount > 0 ? ` · -${formatCurrency(lineReturnedAmount)}` : ""}
+                                </p>
+                              )}
+                            </div>
+                            <p className={`font-mono font-medium text-sm shrink-0 ${returnedQty >= item.order.quantity ? "line-through text-muted-foreground" : ""}`}>
+                              {formatCurrency(lineExclTax)}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </>
               )}
+
+              {/* Subtotal / Returned / Net total — reconciles visibly instead of only
+                  showing the final net figure, so a partial return's arithmetic is checkable. */}
+              {receiptDetails && (
+                <>
+                  <Separator />
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span className="font-mono">{formatCurrency(grossChargedExclTax)}</span>
+                    </div>
+                    {taxTotalAll > 0 && (
+                      <div className="flex items-center justify-between text-muted-foreground">
+                        <span>Tax ({formatTaxRate(effectiveTaxRatePct)}%)</span>
+                        <span className="font-mono">{formatCurrency(taxTotalAll)}</span>
+                      </div>
+                    )}
+                    {totalRefundedAll > 0 && (
+                      <div className="flex items-center justify-between text-orange-600 dark:text-orange-400">
+                        <span>Returned</span>
+                        <span className="font-mono line-through opacity-70">-{formatCurrency(totalRefundedAll)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between font-bold text-base pt-1">
+                      <span>Net total</span>
+                      <span className="font-mono">{formatCurrency(receiptTotal)}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Payments ledger — every payment and refund in order, ending in a
+                  clear settled-or-balance-due line. */}
+              {receiptDetails && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold text-foreground">Payments</h3>
+                    <div className="space-y-1.5 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-muted-foreground capitalize">
+                          <span className="text-emerald-600">↙</span>
+                          {tx.checkout?.paymentMethod ?? "cash"} · {new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" }).format(new Date(tx.transactionDate))}
+                        </span>
+                        <span className="font-mono">{formatCurrency(grossCharged)}</span>
+                      </div>
+                      {(receiptDetails.returnLogs ?? []).map((log: any) => (
+                        <div key={log.id} className="flex items-center justify-between">
+                          <span className="flex items-center gap-1.5 text-muted-foreground capitalize">
+                            <span className="text-red-500">↗</span>
+                            Refund to {(log.refundMethod ?? "").replace("_", " ")} · {new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(log.createdAt))}
+                          </span>
+                          <span className="font-mono text-red-600 dark:text-red-400">-{formatCurrency(log.refundAmount)}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-1.5 border-t">
+                        <span className={`flex items-center gap-1.5 font-medium ${isSettled ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                          {isSettled ? "✓ Fully settled" : "Balance due"}
+                        </span>
+                        <span className={`font-mono font-medium ${isSettled ? "" : "text-amber-600 dark:text-amber-400"}`}>
+                          {isSettled ? formatCurrency(0) : formatCurrency(receiptTotal)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Primary actions — what staff do most, pinned at the bottom of the receipt
+                  itself; corrections live behind the header's "More actions" sheet. */}
+              <Separator />
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setReceiptCheckoutId(tx.checkout?.id || null)}
+                  data-testid="button-send-receipt"
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Send receipt
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-orange-200 hover:bg-orange-50 hover:text-orange-600 text-orange-600 dark:border-orange-900/30 dark:hover:bg-orange-950/20 disabled:opacity-50"
+                  onClick={() => setIsReturnDialogOpen(true)}
+                  disabled={!canManage || isVoided || isFullyReturned || isReceiptLoading || !returnCheckoutObj || isRefreshingAfterReturn}
+                  title={!canManage || isVoided || isFullyReturned ? "Return items" : isRefreshingAfterReturn ? "Refreshing transaction data..." : isReceiptLoading ? "Loading receipt data..." : "Return items"}
+                  data-testid="button-return-items"
+                >
+                  <Undo2 className="mr-2 h-4 w-4" />
+                  {isRefreshingAfterReturn ? "Refreshing..." : isReceiptLoading ? "Loading..." : "Return items"}
+                </Button>
+              </div>
             </CardContent>
           </BaseCard>
 
@@ -817,6 +962,31 @@ export default function TransactionDetailsPage() {
 
         {/* Right Section — Actions */}
         <div className="space-y-6">
+          {/* Desktop-only: corrections shown inline instead of behind a click, since
+              there's room here that a phone screen doesn't have (mirrors the header's
+              mobile-only "More actions" sheet, which carries the same list). */}
+          {canManage && !isVoided && (
+            <div className="hidden lg:block">
+              <BaseCard hoverElevation>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                    <Edit className="h-4 w-4" />
+                    Corrections
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">Reason required, logged in activity</p>
+                </CardHeader>
+                <CardContent>
+                  {correctionsList}
+                </CardContent>
+              </BaseCard>
+            </div>
+          )}
+
+          {/* Resolve Pending / Void Log — the one thing that's neither a primary action
+              (Send receipt / Return items, at the bottom of the receipt card) nor a
+              correction (above): completing an unpaid sale, or the record of a past void.
+              Hidden entirely rather than shown empty when neither applies. */}
+          {((canManage && !isVoided && !isFullyReturned && tx.checkout?.paymentStatus === "pending") || (isVoided && canManage)) && (
           <BaseCard hoverElevation>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
@@ -825,41 +995,6 @@ export default function TransactionDetailsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Print / View Receipt */}
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => setReceiptCheckoutId(tx.checkout?.id || null)}
-              >
-                <Printer className="mr-2 h-4 w-4" />
-                Print / View Receipt
-              </Button>
-
-              {/* Process Return — hidden when all items already returned */}
-              {canManage && !isVoided && !isFullyReturned && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start border-orange-200 hover:bg-orange-50 hover:text-orange-600 text-orange-600 dark:border-orange-900/30 dark:hover:bg-orange-950/20"
-                  onClick={() => setIsReturnDialogOpen(true)}
-                  disabled={isReceiptLoading || !returnCheckoutObj || isRefreshingAfterReturn}
-                  title={
-                    isRefreshingAfterReturn
-                      ? "Refreshing transaction data..."
-                      : isReceiptLoading
-                      ? "Loading receipt data..."
-                      : "Process Return"
-                  }
-                >
-                  <Undo2 className="mr-2 h-4 w-4" />
-                  {isRefreshingAfterReturn
-                    ? "Refreshing..."
-                    : isReceiptLoading
-                    ? "Loading..."
-                    : "Process Return"}
-                </Button>
-              )}
-
-              {/* Resolve Pending — shown only while payment is pending and transaction is active */}
               {canManage && !isVoided && !isFullyReturned && tx.checkout?.paymentStatus === "pending" && (
                 <Button
                   variant="outline"
@@ -868,55 +1003,6 @@ export default function TransactionDetailsPage() {
                 >
                   <CreditCard className="mr-2 h-4 w-4" />
                   Resolve Pending Payment
-                </Button>
-              )}
-
-              {/* Update Payment — for completed transactions (method correction) and fully-returned record correction */}
-              {canManage && !isVoided && tx.checkout?.paymentStatus !== "pending" && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={openPaymentDialog}
-                >
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  {isFullyReturned ? "Correct Payment Record" : "Update Payment"}
-                </Button>
-              )}
-
-              {/* Edit Transaction Date — owner only, post-sale correction */}
-              {canEditDate && !isVoided && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={openEditDateDialog}
-                >
-                  <Calendar className="mr-2 h-4 w-4" />
-                  Edit Transaction Date
-                </Button>
-              )}
-
-              {/* Add Missed Item — only for non-voided, non-pending receipts */}
-              {canManage && !isVoided && tx.checkout?.paymentStatus !== "pending" && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start border-blue-200 hover:bg-blue-50 hover:text-blue-700 text-blue-700 dark:border-blue-900/30 dark:hover:bg-blue-950/20"
-                  onClick={() => setIsAddendumOpen(true)}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Missed Item
-                </Button>
-              )}
-
-              {/* Void Transaction — blocked when fully returned: stock & refunds already reversed
-                  by the return process; voiding on top would cause double-inventory entries */}
-              {canManage && !isVoided && !isFullyReturned && (
-                <Button
-                  variant="destructive"
-                  className="w-full justify-start"
-                  onClick={() => setIsVoidDialogOpen(true)}
-                >
-                  <Ban className="mr-2 h-4 w-4" />
-                  Void Transaction
                 </Button>
               )}
 
@@ -952,6 +1038,7 @@ export default function TransactionDetailsPage() {
               )}
             </CardContent>
           </BaseCard>
+          )}
         </div>
       </div>
 

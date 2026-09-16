@@ -8,7 +8,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck, Search, SlidersHorizontal, X, RotateCcw, Wallet } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,20 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { AlertCircle, Clock } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClearableInput } from "@/components/clearable-input";
+import { cn } from "@/lib/utils";
+import {
+  type SaleFilterState,
+  type SaleSortState,
+  EMPTY_SALE_FILTERS,
+  saleMatchesFilters,
+  countActiveSaleFilters,
+  buildSaleFilterChips,
+  clearSaleFilterChip,
+  sortSales,
+  saleSortLabel,
+} from "@/lib/sale-filters";
+import { SaleFiltersSheet } from "@/components/sale-filter-sheet";
 
 const PAGE_LIMIT = 50;
 
@@ -72,6 +86,7 @@ export default function Transactions() {
     return p.toString();
   }, [dateRange]);
 
+  const [ledgerTab, setLedgerTab] = useUrlState<string>("ledgerTab", "transactions");
   const [page, setPage] = useUrlState("page", 1, Number);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -246,15 +261,14 @@ export default function Transactions() {
     },
   ];
 
-  const [staffSaleFilter, setStaffSaleFilter] = useUrlState<"all" | "staff" | "regular">("staffFilter", "all");
+  const [saleFilters, setSaleFilters] = useState<SaleFilterState>(EMPTY_SALE_FILTERS);
+  const [saleSort, setSaleSort] = useState<SaleSortState | null>(null);
+  const [saleSearchTerm, setSaleSearchTerm] = useState("");
 
-  // Apply staff sale filter on top of date-range results
-  const filteredTransactions = useMemo(() => {
-    if (staffSaleFilter === "staff") return transactions.filter(tx => !!(tx.customer as any)?.staffId);
-    if (staffSaleFilter === "regular") return transactions.filter(tx => !(tx.customer as any)?.staffId);
-    return transactions;
-  }, [transactions, staffSaleFilter]);
-
+  // Date range is the only server/URL-driven scope; everything else (search,
+  // payment/staff/item-type/amount filters, the Returns/Credit/Staff quick chips)
+  // is applied client-side below, same as the Customers list.
+  const filteredTransactions = transactions;
 
   const storeCurrency = currentStore?.currency || "NGN";
   
@@ -347,16 +361,6 @@ export default function Transactions() {
     tx => !tx.checkout?.isVoided && !isReceiptFullyReturned(tx)
   ).length;
 
-  const paymentBadgeClass = (method: string) => {
-    const m = (method ?? "cash").toLowerCase();
-    if (m === "cash") return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30";
-    if (m === "transfer" || m === "bank transfer") return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/30";
-    if (m === "pos" || m === "card") return "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/30";
-    if (m === "flutterwave") return "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-900/30";
-    if (m === "split") return "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-900/30";
-    return "bg-muted text-muted-foreground border-border";
-  };
-
   const columns = [
     ...(currentStore?.id === "all" ? [{
       key: "storeName",
@@ -432,15 +436,6 @@ export default function Transactions() {
       key: "inventory",
       header: "Item",
       render: (tx: TransactionWithRelations) => {
-        const badgeLabel = tx.inventory?.type ?? "unknown";
-        const badgeClass = badgeLabel === "mixed"
-          ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800"
-          : badgeLabel === "service"
-          ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
-          : badgeLabel === "product"
-          ? "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"
-          : "";
-
         const extraItems = ((tx.checkout as any).basketItemCount ?? 1) - 1;
 
         return (
@@ -461,9 +456,7 @@ export default function Transactions() {
                   </span>
                 )}
               </div>
-              <Badge variant="outline" className={`text-xs capitalize mt-1 ${badgeClass}`}>
-                {badgeLabel}
-              </Badge>
+              <span className="text-xs text-muted-foreground capitalize">{tx.inventory?.type ?? "unknown"}</span>
             </div>
           </div>
         );
@@ -492,12 +485,7 @@ export default function Transactions() {
         <div className="flex flex-col gap-1 items-start">
           <div className="flex items-center gap-1.5">
             <CreditCard className="h-3 w-3 text-muted-foreground" />
-            <Badge
-              variant="outline"
-              className={`capitalize text-xs font-semibold border ${paymentBadgeClass(tx.checkout?.paymentMethod ?? "cash")}`}
-            >
-              {tx.checkout?.paymentMethod ?? "cash"}
-            </Badge>
+            <span className="text-sm capitalize">{tx.checkout?.paymentMethod ?? "cash"}</span>
           </div>
           {tx.checkout?.paymentStatus === "pending" && !tx.checkout?.isVoided && (
             <button
@@ -513,7 +501,7 @@ export default function Transactions() {
     },
     {
       key: "amount",
-      header: "Line Amount",
+      header: "Amount",
       render: (tx: TransactionWithRelations) => (
         // tx.amount is the per-line-item amount set at checkout time.
         // tx.checkout.totalPrice is the full basket total — NOT shown here.
@@ -568,10 +556,80 @@ export default function Transactions() {
       customerName: tx.customer?.name ?? "",
       inventoryName: tx.inventory?.name ?? "",
       amount: tx.amount ?? 0,
+      staffId: tx.checkout?.staff?.id ?? null,
+      inventoryType: tx.inventory?.type ?? null,
+      isStaffPurchase: !!(tx.customer as any)?.staffId,
+      isReturned: !!(tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0),
     }));
   }, [filteredTransactions]);
 
   type TxRow = (typeof tableData)[number];
+
+  const staffOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    tableData.forEach((row) => {
+      if (row.staffId) map.set(row.staffId, row.staffName);
+    });
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [tableData]);
+
+  const paymentMethods = useMemo(
+    () => Array.from(new Set(tableData.map((row) => row.paymentMethod))),
+    [tableData]
+  );
+
+  const saleSearchedRows = useMemo(() => {
+    const term = saleSearchTerm.trim().toLowerCase();
+    if (!term) return tableData;
+    return tableData.filter((row) =>
+      row.receiptNumber.toLowerCase().includes(term) ||
+      row.customerName.toLowerCase().includes(term) ||
+      row.inventoryName.toLowerCase().includes(term) ||
+      row.staffName.toLowerCase().includes(term)
+    );
+  }, [tableData, saleSearchTerm]);
+
+  const saleFilteredRows = useMemo(
+    () => saleSearchedRows.filter((row) => saleMatchesFilters(row, saleFilters)),
+    [saleSearchedRows, saleFilters]
+  );
+
+  // Sort is consolidated into the same Filters sheet (see sale-filter-sheet.tsx) rather
+  // than a separate control. Applied after filtering, before both the desktop table and
+  // the mobile day-grouping below — day headings still fall out in date order either way
+  // (grouping re-sorts by day key), but sorting by amount/customer reorders rows *within*
+  // each day.
+  const sortedSaleRows = useMemo(() => sortSales(saleFilteredRows, saleSort), [saleFilteredRows, saleSort]);
+
+  // Day-grouped view for the mobile/tablet card list only (the desktop table stays flat —
+  // it has the row density to show every field without grouping). Grouped by the browser's
+  // local calendar day, same as every other date formatting on this page; NOT branch timezone.
+  const saleGroupsByDay = useMemo(() => {
+    const groups = new Map<string, { label: string; rows: typeof sortedSaleRows; total: number }>();
+    for (const row of sortedSaleRows) {
+      const dayKey = format(new Date(row.transactionDate), "yyyy-MM-dd");
+      if (!groups.has(dayKey)) {
+        groups.set(dayKey, { label: format(new Date(row.transactionDate), "EEE d MMM"), rows: [], total: 0 });
+      }
+      const group = groups.get(dayKey)!;
+      group.rows.push(row);
+      if (row.status !== "Void") group.total += row.amount;
+    }
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([, group]) => group);
+  }, [sortedSaleRows]);
+
+  const saleFilterCount = countActiveSaleFilters(saleFilters);
+  const saleFilterChips = buildSaleFilterChips(
+    saleFilters,
+    storeCurrency === "USD" ? "$" : "₦",
+    (staffId) => staffOptions.find((s) => s.id === staffId)?.name ?? "Staff"
+  );
+  const hasSaleFiltersOrQuickChips = saleFilterCount > 0 || saleFilters.returnsOnly || saleFilters.creditOnly || saleFilters.staffPurchasesOnly;
+  // "Filters" button badge counts sort as one more active thing, since sort now lives
+  // inside the same sheet instead of a separate button.
+  const saleFilterAndSortCount = saleFilterCount + (saleSort ? 1 : 0);
 
   const statusTone = (status: string): "success" | "warning" | "critical" | "neutral" => {
     if (status === "Void") return "critical";
@@ -649,25 +707,6 @@ export default function Transactions() {
     },
   }));
 
-  const filterConfigs = [
-    { key: "status", label: "Status", type: "select" as const },
-    { 
-      key: "paymentMethod", 
-      label: "Payment Method", 
-      type: "select" as const,
-      valueMapper: (val: any) => {
-        if (!val) return "Unknown";
-        const str = String(val).toLowerCase();
-        if (str === "cash") return "Cash";
-        if (str === "transfer" || str === "bank transfer") return "Transfer";
-        if (str === "pos" || str === "card") return "POS";
-        return String(val).charAt(0).toUpperCase() + String(val).slice(1);
-      }
-    },
-    { key: "staffName", label: "Staff", type: "select" as const },
-    { key: "amount", label: "Line Amount", type: "range" as const, currencySymbol: storeCurrency === "USD" ? "$" : "₦" }
-  ];
-
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -688,82 +727,13 @@ export default function Transactions() {
         description={`Sales transactions for ${currentStore.name}`}
         compact
         actions={
-          <Button asChild data-testid="button-new-sale">
-            <Link href="/sales/new">
-              <Receipt className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">New Sale</span>
-            </Link>
-          </Button>
-        }
-      />
-
-      <Tabs defaultValue="transactions" className="space-y-6">
-        <PolymorphicTabsList
-          tabs={[
-            { value: "transactions", label: "Sales Ledger" },
-            { value: "drawer-shifts", label: "Register Shifts" },
-          ]}
-          variant="default"
-        />
-
-        <TabsContent value="transactions" className="space-y-6 animate-in fade-in duration-300">
-          <MetricGrid>
-            <MetricCard
-              title="Valid Transactions"
-              value={nonVoidedCount}
-              icon={<Receipt className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Gross Revenue"
-              value={formatCurrency(totalAmount)}
-              compactValue={formatCompact(totalAmount)}
-              description="Revenue before returns"
-              icon={<Coins className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Actual Revenue (Net)"
-              value={formatCurrency(actualRevenueNet)}
-              compactValue={formatCompact(actualRevenueNet)}
-              description={totalRefunded > 0 ? `Refunded: ${formatCurrency(totalRefunded)}` : "Net revenue after returns"}
-              icon={<Coins className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Avg. Transaction (Net)"
-              value={formatCurrency(
-                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
-              )}
-              compactValue={formatCompact(
-                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
-              )}
-              icon={<Coins className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-          </MetricGrid>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
-              <CardTitle className="text-base font-medium">Transaction History</CardTitle>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1 rounded-md border bg-background p-1">
-                  {(["all", "staff", "regular"] as const).map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      onClick={() => setStaffSaleFilter(opt)}
-                      className={`flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                        staffSaleFilter === opt
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {opt === "staff" && <UserCheck className="h-3 w-3" />}
-                      {opt === "all" ? "All Sales" : opt === "staff" ? "Staff Sales" : "Regular"}
-                    </button>
-                  ))}
-                </div>
+          <>
+            {/* Date filter and export live in the top-level header now, next to the
+                title, the same place Dashboard puts its date range and Customers puts
+                its export/bulk-operations control — only relevant to the Sales Ledger
+                tab, so hidden while Register Shifts is active. */}
+            {ledgerTab === "transactions" && (
+              <>
                 <DateRangeFilter
                   dateRange={dateRange}
                   onDateRangeChange={setDateRange}
@@ -780,25 +750,278 @@ export default function Transactions() {
                   pdfReport={pdfReport}
                   visibleData={visibleExportData as unknown as Record<string, unknown>[]}
                   visiblePdfReport={visiblePdfReport}
+                  compact
+                />
+              </>
+            )}
+            <Button asChild data-testid="button-new-sale">
+              <Link href="/sales/new">
+                <Receipt className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">New Sale</span>
+              </Link>
+            </Button>
+          </>
+        }
+      />
+
+      <Tabs value={ledgerTab} onValueChange={setLedgerTab} className="space-y-6">
+        <PolymorphicTabsList
+          tabs={[
+            { value: "transactions", label: "Sales Ledger" },
+            { value: "drawer-shifts", label: "Register Shifts" },
+          ]}
+          variant="default"
+        />
+
+        <TabsContent value="transactions" className="space-y-6 animate-in fade-in duration-300">
+          <MetricGrid>
+            {/* Net is the headline figure — what the business actually kept —
+                shown first, with gross and the refund it reconciles against
+                folded into its own description line rather than a separate tile. */}
+            <MetricCard
+              title="Net Sales"
+              value={formatCurrency(actualRevenueNet)}
+              compactValue={formatCompact(actualRevenueNet)}
+              description={
+                totalRefunded > 0
+                  ? `${formatCompact(totalAmount)} gross − ${formatCompact(totalRefunded)} returned`
+                  : `${formatCompact(totalAmount)} gross · no returns`
+              }
+              icon={<Coins className="h-4 w-4" />}
+              isLoading={isLoading}
+            />
+            <MetricCard
+              title="Completed Sales"
+              value={nonVoidedCount}
+              description="Excludes voided and fully returned"
+              icon={<Receipt className="h-4 w-4" />}
+              isLoading={isLoading}
+            />
+            <MetricCard
+              title="Avg. Sale (Net)"
+              value={formatCurrency(
+                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
+              )}
+              compactValue={formatCompact(
+                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
+              )}
+              icon={<Coins className="h-4 w-4" />}
+              isLoading={isLoading}
+            />
+          </MetricGrid>
+
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base font-medium">Transaction History</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <ClearableInput
+                    placeholder="Search receipt, customer, item or staff"
+                    value={saleSearchTerm}
+                    onChange={(e) => setSaleSearchTerm(e.target.value)}
+                    onClear={() => setSaleSearchTerm("")}
+                    className="pl-9 h-9"
+                  />
+                </div>
+                <SaleFiltersSheet
+                  filters={saleFilters}
+                  onApply={setSaleFilters}
+                  sort={saleSort}
+                  onSortChange={setSaleSort}
+                  currencySymbol={storeCurrency === "USD" ? "$" : "₦"}
+                  paymentMethods={paymentMethods}
+                  staffOptions={staffOptions}
+                  resultCountFor={(draft) => saleSearchedRows.filter((row) => saleMatchesFilters(row, draft)).length}
+                  trigger={
+                    <Button
+                      variant={saleFilterAndSortCount > 0 ? "secondary" : "outline"}
+                      size="sm"
+                      className={cn("h-9 shrink-0 gap-1.5", saleFilterAndSortCount > 0 && "bg-primary/10 border-primary/30 text-primary")}
+                      data-testid="button-sale-filters"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      {saleFilterAndSortCount > 0 ? `Filters ${saleFilterAndSortCount}` : "Filters"}
+                    </Button>
+                  }
                 />
               </div>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                data={tableData}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search receipt no., customer, item or staff..."
-                searchKeys={["receiptNumber", "customerName", "inventoryName", "staffName", "paymentMethod"]}
-                isLoading={isLoading}
-                emptyTitle="No Transactions"
-                emptyMessage="No transactions found for the selected date range. Try adjusting the filters or date range."
-                emptyIcon={<ShoppingBag className="h-6 w-6" />}
-                onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
-                filterConfigs={filterConfigs}
-                onVisibleDataChange={setVisibleTxRows}
-                urlKey="tx"
-              />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSaleFilters((f) => ({ ...f, returnsOnly: !f.returnsOnly }))}
+                  className={cn(
+                    "h-8 px-3 rounded-full border text-xs font-medium transition-colors inline-flex items-center gap-1.5",
+                    saleFilters.returnsOnly ? "bg-orange-50 border-orange-300 text-orange-700 dark:bg-orange-950/30 dark:border-orange-800 dark:text-orange-400" : "border-input text-foreground hover:bg-muted/50"
+                  )}
+                  data-testid="chip-returns"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Returns
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSaleFilters((f) => ({ ...f, creditOnly: !f.creditOnly }))}
+                  className={cn(
+                    "h-8 px-3 rounded-full border text-xs font-medium transition-colors inline-flex items-center gap-1.5",
+                    saleFilters.creditOnly ? "bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400" : "border-input text-foreground hover:bg-muted/50"
+                  )}
+                  data-testid="chip-credit"
+                >
+                  <Wallet className="h-3 w-3" />
+                  Credit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSaleFilters((f) => ({ ...f, staffPurchasesOnly: !f.staffPurchasesOnly }))}
+                  className={cn(
+                    "h-8 px-3 rounded-full border text-xs font-medium transition-colors inline-flex items-center gap-1.5",
+                    saleFilters.staffPurchasesOnly ? "bg-primary/10 border-primary/30 text-primary" : "border-input text-foreground hover:bg-muted/50"
+                  )}
+                  data-testid="chip-staff-purchases"
+                >
+                  <UserCheck className="h-3 w-3" />
+                  Staff purchases
+                </button>
+
+                {(hasSaleFiltersOrQuickChips || saleSort) && (
+                  <>
+                    {saleSort && (
+                      <span className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium">
+                        {saleSortLabel(saleSort)}
+                        <button
+                          type="button"
+                          onClick={() => setSaleSort(null)}
+                          aria-label="Remove sort"
+                          className="rounded-full p-0.5 hover:bg-muted"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )}
+                    {saleFilterChips.map((chip) => (
+                      <span
+                        key={chip.key}
+                        className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium"
+                      >
+                        {chip.label}
+                        <button
+                          type="button"
+                          onClick={() => setSaleFilters((f) => clearSaleFilterChip(f, chip.key))}
+                          aria-label={`Remove ${chip.label} filter`}
+                          className="rounded-full p-0.5 hover:bg-muted"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                      {saleFilteredRows.length} sale{saleFilteredRows.length === 1 ? "" : "s"}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-primary hover:underline shrink-0"
+                      onClick={() => {
+                        setSaleFilters(EMPTY_SALE_FILTERS);
+                        setSaleSort(null);
+                      }}
+                      data-testid="button-sale-clear-all"
+                    >
+                      Clear all
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Desktop: the flat table — enough row density that day grouping isn't needed. */}
+              <div className="hidden lg:block">
+                <DataTable
+                  data={sortedSaleRows}
+                  columns={columns}
+                  hideToolbar
+                  isLoading={isLoading}
+                  emptyTitle="No Transactions"
+                  emptyMessage="No transactions found for the selected date range. Try adjusting the filters or date range."
+                  emptyIcon={<ShoppingBag className="h-6 w-6" />}
+                  onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
+                  onVisibleDataChange={setVisibleTxRows}
+                  urlKey="tx"
+                />
+              </div>
+
+              {/* Mobile/tablet: date-grouped two-line rows with a daily total heading,
+                  so a scan of the day's activity doesn't need every field spelled out per row. */}
+              <div className="lg:hidden space-y-4">
+                {isLoading ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
+                ) : saleGroupsByDay.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-10 text-center">
+                    <ShoppingBag className="h-6 w-6 text-muted-foreground" />
+                    <p className="text-sm font-medium">No Transactions</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">
+                      No transactions found for the selected date range. Try adjusting the filters or date range.
+                    </p>
+                  </div>
+                ) : (
+                  saleGroupsByDay.map((group) => (
+                    <div key={group.label} className="space-y-2">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-xs font-semibold text-muted-foreground">{group.label}</span>
+                        <span className="text-xs font-semibold text-muted-foreground font-mono">{formatCurrency(group.total)}</span>
+                      </div>
+                      <div className="rounded-lg border divide-y bg-card">
+                        {group.rows.map((row) => {
+                          const isVoidedRow = row.status === "Void";
+                          const isReturnedRow = row.status === "Returned";
+                          const isPartialRow = row.status === "Partially Returned";
+                          const extraItems = ((row.checkout as any)?.basketItemCount ?? 1) - 1;
+                          return (
+                            <button
+                              key={row.id}
+                              type="button"
+                              className="w-full text-left p-3 hover:bg-muted/40 transition-colors"
+                              onClick={() => setLocation(appendReturnTo(`/transactions/${row.id}`, location, search))}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium text-sm truncate">{row.customerName || "Unknown"}</span>
+                                <span className={cn("font-mono font-medium text-sm shrink-0", (isVoidedRow || isReturnedRow) && "opacity-50 line-through")}>
+                                  {formatCurrency(row.amount)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 mt-0.5">
+                                <span className="text-xs text-muted-foreground truncate">
+                                  {new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" }).format(new Date(row.transactionDate))}
+                                  {" · "}{row.inventoryName || "Unknown"}{extraItems > 0 ? ` +${extraItems}` : ""}
+                                  {" · "}{row.paymentMethod}
+                                  {" · "}{row.staffName.split(" ")[0]}
+                                </span>
+                                <span className="text-[11px] text-muted-foreground font-mono shrink-0">
+                                  #{row.receiptNumber}
+                                </span>
+                              </div>
+                              {(isVoidedRow || isReturnedRow || isPartialRow) && (
+                                <Badge
+                                  variant={isVoidedRow ? "destructive" : "outline"}
+                                  className={cn(
+                                    "text-[10px] px-1.5 py-0 h-4 mt-1.5",
+                                    isReturnedRow && "border-red-300 text-red-600 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold",
+                                    isPartialRow && "border-orange-300 text-orange-600 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold"
+                                  )}
+                                >
+                                  {isVoidedRow ? "Void" : isReturnedRow ? "Returned" : "Part returned"}
+                                </Badge>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
               {currentStore?.id !== "all" && totalPages > 1 && (
                 <Pagination className="mt-4">
                   <PaginationContent>
