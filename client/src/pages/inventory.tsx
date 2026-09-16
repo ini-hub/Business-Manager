@@ -558,6 +558,7 @@ export default function InventoryPage() {
     {
       key: "name",
       header: "Item Name",
+      priority: 1 as const,
       render: (item: any) => (
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
@@ -616,6 +617,7 @@ export default function InventoryPage() {
     {
       key: "quantity",
       header: "Stock",
+      priority: 2 as const,
       render: (item: any) => {
         if (item.type === "service") {
           return (
@@ -1105,12 +1107,12 @@ export default function InventoryPage() {
         </div>
       ) : (
         (() => {
-          const tableData = filteredInventory.map((item) => {
+          let tableData = filteredInventory.map((item) => {
             const totalStock = item.type === "service" ? 0 : (item.variants?.reduce((sum: number, v: any) => sum + v.quantity, 0) ?? 0);
-            const stockStatus = item.type === "service" 
-              ? "In Stock" 
-              : (totalStock === 0 ? "Out of Stock" : (item.variants?.some((v: any) => v.quantity <= lowStockThreshold) ? "Low Stock" : "In Stock"));
-            
+            const stockStatus = item.type === "service"
+              ? "In Stock"
+              : (totalStock === 0 ? "Out of Stock" : (item.variants?.some((v: any) => isAtOrBelowReorderPoint(v, lowStockThreshold)) ? "Low Stock" : "In Stock"));
+
             const marginPct = item.variants && item.variants.length > 0
               ? item.variants.reduce((acc: number, v: any) => {
                   const mVal = v.sellingPrice - v.costPrice;
@@ -1121,10 +1123,22 @@ export default function InventoryPage() {
 
             return {
               ...item,
+              totalStock,
               stockStatus,
               margin: Math.round(marginPct)
             };
           });
+
+          if (filterType === "low-stock") {
+            // Out of stock first, then ascending quantity — the items needing
+            // the most urgent attention lead the list instead of table-default order.
+            tableData = [...tableData].sort((a, b) => {
+              const aOut = a.totalStock === 0 ? 0 : 1;
+              const bOut = b.totalStock === 0 ? 0 : 1;
+              if (aOut !== bOut) return aOut - bOut;
+              return a.totalStock - b.totalStock;
+            });
+          }
 
           const filterConfigs = [
             { 
