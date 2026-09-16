@@ -27,7 +27,7 @@ function groupTransactions(txs: any[]): any[] {
     // transaction list links to the original sale, not an addendum appended later.
     const firstTx = group.find((t: any) => !t.checkout?.isAddendum) ?? group[group.length - 1];
     let totalAmount = 0, totalTotalPrice = 0, totalTotalCharged = 0, totalQuantity = 0;
-    let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0;
+    let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0, totalTaxRefunded = 0;
     for (const item of group) {
       totalAmount += Number(item.amount) || 0;
       totalTotalPrice += Number(item.checkout?.totalPrice) || 0;
@@ -37,6 +37,7 @@ function groupTransactions(txs: any[]): any[] {
       totalRefundedAmount += Number(item.checkout?.refundedAmount) || 0;
       totalSubtotal += Number(item.checkout?.subtotal) || 0;
       totalDiscountAmount += Number(item.checkout?.discountAmount) || 0;
+      totalTaxRefunded += Number(item.checkout?.taxRefunded) || 0;
     }
     const hasService = group.some((t: any) => t.inventory?.type === "service");
     const hasProduct = group.some((t: any) => t.inventory?.type === "product");
@@ -72,6 +73,7 @@ function groupTransactions(txs: any[]): any[] {
         quantity: totalQuantity,
         returnedQuantity: totalReturnedQuantity,
         refundedAmount: totalRefundedAmount,
+        taxRefunded: totalTaxRefunded,
         totalCharged: totalTotalCharged,
         basketItemCount: group.length,
       },

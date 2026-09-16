@@ -21,6 +21,9 @@ export const orders = pgTable("orders", {
   totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
   refundedAmount: numeric("refunded_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   taxApplied: numeric("tax_applied", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  // Tax portion already reversed via a return, tracked separately from refundedAmount so
+  // tax-liability reporting can subtract exactly what was given back, not just the total.
+  taxRefunded: numeric("tax_refunded", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
 }, (table) => [
   index("idx_orders_inventory").on(table.inventoryId),
   index("idx_orders_store").on(table.storeId),
@@ -42,6 +45,7 @@ export const insertOrderSchema = createInsertSchema(orders).omit({ id: true }).e
   totalPrice: z.number(),
   refundedAmount: z.number().optional(),
   taxApplied: z.number().optional(),
+  taxRefunded: z.number().optional(),
 });
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;
@@ -225,6 +229,7 @@ export type TransactionWithRelations = Transaction & {
     quantity?: number;
     returnedQuantity?: number;
     refundedAmount?: number;
+    taxRefunded?: number;
     // Union of every distinct staff id (lead + assisting) across all line items
     // of a merged multi-service receipt. See groupTransactions() in
     // server/routes/transaction.routes.ts.

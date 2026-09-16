@@ -376,7 +376,7 @@ export default function CustomerDetails() {
         </Button>
         <Button
           className="flex-1"
-          onClick={() => setLocation(`/new-sale?customerId=${customer.id}`)}
+          onClick={() => setLocation(`/sales/new?customerId=${customer.id}`)}
           data-testid="button-new-sale"
         >
           <ShoppingCart className="mr-2 h-4 w-4" />

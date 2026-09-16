@@ -31,12 +31,15 @@ import type { TaxRate } from "@shared/schema";
 type Transaction = {
   id: string;
   storeId: string;
-  totalPrice: number;
-  totalCharged: number;
-  subtotal: number;
-  taxTotal: number;
-  isVoided: boolean;
   createdAt: string;
+  checkout: {
+    totalPrice: number;
+    totalCharged: number;
+    subtotal: number;
+    taxTotal: number;
+    isVoided: boolean;
+    taxRefunded: number;
+  };
 };
 
 export default function TaxesCompliancePage() {
@@ -188,13 +191,17 @@ export default function TaxesCompliancePage() {
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
-  // Computations for Compliance Reporting
-  const validCheckouts = transactions.filter(tx => !tx.isVoided);
-  const totalVAT = validCheckouts.reduce((sum, tx) => sum + (tx.taxTotal || 0), 0);
+  // Computations for Compliance Reporting.
+  // Checkout-level fields live under tx.checkout, not on tx directly — and
+  // taxTotal/taxableSales must net out taxRefunded so a returned sale doesn't
+  // keep counting toward VAT the store no longer actually collected.
+  const validCheckouts = transactions.filter(tx => !tx.checkout?.isVoided);
+  const netTax = (tx: Transaction) => Math.max(0, (tx.checkout?.taxTotal || 0) - (tx.checkout?.taxRefunded || 0));
+  const totalVAT = validCheckouts.reduce((sum, tx) => sum + netTax(tx), 0);
   const defaultRate = taxRates.find(r => r.isDefault);
   const totalTaxableSales = validCheckouts
-    .filter(tx => (tx.taxTotal || 0) > 0)
-    .reduce((sum, tx) => sum + (tx.subtotal || tx.totalPrice - tx.taxTotal), 0);
+    .filter(tx => netTax(tx) > 0)
+    .reduce((sum, tx) => sum + (tx.checkout?.subtotal || (tx.checkout?.totalPrice ?? 0) - netTax(tx)), 0);
 
   // Group VAT collected by calendar month
   const monthlyMetrics: Record<string, { month: string; taxableSales: number; vatCollected: number; count: number }> = {};
@@ -202,14 +209,14 @@ export default function TaxesCompliancePage() {
     const d = new Date(tx.createdAt);
     if (isNaN(d.getTime())) return;
     const monthKey = d.toLocaleString("en-US", { month: "short", year: "numeric" });
-    
+
     if (!monthlyMetrics[monthKey]) {
       monthlyMetrics[monthKey] = { month: monthKey, taxableSales: 0, vatCollected: 0, count: 0 };
     }
-    
-    const tax = tx.taxTotal || 0;
-    const sub = tx.subtotal || tx.totalPrice - tax;
-    
+
+    const tax = netTax(tx);
+    const sub = tx.checkout?.subtotal || (tx.checkout?.totalPrice ?? 0) - tax;
+
     monthlyMetrics[monthKey].vatCollected += tax;
     if (tax > 0) {
       monthlyMetrics[monthKey].taxableSales += sub;

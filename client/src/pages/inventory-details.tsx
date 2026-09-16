@@ -99,21 +99,21 @@ export default function InventoryDetails() {
     enabled: !!inventoryId,
   });
 
-  const canViewActivity = user?.role === "owner" || user?.role === "manager";
-
-  const { data: activityData, isLoading: activityLoading } = useQuery<{ logs: any[] }>({
-    queryKey: ["/api/audit-logs", "inventory", inventoryId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/audit-logs?resourceId=${inventoryId}`);
-      return res.json();
-    },
-    enabled: !!inventoryId && canViewActivity,
-  });
-
   // Every item is now a product group; "simple" = exactly one variant
   const isSimpleProduct = inventory?.variants?.length === 1;
   const primaryVariant = isSimpleProduct ? inventory.variants[0] : null;
   const activeVariantId = primaryVariant?.id;
+
+  const canViewActivity = user?.role === "owner" || user?.role === "manager";
+
+  const { data: activityData, isLoading: activityLoading } = useQuery<{ logs: any[] }>({
+    queryKey: ["/api/inventory", activeVariantId, "activity"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/inventory/${activeVariantId}/activity`);
+      return res.json();
+    },
+    enabled: !!activeVariantId && canViewActivity,
+  });
 
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [restockData, setRestockData] = useState({
@@ -1443,72 +1443,51 @@ export default function InventoryDetails() {
                       <thead>
                         <tr className="border-b text-xs text-muted-foreground">
                           <th className="text-left px-4 py-3 font-medium">Time</th>
-                          <th className="text-left px-4 py-3 font-medium">User</th>
-                          <th className="text-left px-4 py-3 font-medium">Action</th>
-                          <th className="text-left px-4 py-3 font-medium">Summary</th>
+                          <th className="text-left px-4 py-3 font-medium">Actor</th>
+                          <th className="text-left px-4 py-3 font-medium">Event</th>
+                          <th className="text-left px-4 py-3 font-medium">Quantity</th>
                           <th className="px-4 py-3" />
                         </tr>
                       </thead>
                       <tbody>
                         {activityData.logs.map((log: any) => {
                           const badgeClass = (() => {
-                            if (/DELETE|ARCHIVE/.test(log.action)) return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
-                            if (/CREATE|RESTOCK|IMPORT/.test(log.action)) return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
-                            if (/UPDATE|BUNDLE/.test(log.action)) return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-                            return "bg-muted text-muted-foreground";
-                          })();
-
-                          const actionLabel = log.action
-                            .replace("INVENTORY_", "")
-                            .replace("CREATE_", "")
-                            .replace(/_/g, " ");
-
-                          const summary = (() => {
-                            const d = log.details;
-                            if (!d) return null;
-                            switch (log.action) {
-                              case "CREATE_RESTOCK":
-                                return [
-                                  d.quantityAdded || d.quantity ? `+${d.quantityAdded ?? d.quantity} units` : null,
-                                  d.unitCost ? `₦${Number(d.unitCost).toLocaleString()}/unit` : null,
-                                  d.strategy ? d.strategy.toUpperCase() : null,
-                                ].filter(Boolean).join(" · ");
-                              case "INVENTORY_UPDATE":
-                                return d.fields?.length ? `Changed: ${d.fields.join(", ")}` : "Item updated";
-                              case "INVENTORY_BATCH_CREATE":
-                                return [
-                                  d.batchNumber ? `Batch #${d.batchNumber}` : null,
-                                  d.expiryDate ? `Exp ${d.expiryDate}` : null,
-                                  d.quantity ? `${d.quantity} units` : null,
-                                ].filter(Boolean).join(" · ");
-                              case "INVENTORY_ARCHIVE": return "Item archived";
-                              case "INVENTORY_DELETE": return "Item deleted";
-                              case "INVENTORY_BUNDLE_UPDATE": return "Bundle components updated";
-                              case "INVENTORY_BULK_UPDATE": return "Bulk update applied";
-                              case "INVENTORY_BULK_IMPORT": return "Bulk import";
-                              case "CREATE": return d.quantity ? `Added · ${d.quantity} units` : "Added to inventory";
-                              default: return null;
+                            switch (log.type) {
+                              case "created": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+                              case "restock": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+                              case "return": return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+                              case "sale": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+                              case "transfer_in": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+                              case "transfer_out": return "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
+                              case "audit_adjustment": return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400";
+                              case "consumable_usage": return "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400";
+                              default: return "bg-muted text-muted-foreground";
                             }
                           })();
 
+                          const qty = log.quantityDelta;
+                          const qtyDisplay = qty === null || qty === undefined
+                            ? "—"
+                            : `${qty > 0 ? "+" : ""}${qty}`;
+                          const qtyClass = qty === null || qty === undefined
+                            ? "text-muted-foreground"
+                            : qty > 0 ? "text-emerald-600 dark:text-emerald-400" : qty < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground";
+
                           return (
-                            <tr key={log.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                            <tr key={`${log.type}-${log.id}`} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                               <td className="px-4 py-3 text-xs text-muted-foreground font-mono whitespace-nowrap">
                                 {new Date(log.timestamp).toLocaleString()}
                               </td>
                               <td className="px-4 py-3">
-                                <p className="font-medium text-xs leading-tight">{log.userName || "—"}</p>
-                                {log.userEmail && (
-                                  <p className="text-[10px] text-muted-foreground leading-tight">{log.userEmail}</p>
-                                )}
+                                <p className="font-medium text-xs leading-tight">{log.actorName || "—"}</p>
                               </td>
                               <td className="px-4 py-3">
                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
-                                  {actionLabel}
+                                  {log.label}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-xs text-muted-foreground">
-                                {summary || "—"}
+                              <td className={`px-4 py-3 text-xs font-mono font-semibold ${qtyClass}`}>
+                                {qtyDisplay}
                               </td>
                               <td className="px-4 py-3">
                                 <Button
@@ -1547,11 +1526,11 @@ export default function InventoryDetails() {
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  ["User", selectedActivityLog.userName || "—"],
-                  ["Email", selectedActivityLog.userEmail || "—"],
-                  ["Action", selectedActivityLog.action],
-                  ["Status", selectedActivityLog.status],
-                  ["IP", selectedActivityLog.ip || "—"],
+                  ["Actor", selectedActivityLog.actorName || "—"],
+                  ["Event", selectedActivityLog.label],
+                  ["Quantity", selectedActivityLog.quantityDelta === null || selectedActivityLog.quantityDelta === undefined
+                    ? "—"
+                    : `${selectedActivityLog.quantityDelta > 0 ? "+" : ""}${selectedActivityLog.quantityDelta}`],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <p className="text-xs text-muted-foreground">{label}</p>
@@ -1559,18 +1538,12 @@ export default function InventoryDetails() {
                   </div>
                 ))}
               </div>
-              {selectedActivityLog.details && (
+              {selectedActivityLog.details && Object.keys(selectedActivityLog.details).length > 0 && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Payload</p>
+                  <p className="text-xs text-muted-foreground mb-1">Details</p>
                   <pre className="bg-muted rounded p-3 text-[11px] overflow-auto max-h-48 whitespace-pre-wrap">
                     {JSON.stringify(selectedActivityLog.details, null, 2)}
                   </pre>
-                </div>
-              )}
-              {selectedActivityLog.errorMessage && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Error</p>
-                  <p className="text-xs text-destructive">{selectedActivityLog.errorMessage}</p>
                 </div>
               )}
             </div>

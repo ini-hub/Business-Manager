@@ -5,13 +5,20 @@ import {
   transactions,
   bundleComponents,
   inventoryBatches,
+  auditLogs,
+  inventoryRestockEvents,
+  stockAudits,
+  stockAuditItems,
+  orderConsumables,
+  staff,
+  users,
   type Inventory,
   type InsertInventory,
   type BundleComponent,
   type InventoryBatch,
   type InsertInventoryBatch,
 } from "@shared/schema";
-import { eq, and, or, ilike, asc, sql, count, gt, inArray } from "drizzle-orm";
+import { eq, and, or, ilike, asc, desc, sql, count, gt, inArray } from "drizzle-orm";
 import { searchTokens, infix } from "../lib/searchTerms";
 
 export interface PaginationOptions {
@@ -287,5 +294,153 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
       // If the atomic update found no rows (concurrent deduction already consumed
       // this batch), we skip it and let the next batch absorb the remainder.
     }
+  }
+
+  // Unified stock lifecycle timeline for one inventory item. auditLogs alone misses
+  // restocks (logged there under resource "inventory_restock", not "inventory"),
+  // stock-count adjustments (never logged to auditLogs at all — only stock_audit_items),
+  // and consumable usage (logged under resource "order_consumables" with that table's
+  // own row id, not the inventory id). Rather than depend on every write site tagging
+  // resource/resourceId correctly forever, this reads each source table directly.
+  async getActivityTimeline(inventoryId: string, storeId: string, limit = 200): Promise<Array<{
+    id: string;
+    type: "created" | "sale" | "return" | "transfer_in" | "transfer_out" | "restock" | "audit_adjustment" | "consumable_usage" | "other";
+    label: string;
+    quantityDelta: number | null;
+    actorName: string | null;
+    timestamp: Date;
+    details?: Record<string, unknown>;
+  }>> {
+    const typeForAction = (action: string): { type: any; label: string } => {
+      switch (action) {
+        case "CREATE": return { type: "created", label: "Added to inventory" };
+        case "SALE_DEDUCTION": return { type: "sale", label: "Sold" };
+        case "SALE_RETURN_RESTOCK": return { type: "return", label: "Returned" };
+        case "STOCK_TRANSFER_IN": return { type: "transfer_in", label: "Transfer in" };
+        case "STOCK_TRANSFER_OUT": return { type: "transfer_out", label: "Transfer out" };
+        case "INVENTORY_UPDATE": return { type: "other", label: "Details updated" };
+        case "INVENTORY_ARCHIVE": return { type: "other", label: "Archived" };
+        case "INVENTORY_DELETE": return { type: "other", label: "Deleted" };
+        case "INVENTORY_BUNDLE_UPDATE": return { type: "other", label: "Bundle components updated" };
+        case "INVENTORY_BATCH_CREATE": return { type: "other", label: "Batch added" };
+        default: return { type: "other", label: action.replace(/_/g, " ") };
+      }
+    };
+
+    const [auditRows, restockRows, auditItemRows, consumableRows] = await Promise.all([
+      db.select({
+        id: auditLogs.id,
+        action: auditLogs.action,
+        actorName: auditLogs.actorName,
+        timestamp: auditLogs.timestamp,
+        details: auditLogs.details,
+      })
+        .from(auditLogs)
+        .where(and(eq(auditLogs.resource, "inventory"), eq(auditLogs.resourceId, inventoryId)))
+        .orderBy(desc(auditLogs.timestamp))
+        .limit(limit),
+
+      db.select({
+        id: inventoryRestockEvents.id,
+        quantityAdded: inventoryRestockEvents.quantityAdded,
+        reason: inventoryRestockEvents.reason,
+        notes: inventoryRestockEvents.notes,
+        restockedAt: inventoryRestockEvents.restockedAt,
+        staffName: staff.name,
+        userName: users.name,
+      })
+        .from(inventoryRestockEvents)
+        .leftJoin(staff, eq(inventoryRestockEvents.staffId, staff.id))
+        .leftJoin(users, eq(inventoryRestockEvents.userId, users.id))
+        .where(eq(inventoryRestockEvents.inventoryId, inventoryId))
+        .orderBy(desc(inventoryRestockEvents.restockedAt))
+        .limit(limit),
+
+      db.select({
+        id: stockAuditItems.id,
+        variance: stockAuditItems.variance,
+        reason: stockAuditItems.reason,
+        systemQuantity: stockAuditItems.systemQuantity,
+        physicalQuantity: stockAuditItems.physicalQuantity,
+        approvedAt: stockAudits.approvedAt,
+        createdAt: stockAudits.createdAt,
+        status: stockAudits.status,
+        conductedByName: staff.name,
+        approvedByName: users.name,
+      })
+        .from(stockAuditItems)
+        .innerJoin(stockAudits, eq(stockAuditItems.auditId, stockAudits.id))
+        .leftJoin(staff, eq(stockAudits.conductedByStaffId, staff.id))
+        .leftJoin(users, eq(stockAudits.approvedByUserId, users.id))
+        .where(and(eq(stockAuditItems.inventoryId, inventoryId), eq(stockAudits.status, "approved")))
+        .orderBy(desc(stockAudits.approvedAt))
+        .limit(limit),
+
+      db.select({
+        id: orderConsumables.id,
+        quantityUsed: orderConsumables.quantityUsed,
+        totalCost: orderConsumables.totalCost,
+        createdAt: orderConsumables.createdAt,
+      })
+        .from(orderConsumables)
+        .where(and(eq(orderConsumables.supplyInventoryId, inventoryId), eq(orderConsumables.storeId, storeId)))
+        .orderBy(desc(orderConsumables.createdAt))
+        .limit(limit),
+    ]);
+
+    const timeline = [
+      ...auditRows.map((r) => {
+        const { type, label } = typeForAction(r.action);
+        const details = (r.details as Record<string, unknown>) || {};
+        const quantityDelta =
+          typeof details.quantityRestocked === "number" ? details.quantityRestocked :
+          typeof details.quantity === "number" ? (r.action === "SALE_DEDUCTION" ? -details.quantity : details.quantity) :
+          null;
+        return {
+          id: r.id,
+          type,
+          label,
+          quantityDelta,
+          actorName: r.actorName,
+          timestamp: r.timestamp,
+          details,
+        };
+      }),
+      ...restockRows.map((r) => ({
+        id: r.id,
+        type: "restock" as const,
+        label: r.reason || "Restocked",
+        quantityDelta: Number(r.quantityAdded),
+        actorName: r.staffName ?? r.userName ?? null,
+        timestamp: r.restockedAt,
+        details: r.notes ? { notes: r.notes } : undefined,
+      })),
+      ...auditItemRows.map((r) => ({
+        id: r.id,
+        type: "audit_adjustment" as const,
+        label: "Stock count adjustment",
+        quantityDelta: Number(r.variance),
+        actorName: r.approvedByName ?? r.conductedByName ?? null,
+        timestamp: r.approvedAt ?? r.createdAt,
+        details: {
+          systemQuantity: Number(r.systemQuantity),
+          physicalQuantity: Number(r.physicalQuantity),
+          ...(r.reason ? { reason: r.reason } : {}),
+        },
+      })),
+      ...consumableRows.map((r) => ({
+        id: r.id,
+        type: "consumable_usage" as const,
+        label: "Used as consumable",
+        quantityDelta: -Number(r.quantityUsed),
+        actorName: null,
+        timestamp: r.createdAt,
+        details: { totalCost: Number(r.totalCost) },
+      })),
+    ];
+
+    return timeline
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, limit);
   }
 }

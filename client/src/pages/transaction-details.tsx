@@ -20,9 +20,11 @@ import {
   ChevronRight,
   Plus,
   Droplet,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BaseCard } from "@/components/oop-ui/BaseCard";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -149,6 +151,18 @@ export default function TransactionDetailsPage() {
     enabled: !!checkoutId,
   });
 
+  // Activity tab — owner/manager only, mirrors the requireRole("owner", "manager") gate on GET /api/audit-logs
+  const canViewActivity = userRole === "manager" || userRole === "owner";
+  const { data: activityData, isLoading: isActivityLoading } = useQuery<{ logs: any[] }>({
+    queryKey: ["/api/audit-logs", "checkout", checkoutId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/audit-logs?resource=checkout&resourceId=${checkoutId}`);
+      return res.json();
+    },
+    enabled: !!checkoutId && canViewActivity,
+  });
+  const activityLogs = activityData?.logs ?? [];
+
   // Basket total = sum of each line's totalCharged (the per-line post-discount amount).
   // DO NOT use primaryCheckout.totalCharged — it is only this one checkout's line amount.
   // primaryCheckout.subtotal IS the basket pre-discount total (stored on every checkout row).
@@ -205,7 +219,10 @@ export default function TransactionDetailsPage() {
       inventoryId: item.order.inventoryId,
       quantity: item.order.quantity,
       returnedQuantity: item.order.returnedQuantity || 0,
-      totalPrice: item.checkout.totalPrice,
+      // totalCharged (not totalPrice) is the actual tax/discount-inclusive amount the
+      // customer paid for this line — that's what a return should be refunded against.
+      totalCharged: item.checkout.totalCharged,
+      taxTotal: item.checkout.taxTotal ?? 0,
       inventory: item.inventory,
     })),
   } : null;
@@ -410,6 +427,13 @@ export default function TransactionDetailsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Section — Transaction Info */}
         <div className="lg:col-span-2 space-y-6">
+        <Tabs defaultValue="details">
+          <TabsList>
+            <TabsTrigger value="details">Details</TabsTrigger>
+            {canViewActivity && <TabsTrigger value="activity">Activity</TabsTrigger>}
+          </TabsList>
+
+          <TabsContent value="details" className="space-y-6 mt-4">
           <BaseCard hoverElevation>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -584,7 +608,8 @@ export default function TransactionDetailsPage() {
                         </thead>
                         <tbody className="divide-y divide-muted/40">
                           {receiptDetails.items.map((item: any) => {
-                            const unitPrice = item.order.quantity > 0 ? (item.checkout.totalPrice / item.order.quantity) : 0;
+                            const lineCharged = item.checkout.totalCharged ?? item.checkout.totalPrice;
+                            const unitPrice = item.order.quantity > 0 ? (lineCharged / item.order.quantity) : 0;
                             const returnedQty = item.order.returnedQuantity || 0;
                             return (
                               <tr key={item.order.id} className="hover:bg-muted/10 transition-colors">
@@ -615,7 +640,7 @@ export default function TransactionDetailsPage() {
                                 </td>
                                 <td className="p-3 text-center font-mono">{item.order.quantity}</td>
                                 <td className="p-3 text-right font-mono">{formatCurrency(unitPrice)}</td>
-                                <td className="p-3 text-right font-mono font-medium">{formatCurrency(item.checkout.totalPrice)}</td>
+                                <td className="p-3 text-right font-mono font-medium">{formatCurrency(lineCharged)}</td>
                                 <td className="p-3 text-center">
                                   {returnedQty > 0 ? (
                                     <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-mono text-[10px] font-semibold">
@@ -717,6 +742,68 @@ export default function TransactionDetailsPage() {
               </CardContent>
             </BaseCard>
           )}
+          </TabsContent>
+
+          {canViewActivity && (
+            <TabsContent value="activity" className="mt-4">
+              <BaseCard hoverElevation>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-primary" />
+                    Activity
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {isActivityLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading activity…</p>
+                  ) : activityLogs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No activity recorded for this transaction yet.</p>
+                  ) : (
+                    activityLogs.map((log: any) => (
+                      <div key={log.id} className="flex gap-4 p-3 bg-card border rounded-lg text-xs hover:shadow-sm transition-shadow">
+                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                          <History className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex justify-between items-start gap-2">
+                            <p className="font-semibold text-foreground">
+                              {log.action.replace(/_/g, " ")}
+                            </p>
+                            <Badge
+                              variant="outline"
+                              className={
+                                log.status === "failure"
+                                  ? "text-red-600 border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30"
+                                  : "text-emerald-600 border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-900/30"
+                              }
+                            >
+                              {log.status}
+                            </Badge>
+                          </div>
+                          <p className="text-muted-foreground">
+                            By <span className="font-medium text-foreground">{log.actorName ?? "System"}</span>
+                            {log.actorRole && <span className="capitalize"> ({log.actorRole})</span>}
+                          </p>
+                          {log.changedFields?.length > 0 && (
+                            <p className="text-muted-foreground">
+                              Changed: <span className="font-mono text-foreground">{log.changedFields.join(", ")}</span>
+                            </p>
+                          )}
+                          {log.errorMessage && (
+                            <p className="text-red-600 dark:text-red-400 italic">{log.errorMessage}</p>
+                          )}
+                          <p className="text-[10px] text-muted-foreground/80 font-mono mt-1">
+                            {formatDate(log.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </BaseCard>
+            </TabsContent>
+          )}
+        </Tabs>
         </div>
 
         {/* Right Section — Actions */}

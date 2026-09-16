@@ -62,6 +62,59 @@ export class StaffRepository {
     return totalPrice * (isLead ? leadShare : asstShare);
   }
 
+  // Distributes each receipt's basket-level discount proportionally across its lines
+  // (by totalPrice share of the basket subtotal), landing any rounding remainder on
+  // the largest line. Mirrors PayrollService's allocation exactly — commission/revenue
+  // reporting must use the same net-of-discount basis actual payroll pays out on,
+  // not the raw pre-discount orders.totalPrice (which overstates revenue on any
+  // discounted sale).
+  private allocateEffectivePrices(rows: { checkout: { id: string; receiptNumber: string; discountAmount: number; subtotal: number; totalPrice: number } }[]): Map<string, number> {
+    const effectivePrices = new Map<string, number>();
+    const byReceipt = new Map<string, typeof rows>();
+    for (const row of rows) {
+      if (!byReceipt.has(row.checkout.receiptNumber)) byReceipt.set(row.checkout.receiptNumber, []);
+      byReceipt.get(row.checkout.receiptNumber)!.push(row);
+    }
+
+    for (const receiptRows of Array.from(byReceipt.values())) {
+      const firstRow = receiptRows[0];
+      const totalDiscount = firstRow.checkout.discountAmount || 0;
+      const subtotal = firstRow.checkout.subtotal || 1;
+
+      if (totalDiscount <= 0) {
+        for (const row of receiptRows) {
+          effectivePrices.set(row.checkout.id, row.checkout.totalPrice);
+        }
+        continue;
+      }
+
+      let sumShares = 0;
+      const shares = new Map<string, number>();
+      for (const row of receiptRows) {
+        const share = Math.round((row.checkout.totalPrice / subtotal) * totalDiscount * 100) / 100;
+        shares.set(row.checkout.id, share);
+        sumShares += share;
+      }
+
+      const remainder = Math.round((totalDiscount - sumShares) * 100) / 100;
+      if (remainder !== 0) {
+        let maxRow = receiptRows[0];
+        for (const row of receiptRows) {
+          if (row.checkout.totalPrice > maxRow.checkout.totalPrice) maxRow = row;
+        }
+        const currentShare = shares.get(maxRow.checkout.id) || 0;
+        shares.set(maxRow.checkout.id, Math.round((currentShare + remainder) * 100) / 100);
+      }
+
+      for (const row of receiptRows) {
+        const share = shares.get(row.checkout.id) || 0;
+        effectivePrices.set(row.checkout.id, Math.max(0, row.checkout.totalPrice - share));
+      }
+    }
+
+    return effectivePrices;
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
   private async getNextAvailableStaffNumber(storeId: string): Promise<string> {
     const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
@@ -362,6 +415,8 @@ export class StaffRepository {
       .where(and(...checkoutConditions))
       .orderBy(desc(checkouts.createdAt));
 
+    const effectivePrices = this.allocateEffectivePrices(rows);
+
     const services: any[] = [];
     const products: any[] = [];
 
@@ -380,7 +435,7 @@ export class StaffRepository {
         receiptNumber: row.checkout.receiptNumber,
         transactionId: row.transactionId,
         date: row.checkout.createdAt,
-        revenue: this.revenueShare(staffId, row.checkout, row.order.totalPrice),
+        revenue: this.revenueShare(staffId, row.checkout, effectivePrices.get(row.checkout.id) ?? row.order.totalPrice),
         role,
       };
 
@@ -422,6 +477,7 @@ export class StaffRepository {
     if (endDate) attendanceConditions.push(lte(attendanceRecords.date, endDate));
 
     const attendanceList = await db.select().from(attendanceRecords).where(and(...attendanceConditions));
+    const effectivePrices = this.allocateEffectivePrices(rows);
 
     return activeStaff.map(s => {
       const staffCheckouts = rows.filter(r =>
@@ -431,7 +487,7 @@ export class StaffRepository {
         r.checkout.assistingStaff2Id === s.id
       );
 
-      const totalRevenue = staffCheckouts.reduce((sum, r) => sum + this.revenueShare(s.id, r.checkout, r.order.totalPrice), 0);
+      const totalRevenue = staffCheckouts.reduce((sum, r) => sum + this.revenueShare(s.id, r.checkout, effectivePrices.get(r.checkout.id) ?? r.order.totalPrice), 0);
       const servicesCount = staffCheckouts.filter(r => r.inventoryItem.type === "service").length;
       const productsCount = staffCheckouts.filter(r => r.inventoryItem.type === "product").length;
 

@@ -518,6 +518,24 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
+  // Unified stock lifecycle timeline (creation, sale, return, transfer, restock,
+  // stock-count adjustment, consumable usage) — owner/manager only, same gate as
+  // GET /api/audit-logs since this surfaces the same class of sensitive history.
+  app.get("/api/inventory/:id/activity", withInventoryId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "Access denied." });
+      }
+
+      const logs = await storage.inventoryRepo.getActivityTimeline(req.params.id, item.storeId);
+      res.json({ logs });
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't load this item's activity. Please try again." });
+    }
+  });
+
   app.get("/api/inventory/:id/sustaining-costs", isAuthenticated, withInventoryId, async (req, res) => {
     try {
       const inventoryId = req.params.id;
@@ -812,78 +830,6 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  // Helper to group transactions by checkout.receiptNumber (FRD Section 3.3)
-  function groupTransactions(txs: any[]): any[] {
-    const groupedMap = new Map<string, any[]>();
-    
-    for (const tx of txs) {
-      const key = tx.checkout?.receiptNumber || tx.checkoutId || tx.id;
-      if (!groupedMap.has(key)) {
-        groupedMap.set(key, []);
-      }
-      groupedMap.get(key)!.push(tx);
-    }
-    
-    const result: any[] = [];
-    
-    for (const [key, group] of Array.from(groupedMap.entries())) {
-      if (group.length === 0) continue;
-      if (group.length === 1) {
-        result.push(group[0]);
-        continue;
-      }
-      
-      const firstTx = group[0];
-      
-      let totalAmount = 0;
-      let totalTotalPrice = 0;
-      let totalTotalCharged = 0;
-      let totalQuantity = 0;
-      let totalReturnedQuantity = 0;
-      let totalRefundedAmount = 0;
-      let totalSubtotal = 0;
-      let totalDiscountAmount = 0;
-      
-      for (const item of group) {
-        totalAmount += Number(item.amount) || 0;
-        totalTotalPrice += Number(item.checkout?.totalPrice) || 0;
-        totalTotalCharged += Number(item.checkout?.totalCharged) || 0;
-        totalQuantity += Number(item.checkout?.quantity) || 0;
-        totalReturnedQuantity += Number(item.checkout?.returnedQuantity) || 0;
-        totalRefundedAmount += Number(item.checkout?.refundedAmount) || 0;
-        totalSubtotal += Number(item.checkout?.subtotal) || 0;
-        totalDiscountAmount += Number(item.checkout?.discountAmount) || 0;
-      }
-      
-      const uniqueNames = Array.from(new Set(group.map((t: any) => t.inventory?.name).filter(Boolean)));
-      const joinedNames = uniqueNames.join(", ");
-      
-      const hasService = group.some((t: any) => t.inventory?.type === "service");
-      const type = hasService ? "service" : "product";
-      
-      result.push({
-        ...firstTx,
-        amount: totalAmount,
-        inventory: {
-          ...firstTx.inventory,
-          name: joinedNames,
-          type: type,
-        },
-        checkout: {
-          ...firstTx.checkout,
-          totalPrice: totalTotalPrice,
-          subtotal: totalSubtotal,
-          discountAmount: totalDiscountAmount,
-          quantity: totalQuantity,
-          returnedQuantity: totalReturnedQuantity,
-          refundedAmount: totalRefundedAmount,
-          totalCharged: totalTotalCharged,
-        }
-      });
-    }
-    
-    return result;
-  }
   // ---------- 5. COMPOSITE / BUNDLED ITEMS ----------
   // Get Bundle Components
   app.get("/api/inventory/:id/bundle-components", isAuthenticated, withInventoryId, async (req, res) => {

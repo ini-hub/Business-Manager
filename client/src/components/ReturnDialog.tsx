@@ -21,6 +21,7 @@ interface ReturnItemState {
   name: string;
   type: string;
   unitPrice: number;
+  unitTax: number;
   maxQuantity: number;
   quantityToReturn: number;
   restock: boolean;
@@ -59,7 +60,10 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
         inventoryId: o.inventoryId,
         name: inv.name || "Unknown Item",
         type: inv.type || "product",
-        unitPrice: Number(o.totalPrice) / Math.max(1, Number(o.quantity)),
+        // Charged, not raw list price — includes tax and is net of discount, i.e.
+        // exactly what the customer paid per unit and what a return should refund.
+        unitPrice: Number(o.totalCharged) / Math.max(1, Number(o.quantity)),
+        unitTax: Number(o.taxTotal || 0) / Math.max(1, Number(o.quantity)),
         maxQuantity: maxQty,
         // Clamp stored qty against fresh maxQuantity to prevent over-returning
         quantityToReturn: Math.min(returnQtys[o.id] ?? 0, maxQty),
@@ -82,6 +86,7 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
   // Calculations
   const activeReturnsCount = items.reduce((sum, i) => sum + i.quantityToReturn, 0);
   const calculatedRefundAmount = items.reduce((sum, i) => sum + i.quantityToReturn * i.unitPrice, 0);
+  const calculatedTaxRefund = items.reduce((sum, i) => sum + i.quantityToReturn * i.unitTax, 0);
 
   const returnMutation = useMutation({
     mutationFn: async () => {
@@ -116,6 +121,11 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      // Returns write both a "checkout" and an "inventory" audit entry — invalidate every
+      // audit-logs query regardless of which resource it's scoped to.
+      queryClient.invalidateQueries({ queryKey: ["/api/audit-logs"] });
+      // A restocked return also shows up in the item's unified activity timeline.
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
 
       toast({
         title: "Return processed successfully!",
@@ -257,6 +267,12 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
                 <span className="text-muted-foreground">Total items selected:</span>
                 <span className="font-bold text-foreground font-mono">{activeReturnsCount} items</span>
               </div>
+              {calculatedTaxRefund > 0 && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-muted-foreground">Includes tax refund:</span>
+                  <span className="font-mono text-foreground">{formatCurrency(calculatedTaxRefund)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center pt-2 border-t border-dashed border-indigo-500/15">
                 <span className="text-xs font-bold text-foreground uppercase tracking-wider">Estimated Refund Total</span>
                 <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400 font-mono">

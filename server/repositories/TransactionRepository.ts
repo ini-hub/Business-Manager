@@ -47,6 +47,7 @@ function buildTransactionFromRow(row: {
   const quantity = order?.quantity ?? 1;
   const returnedQuantity = order?.returnedQuantity ?? 0;
   const refundedAmount = order?.refundedAmount ?? 0;
+  const taxRefunded = order?.taxRefunded ?? 0;
 
   const basketSubtotal = Number(checkout.subtotal) || 1;
   const orderPrice = Number(order?.totalPrice) || tx.amount;
@@ -58,12 +59,13 @@ function buildTransactionFromRow(row: {
     inventory: inv,
     checkout: {
       ...checkout,
-      totalPrice: tx.amount,
+      totalPrice: Math.max(tx.amount - refundedAmount, 0),
       subtotal: orderPrice,
       discountAmount: proportionalDiscount,
       quantity,
       returnedQuantity,
       refundedAmount,
+      taxRefunded,
       staff: staffMember ?? undefined,
       voidedByUser: voidedBy ? serializeUser(voidedBy) : null,
     },

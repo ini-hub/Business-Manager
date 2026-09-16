@@ -8,6 +8,7 @@ import {
   creditEntries,
   quotes,
   checkouts,
+  orders,
   type Customer,
   type InsertCustomer,
 } from "@shared/schema";
@@ -452,19 +453,26 @@ export class CustomerRepository {
       if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
     }
 
+    // "Spend" is customer-facing money, so use totalCharged (tax/discount-inclusive,
+    // what they actually paid), not totalPrice (raw pre-discount/pre-tax) — paired
+    // with refundedAmount, which is likewise tax-inclusive since it refunds what was
+    // actually charged.
+    const netSpent = sql<number>`COALESCE(SUM(GREATEST((${checkouts.totalCharged})::numeric - COALESCE((${orders.refundedAmount})::numeric, 0), 0)), 0)`;
+
     return db.select({
       id: customers.id,
       name: customers.name,
       customerNumber: customers.customerNumber,
-      totalSpent: sql<number>`sum(${checkouts.totalPrice})`,
+      totalSpent: netSpent,
       transactionCount: sql<number>`count(${checkouts.id})`,
     })
       .from(customers)
       .innerJoin(transactions, eq(customers.id, transactions.customerId))
       .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .leftJoin(orders, eq(orders.id, checkouts.orderId))
       .where(and(...conditions))
       .groupBy(customers.id, customers.name, customers.customerNumber)
-      .orderBy(desc(sql`sum(${checkouts.totalPrice})`))
+      .orderBy(desc(netSpent))
       .limit(10);
   }
 }

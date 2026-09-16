@@ -1126,6 +1126,10 @@ export default function NewSale() {
       } else {
         queryClient.invalidateQueries({ queryKey: ["/api/transactions", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
+        // The product picker on this page reads "/api/products", not "/api/inventory" —
+        // without this, a stale quantity here let staff re-add a just-sold-out item and
+        // only find out it's unavailable when checkout rejects it server-side.
+        queryClient.invalidateQueries({ queryKey: ["/api/products", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/profit-loss", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats", currentStore?.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/customers", currentStore?.id] });

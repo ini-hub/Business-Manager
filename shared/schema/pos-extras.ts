@@ -80,6 +80,9 @@ export const returnLogs = pgTable("return_logs", {
   orderId: varchar("order_id").notNull().references(() => orders.id),
   quantity: numeric("quantity", { precision: 12, scale: 4 }).$type<number>().notNull(),
   refundAmount: numeric("refund_amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  // Tax component of refundAmount, broken out so the return history UI can show
+  // customers/owners exactly how much tax was reversed, not just one opaque total.
+  taxRefundAmount: numeric("tax_refund_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   refundMethod: text("refund_method").notNull(),
   reason: text("reason"),
   staffId: varchar("staff_id").references(() => staff.id),
@@ -99,6 +102,7 @@ export const returnLogsRelations = relations(returnLogs, ({ one }) => ({
 
 export const insertReturnLogSchema = createInsertSchema(returnLogs).omit({ id: true, createdAt: true }).extend({
   refundAmount: z.number(),
+  taxRefundAmount: z.number().optional(),
 });
 export type InsertReturnLog = z.infer<typeof insertReturnLogSchema>;
 export type ReturnLog = typeof returnLogs.$inferSelect;

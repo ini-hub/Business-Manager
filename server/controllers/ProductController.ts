@@ -7,8 +7,9 @@ import { MAX_VARIANTS_PER_PRODUCT } from "@shared/constants";
 import { z } from "zod";
 import { withProductId } from "../utils/slug-resolver";
 import { toTitleCase, sanitizeString } from "../sanitize";
-import { broadcastChange } from "../routes/helpers";
+import { broadcastChange, getAuditContext } from "../routes/helpers";
 import { requireFeature } from "../lib/entitlements";
+import { auditLogger } from "../audit";
 
 /** Quick-pick strip defaults. 30 days keeps the ranking current enough to follow
  *  a seasonal swing without a slow week emptying the strip. */
@@ -369,6 +370,17 @@ export class ProductController extends BaseController {
       }
 
       const variant = await storage.createInventoryItem(data);
+
+      // Without this, a variant's stock lifecycle (visible on its Activity tab)
+      // starts silent — sales, restocks, returns and transfers all log to
+      // auditLogs under resource "inventory", but creation itself never did,
+      // so the very first "amount added" entry was always missing.
+      const ctx = await getAuditContext(req, { storeId: product.storeId });
+      auditLogger.logEvent(ctx, "CREATE", "inventory", variant.id, "success", {
+        newValues: variant,
+        details: { quantity: variant.quantity },
+      });
+
       broadcastChange(req, "inventory", product.storeId, "created");
       return this.created(res, variant);
     } catch (error: any) {

@@ -112,7 +112,11 @@ export class AnalyticsRepository {
     const rows = await db
       .select({
         date: bucket,
-        revenue: sql<number>`COALESCE(SUM(GREATEST((${checkouts.totalPrice})::numeric - COALESCE((${orders.refundedAmount})::numeric, 0), 0)), 0)`,
+        // checkouts.totalPrice is pre-tax/pre-discount; orders.refundedAmount is now
+        // tax-inclusive (it refunds what the customer actually paid), so subtract only
+        // its non-tax portion here to keep both sides of the subtraction on the same
+        // pre-tax basis — otherwise a returned, taxed sale gets double-discounted.
+        revenue: sql<number>`COALESCE(SUM(GREATEST((${checkouts.totalPrice})::numeric - (COALESCE((${orders.refundedAmount})::numeric, 0) - COALESCE((${orders.taxRefunded})::numeric, 0)), 0)), 0)`,
         transactions: sql<number>`COUNT(*)`,
       })
       .from(transactions)
@@ -148,6 +152,7 @@ export class AnalyticsRepository {
         inventoryType: inventory.type,
         revenue: orders.totalPrice,
         refundedAmount: orders.refundedAmount,
+        taxRefunded: orders.taxRefunded,
       })
       .from(orders)
       .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
@@ -158,7 +163,9 @@ export class AnalyticsRepository {
 
     for (const row of rows) {
       const existing = grouped.get(row.inventoryName) || { name: row.inventoryName, value: 0, type: row.inventoryType };
-      existing.value += Math.max(0, row.revenue - (row.refundedAmount || 0));
+      // orders.totalPrice is pre-tax; net only the non-tax portion of the refund
+      // against it, same reasoning as getSalesTrends above.
+      existing.value += Math.max(0, row.revenue - ((row.refundedAmount || 0) - (row.taxRefunded || 0)));
       grouped.set(row.inventoryName, existing);
     }
 
@@ -186,6 +193,7 @@ export class AnalyticsRepository {
         inventoryType: inventory.type,
         revenue: orders.totalPrice,
         refundedAmount: orders.refundedAmount,
+        taxRefunded: orders.taxRefunded,
       })
       .from(orders)
       .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
@@ -195,7 +203,7 @@ export class AnalyticsRepository {
     let services = 0;
     let products = 0;
     for (const row of rows) {
-      const net = Math.max(0, row.revenue - (row.refundedAmount || 0));
+      const net = Math.max(0, row.revenue - ((row.refundedAmount || 0) - (row.taxRefunded || 0)));
       if (row.inventoryType === "service") services += net;
       else products += net;
     }

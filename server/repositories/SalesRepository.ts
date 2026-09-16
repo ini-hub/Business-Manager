@@ -1490,9 +1490,20 @@ export class SalesRepository {
             throw new Error(`Invalid return quantity (${item.quantity}). Max available: ${maxAvailable}`);
           }
 
-          const unitPrice = order.totalPrice / order.quantity;
-          const lineRefundAmount = unitPrice * item.quantity;
+          // Refund against what was actually charged (checkouts.totalCharged — net of
+          // discount, inclusive of tax), not orders.totalPrice, which is the raw
+          // pre-discount, pre-tax line total. Refunding against totalPrice silently
+          // shorted the customer the tax (and discount) they actually paid, with no
+          // ledger entry anywhere for the difference.
+          const [lineCheckout] = await tx.select().from(checkouts).where(eq(checkouts.orderId, order.id));
+          if (!lineCheckout) throw new Error(`Checkout not found for line item: ${item.orderId}`);
+
+          const unitCharged = lineCheckout.totalCharged / order.quantity;
+          const lineRefundAmount = unitCharged * item.quantity;
           calculatedTotalRefund += lineRefundAmount;
+
+          const unitTax = (lineCheckout.taxTotal || 0) / order.quantity;
+          const lineTaxRefund = unitTax * item.quantity;
 
           let restockEventId: string | null = null;
 
@@ -1556,6 +1567,7 @@ export class SalesRepository {
             orderId: order.id,
             quantity: item.quantity,
             refundAmount: lineRefundAmount,
+            taxRefundAmount: lineTaxRefund,
             refundMethod: data.refundMethod,
             reason: data.reason,
             staffId: data.staffId || null,
@@ -1571,6 +1583,7 @@ export class SalesRepository {
             .set({
               returnedQuantity: order.returnedQuantity + item.quantity,
               refundedAmount: order.refundedAmount + lineRefundAmount,
+              taxRefunded: (order.taxRefunded || 0) + lineTaxRefund,
             })
             .where(eq(orders.id, order.id));
 
@@ -1578,12 +1591,16 @@ export class SalesRepository {
             const [existingPL] = await tx.select().from(profitLoss)
               .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, data.storeId)));
             if (existingPL) {
-              const profit = lineRefundAmount - (inventoryItem.costPrice || 0) * item.quantity;
+              // profitLoss.totalRevenue is built from orders.totalPrice (pre-discount,
+              // pre-tax) at sale time — decrement against that same basis, not the
+              // tax/discount-inclusive customer refund amount above.
+              const lineRevenuePortion = (order.totalPrice / order.quantity) * item.quantity;
+              const profit = lineRevenuePortion - (inventoryItem.costPrice || 0) * item.quantity;
               await tx.update(profitLoss)
                 .set({
                   totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - item.quantity),
                   quantityRemaining: existingPL.quantityRemaining + (item.restock && inventoryItem.type === "product" ? item.quantity : 0),
-                  totalRevenue: Math.max(0, existingPL.totalRevenue - lineRefundAmount),
+                  totalRevenue: Math.max(0, existingPL.totalRevenue - lineRevenuePortion),
                   totalGrossProfit: existingPL.totalGrossProfit - profit,
                 })
                 .where(eq(profitLoss.id, existingPL.id));

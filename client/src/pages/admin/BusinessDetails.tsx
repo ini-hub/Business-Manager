@@ -485,7 +485,7 @@ export default function BusinessDetails() {
                             {formatDate(tx.createdAt)}
                           </td>
                           <td className="px-6 py-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                            {formatCurrency(tx.totalPrice || tx.totalCharged)}
+                            {formatCurrency(tx.totalCharged || tx.totalPrice)}
                           </td>
                           <td className="px-6 py-4">
                             <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-muted text-muted-foreground">

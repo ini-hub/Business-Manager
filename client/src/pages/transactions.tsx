@@ -267,12 +267,19 @@ export default function Transactions() {
 
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
-  const formatDualCurrency = (value: number, isVoided: boolean = false) => {
+  const formatDualCurrency = (value: number, strikethrough: boolean = false) => {
     return (
-      <div className={`flex flex-col ${isVoided ? "opacity-50 line-through" : ""}`}>
+      <div className={`flex flex-col ${strikethrough ? "opacity-50 line-through" : ""}`}>
         <span className="font-mono font-medium">{formatCurrency(value, storeCurrency)}</span>
       </div>
     );
+  };
+
+  const isFullyReturnedTx = (tx: TransactionWithRelations) => {
+    const isVoided = tx.checkout?.isVoided;
+    const returnedQty = tx.checkout?.returnedQuantity ?? 0;
+    const soldQty = tx.checkout?.quantity ?? 1;
+    return !isVoided && returnedQty >= soldQty;
   };
 
   const formatDate = (date: string | Date) => {
@@ -309,7 +316,36 @@ export default function Transactions() {
 
   const actualRevenueNet = totalAmount - totalRefunded;
 
-  const nonVoidedCount = uniqueReceipts.filter(tx => !tx.checkout?.isVoided).length;
+  // A receipt can have multiple line items, each with its own returned/sold quantity —
+  // uniqueReceipts only keeps one representative line, so "fully returned" at the
+  // receipt level means EVERY line in that receipt was fully returned, not just the
+  // representative one. A fully refunded receipt generated zero net revenue and
+  // shouldn't be counted as a "valid" transaction alongside genuine completed sales.
+  const fullyReturnedReceiptNumbers = useMemo(() => {
+    const byReceipt = new Map<string, TransactionWithRelations[]>();
+    for (const tx of filteredTransactions) {
+      const key = tx.checkout?.receiptNumber ?? tx.checkoutId;
+      if (!byReceipt.has(key)) byReceipt.set(key, []);
+      byReceipt.get(key)!.push(tx);
+    }
+    const fullyReturned = new Set<string>();
+    for (const [key, lines] of Array.from(byReceipt.entries())) {
+      const allFullyReturned = lines.every((tx) => {
+        const returnedQty = tx.checkout?.returnedQuantity ?? 0;
+        const soldQty = tx.checkout?.quantity ?? 1;
+        return returnedQty >= soldQty;
+      });
+      if (allFullyReturned) fullyReturned.add(key);
+    }
+    return fullyReturned;
+  }, [filteredTransactions]);
+
+  const isReceiptFullyReturned = (tx: TransactionWithRelations) =>
+    fullyReturnedReceiptNumbers.has(tx.checkout?.receiptNumber ?? tx.checkoutId);
+
+  const nonVoidedCount = uniqueReceipts.filter(
+    tx => !tx.checkout?.isVoided && !isReceiptFullyReturned(tx)
+  ).length;
 
   const paymentBadgeClass = (method: string) => {
     const m = (method ?? "cash").toLowerCase();
@@ -347,8 +383,7 @@ export default function Transactions() {
       render: (tx: TransactionWithRelations) => {
         const isVoided = tx.checkout?.isVoided;
         const returnedQty = tx.checkout?.returnedQuantity ?? 0;
-        const soldQty = tx.checkout?.quantity ?? 1;
-        const isFullyReturned = !isVoided && returnedQty >= soldQty;
+        const isFullyReturned = isFullyReturnedTx(tx);
         const isPartiallyReturned = !isVoided && !isFullyReturned && returnedQty > 0;
         const itemCount = (tx.checkout as any).basketItemCount ?? 1;
 
@@ -483,7 +518,7 @@ export default function Transactions() {
         // tx.amount is the per-line-item amount set at checkout time.
         // tx.checkout.totalPrice is the full basket total — NOT shown here.
         <div className="flex items-center justify-between gap-2">
-          {formatDualCurrency(tx.amount ?? 0, tx.checkout?.isVoided)}
+          {formatDualCurrency(tx.amount ?? 0, tx.checkout?.isVoided || isFullyReturnedTx(tx))}
           <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
         </div>
       ),
