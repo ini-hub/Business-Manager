@@ -171,6 +171,7 @@ export default function SettingsIndexPage() {
       <PageHeader
         title="Settings"
         description="Manage your business configuration, stores, and compliance settings."
+        compact
       />
 
       <SettingsSection

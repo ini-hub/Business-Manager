@@ -173,7 +173,7 @@ export default function StoreFormPage() {
   if (!isOwner) {
     return (
       <div className="p-8 text-center">
-        <PageHeader title="Store Configuration" description="Only owners can manage store settings." />
+        <PageHeader title="Store Configuration" description="Only owners can manage store settings." compact />
         <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/stores")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Stores
         </Button>
@@ -187,9 +187,10 @@ export default function StoreFormPage() {
         <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/stores")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <PageHeader 
-          title={storeId ? "Edit Store Location" : "Add Store Location"} 
+        <PageHeader
+          title={storeId ? "Edit Store Location" : "Add Store Location"}
           description={storeId ? `Updating parameters for ${store?.name}` : "Establish a new localized franchise branch"}
+          compact
         />
       </div>
 

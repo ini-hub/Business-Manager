@@ -77,6 +77,7 @@ export default function ReportsIndexPage() {
       <PageHeader
         title="Reports"
         description="Insights and audit tools for your business performance and operations."
+        compact
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

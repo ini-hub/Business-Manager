@@ -72,6 +72,7 @@ export default function AnalyticsDashboardsPage() {
       <PageHeader
         title="Dashboards"
         description="Pin saved explorations side by side."
+        compact
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>

@@ -103,6 +103,7 @@ export default function InventoryAuditNewPage() {
       <PageHeader
         title="New Stock Audit"
         description="Record a physical count to reconcile with system stock."
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation("/inventory")}>
             <ChevronLeft className="h-4 w-4 mr-1" />

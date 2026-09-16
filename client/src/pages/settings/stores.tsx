@@ -14,6 +14,7 @@ export default function SettingsStoresPage() {
       <PageHeader
         title="Manage Stores"
         description="Add, edit, or remove your business locations."
+        compact
         actions={<BackToSettingsButton />}
       />
       <StoresManagementSection />

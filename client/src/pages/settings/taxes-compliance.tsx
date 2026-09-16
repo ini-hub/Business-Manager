@@ -316,20 +316,35 @@ export default function TaxesCompliancePage() {
       <PageHeader
         title="Taxes & Compliance"
         description="Configure VAT levels, automate checkout surcharge calculations, and audit monthly tax logs."
+        compact
         actions={
           <div className="flex items-center gap-2">
             <BackToSettingsButton />
-            <BulkOperations
-              entityConfig={TAX_RATE_BULK_CONFIG}
-              data={taxRatesWithStatus as unknown as Record<string, unknown>[]}
-              columns={taxRateExportColumns}
-              isLoading={isLoadingRates}
-              storeId={currentStore.id}
-              pdfTitle="Tax Rates Report"
-              showImportOption={isManagerOrOwner}
-            />
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={TAX_RATE_BULK_CONFIG}
+                data={taxRatesWithStatus as unknown as Record<string, unknown>[]}
+                columns={taxRateExportColumns}
+                isLoading={isLoadingRates}
+                storeId={currentStore.id}
+                pdfTitle="Tax Rates Report"
+                showImportOption={isManagerOrOwner}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={TAX_RATE_BULK_CONFIG}
+                data={taxRatesWithStatus as unknown as Record<string, unknown>[]}
+                columns={taxRateExportColumns}
+                isLoading={isLoadingRates}
+                storeId={currentStore.id}
+                pdfTitle="Tax Rates Report"
+                showImportOption={isManagerOrOwner}
+              />
+            </div>
             <Button onClick={() => { resetForm(); setIsOpen(true); }} className="hover-elevate shadow-md flex items-center gap-2">
-              <Plus className="h-4 w-4" /> Add Custom Rate
+              <Plus className="h-4 w-4 lg:mr-2" /> <span className="hidden lg:inline">Add Custom Rate</span>
             </Button>
           </div>
         }

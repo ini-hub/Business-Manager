@@ -96,6 +96,7 @@ export default function InventoryRestockPage() {
       <PageHeader
         title={`Restock "${item.name}"`}
         description={`Current stock: ${item.quantity}${item.unit ? ` ${item.unit}` : " units"}`}
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation(`/inventory/${id}`)}>
             <ChevronLeft className="h-4 w-4 mr-1" />

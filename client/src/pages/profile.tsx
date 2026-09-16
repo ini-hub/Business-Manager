@@ -198,9 +198,10 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <PageHeader 
-        title="My Profile" 
+      <PageHeader
+        title="My Profile"
         description="Manage your account settings and preferences"
+        compact
       />
 
       <div className="grid gap-6 md:grid-cols-[250px_1fr]">

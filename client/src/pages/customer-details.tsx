@@ -207,6 +207,7 @@ export default function CustomerDetails() {
         <PageHeader
           title="Customer Details"
           description="View customer information and transactions"
+          compact
         />
         <Alert>
           <AlertCircle className="h-4 w-4" />
@@ -232,6 +233,7 @@ export default function CustomerDetails() {
         <PageHeader
           title="Customer Details"
           description="View customer information and transactions"
+          compact
           actions={
             <Button variant="outline" onClick={() => setLocation(backHref)} data-testid="button-back">
               <ArrowLeft className="mr-2 h-4 w-4" />

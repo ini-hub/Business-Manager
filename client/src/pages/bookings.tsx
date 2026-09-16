@@ -201,29 +201,44 @@ export default function BookingsPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <PageHeader
-          title="Bookings & Appointments"
-          description="Manage service appointments and product advance orders."
-        />
-        <div className="flex items-center gap-2">
-          <BulkOperations
-            entityConfig={BOOKING_BULK_CONFIG}
-            data={tableData as unknown as Record<string, unknown>[]}
-            columns={exportColumns}
-            isLoading={isLoading}
-            storeId={currentStore?.id}
-            pdfTitle="Bookings Report"
-            showImportOption={isManagerOrOwner}
-          />
-          <Button asChild className="shrink-0 shadow-sm hover:shadow transition-all">
-            <Link href="/bookings/new">
-              <Plus className="mr-2 h-4 w-4" />
-              New Booking
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Bookings & Appointments"
+        description="Manage service appointments and product advance orders."
+        compact
+        actions={
+          <div className="flex items-center gap-2">
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={BOOKING_BULK_CONFIG}
+                data={tableData as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore?.id}
+                pdfTitle="Bookings Report"
+                showImportOption={isManagerOrOwner}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={BOOKING_BULK_CONFIG}
+                data={tableData as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore?.id}
+                pdfTitle="Bookings Report"
+                showImportOption={isManagerOrOwner}
+              />
+            </div>
+            <Button asChild className="shrink-0 shadow-sm hover:shadow transition-all">
+              <Link href="/bookings/new">
+                <Plus className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">New Booking</span>
+              </Link>
+            </Button>
+          </div>
+        }
+      />
 
       <MetricGrid>
         <MetricCard

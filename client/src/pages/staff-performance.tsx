@@ -349,6 +349,7 @@ export default function StaffPerformancePage() {
       <PageHeader
         title="Staff Performance"
         description="Monitor staff productivity and attendance"
+        compact
         actions={
           <div className="flex flex-col sm:flex-row gap-2 items-center">
             <DateRangeFilter

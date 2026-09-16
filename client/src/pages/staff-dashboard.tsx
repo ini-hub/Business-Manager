@@ -64,9 +64,10 @@ export default function StaffDashboard() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title={`Welcome, ${user?.name || user?.email?.split('@')[0] || "Staff"}`} 
+      <PageHeader
+        title={`Welcome, ${user?.name || user?.email?.split('@')[0] || "Staff"}`}
         description="Here's your performance and earnings summary"
+        compact
       />
 
       <ClockInCard />

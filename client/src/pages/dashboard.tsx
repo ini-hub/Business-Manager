@@ -334,6 +334,7 @@ export default function Dashboard() {
         <PageHeader
           title="Dashboard"
           description="Overview of your business performance"
+          compact
         />
         <StoreRequiredAlert title="Store Required for Dashboard" />
       </div>

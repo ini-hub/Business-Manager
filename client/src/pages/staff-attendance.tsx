@@ -110,6 +110,7 @@ export default function StaffAttendancePage() {
       <PageHeader
         title="My Attendance"
         description="Clock in once when you arrive — today only. Your manager can see exactly when you clocked in."
+        compact
       />
 
       <ClockInCard />

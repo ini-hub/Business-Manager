@@ -180,6 +180,7 @@ export default function AuditLogsPage() {
       <PageHeader
         title="Activity Log"
         description="A full audit trail of every change made in your business."
+        compact
         actions={
           <ExportToolbar
             data={logs as unknown as Record<string, unknown>[]}

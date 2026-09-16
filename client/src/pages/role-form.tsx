@@ -109,7 +109,7 @@ export default function RoleFormPage() {
   if (!isOwner) {
     return (
       <div className="p-8 text-center">
-        <PageHeader title="Role Configuration" description="Only owners can manage custom roles." />
+        <PageHeader title="Role Configuration" description="Only owners can manage custom roles." compact />
         <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/roles")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
         </Button>
@@ -133,9 +133,10 @@ export default function RoleFormPage() {
         <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/roles")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <PageHeader 
-          title={id ? "Edit Custom Role" : "Create Custom Role"} 
+        <PageHeader
+          title={id ? "Edit Custom Role" : "Create Custom Role"}
           description={id ? "Modify existing custom modular permissions" : "Establish a new access profile with custom features access"}
+          compact
         />
       </div>
 

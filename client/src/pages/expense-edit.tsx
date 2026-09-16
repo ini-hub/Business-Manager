@@ -188,6 +188,7 @@ export default function ExpenseEditPage() {
     <div className="space-y-6 max-w-lg mx-auto">
       <PageHeader
         title="Edit Expense"
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation(backHref)}>
             <ChevronLeft className="h-4 w-4 mr-1" />Back to Expenses

@@ -135,11 +135,12 @@ export default function PayrollReportPage() {
       <PageHeader
         title="Payroll Report"
         description={`All payroll periods for ${currentStore?.name}`}
+        compact
         actions={
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setLocation("/payroll")}>
-              <ChevronLeft className="mr-2 h-4 w-4" />
-              Back
+              <ChevronLeft className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Back</span>
             </Button>
             <ExportToolbar
               data={report as unknown as Record<string, unknown>[]}

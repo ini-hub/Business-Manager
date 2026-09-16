@@ -89,7 +89,7 @@ export default function HelpSupportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Help & Support" description="Chat with us in real time, or send an email if you'd rather not wait around." />
+      <PageHeader title="Help & Support" description="Chat with us in real time, or send an email if you'd rather not wait around." compact />
 
       <div className="flex justify-center">
         <Tabs value={mode} onValueChange={(v) => setMode(v as "chat" | "email")}>

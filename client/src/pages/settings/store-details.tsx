@@ -27,6 +27,7 @@ export default function SettingsStoreDetailsPage() {
       <PageHeader
         title="Store Details"
         description="Receipt branding, low-stock threshold, payroll defaults, and loyalty configuration."
+        compact
         actions={<BackToSettingsButton />}
       />
       {!currentStore || currentStore.id === "all" ? (

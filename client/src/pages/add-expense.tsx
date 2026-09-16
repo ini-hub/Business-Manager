@@ -220,7 +220,7 @@ export default function AddExpensePage() {
   if (!currentStore) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Log New Expense" description="Record a store operational or service expense" />
+        <PageHeader title="Log New Expense" description="Record a store operational or service expense" compact />
         <StoreRequiredAlert title="Store Required for Expenses" />
       </div>
     );
@@ -238,7 +238,7 @@ export default function AddExpensePage() {
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Expenses
           </Button>
         </Link>
-        <PageHeader title="Log New Expense" description="Record a store operational or service expense" />
+        <PageHeader title="Log New Expense" description="Record a store operational or service expense" compact />
       </div>
 
       <Form {...form}>

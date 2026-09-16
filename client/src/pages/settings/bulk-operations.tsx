@@ -9,6 +9,7 @@ export default function SettingsBulkOperationsPage() {
       <PageHeader
         title="Bulk Operations"
         description="Bulk import or export staff, expenses, inventory, and customers."
+        compact
         actions={<BackToSettingsButton />}
       />
       <BulkOperationsSection />

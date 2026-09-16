@@ -58,13 +58,14 @@ export default function BillingSettingsPage() {
       <PageHeader
         title="Billing"
         description="View your trial status, manage your plan, and update payment details."
+        compact
         actions={
           <>
             <BackToSettingsButton />
             <Button variant="outline" asChild data-testid="link-payment-history">
               <Link href="/settings/billing/payment-history">
-                <History className="mr-2 h-4 w-4" />
-                Payment history
+                <History className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Payment history</span>
               </Link>
             </Button>
           </>

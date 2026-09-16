@@ -101,6 +101,7 @@ export default function ExpenseCategoriesPage() {
       <PageHeader
         title="Expense Categories"
         description="Manage the categories used to classify expenses."
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation("/expenses")}>
             <ChevronLeft className="h-4 w-4 mr-1" />

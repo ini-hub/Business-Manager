@@ -65,6 +65,7 @@ export default function VendorBillPayPage() {
       <PageHeader
         title="Record Payment"
         description={bill ? `Outstanding balance: ${fmt(outstanding, currency)}` : "Record a payment against this bill."}
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation(backHref)}>
             <ChevronLeft className="h-4 w-4 mr-1" />

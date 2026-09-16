@@ -584,20 +584,38 @@ export default function PurchaseOrdersPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
+        compact
         title="Purchase Orders (PO)"
         description="procure stock from external suppliers, track shipments, and automatically reconcile pricing cost bases."
         actions={
           activeTab === "list" && (
-            <BulkOperations
-              entityConfig={PURCHASE_ORDER_BULK_CONFIG}
-              data={purchaseOrders as unknown as Record<string, unknown>[]}
-              columns={poExportColumns}
-              isLoading={isLoadingPOs}
-              storeId={currentStore.id}
-              pdfTitle="Purchase Orders Report"
-              onExportPDF={handlePOReportExport}
-              showImportOption={isManagerOrOwner}
-            />
+            <>
+              <div className="lg:hidden">
+                <BulkOperations
+                  entityConfig={PURCHASE_ORDER_BULK_CONFIG}
+                  data={purchaseOrders as unknown as Record<string, unknown>[]}
+                  columns={poExportColumns}
+                  isLoading={isLoadingPOs}
+                  storeId={currentStore.id}
+                  pdfTitle="Purchase Orders Report"
+                  onExportPDF={handlePOReportExport}
+                  showImportOption={isManagerOrOwner}
+                  compact
+                />
+              </div>
+              <div className="hidden lg:block">
+                <BulkOperations
+                  entityConfig={PURCHASE_ORDER_BULK_CONFIG}
+                  data={purchaseOrders as unknown as Record<string, unknown>[]}
+                  columns={poExportColumns}
+                  isLoading={isLoadingPOs}
+                  storeId={currentStore.id}
+                  pdfTitle="Purchase Orders Report"
+                  onExportPDF={handlePOReportExport}
+                  showImportOption={isManagerOrOwner}
+                />
+              </div>
+            </>
           )
         }
       />

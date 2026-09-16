@@ -412,24 +412,45 @@ export default function VendorsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        compact
         title="Vendors"
         description="Manage your suppliers and track outstanding bills"
         actions={
           <div className="flex items-center gap-2">
-            <BulkOperations
-              entityConfig={VENDOR_BULK_CONFIG}
-              data={(activeTab === "active" ? vendorsWithStats : archivedVendors) as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              isLoading={isLoading}
-              storeId={currentStore.id}
-              pdfTitle={`Vendors Report (${activeTab})`}
-              onExportPDF={() => handleVendorsReportExport()}
-              onExportFilteredPDF={() => handleVendorsReportExport(true)}
-              visibleData={visibleVendorRows as unknown as Record<string, unknown>[]}
-              showImportOption={isManagerOrOwner}
-            />
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={VENDOR_BULK_CONFIG}
+                data={(activeTab === "active" ? vendorsWithStats : archivedVendors) as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+                pdfTitle={`Vendors Report (${activeTab})`}
+                onExportPDF={() => handleVendorsReportExport()}
+                onExportFilteredPDF={() => handleVendorsReportExport(true)}
+                visibleData={visibleVendorRows as unknown as Record<string, unknown>[]}
+                showImportOption={isManagerOrOwner}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={VENDOR_BULK_CONFIG}
+                data={(activeTab === "active" ? vendorsWithStats : archivedVendors) as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+                pdfTitle={`Vendors Report (${activeTab})`}
+                onExportPDF={() => handleVendorsReportExport()}
+                onExportFilteredPDF={() => handleVendorsReportExport(true)}
+                visibleData={visibleVendorRows as unknown as Record<string, unknown>[]}
+                showImportOption={isManagerOrOwner}
+              />
+            </div>
             {isManagerOrOwner && (
-              <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />Add Vendor</Button>
+              <Button onClick={openCreate} aria-label="Add Vendor" data-testid="button-add-vendor">
+                <Plus className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Add Vendor</span>
+              </Button>
             )}
           </div>
         }

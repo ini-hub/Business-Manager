@@ -247,6 +247,7 @@ export default function InventoryEditPage() {
       <PageHeader
         title="Edit Item"
         description={item?.name}
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation(`/inventory/${id}`)}>
             <ChevronLeft className="h-4 w-4 mr-1" />

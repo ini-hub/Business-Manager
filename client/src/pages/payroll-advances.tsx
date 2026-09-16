@@ -380,11 +380,12 @@ export default function PayrollAdvancesPage() {
       <PageHeader
         title="Salary Advances"
         description={`Pending recoverable: ${fmt(totalPending)}`}
+        compact
         actions={
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setLocation("/payroll")}>
-              <ChevronLeft className="mr-2 h-4 w-4" />
-              Back to Payroll
+              <ChevronLeft className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Back to Payroll</span>
             </Button>
             <ExportToolbar
               data={enrichedAdvances as unknown as Record<string, unknown>[]}
@@ -396,8 +397,8 @@ export default function PayrollAdvancesPage() {
               visiblePdfReport={visiblePdfReport}
             />
             <Button onClick={() => setShowCreate(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Record Advance
+              <Plus className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Record Advance</span>
             </Button>
           </div>
         }

@@ -108,7 +108,7 @@ export default function MyPayrollPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="My Payroll" description="Your earnings, deductions, and the breakdown behind each figure" />
+      <PageHeader title="My Payroll" description="Your earnings, deductions, and the breakdown behind each figure" compact />
 
       <MetricGrid>
         <MetricCard

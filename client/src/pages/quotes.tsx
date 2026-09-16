@@ -512,20 +512,38 @@ export default function QuotesPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
+        compact
         title="Quotes & Proposals"
         description="Draft pricing proposals, dispatch proforma receipts, and track pipeline values."
         actions={
           activeTab === "list" && (
-            <BulkOperations
-              entityConfig={QUOTE_BULK_CONFIG}
-              data={quotes as unknown as Record<string, unknown>[]}
-              columns={quoteExportColumns}
-              isLoading={isLoadingQuotes}
-              storeId={currentStore.id}
-              pdfTitle="Quotes Report"
-              onExportPDF={handleQuoteReportExport}
-              showImportOption={isManagerOrOwner}
-            />
+            <>
+              <div className="lg:hidden">
+                <BulkOperations
+                  entityConfig={QUOTE_BULK_CONFIG}
+                  data={quotes as unknown as Record<string, unknown>[]}
+                  columns={quoteExportColumns}
+                  isLoading={isLoadingQuotes}
+                  storeId={currentStore.id}
+                  pdfTitle="Quotes Report"
+                  onExportPDF={handleQuoteReportExport}
+                  showImportOption={isManagerOrOwner}
+                  compact
+                />
+              </div>
+              <div className="hidden lg:block">
+                <BulkOperations
+                  entityConfig={QUOTE_BULK_CONFIG}
+                  data={quotes as unknown as Record<string, unknown>[]}
+                  columns={quoteExportColumns}
+                  isLoading={isLoadingQuotes}
+                  storeId={currentStore.id}
+                  pdfTitle="Quotes Report"
+                  onExportPDF={handleQuoteReportExport}
+                  showImportOption={isManagerOrOwner}
+                />
+              </div>
+            </>
           )
         }
       />

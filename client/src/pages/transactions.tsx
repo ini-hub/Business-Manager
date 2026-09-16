@@ -639,6 +639,7 @@ export default function Transactions() {
         <PageHeader
           title="Transactions"
           description="View all sales transactions"
+          compact
         />
         <StoreRequiredAlert title="Store Required for Transactions" />
       </div>
@@ -650,11 +651,12 @@ export default function Transactions() {
       <PageHeader
         title="Transactions"
         description={`Sales transactions for ${currentStore.name}`}
+        compact
         actions={
           <Button asChild data-testid="button-new-sale">
             <Link href="/sales/new">
-              <Receipt className="mr-2 h-4 w-4" />
-              New Sale
+              <Receipt className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">New Sale</span>
             </Link>
           </Button>
         }

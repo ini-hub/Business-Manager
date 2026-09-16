@@ -626,22 +626,40 @@ export default function ExpensesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        compact
         title="Expenses"
         description="Track operational costs and overhead"
         actions={
           <div className="flex gap-2 items-center flex-wrap">
-            <BulkOperations
-              entityConfig={EXPENSE_BULK_CONFIG}
-              data={filteredExpenses as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              isLoading={isLoadingExpenses}
-              storeId={currentStore.id}
-              pdfTitle="Expenses Report"
-              onExportPDF={handleExpensesReportExport}
-              visibleData={visibleExpenses as unknown as Record<string, unknown>[]}
-              onExportFilteredPDF={handleVisibleExpensesReportExport}
-              showImportOption={["owner", "manager"].includes(user?.role || "")}
-            />
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={EXPENSE_BULK_CONFIG}
+                data={filteredExpenses as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoadingExpenses}
+                storeId={currentStore.id}
+                pdfTitle="Expenses Report"
+                onExportPDF={handleExpensesReportExport}
+                visibleData={visibleExpenses as unknown as Record<string, unknown>[]}
+                onExportFilteredPDF={handleVisibleExpensesReportExport}
+                showImportOption={["owner", "manager"].includes(user?.role || "")}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={EXPENSE_BULK_CONFIG}
+                data={filteredExpenses as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoadingExpenses}
+                storeId={currentStore.id}
+                pdfTitle="Expenses Report"
+                onExportPDF={handleExpensesReportExport}
+                visibleData={visibleExpenses as unknown as Record<string, unknown>[]}
+                onExportFilteredPDF={handleVisibleExpensesReportExport}
+                showImportOption={["owner", "manager"].includes(user?.role || "")}
+              />
+            </div>
             <Select value={filterType} onValueChange={(val: any) => setFilterType(val)}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="All Expenses" />
@@ -653,15 +671,19 @@ export default function ExpensesPage() {
               </SelectContent>
             </Select>
             <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} timezone={currentStore?.timezone} compact />
-            
+
             {user?.role === "owner" && (
-              <Button variant="outline" onClick={() => setLocation("/expenses/categories")}>
-                <Settings2 className="mr-2 h-4 w-4" /> Categories
+              <Button variant="outline" onClick={() => setLocation("/expenses/categories")} aria-label="Categories" data-testid="button-categories">
+                <Settings2 className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Categories</span>
               </Button>
             )}
 
             <Link href="/expenses/new">
-              <Button><Plus className="mr-2 h-4 w-4" /> Add Expense</Button>
+              <Button aria-label="Add Expense" data-testid="button-add-expense">
+                <Plus className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Add Expense</span>
+              </Button>
             </Link>
           </div>
         }

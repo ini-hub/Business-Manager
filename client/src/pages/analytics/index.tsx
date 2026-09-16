@@ -202,7 +202,7 @@ export default function AnalyticsExplorerPage() {
   if (modelLoading) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Analytics Explorer" description="Loading the data model…" />
+        <PageHeader title="Analytics Explorer" description="Loading the data model…" compact />
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-80 w-full" />
       </div>
@@ -212,7 +212,7 @@ export default function AnalyticsExplorerPage() {
   if (modelError || !model) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Analytics Explorer" />
+        <PageHeader title="Analytics Explorer" compact />
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
@@ -228,6 +228,7 @@ export default function AnalyticsExplorerPage() {
       <PageHeader
         title="Analytics Explorer"
         description="Combine any measures and breakdowns across your business, at any time grain."
+        compact
       />
 
       {/* One filter row above everything — it scopes every panel below. */}

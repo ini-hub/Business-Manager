@@ -130,6 +130,7 @@ export default function MyPerformancePage() {
       <PageHeader
         title="My Performance"
         description="Your own productivity and attendance record — for your reference"
+        compact
         actions={
           <div className="flex flex-col sm:flex-row gap-2 items-center">
             <DateRangeFilter

@@ -99,6 +99,7 @@ export default function PayrollNewPage() {
       <PageHeader
         title="New Payroll Period"
         description="Set the period type and date range for this payroll cycle."
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation("/payroll")}>
             <ChevronLeft className="h-4 w-4 mr-1" />

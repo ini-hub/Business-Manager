@@ -36,6 +36,7 @@ export default function SettingsBusinessPage() {
       <PageHeader
         title="Business Profile"
         description="Your business name, address, receipt prefix default, and branding."
+        compact
         actions={<BackToSettingsButton />}
       />
 

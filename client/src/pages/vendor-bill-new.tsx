@@ -66,6 +66,7 @@ export default function VendorBillNewPage() {
       <PageHeader
         title="Record Bill"
         description={vendor ? `Log an outstanding bill for ${vendor.name}.` : "Log an outstanding bill."}
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation("/vendors")}>
             <ChevronLeft className="h-4 w-4 mr-1" />

@@ -115,7 +115,7 @@ export default function AnalyticsDashboardDetailPage() {
   if (dashboard.isLoading) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Dashboard" />
+        <PageHeader title="Dashboard" compact />
         <Skeleton className="h-64 w-full" />
       </div>
     );
@@ -124,7 +124,7 @@ export default function AnalyticsDashboardDetailPage() {
   if (dashboard.error || !dashboard.data) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Dashboard" />
+        <PageHeader title="Dashboard" compact />
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>That dashboard could not be opened.</AlertDescription>
@@ -138,6 +138,7 @@ export default function AnalyticsDashboardDetailPage() {
       <PageHeader
         title={dashboard.data.name}
         description={dashboard.data.description ?? undefined}
+        compact
       />
 
       {/* Dashboard-level scope: every tile below answers for the same window. */}

@@ -405,6 +405,7 @@ export default function InventoryNewPage() {
       <PageHeader
         title="Add New Item"
         description="Fill in what you have now — prices and stock can be updated anytime."
+        compact
         actions={
           <Button variant="outline" onClick={() => setLocation("/inventory")}>
             <ChevronLeft className="h-4 w-4 mr-1" />

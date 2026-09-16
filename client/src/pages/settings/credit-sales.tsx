@@ -22,6 +22,7 @@ export default function SettingsCreditSalesPage() {
       <PageHeader
         title="Credit Sales Reminders"
         description="Debt reminder cadence and messaging for credit sales."
+        compact
         actions={<BackToSettingsButton />}
       />
       {!currentStore || currentStore.id === "all" ? (

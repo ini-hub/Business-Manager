@@ -563,19 +563,37 @@ export default function CreditSalesPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader
+        compact
         title="Credit Sales Ledger"
         description="Digital ledger for tracking customer credits, partial repayments, and pidgin notifications"
         actions={
-          <BulkOperations
-            entityConfig={CREDIT_SALES_BULK_CONFIG}
-            data={tableData as unknown as Record<string, unknown>[]}
-            columns={exportColumns}
-            isLoading={isLedgerLoading}
-            storeId={storeId}
-            pdfTitle="Credit Sales Report"
-            onExportPDF={handleCreditReportExport}
-            showImportOption={user?.role !== "staff"}
-          />
+          <>
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={CREDIT_SALES_BULK_CONFIG}
+                data={tableData as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLedgerLoading}
+                storeId={storeId}
+                pdfTitle="Credit Sales Report"
+                onExportPDF={handleCreditReportExport}
+                showImportOption={user?.role !== "staff"}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={CREDIT_SALES_BULK_CONFIG}
+                data={tableData as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLedgerLoading}
+                storeId={storeId}
+                pdfTitle="Credit Sales Report"
+                onExportPDF={handleCreditReportExport}
+                showImportOption={user?.role !== "staff"}
+              />
+            </div>
+          </>
         }
       />
 

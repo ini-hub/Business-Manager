@@ -439,18 +439,35 @@ export default function StockTransfersPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
+        compact
         title="Stock Transfers"
         description="Shift inventory dynamically across different branch stores, balancing regional demand with atomic logs."
         actions={
-          <BulkOperations
-            entityConfig={STOCK_TRANSFER_BULK_CONFIG}
-            data={transfersWithDirection as unknown as Record<string, unknown>[]}
-            columns={exportColumns}
-            isLoading={isLoadingTransfers}
-            storeId={currentStore.id}
-            pdfTitle="Stock Transfers Report"
-            showImportOption={isManagerOrOwner}
-          />
+          <>
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={STOCK_TRANSFER_BULK_CONFIG}
+                data={transfersWithDirection as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoadingTransfers}
+                storeId={currentStore.id}
+                pdfTitle="Stock Transfers Report"
+                showImportOption={isManagerOrOwner}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={STOCK_TRANSFER_BULK_CONFIG}
+                data={transfersWithDirection as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoadingTransfers}
+                storeId={currentStore.id}
+                pdfTitle="Stock Transfers Report"
+                showImportOption={isManagerOrOwner}
+              />
+            </div>
+          </>
         }
       />
 

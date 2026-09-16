@@ -183,6 +183,7 @@ export default function BookingFormPage() {
         <PageHeader
           title={isEditing ? "Edit Booking" : "New Booking"}
           description="Schedule an appointment or product pre-order"
+          compact
         />
         <StoreRequiredAlert title="Store Required for Bookings" />
       </div>
@@ -195,6 +196,7 @@ export default function BookingFormPage() {
         <PageHeader
           title={isEditing ? "Edit Booking" : "New Booking"}
           description="Schedule an appointment or product pre-order"
+          compact
         />
         <ConsolidatedFallbackAlert pageTitle="Appointment & Order Bookings" />
       </div>
@@ -206,6 +208,7 @@ export default function BookingFormPage() {
       <PageHeader
         title={isEditing ? "Edit Booking" : "New Booking"}
         description="Schedule an appointment or product pre-order"
+        compact
       />
 
       <WizardProgress

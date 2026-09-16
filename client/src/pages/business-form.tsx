@@ -116,7 +116,7 @@ export default function BusinessFormPage() {
   if (!isOwner) {
     return (
       <div className="p-8 text-center">
-        <PageHeader title="Business Configuration" description="Only owners can manage business settings." />
+        <PageHeader title="Business Configuration" description="Only owners can manage business settings." compact />
         <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/business")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
         </Button>
@@ -130,9 +130,10 @@ export default function BusinessFormPage() {
         <Button variant="ghost" size="icon" onClick={() => setLocation("/settings/business")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <PageHeader 
-          title={business ? "Edit Business Profile" : "Set Up Business"} 
+        <PageHeader
+          title={business ? "Edit Business Profile" : "Set Up Business"}
           description={business ? `Updating parameters for ${business?.name}` : "Configure the high-level corporate entity"}
+          compact
         />
       </div>
 

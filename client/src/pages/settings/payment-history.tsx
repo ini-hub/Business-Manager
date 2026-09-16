@@ -189,6 +189,7 @@ export default function PaymentHistoryPage() {
       <PageHeader
         title="Payment History"
         description="Every checkout and renewal attempt for your subscription, with what was actually charged."
+        compact
         actions={
           <Button variant="outline" asChild data-testid="link-back-to-billing">
             <Link href="/settings/billing">

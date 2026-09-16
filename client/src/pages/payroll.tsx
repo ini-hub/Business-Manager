@@ -324,19 +324,20 @@ export default function PayrollPage() {
       <PageHeader
         title="Payroll"
         description={`Hybrid payroll for ${currentStore.name}`}
+        compact
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/advances")}>
-              <Banknote className="mr-2 h-4 w-4" />
-              Advances
+              <Banknote className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Advances</span>
             </Button>
             <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/report")}>
-              <BarChart3 className="mr-2 h-4 w-4" />
-              Report
+              <BarChart3 className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Report</span>
             </Button>
             <Button onClick={() => setLocation("/payroll/new")}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Period
+              <Plus className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">New Period</span>
             </Button>
           </div>
         }

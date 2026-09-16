@@ -543,27 +543,45 @@ export default function StaffPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        compact
         title="Staff"
         description={`Managing staff for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
-            <BulkOperations
-              entityConfig={STAFF_BULK_CONFIG}
-              data={(activeTab === "active" ? activeStaff : archivedStaff) as unknown as Record<string, unknown>[]}
-              columns={exportColumns}
-              isLoading={isLoading}
-              storeId={currentStore.id}
-              pdfTitle={`Staff Report (${activeTab})`}
-              onExportPDF={() => handleStaffReportExport()}
-              onExportFilteredPDF={() => handleStaffReportExport(true)}
-              visibleData={visibleStaffRows as unknown as Record<string, unknown>[]}
-              showImportOption={userRole !== "staff"}
-            />
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={STAFF_BULK_CONFIG}
+                data={(activeTab === "active" ? activeStaff : archivedStaff) as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+                pdfTitle={`Staff Report (${activeTab})`}
+                onExportPDF={() => handleStaffReportExport()}
+                onExportFilteredPDF={() => handleStaffReportExport(true)}
+                visibleData={visibleStaffRows as unknown as Record<string, unknown>[]}
+                showImportOption={userRole !== "staff"}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={STAFF_BULK_CONFIG}
+                data={(activeTab === "active" ? activeStaff : archivedStaff) as unknown as Record<string, unknown>[]}
+                columns={exportColumns}
+                isLoading={isLoading}
+                storeId={currentStore.id}
+                pdfTitle={`Staff Report (${activeTab})`}
+                onExportPDF={() => handleStaffReportExport()}
+                onExportFilteredPDF={() => handleStaffReportExport(true)}
+                visibleData={visibleStaffRows as unknown as Record<string, unknown>[]}
+                showImportOption={userRole !== "staff"}
+              />
+            </div>
             {isOwner && (
               <Link href="/staffs/new">
-                <Button data-testid="button-add-staff">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Staff
+                <Button aria-label="Add Staff" data-testid="button-add-staff">
+                  <Plus className="h-4 w-4 lg:mr-2" />
+                  <span className="hidden lg:inline">Add Staff</span>
                 </Button>
               </Link>
             )}

@@ -176,12 +176,13 @@ export default function PromotionsPage() {
       <PageHeader
         title="Promotions Management"
         description="Configure Buy X Get Y and Spend X Get Y discounts for automated application at POS checkout."
+        compact
         actions={
           <>
             <BackToSettingsButton />
             <Button onClick={() => { resetForm(); setIsOpen(true); }} className="hover-elevate shadow-md flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Create Promotion
+              <Plus className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Create Promotion</span>
             </Button>
           </>
         }
