@@ -228,12 +228,13 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         if (!await verifyRecordStoreAccess(req, product.storeId)) {
           return res.status(403).json({ error: "You don't have access to this item." });
         }
-        // Update the products catalog name/type if provided
-        const { name, type } = req.body;
-        if (name || type) {
+        // Update the products catalog name/type/category if provided
+        const { name, type, category } = req.body;
+        if (name || type || category !== undefined) {
           await storage.updateProduct(id, {
             ...(name ? { name: toTitleCase(sanitizeString(name)) } : {}),
             ...(type ? { type } : {}),
+            ...(category !== undefined ? { category: category ? sanitizeString(category) : null } : {}),
           });
         }
         // Also update the linked inventory variant if it exists

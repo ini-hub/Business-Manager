@@ -64,11 +64,20 @@ export interface BulkAction<T> {
   precheck?: (
     selection: BulkActionSelection<T>,
   ) => Promise<BulkActionPrecheck | null> | BulkActionPrecheck | null;
-  onExecute: (selection: BulkActionSelection<T>) => Promise<BulkActionResult>;
+  /** Required unless `onOpen` is set — an `onOpen` action drives its own mutation(s) instead. */
+  onExecute?: (selection: BulkActionSelection<T>) => Promise<BulkActionResult>;
   /** Reversible only — called if the user taps "Undo" on the success toast. */
   onUndo?: (result: BulkActionResult) => Promise<void>;
   /** Extra confirmation copy for a destructive action, before the count line. */
   destructiveDescription?: string;
+  /**
+   * For actions that need to collect input before running (e.g. a quantity, a
+   * new category, a price-change mode) instead of running immediately. When
+   * set, the bar calls this on click instead of `onExecute` (or the destructive
+   * confirm dialog) and does nothing else — the action owns its own dialog and
+   * is responsible for calling its own mutation(s) and clearing selection.
+   */
+  onOpen?: (selection: BulkActionSelection<T>) => void;
 }
 
 interface BulkActionsBarProps<T> {
@@ -126,6 +135,7 @@ export function BulkActionsBar<T>({
   const typedCountValid = !requiresTypedCount || typedCount.trim() === String(selection.count);
 
   const runAction = async (action: BulkAction<T>) => {
+    if (!action.onExecute) return;
     setPendingId(action.id);
     try {
       const result = await action.onExecute(selection);
@@ -225,7 +235,7 @@ export function BulkActionsBar<T>({
               size="sm"
               className={cn("shrink-0", i >= 2 && "hidden lg:inline-flex")}
               disabled={pendingId !== null}
-              onClick={() => runAction(action)}
+              onClick={() => (action.onOpen ? action.onOpen(selection) : runAction(action))}
               aria-label={action.label}
               title={action.label}
               data-testid={`button-bulk-${action.id}`}
@@ -247,7 +257,7 @@ export function BulkActionsBar<T>({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {overflowSafe.map((action) => (
-                  <DropdownMenuItem key={action.id} onClick={() => runAction(action)} data-testid={`menu-bulk-${action.id}`}>
+                  <DropdownMenuItem key={action.id} onClick={() => (action.onOpen ? action.onOpen(selection) : runAction(action))} data-testid={`menu-bulk-${action.id}`}>
                     {action.icon}
                     <span className="ml-2">{action.label}</span>
                   </DropdownMenuItem>

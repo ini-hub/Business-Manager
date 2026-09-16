@@ -29,9 +29,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
-import { DataTable, type RowAction, type BulkAction } from "@/components/data-table";
+import { DataTable, type RowAction, type BulkAction, type BulkActionSelection } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
@@ -67,6 +69,26 @@ import {
 } from "@/lib/inventory-metrics";
 
 type FilterType = "all" | "product" | "service" | "supply" | "low-stock" | "audits" | "archived";
+type Vendor = { id: string; name: string; phoneNumber?: string; email?: string; companyName?: string };
+
+// Adjust stock / Update prices / Create PO all need to resolve one clear inventory
+// (variant) row per selected product — multi-variant products are excluded from
+// those 3 bulk actions rather than guessing which variant the action means.
+function bulkEligibleVariant(item: ProductWithVariants): Inventory | undefined {
+  return item.variants?.length === 1 ? item.variants[0] : undefined;
+}
+
+type BulkPriceMode = "set" | "increase-pct" | "decrease-pct" | "increase-amount" | "decrease-amount";
+
+function computeBulkNewPrice(currentPrice: number, mode: BulkPriceMode, value: number): number {
+  switch (mode) {
+    case "set": return value;
+    case "increase-pct": return currentPrice * (1 + value / 100);
+    case "decrease-pct": return currentPrice * (1 - value / 100);
+    case "increase-amount": return currentPrice + value;
+    case "decrease-amount": return currentPrice - value;
+  }
+}
 
 /** Icon and badge colour per inventory type, so the three stay consistent across
  *  the active list, the archived list and the item name cell. */
@@ -118,6 +140,21 @@ export default function InventoryPage() {
     receiptUrl: "",
   });
 
+  // Bulk action dialogs (Adjust stock / Change category / Update prices / Create PO) —
+  // each snapshots the selection it was opened with, since the live selection clears
+  // as soon as the dialog's mutation succeeds.
+  const [bulkSelection, setBulkSelection] = useState<BulkActionSelection<ProductWithVariants> | null>(null);
+  const [isBulkAdjustOpen, setIsBulkAdjustOpen] = useState(false);
+  const [bulkAdjustQty, setBulkAdjustQty] = useState<number>(1);
+  const [isBulkCategoryOpen, setIsBulkCategoryOpen] = useState(false);
+  const [bulkCategoryValue, setBulkCategoryValue] = useState("");
+  const [isBulkPriceOpen, setIsBulkPriceOpen] = useState(false);
+  const [bulkPriceMode, setBulkPriceMode] = useState<"set" | "increase-pct" | "decrease-pct" | "increase-amount" | "decrease-amount">("set");
+  const [bulkPriceValue, setBulkPriceValue] = useState<number>(0);
+  const [isBulkPOOpen, setIsBulkPOOpen] = useState(false);
+  const [bulkPOVendorId, setBulkPOVendorId] = useState("");
+  const [bulkPOQuantities, setBulkPOQuantities] = useState<Record<string, number>>({});
+
   // This is the stock management screen, so it opts into supplies — /api/products
   // hides them by default to keep them out of the POS and other sale surfaces.
   const { data: inventoryList = [], isLoading } = useMultiStoreQuery<ProductWithVariants>(
@@ -132,6 +169,19 @@ export default function InventoryPage() {
 
   const { data: settingsData } = useQuery<Settings>({
     queryKey: ["/api/settings", currentStore?.id],
+    enabled: !!currentStore?.id && currentStore.id !== "all",
+    staleTime: STALE_TIMES.reference,
+  });
+
+  // Only fetched for the "Create purchase order" bulk action's vendor picker —
+  // a PO belongs to exactly one store, so that action is hidden in the "all
+  // stores" view rather than trying to resolve a cross-store vendor list.
+  const { data: vendors = [] } = useQuery<Vendor[]>({
+    queryKey: ["/api/vendors", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/vendors?storeId=${currentStore!.id}`);
+      return res.json();
+    },
     enabled: !!currentStore?.id && currentStore.id !== "all",
     staleTime: STALE_TIMES.reference,
   });
@@ -340,6 +390,120 @@ export default function InventoryPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+    },
+  });
+
+  // The 4 bulk actions below are opened via BulkAction.onOpen (a dialog collects input
+  // first), not run immediately like Archive/Delete — so unlike bulkArchive/bulkDelete
+  // above, each of these owns its own toast/invalidate/selection-clear instead of
+  // letting BulkActionsBar report the outcome.
+  const bulkAdjustStockMutation = useMutation({
+    mutationFn: (items: ProductWithVariants[]) =>
+      runBulkFanOut(items, async (item, batchId) => {
+        const variant = bulkEligibleVariant(item);
+        if (!variant) throw new Error("not eligible");
+        await apiRequest("POST", `/api/inventory/${variant.id}/restock`, {
+          quantityAdded: bulkAdjustQty,
+          unitCost: variant.costPrice ?? 0,
+          costStrategy: "keep",
+          reason: "Adjustment",
+        }, { "X-Batch-Id": batchId });
+        return "adjusted" as const;
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      const succeeded = result.counts.adjusted ?? 0;
+      const failed = result.counts.failed ?? 0;
+      toast({
+        title: failed > 0 ? `${succeeded} updated, ${failed} failed` : `${succeeded} item${succeeded === 1 ? "" : "s"} restocked`,
+        variant: failed > 0 ? "destructive" : undefined,
+      });
+      setIsBulkAdjustOpen(false);
+      setSelectedIds([]);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't adjust stock", description: getUserFriendlyError(error, "adjusting stock"), variant: "destructive" });
+    },
+  });
+
+  const bulkCategoryMutation = useMutation({
+    mutationFn: (items: ProductWithVariants[]) =>
+      runBulkFanOut(items, async (item, batchId) => {
+        await apiRequest("PATCH", `/api/inventory/${item.id}`, { category: bulkCategoryValue || null }, { "X-Batch-Id": batchId });
+        return "updated" as const;
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      const succeeded = result.counts.updated ?? 0;
+      const failed = result.counts.failed ?? 0;
+      toast({
+        title: failed > 0 ? `${succeeded} updated, ${failed} failed` : `${succeeded} item${succeeded === 1 ? "" : "s"} updated`,
+        variant: failed > 0 ? "destructive" : undefined,
+      });
+      setIsBulkCategoryOpen(false);
+      setSelectedIds([]);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't update category", description: getUserFriendlyError(error, "updating category"), variant: "destructive" });
+    },
+  });
+
+  const bulkPriceMutation = useMutation({
+    mutationFn: (items: ProductWithVariants[]) =>
+      runBulkFanOut(items, async (item, batchId) => {
+        const variant = bulkEligibleVariant(item);
+        if (!variant) throw new Error("not eligible");
+        const newPrice = Math.round(computeBulkNewPrice(variant.sellingPrice ?? 0, bulkPriceMode, bulkPriceValue) * 100) / 100;
+        await apiRequest("PATCH", `/api/inventory/${variant.id}`, { sellingPrice: newPrice }, { "X-Batch-Id": batchId });
+        return "updated" as const;
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      const succeeded = result.counts.updated ?? 0;
+      const failed = result.counts.failed ?? 0;
+      toast({
+        title: failed > 0 ? `${succeeded} updated, ${failed} failed` : `${succeeded} price${succeeded === 1 ? "" : "s"} updated`,
+        variant: failed > 0 ? "destructive" : undefined,
+      });
+      setIsBulkPriceOpen(false);
+      setSelectedIds([]);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't update prices", description: getUserFriendlyError(error, "updating prices"), variant: "destructive" });
+    },
+  });
+
+  const bulkCreatePOMutation = useMutation({
+    mutationFn: async (items: ProductWithVariants[]) => {
+      const lineItems = items.map((item) => {
+        const variant = bulkEligibleVariant(item)!;
+        return {
+          inventoryId: variant.id,
+          quantity: bulkPOQuantities[item.id] ?? 1,
+          unitCost: variant.costPrice ?? 0,
+        };
+      });
+      const res = await apiRequest("POST", "/api/purchase-orders", {
+        storeId: currentStore!.id,
+        vendorId: bulkPOVendorId,
+        poNumber: `PO-${Date.now().toString().slice(-6)}`,
+        items: lineItems,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Failed to create purchase order");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      toast({ title: "Purchase order created" });
+      setIsBulkPOOpen(false);
+      setSelectedIds([]);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't create purchase order", description: getUserFriendlyError(error, "creating the purchase order"), variant: "destructive" });
     },
   });
 
@@ -1208,6 +1372,54 @@ export default function InventoryPage() {
                 return { succeeded: deleted + archived, failed: counts.failed ?? 0 };
               },
             },
+            {
+              id: "adjust-stock",
+              label: "Adjust stock",
+              icon: <RefreshCw className="h-3.5 w-3.5" />,
+              kind: "safe",
+              onOpen: (selection) => {
+                setBulkSelection(selection);
+                setBulkAdjustQty(1);
+                setIsBulkAdjustOpen(true);
+              },
+            },
+            {
+              id: "change-category",
+              label: "Change category",
+              icon: <Settings2 className="h-3.5 w-3.5" />,
+              kind: "safe",
+              onOpen: (selection) => {
+                setBulkSelection(selection);
+                setBulkCategoryValue("");
+                setIsBulkCategoryOpen(true);
+              },
+            },
+            {
+              id: "update-prices",
+              label: "Update prices",
+              icon: <Coins className="h-3.5 w-3.5" />,
+              kind: "safe",
+              onOpen: (selection) => {
+                setBulkSelection(selection);
+                setBulkPriceMode("set");
+                setBulkPriceValue(0);
+                setIsBulkPriceOpen(true);
+              },
+            },
+            {
+              id: "create-po",
+              label: "Create purchase order",
+              icon: <ShoppingCart className="h-3.5 w-3.5" />,
+              kind: "safe",
+              hidden: isMultiStoreView,
+              onOpen: (selection) => {
+                setBulkSelection(selection);
+                setBulkPOVendorId("");
+                const eligible = selection.items.filter((item) => item.type !== "service" && bulkEligibleVariant(item));
+                setBulkPOQuantities(Object.fromEntries(eligible.map((item) => [item.id, 1])));
+                setIsBulkPOOpen(true);
+              },
+            },
           ];
 
           return (
@@ -1289,6 +1501,264 @@ export default function InventoryPage() {
           isLoading={deleteMutation.isPending}
         />
       )}
+
+      {/* Bulk: Adjust stock (add-only, single-variant items only) */}
+      <Dialog open={isBulkAdjustOpen} onOpenChange={setIsBulkAdjustOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Adjust stock</DialogTitle>
+            <DialogDescription>
+              Adds the same quantity to every eligible item's current stock.
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            if (!bulkSelection) return null;
+            const eligible = bulkSelection.items.filter((item) => bulkEligibleVariant(item));
+            const ineligible = bulkSelection.items.length - eligible.length;
+            return (
+              <div className="space-y-4">
+                {bulkSelection.mode === "all" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Only applies to the {bulkSelection.items.length} loaded item{bulkSelection.items.length === 1 ? "" : "s"} on this page, not the full "select all" set.
+                  </p>
+                )}
+                {ineligible > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {ineligible} item{ineligible === 1 ? "" : "s"} with multiple variants will be skipped — adjust those from their own page.
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="bulk-adjust-qty">Quantity to add</Label>
+                  <Input
+                    id="bulk-adjust-qty"
+                    type="number"
+                    min={0.01}
+                    step="any"
+                    value={bulkAdjustQty}
+                    onChange={(e) => setBulkAdjustQty(Number(e.target.value))}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setIsBulkAdjustOpen(false)}>Cancel</Button>
+                  <Button
+                    disabled={eligible.length === 0 || bulkAdjustQty <= 0 || bulkAdjustStockMutation.isPending}
+                    onClick={() => bulkAdjustStockMutation.mutate(eligible)}
+                  >
+                    {bulkAdjustStockMutation.isPending ? "Adjusting…" : `Adjust ${eligible.length} item${eligible.length === 1 ? "" : "s"}`}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk: Change category */}
+      <Dialog open={isBulkCategoryOpen} onOpenChange={setIsBulkCategoryOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change category</DialogTitle>
+            <DialogDescription>
+              Sets the category for {bulkSelection?.items.length ?? 0} selected item{(bulkSelection?.items.length ?? 0) === 1 ? "" : "s"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {bulkSelection?.mode === "all" && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Only applies to the {bulkSelection.items.length} loaded item{bulkSelection.items.length === 1 ? "" : "s"} on this page, not the full "select all" set.
+              </p>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-category">Category</Label>
+              <Input
+                id="bulk-category"
+                list="bulk-category-suggestions"
+                placeholder="e.g. Beverages"
+                value={bulkCategoryValue}
+                onChange={(e) => setBulkCategoryValue(e.target.value)}
+              />
+              <datalist id="bulk-category-suggestions">
+                {Array.from(new Set(inventoryList.map((i) => i.category).filter((c): c is string => !!c))).map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setIsBulkCategoryOpen(false)}>Cancel</Button>
+              <Button
+                disabled={!bulkSelection?.items.length || bulkCategoryMutation.isPending}
+                onClick={() => bulkSelection && bulkCategoryMutation.mutate(bulkSelection.items)}
+              >
+                {bulkCategoryMutation.isPending ? "Updating…" : "Update category"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk: Update prices (single-variant items only) */}
+      <Dialog open={isBulkPriceOpen} onOpenChange={setIsBulkPriceOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update prices</DialogTitle>
+            <DialogDescription>Preview applies before you confirm.</DialogDescription>
+          </DialogHeader>
+          {(() => {
+            if (!bulkSelection) return null;
+            const eligible = bulkSelection.items.filter((item) => bulkEligibleVariant(item));
+            const ineligible = bulkSelection.items.length - eligible.length;
+            const preview = eligible.map((item) => {
+              const variant = bulkEligibleVariant(item)!;
+              const current = variant.sellingPrice ?? 0;
+              const next = Math.round(computeBulkNewPrice(current, bulkPriceMode, bulkPriceValue) * 100) / 100;
+              const belowCost = next < (variant.costPrice ?? 0);
+              return { item, current, next, belowCost };
+            });
+            const anyBelowCost = preview.some((p) => p.belowCost);
+            return (
+              <div className="space-y-4">
+                {bulkSelection.mode === "all" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Only applies to the {bulkSelection.items.length} loaded item{bulkSelection.items.length === 1 ? "" : "s"} on this page, not the full "select all" set.
+                  </p>
+                )}
+                {ineligible > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {ineligible} item{ineligible === 1 ? "" : "s"} with multiple variants will be skipped.
+                  </p>
+                )}
+                <RadioGroup value={bulkPriceMode} onValueChange={(v) => setBulkPriceMode(v as BulkPriceMode)} className="grid grid-cols-2 gap-2">
+                  {([
+                    ["set", "Set to"],
+                    ["increase-pct", "Increase by %"],
+                    ["decrease-pct", "Decrease by %"],
+                    ["increase-amount", "Increase by amount"],
+                    ["decrease-amount", "Decrease by amount"],
+                  ] as [BulkPriceMode, string][]).map(([mode, label]) => (
+                    <label key={mode} className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value={mode} />
+                      {label}
+                    </label>
+                  ))}
+                </RadioGroup>
+                <div className="space-y-1.5">
+                  <Label htmlFor="bulk-price-value">
+                    {bulkPriceMode === "set" ? "New price" : bulkPriceMode.includes("pct") ? "Percent" : "Amount"}
+                  </Label>
+                  <Input
+                    id="bulk-price-value"
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={bulkPriceValue}
+                    onChange={(e) => setBulkPriceValue(Number(e.target.value))}
+                  />
+                </div>
+                {preview.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto rounded-md border text-xs divide-y">
+                    {preview.map(({ item, current, next, belowCost }) => (
+                      <div key={item.id} className="flex items-center justify-between px-2.5 py-1.5">
+                        <span className="truncate mr-2">{item.name}</span>
+                        <span className={cn("font-mono shrink-0", belowCost && "text-destructive font-semibold")}>
+                          {formatCurrency(current)} → {formatCurrency(next)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {anyBelowCost && (
+                  <p className="text-xs text-destructive font-medium">
+                    Some new prices would fall below cost. Adjust the amount before applying.
+                  </p>
+                )}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setIsBulkPriceOpen(false)}>Cancel</Button>
+                  <Button
+                    disabled={eligible.length === 0 || anyBelowCost || bulkPriceMutation.isPending}
+                    onClick={() => bulkPriceMutation.mutate(eligible)}
+                  >
+                    {bulkPriceMutation.isPending ? "Updating…" : `Update ${eligible.length} price${eligible.length === 1 ? "" : "s"}`}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk: Create purchase order (single-variant, non-service items only) */}
+      <Dialog open={isBulkPOOpen} onOpenChange={setIsBulkPOOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create purchase order</DialogTitle>
+            <DialogDescription>Groups the eligible items into one PO for a single vendor.</DialogDescription>
+          </DialogHeader>
+          {(() => {
+            if (!bulkSelection) return null;
+            const eligible = bulkSelection.items.filter((item) => item.type !== "service" && bulkEligibleVariant(item));
+            const ineligible = bulkSelection.items.length - eligible.length;
+            return (
+              <div className="space-y-4">
+                {bulkSelection.mode === "all" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Only applies to the {bulkSelection.items.length} loaded item{bulkSelection.items.length === 1 ? "" : "s"} on this page, not the full "select all" set.
+                  </p>
+                )}
+                {ineligible > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {ineligible} service{ineligible === 1 ? "" : "s"}/multi-variant item{ineligible === 1 ? "" : "s"} will be skipped.
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="bulk-po-vendor">Vendor</Label>
+                  <Select value={bulkPOVendorId} onValueChange={setBulkPOVendorId}>
+                    <SelectTrigger id="bulk-po-vendor">
+                      <SelectValue placeholder="Select a vendor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vendors.map((v) => (
+                        <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {eligible.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto rounded-md border divide-y">
+                    {eligible.map((item) => {
+                      const variant = bulkEligibleVariant(item)!;
+                      return (
+                        <div key={item.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                          <span className="truncate flex-1">{item.name}</span>
+                          <span className="text-muted-foreground shrink-0">{formatCurrency(variant.costPrice ?? 0)} ea</span>
+                          <Input
+                            type="number"
+                            min={1}
+                            step="any"
+                            className="h-7 w-16 shrink-0"
+                            value={bulkPOQuantities[item.id] ?? 1}
+                            onChange={(e) =>
+                              setBulkPOQuantities((prev) => ({ ...prev, [item.id]: Number(e.target.value) }))
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setIsBulkPOOpen(false)}>Cancel</Button>
+                  <Button
+                    disabled={eligible.length === 0 || !bulkPOVendorId || bulkCreatePOMutation.isPending}
+                    onClick={() => bulkCreatePOMutation.mutate(eligible)}
+                  >
+                    {bulkCreatePOMutation.isPending ? "Creating…" : "Create purchase order"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* Audit Details Dialog */}
       <Dialog open={isAuditDetailOpen} onOpenChange={setIsAuditDetailOpen}>
