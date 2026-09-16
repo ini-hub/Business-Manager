@@ -540,24 +540,6 @@ export default function Customers() {
     </div>
   );
 
-  // Mobile/tablet compact-grid card: the full formatted phone number doesn't
-  // fit this cell alongside the name/spend/last-visit cells without crowding
-  // the card, so it collapses to a tap-to-call icon here — the desktop table
-  // keeps showing the full number.
-  const CustomerCardContactIcon = ({ customer }: { customer: Customer }) => {
-    if (!customer.mobileNumber) return null;
-    const rawPhone = normalizePhoneForStorage(customer.mobileNumber, customer.countryCode || "+234");
-    return (
-      <a
-        href={`tel:${rawPhone}`}
-        onClick={(e) => e.stopPropagation()}
-        aria-label={`Call ${formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}`}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover-elevate"
-      >
-        <Phone className="h-3.5 w-3.5" />
-      </a>
-    );
-  };
 
   const activeColumns = [
     ...(currentStore?.id === "all" ? [{
@@ -592,7 +574,10 @@ export default function Customers() {
           )}
         </div>
       ),
-      cardRender: (customer: Customer) => <CustomerCardContactIcon customer={customer} />,
+      // Hidden on the mobile/tablet compact-grid card — "Call" lives in the
+      // row's "…" menu (activeRowActions/archivedRowActions) instead. Desktop
+      // table keeps showing the full number via the normal `render` above.
+      cardRender: () => null,
     },
     {
       key: "address",
@@ -637,6 +622,14 @@ export default function Customers() {
   ];
 
   const activeRowActions = (customer: Customer): RowAction[] => [
+    ...(customer.mobileNumber ? [{
+      label: "Call",
+      icon: <Phone className="h-4 w-4" />,
+      onClick: () => {
+        window.location.href = `tel:${normalizePhoneForStorage(customer.mobileNumber!, customer.countryCode || "+234")}`;
+      },
+      testId: `button-call-${customer.id}`,
+    }] : []),
     {
       label: "Edit",
       icon: <Edit className="h-4 w-4" />,
@@ -693,7 +686,10 @@ export default function Customers() {
           )}
         </div>
       ),
-      cardRender: (customer: Customer) => <CustomerCardContactIcon customer={customer} />,
+      // Hidden on the mobile/tablet compact-grid card — "Call" lives in the
+      // row's "…" menu (activeRowActions/archivedRowActions) instead. Desktop
+      // table keeps showing the full number via the normal `render` above.
+      cardRender: () => null,
     },
     {
       key: "totalSpend",
