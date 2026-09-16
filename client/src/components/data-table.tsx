@@ -11,6 +11,8 @@ export interface Column<T> {
   className?: string;
   /** See ColumnConfig.priority — responsive display tier for the mobile/tablet card view. */
   priority?: 1 | 2 | 3;
+  /** See ColumnConfig.cardRender — overrides `render` in the compact-grid card cell only. */
+  cardRender?: (item: T) => React.ReactNode;
 }
 
 export interface DataTableProps<T> {
@@ -56,6 +58,10 @@ export interface DataTableProps<T> {
   // See PolymorphicTable's cardLayout — "compact-grid" lays the first 4
   // priority columns out as a 2x2 grid instead of a vertical label:value list.
   cardLayout?: "list" | "compact-grid";
+
+  // See PolymorphicTable's cardAvatar — a fixed circular slot to the left of
+  // the compact-grid's 2x2 text block, spanning the row's full height.
+  cardAvatar?: (item: T) => React.ReactNode;
 
   // Suppresses the built-in pagination/rows-per-page footer, for callers that
   // paginate server-side and render their own footer instead.
@@ -111,6 +117,7 @@ export function DataTable<T extends { id: string | number }>({
   forceCardView,
   showCardChevron,
   cardLayout,
+  cardAvatar,
   hideFooter,
   hideToolbar,
   rowActions,
@@ -126,6 +133,7 @@ export function DataTable<T extends { id: string | number }>({
     className: col.className,
     render: col.render,
     priority: col.priority,
+    cardRender: col.cardRender,
   }));
 
   return (
@@ -151,6 +159,7 @@ export function DataTable<T extends { id: string | number }>({
       forceCardView={forceCardView}
       showCardChevron={showCardChevron}
       cardLayout={cardLayout}
+      cardAvatar={cardAvatar}
       hideFooter={hideFooter}
       hideToolbar={hideToolbar}
       rowActions={rowActions}

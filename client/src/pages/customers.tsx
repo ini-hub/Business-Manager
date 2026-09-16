@@ -518,6 +518,28 @@ export default function Customers() {
     );
   };
 
+  // Mobile/tablet compact-grid card: the avatar renders once, outside the 2x2
+  // text grid (via cardAvatar below), and this cell's subtitle drops the phone
+  // number CustomerNameCell's presenter normally appends — it's cramped next
+  // to the name on a narrow card, and already shown as its own cell in the
+  // grid, so repeating it here just eats space without adding information.
+  const customerCardAvatar = (customer: Customer) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(customer.name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+
+  const CustomerCardNameCell = ({ customer }: { customer: Customer }) => (
+    <div className="flex flex-col min-w-0">
+      <span className="truncate">{customer.name}</span>
+      <span className="text-[11px] font-normal text-muted-foreground font-mono truncate">
+        {customer.customerNumber}
+      </span>
+    </div>
+  );
+
   const activeColumns = [
     ...(currentStore?.id === "all" ? [{
       key: "storeName",
@@ -533,6 +555,7 @@ export default function Customers() {
       header: "Customer",
       priority: 1 as const,
       render: (customer: Customer) => <CustomerNameCell customer={customer} />,
+      cardRender: (customer: Customer) => <CustomerCardNameCell customer={customer} />,
     },
     {
       key: "mobileNumber",
@@ -627,6 +650,7 @@ export default function Customers() {
           <Badge variant="secondary" className="h-5 shrink-0">Archived</Badge>
         </div>
       ),
+      cardRender: (customer: Customer) => <CustomerCardNameCell customer={customer} />,
     },
     {
       key: "mobileNumber",
@@ -985,6 +1009,7 @@ export default function Customers() {
                   urlKey="active"
                   showCardChevron
                   cardLayout="compact-grid"
+                  cardAvatar={customerCardAvatar}
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyTitle="No Active Customers"
                   emptyAction={
@@ -1013,6 +1038,7 @@ export default function Customers() {
                   urlKey="archivedTbl"
                   showCardChevron
                   cardLayout="compact-grid"
+                  cardAvatar={customerCardAvatar}
                   emptyIcon={<Users className="h-6 w-6 opacity-40" />}
                   emptyTitle="No Archived Profiles"
                 />

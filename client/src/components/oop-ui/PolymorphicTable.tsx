@@ -124,6 +124,15 @@ export interface ColumnConfig<T> {
    * renderer — desktop table always shows every column regardless.
    */
   priority?: 1 | 2 | 3;
+
+  /**
+   * Overrides `render` specifically for the compact-grid card cell (see
+   * `cardLayout`/`cardAvatar` on PolymorphicTable) — for a column whose normal
+   * `render` bundles in something (e.g. an avatar) that `cardAvatar` already
+   * renders once, up front, outside the 2x2 text grid. Falls back to `render`
+   * when unset; ignored outside `cardLayout="compact-grid"`.
+   */
+  cardRender?: (item: T) => React.ReactNode;
 }
 
 /**
@@ -188,13 +197,21 @@ export interface PolymorphicTableProps<T> {
 
   // "list" (default): primary column as a bold header line, every other
   // priority column below it as a label:value row — the original card shape.
-  // "compact-grid": the first 4 priority columns (in the order they're
-  // declared) lay out as a 2x2 grid — [0] top-left bold, [1] top-right,
-  // [2] bottom-left muted, [3] bottom-right muted — for a name+detail /
-  // value+meta row (e.g. Name+Phone left, Spend+Last visit right) instead of
-  // a vertical list of every field. Requires `priority` set on columns;
-  // falls back to "list" if fewer than 2 columns have one.
+  // "compact-grid": the first 4 priority columns (sorted by priority number,
+  // ties broken by declaration order) lay out as a 2x2 grid — [0] top-left
+  // bold, [1] top-right, [2] bottom-left muted, [3] bottom-right muted — for
+  // a name+detail / value+meta row (e.g. Name+Phone left, Spend+Last visit
+  // right) instead of a vertical list of every field. Requires `priority` set
+  // on columns; falls back to "list" if fewer than 2 columns have one.
   cardLayout?: "list" | "compact-grid";
+
+  // Renders a fixed circular slot (e.g. an avatar) to the left of the
+  // compact-grid's 2x2 text block, spanning the row's full height — instead
+  // of an avatar living inside one of the 4 grid cells alongside its text,
+  // cramped and inconsistent with the row's other cells. Use `cardRender` on
+  // the affected column to drop the now-redundant avatar from its own text,
+  // since this renders it once, up front. Ignored outside `cardLayout="compact-grid"`.
+  cardAvatar?: (item: T) => React.ReactNode;
 
   // Suppresses the built-in "Showing X to Y of Z" + Rows/page-nav footer, for
   // callers that already paginate server-side and render their own accurate
@@ -305,6 +322,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   forceCardView = false,
   showCardChevron = false,
   cardLayout = "list",
+  cardAvatar,
   hideFooter = false,
   hideToolbar = false,
   rowActions,
@@ -597,7 +615,10 @@ export function PolymorphicTable<T extends { id: string | number }>({
     );
   };
 
-  const formatCellValue = (item: T, col: ColumnConfig<T>) => {
+  const formatCellValue = (item: T, col: ColumnConfig<T>, useCardRender = false) => {
+    if (useCardRender && col.cardRender) {
+      return col.cardRender(item);
+    }
     if (col.render) {
       return col.render(item);
     }
@@ -978,10 +999,10 @@ export function PolymorphicTable<T extends { id: string | number }>({
                   )}
                 >
                   {useCompactGrid ? (
-                    <div className="flex items-start gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       {multiselect && (
                         <div
-                          className="shrink-0 pt-0.5"
+                          className="shrink-0"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleSelectRow(item.id);
@@ -994,6 +1015,9 @@ export function PolymorphicTable<T extends { id: string | number }>({
                           />
                         </div>
                       )}
+                      {/* Spans the row's full height, outside the 2x2 text grid —
+                          rather than living inside the [0] cell alongside its text. */}
+                      {cardAvatar && <div className="shrink-0">{cardAvatar(item)}</div>}
                       {/* 2x2 grid: [0] name (bold) top-left, [1] value top-right,
                           [2] detail (muted) bottom-left, [3] meta (muted) bottom-right —
                           a compact name+detail / value+meta row instead of a vertical
@@ -1001,16 +1025,16 @@ export function PolymorphicTable<T extends { id: string | number }>({
                           its own line (e.g. Name+Phone vs. Spend+Last visit). */}
                       <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-3 gap-y-0.5">
                         <div className="font-semibold text-sm text-foreground truncate">
-                          {formatCellValue(item, dataCols[0])}
+                          {formatCellValue(item, dataCols[0], true)}
                         </div>
                         <div className="text-sm text-foreground font-semibold text-right truncate">
-                          {dataCols[1] ? formatCellValue(item, dataCols[1]) : null}
+                          {dataCols[1] ? formatCellValue(item, dataCols[1], true) : null}
                         </div>
                         <div className="text-xs text-muted-foreground truncate">
-                          {dataCols[2] ? formatCellValue(item, dataCols[2]) : null}
+                          {dataCols[2] ? formatCellValue(item, dataCols[2], true) : null}
                         </div>
                         <div className="text-xs text-muted-foreground text-right truncate">
-                          {dataCols[3] ? formatCellValue(item, dataCols[3]) : null}
+                          {dataCols[3] ? formatCellValue(item, dataCols[3], true) : null}
                         </div>
                       </div>
                       {actionsCol && (
