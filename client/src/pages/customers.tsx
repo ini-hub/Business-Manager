@@ -790,16 +790,17 @@ export default function Customers() {
       <PageHeader
         title="Customers"
         description={<span className="hidden md:inline">{currentStore.name}</span>}
+        compact
         actions={
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               onClick={() => setActiveTab("analytics")}
+              aria-label="Insights"
               data-testid="button-insights"
-              className="hidden lg:inline-flex"
             >
-              <BarChart3 className="mr-2 h-4 w-4" />
-              Insights
+              <BarChart3 className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Insights</span>
             </Button>
             {/* Tablet/mobile: icon-only "..." trigger, matching the mockup's compact header. */}
             <div className="lg:hidden">

@@ -931,27 +931,39 @@ export default function InventoryPage() {
               </Button>
             ) : (
               <>
-                <BulkOperations
-                  entityConfig={INVENTORY_BULK_CONFIG}
-                  data={quickExportData as unknown as Record<string, unknown>[]}
-                  columns={quickExportColumns}
-                  isLoading={isLoading}
-                  storeId={currentStore.id}
-                  pdfTitle="Inventory Report"
-                  onExportPDF={() => handleInventoryReportExport()}
-                  onExportFilteredPDF={() => handleInventoryReportExport(true)}
-                  visibleData={visibleQuickExportData as unknown as Record<string, unknown>[]}
-                  showImportOption={user?.role !== "staff"}
-                  extraExportActions={
-                    <DropdownMenuItem
-                      onClick={() => setIsExportDialogOpen(true)}
-                      data-testid="button-customize-export"
-                    >
-                      <Settings2 className="mr-2 h-4 w-4" />
-                      Customize Export…
-                    </DropdownMenuItem>
-                  }
-                />
+                {(() => {
+                  const bulkOpsProps = {
+                    entityConfig: INVENTORY_BULK_CONFIG,
+                    data: quickExportData as unknown as Record<string, unknown>[],
+                    columns: quickExportColumns,
+                    isLoading,
+                    storeId: currentStore.id,
+                    pdfTitle: "Inventory Report",
+                    onExportPDF: () => handleInventoryReportExport(),
+                    onExportFilteredPDF: () => handleInventoryReportExport(true),
+                    visibleData: visibleQuickExportData as unknown as Record<string, unknown>[],
+                    showImportOption: user?.role !== "staff",
+                    extraExportActions: (
+                      <DropdownMenuItem
+                        onClick={() => setIsExportDialogOpen(true)}
+                        data-testid="button-customize-export"
+                      >
+                        <Settings2 className="mr-2 h-4 w-4" />
+                        Customize Export…
+                      </DropdownMenuItem>
+                    ),
+                  };
+                  return (
+                    <>
+                      <div className="lg:hidden">
+                        <BulkOperations {...bulkOpsProps} compact />
+                      </div>
+                      <div className="hidden lg:block">
+                        <BulkOperations {...bulkOpsProps} />
+                      </div>
+                    </>
+                  );
+                })()}
                 <InventoryExportDialog
                   open={isExportDialogOpen}
                   onOpenChange={setIsExportDialogOpen}
