@@ -3,12 +3,11 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } from "@shared/schema";
 
-type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number };
+type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
 type AuditPerson = { name?: string; email?: string };
 type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
 import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,12 +30,11 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
-import { DataTable, type RowAction } from "@/components/data-table";
+import { DataTable, type RowAction, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
 import { INVENTORY_BULK_CONFIG } from "@/lib/bulk-entity-configs";
-import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { InventoryExportDialog } from "@/components/inventory-export-dialog";
 import {
@@ -98,9 +96,7 @@ export default function InventoryPage() {
   const [isAuditDetailOpen, setIsAuditDetailOpen] = useState(false);
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
-  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
-  const [bulkDeleteResult, setBulkDeleteResult] = useState<{ archived: string[]; deleted: string[]; failed: string[] } | null>(null);
   const [conductedByStaffId, setConductedByStaffId] = useState("");
   const [auditNotes, setAuditNotes] = useState("");
   const [auditItems, setAuditItems] = useState<{
@@ -313,20 +309,15 @@ export default function InventoryPage() {
         await apiRequest("POST", `/api/inventory/${id}/archive`, undefined, { "X-Batch-Id": batchId });
         return "archived" as const;
       }),
-    onSuccess: ({ counts }) => {
+    // No toast here — BulkActionsBar (see the inventoryBulkActions definitions below)
+    // reports the outcome itself from the BulkActionResult this mutation returns, since
+    // it's invoked via mutateAsync from a BulkAction.onExecute. A toast here too would
+    // double up.
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      setSelectedIds([]);
-      const archived = counts.archived ?? 0;
-      const failed = counts.failed ?? 0;
-      if (failed === 0) {
-        toast({ title: `${archived} item${archived !== 1 ? "s" : ""} archived` });
-      } else {
-        toast({ title: `${archived} archived, ${failed} failed`, variant: "destructive" });
-      }
     },
-    onError: () => toast({ title: "Bulk archive failed", variant: "destructive" }),
   });
 
   const bulkDeleteMutation = useMutation({
@@ -343,31 +334,12 @@ export default function InventoryPage() {
         }
         throw new Error(msg || "delete failed");
       }),
-    onSuccess: ({ counts, byOutcome }) => {
+    // Same as bulkArchiveMutation: no toast here, BulkActionsBar reports the outcome.
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      setSelectedIds([]);
-      setBulkDeleteResult({
-        deleted: byOutcome.deleted ?? [],
-        archived: byOutcome.archived ?? [],
-        failed: byOutcome.failed ?? [],
-      });
-      setIsBulkDeleteOpen(false);
-      const deleted = counts.deleted ?? 0;
-      const archived = counts.archived ?? 0;
-      const failed = counts.failed ?? 0;
-      const total = deleted + archived;
-      const parts: string[] = [];
-      if (deleted) parts.push(`${deleted} deleted`);
-      if (archived) parts.push(`${archived} archived (had sales history)`);
-      if (failed) parts.push(`${failed} failed`);
-      toast({
-        title: total > 0 ? `Done — ${parts.join(", ")}` : "Nothing could be removed",
-        variant: failed > 0 && total === 0 ? "destructive" : "default",
-      });
     },
-    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
 
   const restockMutation = useMutation({
@@ -775,13 +747,13 @@ export default function InventoryPage() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         title="Inventory"
-        description={`Managing inventory for ${currentStore.name}`}
+        description={currentStore.name}
         actions={
           <div className="flex items-center gap-2">
             {filterType === "audits" ? (
-              <Button onClick={() => setLocation("/inventory/audits/new")} data-testid="button-new-audit">
-                <Plus className="mr-2 h-4 w-4" />
-                New Stock Audit
+              <Button onClick={() => setLocation("/inventory/audits/new")} aria-label="New Stock Audit" data-testid="button-new-audit">
+                <Plus className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">New Stock Audit</span>
               </Button>
             ) : (
               <>
@@ -821,9 +793,9 @@ export default function InventoryPage() {
                   storeLabel={currentStore.name}
                   businessName={business?.name ?? currentStore.name}
                 />
-                <Button onClick={openCreateForm} data-testid="button-add-item">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Item
+                <Button onClick={openCreateForm} aria-label="Add Item" data-testid="button-add-item">
+                  <Plus className="h-4 w-4 lg:mr-2" />
+                  <span className="hidden lg:inline">Add Item</span>
                 </Button>
               </>
             )}
@@ -1165,37 +1137,54 @@ export default function InventoryPage() {
             { key: "margin", label: "Margin %", type: "range" as const }
           ];
 
+          const inventoryBulkActions: BulkAction<ProductWithVariants>[] = [
+            {
+              id: "archive",
+              label: "Archive",
+              icon: <Archive className="h-3.5 w-3.5" />,
+              kind: "reversible",
+              onExecute: async (selection) => {
+                const ids = selection.ids as string[];
+                const { counts } = await bulkArchiveMutation.mutateAsync(ids);
+                return { succeeded: counts.archived ?? 0, failed: counts.failed ?? 0 };
+              },
+              onUndo: async () => {
+                // The archive mutation already invalidated queries with the new state;
+                // restore each item that was actually archived by this action.
+                const ids = selectedIds as string[];
+                await Promise.allSettled(ids.map((id) => restoreMutation.mutateAsync(id)));
+              },
+            },
+            {
+              id: "delete",
+              label: "Delete",
+              icon: <Trash2 className="h-3.5 w-3.5" />,
+              kind: "destructive",
+              destructiveDescription:
+                "Items with no sales history will be permanently deleted. Items that have sales records will be archived instead to preserve your reports.",
+              precheck: (selection) => {
+                const ineligibleCount = selection.items.filter((item) => !!item.hasSales).length;
+                return ineligibleCount > 0
+                  ? { ineligibleCount, reason: "have sales history and will be archived instead" }
+                  : null;
+              },
+              onExecute: async (selection) => {
+                const ids = selection.ids as string[];
+                const { counts } = await bulkDeleteMutation.mutateAsync(ids);
+                const deleted = counts.deleted ?? 0;
+                const archived = counts.archived ?? 0;
+                return { succeeded: deleted + archived, failed: counts.failed ?? 0 };
+              },
+            },
+          ];
+
           return (
-            <>
-              {/* Bulk action bar */}
-              {user?.role !== "staff" && (
-                <BulkSelectionActionBar
-                  count={selectedIds.length}
-                  onClear={() => setSelectedIds([])}
-                  actions={[
-                    {
-                      key: "archive",
-                      label: "Archive Selected",
-                      pendingLabel: "Archiving…",
-                      icon: <Archive className="h-3.5 w-3.5" />,
-                      tone: "warning",
-                      pending: bulkArchiveMutation.isPending,
-                      onClick: () => bulkArchiveMutation.mutate(selectedIds as string[]),
-                    },
-                    {
-                      key: "delete",
-                      label: "Delete Selected",
-                      icon: <Trash2 className="h-3.5 w-3.5" />,
-                      tone: "destructive",
-                      onClick: () => setIsBulkDeleteOpen(true),
-                    },
-                  ]}
-                />
-              )}
             <DataTable
               data={tableData}
               columns={columns}
               rowActions={inventoryRowActions}
+              bulkActions={user?.role !== "staff" ? inventoryBulkActions : undefined}
+              entityNoun={{ singular: "item", plural: "items" }}
               searchable
               searchPlaceholder="Search inventory..."
               searchKeys={["name"]}
@@ -1219,7 +1208,6 @@ export default function InventoryPage() {
                 )
               }
             />
-            </>
           );
         })()
       )}
@@ -1269,34 +1257,6 @@ export default function InventoryPage() {
           isLoading={deleteMutation.isPending}
         />
       )}
-
-      {/* Bulk delete confirmation */}
-      <Dialog open={isBulkDeleteOpen} onOpenChange={setIsBulkDeleteOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Trash2 className="h-5 w-5 text-destructive" />
-              Delete {selectedIds.length} item{selectedIds.length !== 1 ? "s" : ""}?
-            </DialogTitle>
-            <DialogDescription className="pt-1">
-              Items with no sales history will be permanently deleted.
-              Items that have sales records will be <strong>archived</strong> instead to preserve your reports.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 pt-2">
-            <Button
-              variant="destructive"
-              onClick={() => bulkDeleteMutation.mutate(selectedIds as string[])}
-              disabled={bulkDeleteMutation.isPending}
-            >
-              {bulkDeleteMutation.isPending ? "Processing…" : `Delete / Archive ${selectedIds.length} item${selectedIds.length !== 1 ? "s" : ""}`}
-            </Button>
-            <Button variant="outline" onClick={() => setIsBulkDeleteOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Audit Details Dialog */}
       <Dialog open={isAuditDetailOpen} onOpenChange={setIsAuditDetailOpen}>
@@ -1455,34 +1415,6 @@ export default function InventoryPage() {
           )}
         </DialogContent>
       </Dialog>
-
-      <SpeedDialFAB
-        actions={
-          filterType === "audits"
-            ? [
-                {
-                  label: "New Audit",
-                  icon: <ClipboardList className="h-5 w-5" />,
-                  onClick: () => setLocation("/inventory/audits/new"),
-                  testId: "fab-new-audit",
-                },
-              ]
-            : [
-                {
-                  label: "Add Item",
-                  icon: <Package className="h-5 w-5" />,
-                  onClick: openCreateForm,
-                  testId: "fab-add-item",
-                },
-                {
-                  label: "New Audit",
-                  icon: <ClipboardList className="h-5 w-5" />,
-                  onClick: () => setLocation("/inventory/audits/new"),
-                  testId: "fab-new-audit",
-                },
-              ]
-        }
-      />
     </div>
   );
 }
