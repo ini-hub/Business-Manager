@@ -13,6 +13,7 @@ import {
   storeCounters,
   creditEntries,
   returnLogs,
+  auditLogs,
   type Transaction,
   type InsertTransaction,
   type Checkout,
@@ -332,6 +333,34 @@ export class TransactionRepository {
       .from(creditEntries)
       .where(eq(creditEntries.linkedTransactionId, primaryCheckout.id));
 
+    // "Last updated" — the most recent post-creation change to this receipt.
+    // Returns, addendums, voids, date edits and payment-status edits all log to
+    // auditLogs against one of this receipt's checkout ids (see SalesRepository's
+    // processReturn/processAddendum and transaction.routes.ts), each with the
+    // actor's name already snapshotted on the row — no separate staff/user join
+    // needed. "CHECKOUT" is the original sale itself, not an update, so it's excluded.
+    const checkoutIds = matchedCheckouts.map(c => c.id);
+    const [lastUpdate] = checkoutIds.length
+      ? await db.select()
+          .from(auditLogs)
+          .where(and(
+            eq(auditLogs.resource, "checkout"),
+            inArray(auditLogs.resourceId, checkoutIds),
+            eq(auditLogs.status, "success"),
+            sql`${auditLogs.action} != 'CHECKOUT'`,
+          ))
+          .orderBy(desc(auditLogs.timestamp))
+          .limit(1)
+      : [];
+
+    const ACTION_LABELS: Record<string, string> = {
+      TRANSACTION_RETURN: "Return processed",
+      TRANSACTION_ADDENDUM: "Item added",
+      TRANSACTION_VOID: "Voided",
+      TRANSACTION_DATE_EDIT: "Transaction date edited",
+      PAYMENT_UPDATE: "Payment status updated",
+    };
+
     // Resolve receipt prefix using the shared helper (non-transactional read context)
     let resolvedPrefix = "RCP";
     if (storeSettings?.receiptPrefix && storeSettings.receiptPrefix !== "RCP") {
@@ -355,6 +384,11 @@ export class TransactionRepository {
       items,
       creditEntry: creditEntry || null,
       returnLogs: resolvedReturnLogs,
+      lastUpdate: lastUpdate ? {
+        at: lastUpdate.timestamp,
+        actorName: lastUpdate.actorName ?? null,
+        action: ACTION_LABELS[lastUpdate.action] ?? lastUpdate.action.replace(/_/g, " "),
+      } : null,
     };
   }
 

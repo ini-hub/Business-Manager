@@ -42,6 +42,7 @@ interface ReceiptPayload {
       id: string;
       quantity: number;
       totalPrice: number;
+      refundedAmount?: number;
     } | null;
     inventory: {
       id: string;
@@ -65,6 +66,11 @@ interface ReceiptPayload {
     dueDate?: string | null;
     status: string;
   } | null;
+  lastUpdate?: {
+    at: string;
+    actorName: string | null;
+    action: string;
+  } | null;
 }
 
 interface ReceiptViewProps {
@@ -83,7 +89,7 @@ function paymentLabel(method: string) {
 }
 
 export function ReceiptView({ payload }: ReceiptViewProps) {
-  const { business, store, settings, checkout, items = [], customer, staff, creditEntry } = payload;
+  const { business, store, settings, checkout, items = [], customer, staff, creditEntry, lastUpdate } = payload;
   const currency = store?.currency ?? "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
   const isVoided = checkout?.isVoided;
@@ -94,8 +100,12 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
   const discountPercent = Math.max(...items.map(item => item.checkout?.discountPercent ?? 0), 0);
   const totalChargedSum = items.reduce((sum, item) => sum + (item.checkout?.totalCharged ?? 0), 0);
   const taxTotalSum = items.reduce((sum, item) => sum + (item.checkout?.taxTotal ?? 0), 0);
+  // orders.refundedAmount is tax/discount-inclusive (what was actually refunded), so
+  // netting it straight against totalChargedSum keeps both sides on the same basis.
+  const refundedSum = items.reduce((sum, item) => sum + (item.order?.refundedAmount ?? 0), 0);
+  const netTotalCharged = Math.max(0, totalChargedSum - refundedSum);
   const bookingDepositAmount = checkout?.bookingDepositAmount ?? 0;
-  const balanceCollectedTodaySum = Math.max(0, totalChargedSum - bookingDepositAmount);
+  const balanceCollectedTodaySum = Math.max(0, netTotalCharged - bookingDepositAmount);
   const loyaltyPointValue = settings?.loyaltyPointValue ?? 10;
   let pointsRedeemed = checkout?.pointsRedeemed ?? 0;
   let loyaltyDiscount = pointsRedeemed * loyaltyPointValue;
@@ -248,9 +258,15 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
           <span>{fmt(taxTotalSum)}</span>
         </div>
       )}
+      {refundedSum > 0 && (
+        <div className="flex justify-between text-xs mb-1 text-orange-600">
+          <span>Refunded</span>
+          <span>− {fmt(refundedSum)}</span>
+        </div>
+      )}
       <div className="flex justify-between font-bold text-sm">
         <span>TOTAL CHARGED</span>
-        <span>{fmt(totalChargedSum)}</span>
+        <span>{fmt(netTotalCharged)}</span>
       </div>
       
       {bookingDepositAmount > 0 && (
@@ -322,6 +338,15 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
             <div className="text-center text-xs text-red-500">Reason: {checkout.voidReason}</div>
           )}
         </>
+      )}
+
+      {/* Last updated — surfaces returns/addendums/voids/edits made after the sale */}
+      {lastUpdate && (
+        <div className="text-center text-[10px] text-gray-500 mt-2">
+          Last updated: {lastUpdate.action}
+          {lastUpdate.actorName ? ` by ${lastUpdate.actorName}` : ""}
+          {" · "}{format(new Date(lastUpdate.at), "dd MMM yyyy, h:mm a")}
+        </div>
       )}
 
       {/* Thank you */}

@@ -163,16 +163,18 @@ export default function TransactionDetailsPage() {
   });
   const activityLogs = activityData?.logs ?? [];
 
-  // Basket total = sum of each line's totalCharged (the per-line post-discount amount).
+  // Basket total = sum of each line's totalCharged (the per-line post-discount amount),
+  // net of whatever's been refunded on each line (order.refundedAmount is now
+  // tax/discount-inclusive, matching totalCharged's basis).
   // DO NOT use primaryCheckout.totalCharged — it is only this one checkout's line amount.
   // primaryCheckout.subtotal IS the basket pre-discount total (stored on every checkout row).
   const receiptTotal =
     receiptDetails?.items?.length > 0
-      ? receiptDetails.items.reduce(
+      ? Math.max(0, receiptDetails.items.reduce(
           (sum: number, item: any) =>
-            sum + Number(item.checkout?.totalCharged || item.checkout?.totalPrice || 0),
+            sum + Number(item.checkout?.totalCharged || item.checkout?.totalPrice || 0) - Number(item.order?.refundedAmount || 0),
           0
-        )
+        ))
       : Number(transaction?.amount || 0);
 
   // Pre-discount basket total is stored directly on the primary checkout row
@@ -420,6 +422,13 @@ export default function TransactionDetailsPage() {
           <p className="text-sm text-muted-foreground font-mono mt-0.5">
             {tx.checkout?.receiptNumber}
           </p>
+          {receiptDetails?.lastUpdate && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Last updated: {receiptDetails.lastUpdate.action}
+              {receiptDetails.lastUpdate.actorName ? ` by ${receiptDetails.lastUpdate.actorName}` : ""}
+              {" · "}{formatDate(receiptDetails.lastUpdate.at)}
+            </p>
+          )}
         </div>
       </div>
 
