@@ -65,7 +65,7 @@ import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { MetricCard } from "@/components/metric-card";
 import { MetricGrid } from "@/components/metric-grid";
 import { exportReportToPDF } from "@/lib/export-utils";
-import { countryCodes, validatePhoneNumber, formatPhoneDisplay } from "@/lib/phone-utils";
+import { countryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -540,6 +540,25 @@ export default function Customers() {
     </div>
   );
 
+  // Mobile/tablet compact-grid card: the full formatted phone number doesn't
+  // fit this cell alongside the name/spend/last-visit cells without crowding
+  // the card, so it collapses to a tap-to-call icon here — the desktop table
+  // keeps showing the full number.
+  const CustomerCardContactIcon = ({ customer }: { customer: Customer }) => {
+    if (!customer.mobileNumber) return null;
+    const rawPhone = normalizePhoneForStorage(customer.mobileNumber, customer.countryCode || "+234");
+    return (
+      <a
+        href={`tel:${rawPhone}`}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Call ${formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "+234")}`}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover-elevate"
+      >
+        <Phone className="h-3.5 w-3.5" />
+      </a>
+    );
+  };
+
   const activeColumns = [
     ...(currentStore?.id === "all" ? [{
       key: "storeName",
@@ -573,6 +592,7 @@ export default function Customers() {
           )}
         </div>
       ),
+      cardRender: (customer: Customer) => <CustomerCardContactIcon customer={customer} />,
     },
     {
       key: "address",
@@ -673,6 +693,7 @@ export default function Customers() {
           )}
         </div>
       ),
+      cardRender: (customer: Customer) => <CustomerCardContactIcon customer={customer} />,
     },
     {
       key: "totalSpend",
