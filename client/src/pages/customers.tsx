@@ -534,7 +534,7 @@ export default function Customers() {
   const CustomerCardNameCell = ({ customer }: { customer: Customer }) => (
     <div className="flex flex-col min-w-0">
       <span className="truncate">{customer.name}</span>
-      <span className="text-[11px] font-normal text-muted-foreground truncate">
+      <span className="text-xs font-normal text-muted-foreground truncate">
         {customer.customerNumber}
       </span>
     </div>
@@ -608,6 +608,11 @@ export default function Customers() {
           )}
         </div>
       ),
+      // The compact-grid card cell is already text-xs/muted — showing the
+      // full absolute date here (sized for the desktop table's dedicated
+      // column) reads oddly large/prominent next to the other 3 cells, so
+      // the card shows just the relative date, same size as its siblings.
+      cardRender: (customer: CustomerRow) => <span>{formatRelativeDate(customer.lastVisited) ?? "-"}</span>,
     },
   ];
 
@@ -684,6 +689,7 @@ export default function Customers() {
       render: (customer: CustomerRow) => (
         <span className="text-sm">{formatDate(customer.lastVisited)}</span>
       ),
+      cardRender: (customer: CustomerRow) => <span>{formatRelativeDate(customer.lastVisited) ?? "-"}</span>,
     },
   ];
 
