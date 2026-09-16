@@ -631,7 +631,13 @@ export default function InventoryPage() {
         }
         const totalStock = item.variants?.reduce((sum: number, v: any) => sum + v.quantity, 0) ?? 0;
         const unit = item.unit || item.variants?.[0]?.unit;
-        const displayQty = parseFloat(Number(totalStock).toFixed(4));
+        // allowFractional is enforced at every input across the app (new-sale, quotes,
+        // restock, audits, purchase orders — see client/src/lib/quantity-utils.ts), but
+        // this summed display never checked it, so a countable item could still *show*
+        // a fractional total (e.g. from a historical data issue or float drift summing
+        // multiple variants) even though nothing lets you type one in today.
+        const allowsFractional = item.variants?.every((v: any) => v.allowFractional) ?? false;
+        const displayQty = allowsFractional ? parseFloat(Number(totalStock).toFixed(2)) : Math.round(totalStock);
         return (
           <div className="flex items-center gap-2">
             <Boxes className="h-3 w-3 text-muted-foreground" />
