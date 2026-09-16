@@ -5,7 +5,7 @@ import { Plus, ArrowLeftRight, CheckCircle, XCircle, Clock, Trash2, ArrowUpRight
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { MetricGrid } from "@/components/metric-grid";
@@ -27,7 +27,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { BulkOperations } from "@/components/bulk-operations";
 import { STOCK_TRANSFER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
-import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { StockTransfer, StockTransferItem, Inventory, Store } from "@shared/schema";
@@ -245,7 +244,9 @@ export default function StockTransfersPage() {
     },
   });
 
-  // Bulk cancel (pending transfers only — the server rejects transitions that aren't valid)
+  // Bulk cancel (pending transfers only — the server rejects transitions that aren't valid).
+  // No toast/selection-clear here — driven via BulkAction.onExecute now, and
+  // BulkActionsBar reports the outcome itself; a toast here too would double up.
   const bulkCancelMutation = useMutation({
     mutationFn: (ids: string[]) =>
       runBulkFanOut(ids, async (id) => {
@@ -253,18 +254,9 @@ export default function StockTransfersPage() {
         if (!res.ok) throw new Error("cancel failed");
         return "cancelled" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
-      setSelectedIds([]);
-      const cancelled = counts.cancelled ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${cancelled} transfer${cancelled !== 1 ? "s" : ""} cancelled` }
-          : { title: `${cancelled} cancelled, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk cancel failed", variant: "destructive" }),
   });
 
   const bulkDeleteMutation = useMutation({
@@ -274,18 +266,9 @@ export default function StockTransfersPage() {
         if (!res.ok) throw new Error("delete failed");
         return "deleted" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
-      setSelectedIds([]);
-      const deleted = counts.deleted ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${deleted} transfer${deleted !== 1 ? "s" : ""} deleted` }
-          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
 
   const resetForm = () => {
@@ -410,6 +393,34 @@ export default function StockTransfersPage() {
     direction: t.fromStoreId === currentStore.id ? "outgoing" : "incoming",
   }));
 
+  const transferBulkActions: BulkAction<typeof transfersWithDirection[number]>[] = [
+    {
+      id: "cancel",
+      label: "Cancel",
+      icon: <XCircle className="h-3.5 w-3.5" />,
+      // Not truly undoable (no "un-cancel" endpoint) — "safe" rather than "reversible"
+      // so the bar doesn't offer an Undo it can't back up. Only pending transfers are
+      // valid to cancel; the server rejects the rest, counted here as failures (same
+      // no-precheck behavior the old bar had).
+      kind: "safe",
+      onExecute: async (selection) => {
+        const { counts } = await bulkCancelMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.cancelled ?? 0, failed: counts.failed ?? 0 };
+      },
+    },
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      kind: "destructive",
+      destructiveDescription: "This can't be undone.",
+      onExecute: async (selection) => {
+        const { counts } = await bulkDeleteMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.deleted ?? 0, failed: counts.failed ?? 0 };
+      },
+    },
+  ];
+
   const transferFilterConfigs: TableFilterConfig[] = [
     { key: "status", label: "Status", type: "select" },
     { key: "direction", label: "Direction", type: "select" },
@@ -481,33 +492,6 @@ export default function StockTransfersPage() {
               <CardDescription>Monitor outstanding transfer requests, origins, and arrival logs.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {isManagerOrOwner && (
-                <BulkSelectionActionBar
-                  count={selectedIds.length}
-                  unitLabel="transfer"
-                  onClear={() => setSelectedIds([])}
-                  actions={[
-                    {
-                      key: "cancel",
-                      label: "Cancel Selected",
-                      pendingLabel: "Cancelling…",
-                      icon: <XCircle className="h-3.5 w-3.5" />,
-                      tone: "warning",
-                      pending: bulkCancelMutation.isPending,
-                      onClick: () => bulkCancelMutation.mutate(selectedIds as string[]),
-                    },
-                    {
-                      key: "delete",
-                      label: "Delete Selected",
-                      pendingLabel: "Deleting…",
-                      icon: <Trash2 className="h-3.5 w-3.5" />,
-                      tone: "destructive",
-                      pending: bulkDeleteMutation.isPending,
-                      onClick: () => bulkDeleteMutation.mutate(selectedIds as string[]),
-                    },
-                  ]}
-                />
-              )}
               <DataTable
                 data={transfersWithDirection}
                 columns={columns}
@@ -520,6 +504,8 @@ export default function StockTransfersPage() {
                 multiselect={isManagerOrOwner}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={setSelectedIds}
+                bulkActions={isManagerOrOwner ? transferBulkActions : undefined}
+                entityNoun={{ singular: "transfer", plural: "transfers" }}
                 urlKey="transfers"
               />
             </CardContent>

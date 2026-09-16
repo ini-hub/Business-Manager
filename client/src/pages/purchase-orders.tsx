@@ -6,7 +6,7 @@ import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
@@ -30,7 +30,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { BulkOperations } from "@/components/bulk-operations";
 import { PURCHASE_ORDER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
-import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
@@ -343,6 +342,8 @@ export default function PurchaseOrdersPage() {
     },
   });
 
+  // No toast/selection-clear here — driven via BulkAction.onExecute now, and
+  // BulkActionsBar reports the outcome itself; a toast here too would double up.
   const bulkCancelMutation = useMutation({
     mutationFn: (ids: string[]) =>
       runBulkFanOut(ids, async (id) => {
@@ -350,18 +351,9 @@ export default function PurchaseOrdersPage() {
         if (!res.ok) throw new Error("cancel failed");
         return "cancelled" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      setSelectedIds([]);
-      const cancelled = counts.cancelled ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${cancelled} purchase order${cancelled !== 1 ? "s" : ""} cancelled` }
-          : { title: `${cancelled} cancelled, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk cancel failed", variant: "destructive" }),
   });
 
   const bulkDeletePOMutation = useMutation({
@@ -371,19 +363,38 @@ export default function PurchaseOrdersPage() {
         if (!res.ok) throw new Error("delete failed");
         return "deleted" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      setSelectedIds([]);
-      const deleted = counts.deleted ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${deleted} purchase order${deleted !== 1 ? "s" : ""} deleted` }
-          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
+
+  const poBulkActions: BulkAction<POWithVendor>[] = [
+    {
+      id: "cancel",
+      label: "Cancel",
+      icon: <AlertTriangle className="h-3.5 w-3.5" />,
+      // Not truly undoable (no "un-cancel" endpoint) — "safe" rather than "reversible"
+      // so the bar doesn't offer an Undo it can't back up. Only cancellable-state
+      // orders are valid; the server rejects the rest, counted here as failures
+      // (same no-precheck behavior the old bar had).
+      kind: "safe",
+      onExecute: async (selection) => {
+        const { counts } = await bulkCancelMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.cancelled ?? 0, failed: counts.failed ?? 0 };
+      },
+    },
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash className="h-3.5 w-3.5" />,
+      kind: "destructive",
+      destructiveDescription: "This can't be undone.",
+      onExecute: async (selection) => {
+        const { counts } = await bulkDeletePOMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.deleted ?? 0, failed: counts.failed ?? 0 };
+      },
+    },
+  ];
 
   const resetForm = () => {
     setVendorId("");
@@ -659,33 +670,6 @@ export default function PurchaseOrdersPage() {
               <CardDescription>Monitor outstanding purchase orders, arrival dates, and supply logs.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {isManagerOrOwner && (
-                <BulkSelectionActionBar
-                  count={selectedIds.length}
-                  unitLabel="purchase order"
-                  onClear={() => setSelectedIds([])}
-                  actions={[
-                    {
-                      key: "cancel",
-                      label: "Cancel Selected",
-                      pendingLabel: "Cancelling…",
-                      icon: <AlertTriangle className="h-3.5 w-3.5" />,
-                      tone: "warning",
-                      pending: bulkCancelMutation.isPending,
-                      onClick: () => bulkCancelMutation.mutate(selectedIds as string[]),
-                    },
-                    {
-                      key: "delete",
-                      label: "Delete Selected",
-                      pendingLabel: "Deleting…",
-                      icon: <Trash className="h-3.5 w-3.5" />,
-                      tone: "destructive",
-                      pending: bulkDeletePOMutation.isPending,
-                      onClick: () => bulkDeletePOMutation.mutate(selectedIds as string[]),
-                    },
-                  ]}
-                />
-              )}
               <DataTable
                 data={purchaseOrders}
                 columns={columns}
@@ -698,6 +682,8 @@ export default function PurchaseOrdersPage() {
                 multiselect={isManagerOrOwner}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={setSelectedIds}
+                bulkActions={isManagerOrOwner ? poBulkActions : undefined}
+                entityNoun={{ singular: "purchase order", plural: "purchase orders" }}
                 urlKey="orders"
               />
             </CardContent>

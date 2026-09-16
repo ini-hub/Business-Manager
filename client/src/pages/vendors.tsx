@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from "@/lib/store-context";
@@ -33,7 +33,6 @@ import { MetricGrid } from "@/components/metric-grid";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { BulkOperations } from "@/components/bulk-operations";
 import { VENDOR_BULK_CONFIG } from "@/lib/bulk-entity-configs";
-import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
@@ -165,6 +164,8 @@ export default function VendorsPage() {
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  // No toast/selection-clear in these 3 — driven via BulkAction.onExecute now, and
+  // BulkActionsBar reports the outcome itself; a toast here too would double up.
   const bulkArchiveMutation = useMutation({
     mutationFn: (ids: string[]) =>
       runBulkFanOut(ids, async (id, batchId) => {
@@ -172,18 +173,9 @@ export default function VendorsPage() {
         if (!res.ok) throw new Error("archive failed");
         return "archived" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
-      setSelectedIds([]);
-      const archived = counts.archived ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${archived} vendor${archived !== 1 ? "s" : ""} archived` }
-          : { title: `${archived} archived, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk archive failed", variant: "destructive" }),
   });
 
   const bulkRestoreMutation = useMutation({
@@ -193,18 +185,9 @@ export default function VendorsPage() {
         if (!res.ok) throw new Error("restore failed");
         return "restored" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
-      setArchivedSelectedIds([]);
-      const restored = counts.restored ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${restored} vendor${restored !== 1 ? "s" : ""} restored` }
-          : { title: `${restored} restored, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk restore failed", variant: "destructive" }),
   });
 
   const bulkDeleteMutation = useMutation({
@@ -214,19 +197,53 @@ export default function VendorsPage() {
         if (!res.ok) throw new Error("delete failed");
         return "deleted" as const;
       }),
-    onSuccess: ({ counts }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
-      setArchivedSelectedIds([]);
-      const deleted = counts.deleted ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${deleted} vendor${deleted !== 1 ? "s" : ""} permanently deleted` }
-          : { title: `${deleted} deleted, ${failed} failed`, variant: "destructive" }
-      );
     },
-    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
+
+  const activeVendorBulkActions: BulkAction<VendorWithStats>[] = [
+    {
+      id: "archive",
+      label: "Archive",
+      icon: <Archive className="h-3.5 w-3.5" />,
+      kind: "reversible",
+      onExecute: async (selection) => {
+        const { counts } = await bulkArchiveMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.archived ?? 0, failed: counts.failed ?? 0 };
+      },
+      onUndo: async () => {
+        const ids = selectedIds as string[];
+        await Promise.allSettled(ids.map((id) => restoreMutation.mutateAsync(id)));
+      },
+    },
+  ];
+
+  const archivedVendorBulkActions: BulkAction<VendorWithStats>[] = [
+    {
+      id: "restore",
+      label: "Restore",
+      icon: <RotateCcw className="h-3.5 w-3.5" />,
+      kind: "safe",
+      onExecute: async (selection) => {
+        const { counts } = await bulkRestoreMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.restored ?? 0, failed: counts.failed ?? 0 };
+      },
+    },
+    // Permanent delete matches the server's owner-only requireRole("owner") gate.
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      kind: "destructive",
+      hidden: !isOwner,
+      destructiveDescription: "This can't be undone.",
+      onExecute: async (selection) => {
+        const { counts } = await bulkDeleteMutation.mutateAsync(selection.ids as string[]);
+        return { succeeded: counts.deleted ?? 0, failed: counts.failed ?? 0 };
+      },
+    },
+  ];
 
   const addBillMutation = useMutation({
     mutationFn: async () => {
@@ -438,24 +455,6 @@ export default function VendorsPage() {
         </TabsList>
 
         <TabsContent value="active" className="mt-4 space-y-3">
-          {isManagerOrOwner && (
-            <BulkSelectionActionBar
-              count={selectedIds.length}
-              unitLabel="vendor"
-              onClear={() => setSelectedIds([])}
-              actions={[
-                {
-                  key: "archive",
-                  label: "Archive Selected",
-                  pendingLabel: "Archiving…",
-                  icon: <Archive className="h-3.5 w-3.5" />,
-                  tone: "warning",
-                  pending: bulkArchiveMutation.isPending,
-                  onClick: () => bulkArchiveMutation.mutate(selectedIds as string[]),
-                },
-              ]}
-            />
-          )}
           <DataTable
             data={vendorsWithStats}
             columns={vendorColumns}
@@ -471,43 +470,14 @@ export default function VendorsPage() {
             multiselect={isManagerOrOwner}
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
+            bulkActions={isManagerOrOwner ? activeVendorBulkActions : undefined}
+            entityNoun={{ singular: "vendor", plural: "vendors" }}
             onVisibleDataChange={setVisibleVendorRows}
             urlKey="active"
           />
         </TabsContent>
 
         <TabsContent value="archived" className="mt-4 space-y-3">
-          {isManagerOrOwner && (
-            <BulkSelectionActionBar
-              count={archivedSelectedIds.length}
-              unitLabel="vendor"
-              onClear={() => setArchivedSelectedIds([])}
-              actions={[
-                {
-                  key: "restore",
-                  label: "Restore Selected",
-                  pendingLabel: "Restoring…",
-                  icon: <RotateCcw className="h-3.5 w-3.5" />,
-                  pending: bulkRestoreMutation.isPending,
-                  onClick: () => bulkRestoreMutation.mutate(archivedSelectedIds as string[]),
-                },
-                // Permanent delete matches the server's owner-only requireRole("owner") gate.
-                ...(isOwner
-                  ? [
-                      {
-                        key: "delete",
-                        label: "Delete Selected",
-                        pendingLabel: "Deleting…",
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        tone: "destructive" as const,
-                        pending: bulkDeleteMutation.isPending,
-                        onClick: () => bulkDeleteMutation.mutate(archivedSelectedIds as string[]),
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-          )}
           <DataTable
             data={archivedVendors as VendorWithStats[]}
             columns={archivedVendorColumns}
@@ -521,6 +491,8 @@ export default function VendorsPage() {
             multiselect={isManagerOrOwner}
             selectedIds={archivedSelectedIds}
             onSelectedIdsChange={setArchivedSelectedIds}
+            bulkActions={isManagerOrOwner ? archivedVendorBulkActions : undefined}
+            entityNoun={{ singular: "vendor", plural: "vendors" }}
             onVisibleDataChange={(rows) => setVisibleVendorRows(rows as VendorWithStats[])}
             urlKey="archivedTbl"
           />
