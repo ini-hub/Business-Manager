@@ -24,6 +24,7 @@ import {
   orderConsumables,
   payrollPeriods,
   saleDrafts,
+  checkoutIdempotencyKeys,
   type ProfitLossWithInventory,
   type SaleDraft,
 } from "@shared/schema";
@@ -34,6 +35,8 @@ import { ConsumablesRepository } from "./ConsumablesRepository";
 import { expandConsumables } from "../services/ConsumablesService";
 import type { NotificationRepository } from "./NotificationRepository";
 import { DEFAULT_LOYALTY_POINT_VALUE, DEFAULT_LOYALTY_POINTS_PER_CURRENCY } from "@shared/analytics/constants";
+import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
+import { gamificationRepository } from "./GamificationRepository";
 
 export class SalesRepository {
   private inventoryRepo = new InventoryRepository();
@@ -391,9 +394,21 @@ export class SalesRepository {
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;
     pointsRedeemed?: number;
+    /** Replay guard: the offline outbox resends this on every retry of one queued sale. See migration 0075. */
+    clientCheckoutId?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
     const checkoutIds: string[] = [];
     const lowStockItems: Array<{ name: string; quantity: number }> = [];
+
+    if (data.clientCheckoutId) {
+      const [existing] = await db.select().from(checkoutIdempotencyKeys).where(and(
+        eq(checkoutIdempotencyKeys.storeId, data.storeId),
+        eq(checkoutIdempotencyKeys.clientCheckoutId, data.clientCheckoutId),
+      ));
+      if (existing) {
+        return { success: true, message: existing.message, checkoutIds: existing.checkoutIds };
+      }
+    }
 
     try {
       await db.transaction(async (tx) => {
@@ -986,6 +1001,31 @@ export class SalesRepository {
             checkoutId: checkoutIds[0],
           });
         }
+
+        // Gamification: one visit credit for the customer per checkout batch,
+        // and one sale credit per distinct staff member credited across the
+        // items in it. Runs in-transaction so it never records against a sale
+        // that ends up rolled back.
+        if (data.customerId && checkoutIds.length > 0) {
+          await gamificationRepository.recordCustomerVisit(data.storeId, data.customerId, checkoutIds[0], tx);
+        }
+        const creditedStaffIds = new Set<string>([data.staffId, ...data.items.map(i => i.leadStaffId).filter((id): id is string => !!id)]);
+        for (const staffMemberId of Array.from(creditedStaffIds)) {
+          await gamificationRepository.recordStaffSale(data.storeId, staffMemberId, checkoutIds[0], tx);
+        }
+
+        // Claims this replay id inside the same transaction as the sale itself,
+        // so a retry that races a still-committing first attempt either waits
+        // behind it (then sees the conflict below) or, if the first attempt
+        // failed and rolled back, finds the id free and proceeds normally.
+        if (data.clientCheckoutId) {
+          await tx.insert(checkoutIdempotencyKeys).values({
+            storeId: data.storeId,
+            clientCheckoutId: data.clientCheckoutId,
+            checkoutIds,
+            message: "Sale completed successfully",
+          });
+        }
       });
 
       for (const item of lowStockItems) {
@@ -994,6 +1034,22 @@ export class SalesRepository {
 
       return { success: true, message: "Sale completed successfully", checkoutIds };
     } catch (error) {
+      if (
+        data.clientCheckoutId &&
+        isUniqueViolation(error) &&
+        getViolatedConstraint(error) === "checkout_idempotency_store_client_id_unique"
+      ) {
+        // A concurrent (or already-committed) attempt with the same replay id
+        // won the race and completed the sale - return its result instead of
+        // failing this retry outright.
+        const [existing] = await db.select().from(checkoutIdempotencyKeys).where(and(
+          eq(checkoutIdempotencyKeys.storeId, data.storeId),
+          eq(checkoutIdempotencyKeys.clientCheckoutId, data.clientCheckoutId),
+        ));
+        if (existing) {
+          return { success: true, message: existing.message, checkoutIds: existing.checkoutIds };
+        }
+      }
       const message = error instanceof Error ? error.message : "We couldn't complete this sale right now. Please try again.";
       return { success: false, message };
     }

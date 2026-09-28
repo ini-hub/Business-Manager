@@ -6,8 +6,16 @@ import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToke
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { completeLoginForUser, completeStaffActivation } from "./lib/authFlow";
 import { registerContractRoutes } from "./routes/contract.routes";
+import { registerProfileCompletionRoutes } from "./routes/profile-completion.routes";
+import { registerGuarantorRoutes } from "./routes/guarantor.routes";
 import { registerLegalRoutes } from "./routes/legal.routes";
 import { registerEmailWebhookRoutes } from "./routes/email-webhooks.routes";
+import { registerWhatsAppWebhookRoutes } from "./routes/whatsapp-webhooks.routes";
+import { registerCustomerBookingRoutes } from "./routes/customer-booking.routes";
+import { registerBroadcastRoutes } from "./routes/broadcast.routes";
+import { registerAccountingRoutes } from "./routes/accounting.routes";
+import { registerWhatsAppNumberRoutes } from "./routes/whatsapp-number.routes";
+import { registerWhatsAppTemplateRoutes } from "./routes/whatsapp-template.routes";
 import { setupAdminAuth } from "./auth-admin";
 import { adminRouter } from "./routes-admin";
 import {
@@ -79,10 +87,13 @@ import { CreditController } from "./controllers/CreditController";
 import { registerBusinessRoutes } from "./routes/business.routes";
 import { registerCustomerRoutes } from "./routes/customer.routes";
 import { registerStaffRoutes } from "./routes/staff.routes";
+import { registerHrRoutes } from "./routes/hr.routes";
+import { adminHrRouter } from "./routes/admin-hr.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
 import { registerConsumablesRoutes } from "./routes/consumables.routes";
 import { registerTransactionRoutes } from "./routes/transaction.routes";
 import { registerSalesRoutes } from "./routes/sales.routes";
+import { registerGamificationRoutes } from "./routes/gamification.routes";
 import { registerSettingsRoutes } from "./routes/settings.routes";
 import { registerPayrollRoutes } from "./routes/payroll.routes";
 import { registerReportsRoutes } from "./routes/reports.routes";
@@ -161,6 +172,7 @@ export async function registerRoutes(
 
   // Mount Admin Router
   app.use("/api/admin", adminRouter);
+  app.use("/api/admin", adminHrRouter);
 
   // Health check endpoint (no auth required, used by hosting providers)
   app.get("/api/health", (_req, res) => {
@@ -1839,19 +1851,37 @@ export async function registerRoutes(
   // contract_pending_token, not the normal auth middlewares, so it is
   // registered standalone rather than through routeMiddlewares.
   registerContractRoutes(app);
+  // Self-service HR profile completion + the guarantor's own sign/decline -
+  // gated by their own pending tokens, same reasoning as registerContractRoutes.
+  registerProfileCompletionRoutes(app);
+  registerGuarantorRoutes(app);
   registerLegalRoutes(app);
 
   // Resend delivery webhook - signature-verified, not session-based, so it
   // is registered standalone like registerContractRoutes above.
   registerEmailWebhookRoutes(app);
 
+  // WhatsApp Cloud API webhook (inbound messages + delivery-status callbacks)
+  // - signature-verified, not session-based, registered standalone as above.
+  registerWhatsAppWebhookRoutes(app);
+
+  // Public magic-link booking view/cancel (token-scoped, no session) - see
+  // csrf.ts's /api/my-booking exemption.
+  registerCustomerBookingRoutes(app);
+
+  registerBroadcastRoutes(app, routeMiddlewares);
+  registerAccountingRoutes(app, routeMiddlewares);
+  registerWhatsAppNumberRoutes(app, routeMiddlewares);
+  registerWhatsAppTemplateRoutes(app, routeMiddlewares);
   registerBusinessRoutes(app, routeMiddlewares);
   registerCustomerRoutes(app, routeMiddlewares);
   registerStaffRoutes(app, routeMiddlewares);
+  registerHrRoutes(app, routeMiddlewares);
   registerInventoryRoutes(app, routeMiddlewares);
   registerConsumablesRoutes(app, routeMiddlewares);
   registerTransactionRoutes(app, routeMiddlewares);
   registerSalesRoutes(app, routeMiddlewares);
+  registerGamificationRoutes(app, routeMiddlewares);
   registerSettingsRoutes(app, routeMiddlewares);
   registerPayrollRoutes(app, routeMiddlewares);
   registerReportsRoutes(app, routeMiddlewares);

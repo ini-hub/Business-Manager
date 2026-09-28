@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon } from "lucide-react";
+import { Users, UserCog, Package, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon, Trophy } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { PageHeader } from "@/components/page-header";
@@ -94,7 +94,10 @@ export default function Dashboard() {
     "dashboard_date_range",
     () =>
       readPersistedRange("dashboard_date_range") ?? {
-        from: startOfDay(new Date()),
+        // Matches applyDatePreset's "month" branch below - datePreset defaults
+        // to "month", so the initial range must too, or the dashboard opens
+        // showing "Month" selected while actually querying today-only data.
+        from: startOfDay(startOfMonth(new Date())),
         to: endOfDay(new Date()),
       },
   );
@@ -244,6 +247,13 @@ export default function Dashboard() {
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
+  });
+
+  // Single-store only: a store IS the subject for business milestones, so
+  // "all branches" has no one gamification record to show.
+  const { data: businessGamification } = useQuery<any>({
+    queryKey: ["/api/gamification/business", currentStore?.id],
+    enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
   const storeCurrency = currentStore?.currency || "NGN";
@@ -512,6 +522,32 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {businessGamification && (businessGamification.points > 0 || businessGamification.badges?.length > 0) && (
+        <Card>
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-amber-500" />
+              Business Milestones
+            </CardTitle>
+            <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+              <Link href="/leaderboard">View Leaderboard</Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-2">
+              {businessGamification.badges.map((b: any) => (
+                <Badge key={b.key} variant="secondary" className="text-[10px]" title={b.description}>
+                  {b.label}
+                </Badge>
+              ))}
+              {businessGamification.badges.length === 0 && (
+                <span className="text-xs text-muted-foreground">Keep growing to unlock your first milestone badge.</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <SalesTrendChart
         storeId={currentStore?.id === "all" ? undefined : currentStore?.id}

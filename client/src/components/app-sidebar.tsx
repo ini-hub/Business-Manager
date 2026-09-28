@@ -24,6 +24,9 @@ import {
   Coins,
   ShieldCheck,
   Compass,
+  MessageSquare,
+  Scale,
+  Trophy,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -141,9 +144,21 @@ const salesItems: MenuItem[] = [
     allowedRoles: ["owner", "manager", "staff"],
   },
   {
+    title: "Broadcasts",
+    url: "/broadcasts",
+    icon: MessageSquare,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
     title: "Quotes",
     url: "/quotes",
     icon: FileText,
+    allowedRoles: ["owner", "manager", "staff"],
+  },
+  {
+    title: "Leaderboard",
+    url: "/leaderboard",
+    icon: Trophy,
     allowedRoles: ["owner", "manager", "staff"],
   },
 ];
@@ -159,6 +174,12 @@ const reportsItems: MenuItem[] = [
     title: "Service Profitability",
     url: "/reports/service-profitability",
     icon: BarChart3,
+    allowedRoles: ["owner"],
+  },
+  {
+    title: "Balance Sheet",
+    url: "/reports/balance-sheet",
+    icon: Scale,
     allowedRoles: ["owner"],
   },
   {

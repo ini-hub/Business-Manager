@@ -8,6 +8,7 @@ import { evaluateLateness } from "./attendance/lateness";
 import { resolvePunchTime } from "./attendance/punchTime";
 import { detectSharedDevice, detectRapidSuccession } from "./attendance/collusion";
 import { buildScheduleResolver, exceptionKey } from "./attendance/scheduleResolver";
+import { gamificationRepository } from "../repositories/GamificationRepository";
 import type { AttendancePunch, Settings } from "@shared/schema";
 import { startOfISOWeek, endOfISOWeek, format, parseISO } from "date-fns";
 
@@ -262,6 +263,7 @@ export class AttendanceService {
         expectedStartTime: settings.openingTime ?? null,
         markedByUserId: input.recordedByUserId ?? null,
       });
+      await gamificationRepository.recordAttendancePunch(input.storeId, input.staffId, !lateness.isLate);
     } else {
       await this.recordRepo.applyClockOut(input.storeId, input.staffId, localDate, effectiveAt);
     }

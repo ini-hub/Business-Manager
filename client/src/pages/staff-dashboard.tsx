@@ -14,7 +14,9 @@ import {
   UserCheck,
   UserX,
   History,
-  AlertCircle
+  AlertCircle,
+  Trophy,
+  Flame,
 } from "lucide-react";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { commissionHeadline } from "@shared/commission-explainer";
@@ -54,6 +56,11 @@ export default function StaffDashboard() {
     enabled: !!user && !!currentStore?.id,
   });
   const upcomingBookings = bookingsData?.data || [];
+
+  const { data: gamification } = useQuery<any>({
+    queryKey: ["/api/gamification/me", currentStore?.id],
+    enabled: !!user && !!currentStore?.id,
+  });
 
   const formatCurrency = (val: number) => formatCurrencyUtil(val, currency);
   const formatCompact = (val: number) => formatCurrencyCompact(val, currency);
@@ -198,6 +205,11 @@ export default function StaffDashboard() {
                 </Link>
               </Button>
               <Button variant="outline" className="w-full justify-start text-xs h-9" asChild>
+                <Link href="/staff/hr-profile">
+                  <UserCheck className="mr-2 h-3 w-3" /> My HR Profile
+                </Link>
+              </Button>
+              <Button variant="outline" className="w-full justify-start text-xs h-9" asChild>
                 <Link href="/profile">
                   <UserCheck className="mr-2 h-3 w-3" /> Edit Profile
                 </Link>
@@ -207,6 +219,41 @@ export default function StaffDashboard() {
                   <History className="mr-2 h-3 w-3" /> Security Settings
                 </Link>
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Trophy className="h-4 w-4 text-amber-500" />
+                My Achievements
+              </CardTitle>
+              <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
+                <Link href="/leaderboard">Leaderboard</Link>
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Points</span>
+                <span className="font-bold text-sm">{gamification?.points ?? 0}</span>
+              </div>
+              {gamification?.streak?.currentCount > 0 && (
+                <div className="flex items-center gap-2 text-xs text-orange-600">
+                  <Flame className="h-3.5 w-3.5" />
+                  {gamification.streak.currentCount} on-time shifts in a row
+                </div>
+              )}
+              {gamification?.badges?.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {gamification.badges.map((b: any) => (
+                    <Badge key={b.key} variant="secondary" className="text-[10px]" title={b.description}>
+                      {b.label}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">No badges yet — keep selling and stay on time to earn your first one.</p>
+              )}
             </CardContent>
           </Card>
 

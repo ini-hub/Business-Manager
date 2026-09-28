@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { CustomerGamificationCard } from "@/components/gamification/CustomerGamificationCard";
 
 export default function CustomerDetails() {
   const [location, setLocation] = useLocation();
@@ -419,6 +420,8 @@ export default function CustomerDetails() {
           icon={<Calendar className="h-4 w-4" />}
         />
       </MetricGrid>
+
+      <CustomerGamificationCard storeId={customer.storeId} customerId={customer.id} />
 
       {customer.duplicateOfId && (
         <Alert className="border-amber-500/35 bg-amber-500/5 text-amber-500 rounded-2xl flex items-center justify-between gap-4 p-4 animate-in fade-in duration-300">

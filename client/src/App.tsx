@@ -24,6 +24,7 @@ import { AccountPaused } from "@/pages/account-paused";
 import BillingCallback from "@/pages/billing-callback";
 import { TrialWelcomeNotice } from "@/components/trial-welcome-notice";
 import { TermsPage, PrivacyPage, DataUsagePage, LegalDocumentByParamPage } from "@/pages/legal/legal-document-page";
+import CustomerBookingView from "@/pages/customer-booking-view";
 import type { Business } from "@shared/schema";
 
 // Eager — needed before auth resolves or tiny catch-all
@@ -51,6 +52,9 @@ const CustomerDetails = lazy(() => import("@/pages/customer-details"));
 const CustomerFormPage = lazy(() => import("@/pages/customer-form"));
 const StaffPage = lazy(() => import("@/pages/staff"));
 const StaffFormPage = lazy(() => import("@/pages/staff-form"));
+const HrProfilePage = lazy(() => import("@/pages/hr-profile"));
+const CompleteProfilePage = lazy(() => import("@/pages/complete-profile"));
+const GuarantorSignPage = lazy(() => import("@/pages/guarantor-sign"));
 const AttendancePage = lazy(() => import("@/pages/attendance"));
 const StaffPerformancePage = lazy(() => import("@/pages/staff-performance"));
 const MyPerformancePage = lazy(() => import("@/pages/my-performance"));
@@ -84,13 +88,16 @@ const PayrollAdvancesPage = lazy(() => import("@/pages/payroll-advances"));
 const PayrollReportPage = lazy(() => import("@/pages/payroll-report"));
 const CreditSalesPage = lazy(() => import("@/pages/credit-sales"));
 const BookingsPage = lazy(() => import("@/pages/bookings"));
+const BroadcastsPage = lazy(() => import("@/pages/broadcasts"));
 const BookingFormPage = lazy(() => import("@/pages/booking-form"));
 const BookingDetailsPage = lazy(() => import("@/pages/booking-details"));
 const QuotesPage = lazy(() => import("@/pages/quotes"));
+const LeaderboardPage = lazy(() => import("@/pages/leaderboard"));
 const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
 const PurchaseOrderFormPage = lazy(() => import("@/pages/purchase-order-form"));
 const StockTransfersPage = lazy(() => import("@/pages/stock-transfers"));
 const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
+const BalanceSheetPage = lazy(() => import("@/pages/balance-sheet"));
 const ProfilePage = lazy(() => import("@/pages/profile"));
 const HelpSupportPage = lazy(() => import("@/pages/help-support"));
 const SettingsIndexPage = lazy(() => import("@/pages/settings/index"));
@@ -102,6 +109,8 @@ const SettingsStoreDetailsPage = lazy(() => import("@/pages/settings/store-detai
 const SettingsAttendancePage = lazy(() => import("@/pages/settings/attendance"));
 const SettingsCreditSalesPage = lazy(() => import("@/pages/settings/credit-sales"));
 const SettingsPaymentIntegrationsPage = lazy(() => import("@/pages/settings/payment-integrations"));
+const SettingsWhatsAppNumberPage = lazy(() => import("@/pages/settings/whatsapp-number"));
+const SettingsCapitalAssetsPage = lazy(() => import("@/pages/settings/capital-assets"));
 const SettingsBulkOperationsPage = lazy(() => import("@/pages/settings/bulk-operations"));
 const TaxesCompliancePage = lazy(() => import("@/pages/settings/taxes-compliance"));
 const PromotionsPage = lazy(() => import("@/pages/settings/promotions"));
@@ -244,6 +253,10 @@ function Router() {
           every invitation email fell through to NotFound. */}
       <Route path="/activate" component={Login} />
       <Route path="/auth/signup" component={Signup} />
+      {/* Public magic-link booking view, reached from the WhatsApp booking
+          confirmation message (server/routes/customer-booking.routes.ts) -
+          no session/auth, scoped by the unguessable token in the URL. */}
+      <Route path="/my-booking/:token" component={CustomerBookingView} />
       <Route path="/terms" component={TermsPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/data-usage" component={DataUsagePage} />
@@ -253,6 +266,18 @@ function Router() {
       <Route path="/auth/forgot-password" component={ForgotPassword} />
       <Route path="/auth/reset-password" component={ResetPassword} />
       <Route path="/onboarding" component={OnboardingRoute} />
+      {/* Reached via the profile_pending_token cookie (not a normal session)
+          minted by login/set-activated-password when required HR profile
+          sections are outstanding - server/lib/authFlow.ts. */}
+      <Route path="/complete-profile">
+        <Suspense fallback={<PageLoader />}><CompleteProfilePage /></Suspense>
+      </Route>
+      {/* The guarantor's own review/sign/decline - reached via a mailed/
+          shared link with a guarantor_pending token in the query string, no
+          session at all. See server/routes/guarantor.routes.ts. */}
+      <Route path="/guarantor/sign">
+        <Suspense fallback={<PageLoader />}><GuarantorSignPage /></Suspense>
+      </Route>
       <Route path="/verify/payslip/:id">
         <Suspense fallback={<PageLoader />}><VerifyPayslipPage /></Suspense>
       </Route>
@@ -435,6 +460,7 @@ function AuthenticatedLayout() {
                   <Route path="/staff/performance" component={MyPerformancePage} />
                   <Route path="/staff/payroll" component={MyPayrollPage} />
                   <Route path="/staff/payroll/:periodId" component={MyPayrollDetailPage} />
+                  <Route path="/staff/hr-profile" component={HrProfilePage} />
                   <Route path="/staffs">
                     {user?.role === "staff" ? <NotAuthorized /> : <StaffPage />}
                   </Route>
@@ -443,6 +469,9 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/staffs/:id/edit">
                     {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
+                  </Route>
+                  <Route path="/staffs/:id/hr-profile">
+                    {user?.role === "staff" ? <NotAuthorized /> : <HrProfilePage />}
                   </Route>
                   <Route path="/staffs/attendance">
                     {user?.role === "staff" ? <NotAuthorized /> : <AttendancePage />}
@@ -469,7 +498,9 @@ function AuthenticatedLayout() {
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
                   <Route path="/bookings/:id" component={BookingDetailsPage} />
                   <Route path="/bookings" component={BookingsPage} />
+                  <Route path="/broadcasts" component={BroadcastsPage} />
                   <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
+                  <Route path="/reports/balance-sheet" component={BalanceSheetPage} />
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/payroll/new" component={PayrollNewPage} />
                   <Route path="/payroll/advances" component={PayrollAdvancesPage} />
@@ -504,6 +535,12 @@ function AuthenticatedLayout() {
                   <Route path="/settings/payment-integrations">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsPaymentIntegrationsPage />}
                   </Route>
+                  <Route path="/settings/whatsapp-number">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsWhatsAppNumberPage />}
+                  </Route>
+                  <Route path="/settings/capital-assets">
+                    {user?.role !== "owner" ? <Redirect to="/" /> : <SettingsCapitalAssetsPage />}
+                  </Route>
                   <Route path="/settings/bulk-operations">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBulkOperationsPage />}
                   </Route>
@@ -531,6 +568,7 @@ function AuthenticatedLayout() {
                   <Route path="/vendors/:vendorId/bills/new" component={VendorBillNewPage} />
                   <Route path="/vendors/bills/:billId/pay" component={VendorBillPayPage} />
                   <Route path="/quotes" component={QuotesPage} />
+                  <Route path="/leaderboard" component={LeaderboardPage} />
                   <Route path="/purchase-orders/new" component={PurchaseOrderFormPage} />
                   <Route path="/purchase-orders" component={PurchaseOrdersPage} />
                   <Route path="/stock-transfers" component={StockTransfersPage} />
