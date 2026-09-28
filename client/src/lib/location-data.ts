@@ -1,4 +1,4 @@
-import { Country, State, City } from "country-state-city";
+import { Country, State } from "country-state-city";
 import { nigeriaLgasByStateCode } from "@shared/nigeria-lgas";
 
 export interface LocationOption {
@@ -30,12 +30,18 @@ export function getStateOptions(countryIsoCode: string | undefined): LocationOpt
 // LGA is the granularity Nigerian addresses actually use below State, and
 // the country-state-city package has very sparse/inconsistent NG city data.
 // Every other country falls through to the package's real city list.
-export function getCityOptions(countryIsoCode: string | undefined, stateIsoCode: string | undefined): LocationOption[] {
+//
+// The package's city dataset (city.json) is ~8.5MB uncompressed - dynamically
+// imported here so it only downloads for the (non-Nigerian) forms that
+// actually need it, instead of bloating every bundle that touches location
+// data.
+export async function getCityOptions(countryIsoCode: string | undefined, stateIsoCode: string | undefined): Promise<LocationOption[]> {
   if (!countryIsoCode || !stateIsoCode) return [];
   if (countryIsoCode === "NG") {
     const lgas = nigeriaLgasByStateCode[stateIsoCode] ?? [];
     return lgas.map((name) => ({ value: name, label: name })).sort((a, b) => a.label.localeCompare(b.label));
   }
+  const { City } = await import("country-state-city");
   return City.getCitiesOfState(countryIsoCode, stateIsoCode)
     .map((c) => ({ value: c.name, label: c.name }))
     .sort((a, b) => a.label.localeCompare(b.label));

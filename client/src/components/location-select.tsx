@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/searchable-select";
-import { countryOptions, nationalityOptions, getStateOptions, getCityOptions, cityFieldLabel } from "@/lib/location-data";
+import { countryOptions, nationalityOptions, getStateOptions, getCityOptions, cityFieldLabel, type LocationOption } from "@/lib/location-data";
 
 /**
  * Reusable Country -> State -> City/LGA cascade: State options are re-derived
@@ -34,8 +35,19 @@ export function LocationSelect({
   disabled?: boolean;
 }) {
   const stateOptions = getStateOptions(country);
-  const cityOptions = getCityOptions(country, state);
   const resolvedCityLabel = cityLabel ?? cityFieldLabel(country);
+
+  const [cityOptions, setCityOptions] = useState<LocationOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setCityOptions([]); // clear stale options from the previous country/state while the new list loads
+    getCityOptions(country, state).then((options) => {
+      if (!cancelled) setCityOptions(options);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [country, state]);
 
   return (
     <div className="grid gap-3 sm:grid-cols-3">
