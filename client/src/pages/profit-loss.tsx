@@ -683,7 +683,7 @@ export default function ProfitLossPage() {
 
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-muted-foreground">Direct Supplies &amp; Consumables</span>
-                    <span className="font-mono">− {formatCurrency(summary?.directSuppliesTotal ?? 0)}</span>
+                    <span className="font-mono">− {formatCurrency(Math.abs(summary?.directSuppliesTotal ?? 0))}</span>
                   </div>
                   {(summary?.directSuppliesFromRecipes ?? 0) > 0 && (
                     <div className="flex justify-between items-center text-xs pl-4 text-muted-foreground">
