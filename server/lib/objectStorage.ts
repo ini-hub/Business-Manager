@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Small, provider-agnostic wrapper around whatever S3-compatible bucket this
@@ -97,5 +97,18 @@ export const objectStorage = {
    */
   async deleteObject(key: string): Promise<void> {
     await getClient().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
+  },
+
+  /**
+   * Server-side copy within the same bucket - used to relocate a staged
+   * upload (e.g. under a `pending/` prefix that a bucket lifecycle rule may
+   * expire) into its permanent key once it has been validated and attached.
+   */
+  async copyObject(sourceKey: string, destinationKey: string): Promise<void> {
+    await getClient().send(new CopyObjectCommand({
+      Bucket: bucket(),
+      CopySource: `${bucket()}/${encodeURIComponent(sourceKey)}`,
+      Key: destinationKey,
+    }));
   },
 };

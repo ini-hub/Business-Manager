@@ -120,15 +120,26 @@ export class StaffContractService {
         return { kind: "invalid", reason: "This file failed a security scan and cannot be attached. Please upload a different file." };
       }
 
+      // The upload URL puts the file under a `pending/` staging prefix,
+      // which a bucket lifecycle rule may expire as an abandoned-upload
+      // cleanup. Once the file has passed validation and is about to become
+      // a permanent contract record, relocate it out of that prefix so it
+      // can't disappear out from under a staff member who hasn't signed yet.
+      const permanentKey = input.storageKey.replace(/^staff-contracts\/pending\//, "staff-contracts/active/");
+      if (permanentKey !== input.storageKey) {
+        await objectStorage.copyObject(input.storageKey, permanentKey);
+        await objectStorage.deleteObject(input.storageKey).catch(() => undefined);
+      }
+
       versionPayload = {
         contractType: input.contractType,
         contentText: null,
-        storageKey: input.storageKey,
+        storageKey: permanentKey,
         fileMimeType: meta.contentType || input.fileMimeType,
         fileSizeBytes: meta.contentLength ?? input.fileSizeBytes,
         fileOriginalName: input.fileOriginalName,
         altText: input.contractType === "image" ? input.altText : null,
-        contentHash: this.hashObjectIdentity(input.storageKey, meta),
+        contentHash: this.hashObjectIdentity(permanentKey, meta),
       };
     }
 
