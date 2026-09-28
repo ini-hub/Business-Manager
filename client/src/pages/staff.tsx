@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { Plus, UserPlus, Edit, Trash2, Phone, Hash, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, Hash, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users, UserSquare2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -339,6 +339,12 @@ export default function StaffPage() {
         icon: <Edit className="h-4 w-4" />,
         onClick: () => setLocation(appendReturnTo(`/staffs/${staff.id}/edit`, location, search)),
         testId: `button-edit-${staff.id}`,
+      },
+      {
+        label: "HR Profile",
+        icon: <UserSquare2 className="h-4 w-4" />,
+        onClick: () => setLocation(`/staffs/${staff.id}/hr-profile`),
+        testId: `button-hr-profile-${staff.id}`,
       },
     ];
     // Once a password is set, the person is no longer blocked by their activation

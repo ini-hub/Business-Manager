@@ -29,7 +29,7 @@ const passwordSchema = z
   .min(8, "Password must be at least 8 characters")
   .refine((val) => /[A-Z]/.test(val), "Must include at least one uppercase letter")
   .refine((val) => /[a-z]/.test(val), "Must include at least one lowercase letter")
-  .refine((val) => /[!@#$%^&*(),.?":{}|<>]/.test(val), "Must include at least one special character")
+  .refine((val) => /[^A-Za-z0-9]/.test(val), "Must include at least one special character")
   .refine((val) => !/\s/.test(val), "Password cannot contain spaces");
 
 const signupSchema = z.object({

@@ -38,7 +38,7 @@ import {
 } from "@shared/schema";
 import { grantFeatureEntitlement, scheduleFeatureRemoval } from "./lib/entitlements";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
-import { getConfiguredTrialDays, setPlatformConfigValue, getPlatformConfigValue } from "./lib/platformConfig";
+import { getConfiguredTrialDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
@@ -2988,6 +2988,53 @@ adminRouter.put("/platform-config/sms", isAdminAuthenticated, requireAdminRole([
     return res.status(500).json({ error: "Failed to update SMS configuration." });
   }
 });
+
+// WhatsApp Business Platform (Cloud API) - the ONE Meta Tech Provider app
+// this whole platform uses to receive webhooks for every connected
+// business's WhatsApp number (see shared/schema/whatsapp.ts's whatsappNumbers
+// for the separate, per-store credentials). Not to be confused with the
+// "SMS & WhatsApp" toggle above, which gates the password-reset OTP channel.
+adminRouter.get("/platform-config/whatsapp", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const status = await getWhatsAppPlatformConfigStatus();
+    return res.json(status);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load WhatsApp platform configuration." });
+  }
+});
+
+adminRouter.put(
+  "/platform-config/whatsapp",
+  isAdminAuthenticated,
+  requireAdminRole(["super_admin"]),
+  async (req: Request, res: Response) => {
+    const { isActive, appSecret, verifyToken } = req.body;
+    if (typeof isActive !== "boolean") {
+      return res.status(400).json({ error: "isActive must be a boolean." });
+    }
+
+    try {
+      // Sentinel-compare-on-write, same convention as the payment-credentials
+      // form above: MASK means "unchanged", an actually-blank field clears it.
+      const values: { isActive: boolean; appSecret?: string; verifyToken?: string } = { isActive };
+      if (typeof appSecret === "string" && appSecret !== MASK) values.appSecret = appSecret;
+      if (typeof verifyToken === "string" && verifyToken !== MASK) values.verifyToken = verifyToken;
+
+      await setWhatsAppPlatformConfig(values, req.admin!.email);
+      await writeAuditLog(req, "update_whatsapp_platform_config", "platform_config", {
+        isActive,
+        appSecretChanged: typeof values.appSecret === "string",
+        verifyTokenChanged: typeof values.verifyToken === "string",
+      });
+
+      const status = await getWhatsAppPlatformConfigStatus();
+      return res.json({ success: true, ...status });
+    } catch (error) {
+      console.error("Update WhatsApp platform config error:", error);
+      return res.status(500).json({ error: "Failed to update WhatsApp platform configuration." });
+    }
+  },
+);
 
 // ─── Legal Documents (Terms and Conditions / Privacy Policy / Data Usage) ───
 // Versioned, super-admin-authored content - see shared/schema/legal-documents.ts

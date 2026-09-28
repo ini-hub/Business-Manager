@@ -2,6 +2,7 @@ import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { platformConfig } from "@shared/schema";
 import { TRIAL_DAYS } from "./trial";
+import { encryptSecret, decryptSecret } from "./credentialEncryption";
 
 /**
  * Platform-operator-level settings (shared/schema/platform.ts's platformConfig
@@ -47,4 +48,79 @@ export async function getSmsConfig(): Promise<{ smsEnabled: boolean; whatsappEna
     smsEnabled: smsEnabled === true,
     whatsappEnabled: whatsappEnabled === true,
   };
+}
+
+/**
+ * The one Meta Tech Provider app this whole platform uses to talk to the
+ * WhatsApp Cloud API on behalf of every connected business (see
+ * server/lib/metaWebhook.ts, server/routes/whatsapp-webhooks.routes.ts).
+ * Distinct from a per-store whatsappNumbers row (shared/schema/whatsapp.ts):
+ * this is the platform operator's own app secret / webhook verify token,
+ * not any one business's WhatsApp number credentials. Rotatable from Super
+ * Admin > Platform Settings with no redeploy, same DB-first/env-fallback
+ * posture as getConfiguredSecretKey in server/lib/paystack.ts. appSecret is
+ * encrypted at rest (it's an HMAC key); verifyToken is a low-sensitivity
+ * handshake value, kept as plaintext like a public key.
+ */
+/**
+ * Masked view for the admin GET endpoint - never returns the decrypted
+ * secret, only whether each value is configured, mirroring
+ * platformPaymentCredentials' secretKeySet/webhookSecretSet fields.
+ */
+export async function getWhatsAppPlatformConfigStatus(): Promise<{ isActive: boolean; appSecretSet: boolean; verifyTokenSet: boolean }> {
+  const isActive = (await getPlatformConfigValue<boolean>("whatsapp_platform_active")) === true;
+  const appSecretEncrypted = await getPlatformConfigValue<string>("whatsapp_app_secret_encrypted");
+  const verifyToken = await getPlatformConfigValue<string>("whatsapp_verify_token");
+  return { isActive, appSecretSet: !!appSecretEncrypted, verifyTokenSet: !!verifyToken };
+}
+
+/**
+ * Resolves the app secret / verify token actually in effect: DB-configured
+ * (Super Admin, only when active) takes priority, env vars stay a fallback
+ * so nothing breaks for deployments that haven't configured a row yet.
+ */
+export async function getEffectiveWhatsAppPlatformCredentials(): Promise<{ appSecret: string; verifyToken: string } | null> {
+  const isActive = (await getPlatformConfigValue<boolean>("whatsapp_platform_active")) === true;
+
+  let appSecret: string | undefined;
+  let verifyToken: string | undefined;
+  if (isActive) {
+    const appSecretEncrypted = await getPlatformConfigValue<string>("whatsapp_app_secret_encrypted");
+    verifyToken = await getPlatformConfigValue<string>("whatsapp_verify_token");
+    if (appSecretEncrypted) {
+      try {
+        appSecret = decryptSecret(appSecretEncrypted);
+      } catch (error) {
+        console.error("Failed to decrypt configured WhatsApp app secret, falling back to env:", error);
+      }
+    }
+  }
+
+  appSecret = appSecret ?? process.env.WHATSAPP_APP_SECRET;
+  verifyToken = verifyToken ?? process.env.WHATSAPP_VERIFY_TOKEN;
+  if (!appSecret || !verifyToken) return null;
+  return { appSecret, verifyToken };
+}
+
+export async function setWhatsAppPlatformConfig(
+  values: { isActive: boolean; appSecret?: string; verifyToken?: string },
+  updatedBy?: string,
+): Promise<void> {
+  await setPlatformConfigValue("whatsapp_platform_active", values.isActive, updatedBy);
+  if (typeof values.appSecret === "string") {
+    await setPlatformConfigValue("whatsapp_app_secret_encrypted", values.appSecret ? encryptSecret(values.appSecret) : null, updatedBy);
+  }
+  if (typeof values.verifyToken === "string") {
+    await setPlatformConfigValue("whatsapp_verify_token", values.verifyToken || null, updatedBy);
+  }
+}
+
+export async function isWhatsAppPlatformAppSecretSet(): Promise<boolean> {
+  const value = await getPlatformConfigValue<string>("whatsapp_app_secret_encrypted");
+  return !!value;
+}
+
+export async function isWhatsAppPlatformVerifyTokenSet(): Promise<boolean> {
+  const value = await getPlatformConfigValue<string>("whatsapp_verify_token");
+  return !!value;
 }

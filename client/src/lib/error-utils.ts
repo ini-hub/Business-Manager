@@ -75,6 +75,14 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
     return "This record is linked to other data and cannot be modified this way.";
   }
 
+  // Profile-completion gate errors already spell out exactly what's still
+  // outstanding (e.g. "We're still waiting on your guarantor to sign...").
+  // They happen to contain the bare word "required"/"personal", which would
+  // otherwise get flattened into the generic message below.
+  if (message.toLowerCase().includes("guarantor") || message.toLowerCase().includes("emergency contact")) {
+    return message;
+  }
+
   if (message.includes("validation") || message.includes("required")) {
     return "Please fill in all required fields correctly.";
   }

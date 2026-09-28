@@ -232,6 +232,44 @@ export default function AttendancePage() {
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
+  // Weekly rosters + swap/cover exceptions for the same window, used to show a
+  // day as "Off Day" before AttendanceDayCloseService has written the real
+  // attendance_records row for it (that job only backfills the *previous*
+  // day, so today and future dates would otherwise sit at "Not marked" even
+  // with an exception already saved). A real record, once one exists, always
+  // wins — this is only a preview for days with none yet.
+  const { data: scheduleData } = useQuery<{
+    defaultWeeklyOffDays: number[];
+    schedules: Array<{ staffId: string; weeklyOffDays: number[] }>;
+    exceptions: Array<{ id: string; staffId: string; date: string; kind: "off" | "working"; reason: string | null }>;
+  }>({
+    queryKey: ["/api/attendance/schedules", currentStore?.id, startDate, endDate],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/attendance/schedules?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore?.id !== "all",
+  });
+
+  // Mirrors server/services/attendance/scheduleResolver.ts's precedence:
+  // per-date exception, then the staff member's own weekly pattern, then the
+  // store default. Kept in sync by hand since one reads Postgres rows and the
+  // other reads a fetched JSON response.
+  const isRosteredOff = useMemo(() => {
+    const storeDefault = new Set(scheduleData?.defaultWeeklyOffDays ?? [0]);
+    const patternByStaff = new Map<string, Set<number>>();
+    for (const s of scheduleData?.schedules ?? []) patternByStaff.set(s.staffId, new Set(s.weeklyOffDays));
+    const exceptionByStaffDate = new Map<string, "off" | "working">();
+    for (const e of scheduleData?.exceptions ?? []) exceptionByStaffDate.set(`${e.staffId}|${e.date}`, e.kind);
+
+    return (staffId: string, dateStr: string): boolean => {
+      const exception = exceptionByStaffDate.get(`${staffId}|${dateStr}`);
+      if (exception) return exception === "off";
+      const pattern = patternByStaff.get(staffId) ?? storeDefault;
+      return pattern.has(new Date(`${dateStr}T00:00:00Z`).getUTCDay());
+    };
+  }, [scheduleData]);
+
   // Fetch transactions to resolve active vs passive status dynamically
   const { data: transactions = [] } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id],
@@ -420,6 +458,8 @@ export default function AttendancePage() {
                 {activeStaff.map(s => {
                   const rec = recordMap.get(`${s.id}:${dailyDate}`);
                   const status = rec?.status as AttendanceStatus | undefined;
+                  const isScheduledOff = !status && isRosteredOff(s.id, dailyDate);
+                  const displayStatus: AttendanceStatus | undefined = status ?? (isScheduledOff ? "off_day" : undefined);
                   const isActive = activeStaffDays.has(`${s.id}:${dailyDate}`);
                   return (
                     <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors min-w-0">
@@ -435,7 +475,12 @@ export default function AttendancePage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t sm:border-0 pt-2 sm:pt-0">
-                        {status ? <StatusBadge status={status} isActive={isActive} isLate={rec?.isLate} lateMinutes={rec?.lateMinutes} /> : (
+                        {displayStatus ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge status={displayStatus} isActive={isActive} isLate={rec?.isLate} lateMinutes={rec?.lateMinutes} />
+                            {isScheduledOff && <span className="text-xs text-muted-foreground italic">(scheduled)</span>}
+                          </div>
+                        ) : (
                           <span className="text-xs text-muted-foreground italic">Not marked</span>
                         )}
                         {canEdit && (
@@ -446,8 +491,8 @@ export default function AttendancePage() {
                               return (
                                 <IconButton
                                   key={st}
-                                  variant={status === st ? "default" : "ghost"}
-                                  className={`h-7 w-7 ${status !== st ? cfg.color : ""}`}
+                                  variant={displayStatus === st ? "default" : "ghost"}
+                                  className={`h-7 w-7 ${displayStatus !== st ? cfg.color : ""}`}
                                   label={cfg.label}
                                   onClick={() => markMutation.mutate({ staffId: s.id, date: dailyDate, status: st })}
                                   disabled={markMutation.isPending}
@@ -520,14 +565,16 @@ export default function AttendancePage() {
                     const dateStr = format(day, "yyyy-MM-dd");
                     const rec = recordMap.get(`${s.id}:${dateStr}`);
                     const status = rec?.status as AttendanceStatus | undefined;
+                    const isScheduledOff = !status && isRosteredOff(s.id, dateStr);
+                    const displayStatus: AttendanceStatus | undefined = status ?? (isScheduledOff ? "off_day" : undefined);
                     const isActive = activeStaffDays.has(`${s.id}:${dateStr}`);
-                    
+
                     let bgClass = "hover:bg-muted";
                     let titleStr = "Not marked";
                     let dotClass = "";
 
-                    if (status) {
-                      if (status === "present") {
+                    if (displayStatus) {
+                      if (displayStatus === "present") {
                         if (isActive) {
                           bgClass = "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400";
                           titleStr = "Present (Active)";
@@ -538,9 +585,13 @@ export default function AttendancePage() {
                           dotClass = "bg-violet-500";
                         }
                       } else {
-                        bgClass = `${STATUS_CONFIG[status].bg} ${STATUS_CONFIG[status].color}`;
-                        titleStr = STATUS_CONFIG[status].label;
-                        dotClass = STATUS_DOT[status];
+                        bgClass = `${STATUS_CONFIG[displayStatus].bg} ${STATUS_CONFIG[displayStatus].color}`;
+                        titleStr = STATUS_CONFIG[displayStatus].label;
+                        dotClass = STATUS_DOT[displayStatus];
+                      }
+                      if (isScheduledOff) {
+                        bgClass += " opacity-60 border border-dashed border-current";
+                        titleStr += " (scheduled — not yet confirmed)";
                       }
                     }
 
@@ -561,7 +612,7 @@ export default function AttendancePage() {
                         }}
                       >
                         {format(day, "d")}
-                        {status && (
+                        {displayStatus && (
                           <div className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full ${dotClass}`} />
                         )}
                       </div>

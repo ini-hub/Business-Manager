@@ -3,7 +3,11 @@ import { bookings, customers, stores } from "@shared/schema";
 import { eq, and, gte, lt, isNull, inArray } from "drizzle-orm";
 import { sendEmail } from "../email";
 import { sendSMS } from "../email";
+import { sendTemplateMessage } from "./WhatsAppService";
 import { getAppUrl } from "../lib/appUrl";
+
+const WHATSAPP_REMINDER_TEMPLATE = process.env.WHATSAPP_REMINDER_TEMPLATE_NAME || "booking_reminder";
+const WHATSAPP_REMINDER_TEMPLATE_LANGUAGE = process.env.WHATSAPP_REMINDER_TEMPLATE_LANGUAGE || "en_US";
 
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Excellent Bolujo";
 const APP_URL = getAppUrl();
@@ -59,7 +63,20 @@ async function sendBookingReminders(): Promise<void> {
     if ((pref === "whatsapp" || pref === "sms" || pref === "both") && customer.mobileNumber) {
       const phone = `${customer.countryCode || "+234"}${customer.mobileNumber.replace(/^0/, "")}`;
       const msg = `Hi ${customer.name}, this is a reminder from ${businessName}.\n\nYour appointment is scheduled for ${scheduledFormatted}.\n\nRef: ${booking.bookingRef}\n\nWe look forward to seeing you! 😊`;
-      sendSMS(phone, msg);
+
+      // Reminders fire well outside the 24h customer-service window, so
+      // WhatsApp delivery must go through an approved template, not free
+      // text (sendSMS's plain-text message stays for the sms branch).
+      if (pref === "whatsapp" || pref === "both") {
+        sendTemplateMessage(store.id, phone, WHATSAPP_REMINDER_TEMPLATE, WHATSAPP_REMINDER_TEMPLATE_LANGUAGE, {
+          "1": customer.name,
+          "2": scheduledFormatted,
+          "3": booking.bookingRef,
+        }, customer.id);
+      }
+      if (pref === "sms" || pref === "both") {
+        sendSMS(phone, msg);
+      }
     }
 
     if (pref === "sms" || pref === "both") {

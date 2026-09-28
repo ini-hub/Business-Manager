@@ -3,7 +3,7 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 // Some endpoints return a machine-readable `error.code` alongside the
 // human-readable message (e.g. "SMS_UNAVAILABLE"), so callers can branch on
 // the failure reason instead of pattern-matching the message text.
-export type ApiError = Error & { code?: string };
+export type ApiError = Error & { code?: string; field?: string };
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -35,6 +35,9 @@ async function throwIfResNotOk(res: Response) {
         // Flat shape: the string `error` field doubles as the machine
         // code precisely when a separate human-readable `message` exists.
         error.code = rawError;
+      }
+      if (typeof jsonError.field === "string") {
+        error.field = jsonError.field;
       }
       throw error;
     } catch (parseError) {

@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, jsonb, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, unique, uniqueIndex, index, jsonb, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { stores } from "./stores";
@@ -142,6 +142,24 @@ export const insertCheckoutSchema = createInsertSchema(checkouts).omit({ id: tru
 });
 export type InsertCheckout = z.infer<typeof insertCheckoutSchema>;
 export type Checkout = typeof checkouts.$inferSelect;
+
+// Replay guard for POST /api/sales/checkout (see migration 0075). The offline
+// outbox (client/src/components/offline-sync-manager.tsx) resends the same
+// clientCheckoutId on every retry of one queued sale, including retries after
+// a write that actually succeeded but whose response was lost - without this
+// table that retry creates a duplicate sale, stock decrement and revenue
+// entry. One row per sale attempt (checkouts itself has one row per line
+// item, so the guard can't live there).
+export const checkoutIdempotencyKeys = pgTable("checkout_idempotency_keys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  clientCheckoutId: varchar("client_checkout_id").notNull(),
+  checkoutIds: jsonb("checkout_ids").$type<string[]>().notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("checkout_idempotency_store_client_id_unique").on(table.storeId, table.clientCheckoutId),
+]);
 
 // Transactions table
 export const transactions = pgTable("transactions", {

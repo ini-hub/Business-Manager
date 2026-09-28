@@ -1,4 +1,4 @@
-import { sql, relations } from "drizzle-orm";
+import { sql, relations, desc } from "drizzle-orm";
 import { pgTable, text, varchar, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { stores } from "./stores";
 import { users } from "./auth";
@@ -15,6 +15,7 @@ export const notifications = pgTable("notifications", {
   archivedAt: timestamp("archived_at"),
 }, (table) => [
   index("idx_notifications_user").on(table.userId),
+  index("idx_notifications_user_created").on(table.userId, desc(table.createdAt)),
 ]);
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({

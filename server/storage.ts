@@ -212,13 +212,15 @@ export interface IStorage {
   getStore(id: string): Promise<Store | undefined>;
   getStoreByName(businessId: string, name: string): Promise<Store | undefined>;
   getStoreByCode(businessId: string, code: string): Promise<Store | undefined>;
-  createStore(store: InsertStore): Promise<Store>;
+  createStore(store: InsertStore & { isMain?: boolean }): Promise<Store>;
   updateStore(id: string, store: Partial<InsertStore>): Promise<Store | undefined>;
   deleteStore(id: string): Promise<boolean>;
   archiveStore(id: string): Promise<Store | undefined>;
   restoreStore(id: string): Promise<Store | undefined>;
   countActiveStores(businessId: string): Promise<number>;
   hasStoreData(id: string): Promise<boolean>;
+  getMainStore(businessId: string): Promise<Store | undefined>;
+  setMainStore(businessId: string, storeId: string): Promise<Store>;
 
   // Customers
   getCustomers(storeId: string, includeArchived?: boolean): Promise<Customer[]>;
@@ -385,6 +387,7 @@ export interface IStorage {
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;
     pointsRedeemed?: number;
+    clientCheckoutId?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }>;
 
   // Inventory Restock Events
@@ -736,7 +739,7 @@ export class DatabaseStorage implements IStorage {
     return this.businessRepo.getStoreByCode(businessId, code);
   }
 
-  async createStore(store: InsertStore): Promise<Store> {
+  async createStore(store: InsertStore & { isMain?: boolean }): Promise<Store> {
     return this.businessRepo.createStore(store);
   }
 
@@ -762,6 +765,14 @@ export class DatabaseStorage implements IStorage {
 
   async hasStoreData(id: string): Promise<boolean> {
     return this.businessRepo.hasStoreData(id);
+  }
+
+  async getMainStore(businessId: string): Promise<Store | undefined> {
+    return this.businessRepo.getMainStore(businessId);
+  }
+
+  async setMainStore(businessId: string, storeId: string): Promise<Store> {
+    return this.businessRepo.setMainStore(businessId, storeId);
   }
 
   // ─── Customer Repo Delegation ──────────────────────────────────────────────
@@ -1162,6 +1173,7 @@ export class DatabaseStorage implements IStorage {
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;
     pointsRedeemed?: number;
+    clientCheckoutId?: string;
   }): Promise<{ success: boolean; message: string; checkoutIds?: string[] }> {
     return this.salesRepo.processCheckout(data);
   }

@@ -41,7 +41,14 @@ export type WizardStep = "customer" | "items" | "schedule" | "summary";
 
 export const WIZARD_STEPS: { id: WizardStep; label: string; description: string }[] = [
   { id: "customer", label: "Customer", description: "Who is this booking for?" },
-  { id: "items", label: "Items & Services", description: "What services or products?" },
-  { id: "schedule", label: "Schedule", description: "When and who?" },
-  { id: "summary", label: "Payment & Confirm", description: "Review and finalize" },
+  { id: "items", label: "Items & Services", description: "What they are getting" },
+  { id: "schedule", label: "Schedule", description: "When and with whom" },
+  { id: "summary", label: "Payment & Confirm", description: "Review and finalise" },
 ];
+
+export const STEP_FIELDS: Record<WizardStep, (keyof BookingFormValues)[]> = {
+  customer: ["type", "customerId"],
+  items: ["bookingItems"],
+  schedule: ["scheduledAt", "time", "reminderPreference"],
+  summary: [],
+};

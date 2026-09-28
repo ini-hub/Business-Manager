@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
+import { splitFullName } from "@shared/name-utils";
 import { isAuthenticated } from "../auth";
 import {
   insertBusinessSchema,
@@ -467,10 +468,13 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       }
       if (!staffId) {
         const fullUser = await storage.getUser(user.id);
+        const { firstName, lastName } = splitFullName(fullUser?.name || "Owner");
         const staffMember = await storage.createStaff({
           storeId,
           userId: user.id,
-          name: fullUser?.name || "Owner",
+          name: "", // recomputed from firstName/lastName by StaffRepository.createStaff
+          firstName,
+          lastName,
           email: fullUser?.email || `owner-${user.id}@trial.local`,
           mobileNumber: fullUser?.phone || "0000000000",
           payPerMonth: 0,
@@ -522,6 +526,9 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     bookingDepositMethod: z.string().optional(),
     balanceCollectedToday: z.number().min(0).optional(),
     pointsRedeemed: z.number().min(0).optional(),
+    // Replay guard: the offline outbox (client/src/components/offline-sync-manager.tsx)
+    // resends the same id on every retry of one queued sale.
+    clientCheckoutId: z.string().optional(),
   });
 
   app.post("/api/sales/checkout", isAuthenticated, async (req, res) => {
@@ -576,6 +583,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         balanceCollectedToday: data.balanceCollectedToday,
         splitPayments: data.splitPayments,
         pointsRedeemed: data.pointsRedeemed,
+        clientCheckoutId: data.clientCheckoutId,
       });
 
       if (!result.success) {

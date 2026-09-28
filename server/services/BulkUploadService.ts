@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { insertStaffSchema, auditLogBatches, type AuditLogBatchKind } from "@shared/schema";
+import { splitFullName } from "@shared/name-utils";
 import { z } from "zod";
 import { auditLogger } from "../audit";
 import { db } from "../db";
@@ -82,9 +83,12 @@ export class BulkUploadService {
     for (let i = 0; i < data.length; i++) {
       try {
         const row = data[i];
+        const { firstName, lastName } = splitFullName(row.name);
         const parsed = insertStaffSchema.parse({
           storeId,
-          name: row.name,
+          firstName,
+          lastName,
+          email: row.email,
           staffNumber: row.staffNumber,
           mobileNumber: row.mobileNumber,
           payPerMonth: parseFloat(row.payPerMonth) || 0,

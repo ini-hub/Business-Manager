@@ -1,7 +1,8 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
-import { generateToken, generateOrgSelectToken, generateContractPendingToken } from "../auth";
+import { generateToken, generateOrgSelectToken, generateContractPendingToken, generateProfilePendingToken } from "../auth";
 import { staffContractService } from "../services/StaffContractService";
+import { isHrProfileComplete } from "./hrProfileGate";
 import { broadcastDataChange } from "../websocket";
 
 /**
@@ -59,6 +60,49 @@ export async function completeLoginForUser(user: any, req: Request, res: Respons
           message: "Please review and sign your contract to continue.",
         });
         return;
+      }
+    }
+
+    // Same "closed the tab, came back and logged in normally" case as
+    // contract_pending above, one step later in onboarding: password is
+    // set, any required contract is signed, but required HR profile
+    // sections (personal/emergency/guarantor) are still outstanding.
+    const profilePendingMember = members.find((m: any) => m.status === "profile_pending");
+    if (profilePendingMember) {
+      const allStaff = await storage.getAllStaffByUserId(user.id);
+      let staffForOrg;
+      for (const s of allStaff) {
+        const store = await storage.getStore(s.storeId);
+        if (store?.businessId === profilePendingMember.organisationId) {
+          staffForOrg = s;
+          break;
+        }
+      }
+      if (staffForOrg) {
+        const gate = await isHrProfileComplete(staffForOrg.id, profilePendingMember.organisationId);
+        if (!gate.complete) {
+          const pendingToken = generateProfilePendingToken(user.id, staffForOrg.id);
+          res.cookie("profile_pending_token", pendingToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 2 * 60 * 60 * 1000,
+            sameSite: "lax",
+          });
+          res.json({
+            status: "profile_completion_required",
+            nextStep: "complete-profile",
+            outstandingSections: gate.outstandingSections,
+            message: "Please complete your profile to continue.",
+          });
+          return;
+        }
+        // The outstanding sections were completed some other way (e.g. an
+        // admin later disabled the section) since this member was last
+        // flipped to profile_pending - finish activating them now rather
+        // than leaving them stuck. Re-enter this function so the normal
+        // single/multi-org path below runs against the now-active member.
+        await storage.updateOrganisationMemberStatus(profilePendingMember.memberId || profilePendingMember.id, "active", new Date());
+        return completeLoginForUser(user, req, res);
       }
     }
 
@@ -185,6 +229,33 @@ export async function completeStaffActivation(user: any, res: Response): Promise
       nextStep: "sign-contract",
     });
     return;
+  }
+
+  // Same idea as the contract gate above, one step later: only a
+  // first-time activation (never-yet-active member) is gated on required
+  // HR profile sections - an already-active member re-running this path
+  // (e.g. a password reset) is never retroactively blocked.
+  if (activatedStaff && targetMember.status !== "active") {
+    const gate = await isHrProfileComplete(activatedStaff.id, targetMember.organisationId);
+    if (!gate.complete) {
+      targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "profile_pending");
+      broadcastDataChange(targetMember.organisationId, "staff", activatedStaff?.storeId, "updated");
+
+      const pendingToken = generateProfilePendingToken(user.id, activatedStaff.id);
+      res.cookie("profile_pending_token", pendingToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 2 * 60 * 60 * 1000,
+        sameSite: "lax",
+      });
+
+      res.json({
+        message: "Password set. Please complete your profile to continue.",
+        nextStep: "complete-profile",
+        outstandingSections: gate.outstandingSections,
+      });
+      return;
+    }
   }
 
   if (targetMember.status !== "active") {

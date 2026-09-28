@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import { csrfMiddleware } from "./csrf";
 import { startBookingReminderService } from "./services/BookingReminderService";
+import { startWhatsAppConversationTimeoutSweeper } from "./services/WhatsAppBookingConversationEngine";
 import { startCreditReminderService } from "./services/CreditReminderService";
 import { startTrialReminderService } from "./services/TrialReminderService";
 import { startFeatureSunsetReminderService } from "./services/FeatureSunsetReminderService";
@@ -164,6 +165,7 @@ app.use((req, res, next) => {
   }
 
   startBookingReminderService();
+  startWhatsAppConversationTimeoutSweeper();
   startCreditReminderService();
   startTrialReminderService();
   startFeatureSunsetReminderService();
@@ -172,6 +174,9 @@ app.use((req, res, next) => {
   // Flush any emails that queued while the server was down (e.g. Render free-tier spin-down)
   const { flushOnStartup } = await import("./services/EmailQueue");
   flushOnStartup();
+
+  const { flushOnStartup: flushWhatsAppOnStartup } = await import("./services/WhatsAppService");
+  flushWhatsAppOnStartup();
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

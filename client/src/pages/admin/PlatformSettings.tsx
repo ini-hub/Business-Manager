@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Settings, Clock, CreditCard, MessageSquare, Loader2 } from "lucide-react";
+import { Settings, Clock, CreditCard, MessageSquare, Phone, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +91,45 @@ export default function PlatformSettings() {
       toast({ title: "Payment credentials updated", description: "Takes effect immediately - no restart needed." });
     },
     onError: (err: Error) => toast({ title: "Couldn't update payment credentials", description: err.message, variant: "destructive" }),
+  });
+
+  // ---- WhatsApp Business Platform (Cloud API) ----
+  // The ONE Meta Tech Provider app this platform uses to receive webhooks for
+  // every connected business's WhatsApp number - distinct from a business's
+  // own number/WABA (connected separately, per store) and from the
+  // "SMS & WhatsApp" OTP-channel toggle further down.
+  const { data: waPlatformData, isLoading: waPlatformLoading } = useQuery<{ isActive: boolean; appSecretSet: boolean; verifyTokenSet: boolean }>({
+    queryKey: ["/api/admin/platform-config/whatsapp"],
+  });
+
+  const [waActive, setWaActive] = useState(false);
+  const [waAppSecret, setWaAppSecret] = useState("");
+  const [waVerifyToken, setWaVerifyToken] = useState("");
+
+  useEffect(() => {
+    if (waPlatformData) {
+      setWaActive(waPlatformData.isActive);
+      setWaAppSecret(waPlatformData.appSecretSet ? MASK : "");
+      setWaVerifyToken(waPlatformData.verifyTokenSet ? MASK : "");
+    }
+  }, [waPlatformData]);
+
+  const saveWhatsAppPlatformConfig = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", "/api/admin/platform-config/whatsapp", {
+        isActive: waActive,
+        appSecret: waAppSecret,
+        verifyToken: waVerifyToken,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to update WhatsApp platform configuration");
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-config/whatsapp"] });
+      toast({ title: "WhatsApp platform configuration updated", description: "Takes effect immediately - no restart needed." });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't update WhatsApp platform configuration", description: err.message, variant: "destructive" }),
   });
 
   // ---- SMS/WhatsApp configuration ----
@@ -203,6 +242,50 @@ export default function PlatformSettings() {
                 <Button onClick={() => saveCredentials.mutate()} disabled={saveCredentials.isPending}>
                   {saveCredentials.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Save Credentials
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Phone className="h-4 w-4" /> WhatsApp Business Platform
+          </CardTitle>
+          <CardDescription>
+            This platform's own Meta app credentials, used to receive WhatsApp webhooks for every connected business's number. Each
+            business connects its own WhatsApp number separately - this only configures the shared app secret and webhook verify token.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {waPlatformLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <Switch id="wa-active" checked={waActive} onCheckedChange={setWaActive} />
+                <Label htmlFor="wa-active" className="text-sm">Active</Label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">App Secret</Label>
+                  <Input type="password" value={waAppSecret} onChange={(e) => setWaAppSecret(e.target.value)} placeholder="Enter Meta app secret" className="font-mono text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Webhook Verify Token</Label>
+                  <Input type="password" value={waVerifyToken} onChange={(e) => setWaVerifyToken(e.target.value)} placeholder="Enter webhook verify token" className="font-mono text-sm" />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-end">
+                <Button onClick={() => saveWhatsAppPlatformConfig.mutate()} disabled={saveWhatsAppPlatformConfig.isPending}>
+                  {saveWhatsAppPlatformConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save WhatsApp Configuration
                 </Button>
               </div>
             </>

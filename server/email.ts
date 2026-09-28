@@ -296,6 +296,47 @@ export async function sendContractSignatureRequiredEmail(
   });
 }
 
+/**
+ * Delivers the guarantor signing link to the actual guarantor - the only
+ * automatic delivery channel for it (the employee can also copy/share the
+ * link manually from client/src/components/hr/GuarantorTab.tsx). Fire-and-
+ * forget from the guarantor/initiate routes (server/routes/hr.routes.ts,
+ * server/routes/profile-completion.routes.ts); a delivery failure here must
+ * never block the employee's own submission from being recorded, which is
+ * why callers wrap this in its own try/catch rather than awaiting it inline
+ * with the rest of the request.
+ */
+export async function sendGuarantorSigningRequestEmail(
+  to: string,
+  employeeName: string,
+  businessName: string,
+  signingLink: string
+): Promise<void> {
+  const safeEmployee = escapeHtml(employeeName);
+  const safeBusiness = escapeHtml(businessName);
+
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #4f46e5; margin-bottom: 20px;">You've been asked to act as a guarantor</h2>
+      <p>Hello,</p>
+      <p><strong>${safeEmployee}</strong> has listed you as their guarantor as part of their employment with <strong>${safeBusiness}</strong>. To complete this, please open the link below, fill in your details, and sign.</p>
+      <p style="color: #6b7280; font-size: 13px;">This link is unique to you and can only be used once - your submission cannot be edited after you sign.</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${signingLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Review &amp; Sign</a>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px;">If the button doesn't work, copy and paste this link into your browser:<br/>${signingLink}</p>
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
+    </div>
+  `;
+
+  await enqueueEmail({
+    to,
+    subject: `${sanitizeHeaderValue(employeeName)} has asked you to be their guarantor`,
+    html,
+  });
+}
+
 export async function sendOtpEmail(
   to: string,
   name: string,

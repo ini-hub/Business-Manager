@@ -28,7 +28,16 @@ export const staff = pgTable("staff", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   userId: varchar("user_id").references(() => users.id), // Link to user account for login
+  // Derived from firstName/lastName below - StaffRepository recomputes this
+  // on every create/update rather than accepting it as independently-typed
+  // input, so it can never drift from the two fields that are the real
+  // source of truth. Kept as a real column (not computed in SQL) because
+  // every existing read site (contracts e-signature matching, invite emails,
+  // staff list, reports) already reads plain staff.name and there's no
+  // reason to touch all of them - see migrations/0080_staff_first_last_name.sql.
   name: text("name").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   email: text("email").notNull(), // Required for login
   staffNumber: text("staff_number").notNull(),
   mobileNumber: text("mobile_number").notNull(),
@@ -91,7 +100,13 @@ export const staffRelations = relations(staff, ({ one, many }) => ({
 }));
 
 export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isArchived: true, userId: true }).extend({
-  name: trimmedString(1, "Staff name is required"),
+  // Callers submit firstName/lastName; `name` is always recomputed from
+  // those by StaffRepository (see the schema column's comment above), so
+  // it's optional here purely to satisfy drizzle-zod's inferred shape and is
+  // never trusted as submitted.
+  name: z.string().optional().default(""),
+  firstName: trimmedString(1, "First name is required"),
+  lastName: trimmedString(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),

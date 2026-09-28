@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -25,14 +24,13 @@ import type { Staff } from "@shared/schema";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { cn } from "@/lib/utils";
 import { BookingFormValues } from "./types";
+import { SegmentedControl } from "./segmented-control";
 
 interface StepScheduleProps {
   form: UseFormReturn<BookingFormValues>;
-  onBack: () => void;
-  onNext: () => void;
 }
 
-export function StepSchedule({ form, onBack, onNext }: StepScheduleProps) {
+export function StepSchedule({ form }: StepScheduleProps) {
   const { currentStore } = useStore();
   const [staffOpen, setStaffOpen] = useState(false);
 
@@ -43,15 +41,8 @@ export function StepSchedule({ form, onBack, onNext }: StepScheduleProps) {
     enabled: !!currentStore?.id,
   });
 
-  const handleNext = async () => {
-    const fieldsToValidate: (keyof BookingFormValues)[] = ["scheduledAt", "reminderPreference"];
-    if (watchType === "appointment") fieldsToValidate.push("time" as any);
-    const valid = await form.trigger(fieldsToValidate);
-    if (valid) onNext();
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -240,20 +231,21 @@ export function StepSchedule({ form, onBack, onNext }: StepScheduleProps) {
             name="reminderPreference"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Reminder Preference</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger id="booking-reminder-select">
-                      <SelectValue placeholder="Select reminder preference" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="sms">SMS</SelectItem>
-                    <SelectItem value="both">Both</SelectItem>
-                    <SelectItem value="none">None</SelectItem>
-                  </SelectContent>
-                </Select>
+                <FormLabel>Send reminder by</FormLabel>
+                <FormControl>
+                  <SegmentedControl
+                    id="booking-reminder-select"
+                    aria-label="Send reminder by"
+                    value={field.value}
+                    onChange={field.onChange}
+                    options={[
+                      { value: "whatsapp", label: "WhatsApp" },
+                      { value: "sms", label: "SMS" },
+                      { value: "both", label: "Both" },
+                      { value: "none", label: "None" },
+                    ]}
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -280,15 +272,6 @@ export function StepSchedule({ form, onBack, onNext }: StepScheduleProps) {
           />
         </CardContent>
       </Card>
-
-      <div className="flex justify-between gap-3">
-        <Button type="button" variant="outline" onClick={onBack} id="booking-back-step-3">
-          ← Back
-        </Button>
-        <Button type="button" onClick={handleNext} id="booking-next-step-3" className="min-w-[140px]">
-          Next: Payment →
-        </Button>
-      </div>
     </div>
   );
 }

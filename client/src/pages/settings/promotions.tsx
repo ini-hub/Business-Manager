@@ -177,7 +177,6 @@ export default function PromotionsPage() {
       <PageHeader
         title="Promotions Management"
         description="Configure Buy X Get Y and Spend X Get Y discounts for automated application at POS checkout."
-        compact
         actions={
           <>
             <BackToSettingsButton />

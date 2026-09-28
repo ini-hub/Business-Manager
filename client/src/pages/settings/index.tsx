@@ -10,6 +10,8 @@ import {
   Clock,
   BookOpen,
   Database,
+  MessageSquare,
+  Wallet,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -93,6 +95,20 @@ const STORE_SETTINGS: SettingsCard[] = [
     roles: ["owner", "manager"],
   },
   {
+    title: "WhatsApp Number",
+    description: "Connect or change the WhatsApp number this store's customers message.",
+    icon: MessageSquare,
+    href: "/settings/whatsapp-number",
+    roles: ["owner", "manager"],
+  },
+  {
+    title: "Capital & Assets",
+    description: "Record capital invested, assets owned, and liabilities owed — powers the Balance Sheet report.",
+    icon: Wallet,
+    href: "/settings/capital-assets",
+    roles: ["owner"],
+  },
+  {
     title: "Promotions",
     description: "Configure buy-X-get-Y and spend-threshold promotions.",
     icon: Tag,
@@ -171,7 +187,6 @@ export default function SettingsIndexPage() {
       <PageHeader
         title="Settings"
         description="Manage your business configuration, stores, and compliance settings."
-        compact
       />
 
       <SettingsSection

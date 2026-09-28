@@ -79,6 +79,19 @@ export const objectStorage = {
   },
 
   /**
+   * Downloads the full object into memory. Only safe for small, size-capped
+   * uploads - used by server/lib/malwareScan.ts to scan contract files
+   * (capped at MAX_CONTRACT_FILE_SIZE_BYTES, 10 MB) before they are ever
+   * presented for review/signature.
+   */
+  async getObjectBuffer(key: string): Promise<Buffer> {
+    const result = await getClient().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+    const body = result.Body as { transformToByteArray?: () => Promise<Uint8Array> } | undefined;
+    if (!body?.transformToByteArray) throw new Error(`Could not read object body for ${key}.`);
+    return Buffer.from(await body.transformToByteArray());
+  },
+
+  /**
    * Not exercised by this feature today - contract versions are immutable
    * and never deleted, only superseded. Present for completeness / future use.
    */

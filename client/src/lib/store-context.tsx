@@ -17,6 +17,7 @@ interface StoreContextType {
   archiveStore: (id: string) => Promise<Store>;
   restoreStore: (id: string) => Promise<Store>;
   deleteStore: (id: string) => Promise<void>;
+  setMainStore: (id: string) => Promise<Store>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -58,7 +59,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } as any);
       } else {
         const savedStore = savedStoreId ? activeStores.find(s => s.id === savedStoreId) : null;
-        setCurrentStoreState(savedStore || activeStores[0]);
+        setCurrentStoreState(savedStore || activeStores.find(s => s.isMain) || activeStores[0]);
       }
     }
   }, [activeStores, storageKey, user, business]);
@@ -138,6 +139,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const setMainStoreMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/stores/${id}/set-main`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stores", business?.id] });
+    },
+  });
+
   const value: StoreContextType = {
     business: business || null,
     stores,
@@ -151,6 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     archiveStore: archiveStoreMutation.mutateAsync,
     restoreStore: restoreStoreMutation.mutateAsync,
     deleteStore: deleteStoreMutation.mutateAsync,
+    setMainStore: setMainStoreMutation.mutateAsync,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { StaffContractRepository } from "../repositories/StaffContractRepository";
 import { objectStorage } from "../lib/objectStorage";
+import { scanBuffer } from "../lib/malwareScan";
 import { sendContractDeclinedEmail } from "../email";
 import {
   ALLOWED_CONTRACT_MIME_TYPES,
@@ -104,6 +105,21 @@ export class StaffContractService {
         return { kind: "invalid", reason: "File is larger than the 10 MB limit." };
       }
 
+      // Scanned before this version is ever committed - a contract row must
+      // never point at an unscanned or infected object. See
+      // server/lib/malwareScan.ts.
+      let fileBuffer: Buffer;
+      try {
+        fileBuffer = await objectStorage.getObjectBuffer(input.storageKey);
+      } catch (error) {
+        return { kind: "invalid", reason: "Could not read the uploaded file for scanning. Please upload it again." };
+      }
+      const scan = await scanBuffer(fileBuffer, input.fileOriginalName);
+      if (!scan.clean) {
+        await objectStorage.deleteObject(input.storageKey).catch(() => undefined);
+        return { kind: "invalid", reason: "This file failed a security scan and cannot be attached. Please upload a different file." };
+      }
+
       versionPayload = {
         contractType: input.contractType,
         contentText: null,
@@ -114,8 +130,6 @@ export class StaffContractService {
         altText: input.contractType === "image" ? input.altText : null,
         contentHash: this.hashObjectIdentity(input.storageKey, meta),
       };
-      // TODO: run malware scan on storage_key before it is ever presented for
-      // review/signature. No scanning infra exists yet - see plan doc.
     }
 
     if (!existing) {

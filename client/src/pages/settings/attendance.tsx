@@ -22,7 +22,6 @@ export default function SettingsAttendancePage() {
       <PageHeader
         title="Attendance & Clock-In"
         description="Configure clock-in, geofencing, and late-deduction rules."
-        compact
         actions={<BackToSettingsButton />}
       />
       {!currentStore || currentStore.id === "all" ? (

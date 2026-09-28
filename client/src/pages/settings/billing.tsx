@@ -58,7 +58,6 @@ export default function BillingSettingsPage() {
       <PageHeader
         title="Billing"
         description="View your trial status, manage your plan, and update payment details."
-        compact
         actions={
           <>
             <BackToSettingsButton />

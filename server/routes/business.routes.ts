@@ -13,6 +13,7 @@ import {
   insertStoreIntegrationSchema,
   insertExpenseSchema,
   type UserRole,
+  type Store,
   orders,
   checkouts,
   promotions,
@@ -44,6 +45,7 @@ import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusiness
 import { withCustomerId } from '../utils/slug-resolver';
 import { requireCountLimit } from "../lib/entitlements";
 import { splitNormalizedPhone } from "@shared/phone-utils";
+import { splitFullName } from "@shared/name-utils";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -288,6 +290,73 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
+  // Automatically add the owner to the staff list of a newly created store.
+  // Name/mobile come from the real users row, not req.user (the JWT
+  // payload - see JWTPayload in server/auth.ts - carries neither name
+  // nor phone, so reading user.name/user.phone here always fell through
+  // to the placeholder text and "0000000000"). Kept in step afterward
+  // by IdentitySync whenever the owner edits their profile or verifies
+  // a phone change. Best-effort: a failure here shouldn't fail store creation.
+  async function addOwnerAsStaff(store: Store, req: Request): Promise<void> {
+    try {
+      const sessionUser = (req as any).user;
+      if (sessionUser && sessionUser.id) {
+        const activeBusinessId = sessionUser.businessId;
+        const [business, ownerUser] = await Promise.all([
+          activeBusinessId ? storage.getBusinessById(activeBusinessId) : Promise.resolve(undefined),
+          storage.getUser(sessionUser.id),
+        ]);
+        const splitPhone = ownerUser?.phone ? splitNormalizedPhone(ownerUser.phone) : undefined;
+        const ownerFullName = ownerUser?.name || (business?.name ? `${business.name} Owner` : "Business Owner");
+        const { firstName, lastName } = splitFullName(ownerFullName);
+        await storage.createStaff({
+          storeId: store.id,
+          userId: sessionUser.id,
+          name: "", // recomputed from firstName/lastName by StaffRepository.createStaff
+          firstName: firstName || ownerFullName,
+          lastName,
+          email: ownerUser?.email || sessionUser.email || "owner@example.com",
+          mobileNumber: splitPhone?.localNumber || "0000000000",
+          countryCode: splitPhone?.countryCode || "+234",
+          role: "owner",
+          payPerMonth: 0,
+          signedContract: true,
+          staffNumber: "",
+          paymentMethod: "hybrid"
+        });
+      }
+    } catch (err) {
+      console.error("Failed to auto-create owner staff record:", err);
+    }
+  }
+
+  // Generates a store name/code that isn't already taken within the
+  // business - "Main Store"/"MAIN" for a brand-new business, falling back
+  // to a numeric suffix on the rare chance either is already in use.
+  async function createDefaultStore(businessId: string): Promise<Store> {
+    let suffix = 1;
+    let name = "Main Store";
+    let code = "MAIN";
+    while (await storage.getStoreByName(businessId, name) || await storage.getStoreByCode(businessId, code)) {
+      suffix += 1;
+      name = `Main Store ${suffix}`;
+      code = `MAIN${suffix}`;
+    }
+    const isMain = (await storage.getStores(businessId)).length === 0;
+    return storage.createStore({
+      ...insertStoreSchema.parse({
+        businessId,
+        name,
+        code,
+        country: "NG",
+        currency: "NGN",
+        phoneCountryCode: "+234",
+        timezone: "Africa/Lagos",
+      }),
+      isMain,
+    });
+  }
+
   // requireCountLimit gates the 1-free-store tier (§1): each additional
   // store needs the store_addon entitlement. See the matching comment on
   // POST /api/staff in server/routes/staff.routes.ts.
@@ -313,41 +382,9 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(400).json({ error: `Store Creation Failed: A store with code "${data.code}" already exists.` });
       }
 
-      const store = await storage.createStore(data);
-
-      // Automatically add the owner to the staff list of their new store.
-      // Name/mobile come from the real users row, not req.user (the JWT
-      // payload - see JWTPayload in server/auth.ts - carries neither name
-      // nor phone, so reading user.name/user.phone here always fell through
-      // to the placeholder text and "0000000000"). Kept in step afterward
-      // by IdentitySync whenever the owner edits their profile or verifies
-      // a phone change.
-      try {
-        const sessionUser = (req as any).user;
-        if (sessionUser && sessionUser.id) {
-          const activeBusinessId = sessionUser.businessId;
-          const [business, ownerUser] = await Promise.all([
-            activeBusinessId ? storage.getBusinessById(activeBusinessId) : Promise.resolve(undefined),
-            storage.getUser(sessionUser.id),
-          ]);
-          const splitPhone = ownerUser?.phone ? splitNormalizedPhone(ownerUser.phone) : undefined;
-          await storage.createStaff({
-            storeId: store.id,
-            userId: sessionUser.id,
-            name: ownerUser?.name || (business?.name ? `${business.name} Owner` : "Business Owner"),
-            email: ownerUser?.email || sessionUser.email || "owner@example.com",
-            mobileNumber: splitPhone?.localNumber || "0000000000",
-            countryCode: splitPhone?.countryCode || "+234",
-            role: "owner",
-            payPerMonth: 0,
-            signedContract: true,
-            staffNumber: "",
-            paymentMethod: "hybrid"
-          });
-        }
-      } catch (err) {
-        console.error("Failed to auto-create owner staff record:", err);
-      }
+      const isMain = (await storage.getStores(userBusinessId)).length === 0;
+      const store = await storage.createStore({ ...data, isMain });
+      await addOwnerAsStaff(store, req);
 
       res.status(201).json(store);
     } catch (error) {
@@ -355,6 +392,29 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
       res.status(500).json({ error: "We couldn't create the store. Please try again." });
+    }
+  });
+
+  // Lets an owner skip past onboarding's store-setup step straight to the
+  // dashboard - we still need a store for staff/inventory/sales to attach
+  // to, so this creates one on their behalf ("Main Store"/"MAIN") instead
+  // of making them fill out the form.
+  app.post("/api/stores/skip-setup", requireRole("owner"), requireCountLimit("store_count"), async (req, res) => {
+    try {
+      const userBusinessId = (req as any).user?.businessId;
+      if (!userBusinessId) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
+
+      const store = await createDefaultStore(userBusinessId);
+      await addOwnerAsStaff(store, req);
+
+      res.status(201).json(store);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: formatZodErrors(error.errors) });
+      }
+      res.status(500).json({ error: "We couldn't set up your store. Please try again." });
     }
   });
 
@@ -401,6 +461,33 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
+  // Designates this store as the business's main store, unsetting the
+  // previous one atomically (BusinessRepository.setMainStore).
+  app.post("/api/stores/:id/set-main", requireRole("owner"), async (req, res) => {
+    try {
+      const store = await storage.getStore(req.params.id);
+      if (!store) {
+        return res.status(404).json({ error: "Store not found." });
+      }
+      if (store.businessId !== (req as any).user?.businessId) {
+        return res.status(403).json({ error: "Unauthorized access to store data." });
+      }
+      if (!store.isActive) {
+        return res.status(400).json({ error: "Only active stores can be set as main." });
+      }
+      if (store.isMain) {
+        return res.json(store);
+      }
+
+      const updated = await storage.setMainStore(store.businessId, store.id);
+      const ctx = await getAuditContext(req, { storeId: req.params.id });
+      auditLogger.logEvent(ctx, "UPDATE", "store", req.params.id, "success", { previousValues: store, newValues: updated, details: { action: "set_main_store" } });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't update the main store. Please try again." });
+    }
+  });
+
   // Archive a store: hides it (excluded from the store switcher) without
   // touching its customers/staff/inventory - the low-friction default for
   // "we don't use this branch anymore." Mirrors the staff archive pattern.
@@ -418,6 +505,11 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (store.isActive && activeStoreCount <= 1) {
         return res.status(400).json({
           error: "You must have at least one active store. Please create another store before archiving this one."
+        });
+      }
+      if (store.isMain) {
+        return res.status(400).json({
+          error: "Set another store as main before archiving this one."
         });
       }
 

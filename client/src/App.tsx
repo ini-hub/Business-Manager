@@ -310,7 +310,10 @@ function AuthenticatedLayout() {
     enabled: !!user,
   });
 
-  const hasStores = !storesLoading && Array.isArray(stores) && stores.length > 0;
+  // Onboarding is "done" once the business has a designated main store, not
+  // merely any store - keeps this gate in sync with server-assigned isMain
+  // (see server/routes/business.routes.ts createDefaultStore / POST /api/stores).
+  const hasMainStore = !storesLoading && Array.isArray(stores) && stores.some((s: any) => s.isMain);
 
   // True only for a trialing org's owner who hasn't clicked through the
   // blocking "your 14-day free trial starts now" notice yet
@@ -328,10 +331,10 @@ function AuthenticatedLayout() {
   // guard on needsTrialConsent so a brand-new owner sees the trial notice
   // before, not racing, the redirect into the onboarding wizard.
   useEffect(() => {
-    if (!storesLoading && !businessLoading && !hasStores && !isOrgLocked(business) && !needsTrialConsent && location !== "/onboarding") {
+    if (!storesLoading && !businessLoading && !hasMainStore && !isOrgLocked(business) && !needsTrialConsent && location !== "/onboarding") {
       setLocation("/onboarding");
     }
-  }, [storesLoading, businessLoading, hasStores, business, needsTrialConsent, location, setLocation]);
+  }, [storesLoading, businessLoading, hasMainStore, business, needsTrialConsent, location, setLocation]);
 
   // Global power-user navigation keyboard shortcuts (Alt/Option modifier)
   useEffect(() => {
@@ -407,7 +410,7 @@ function AuthenticatedLayout() {
     return <TrialWelcomeNotice business={business} />;
   }
 
-  if (!hasStores) return null;
+  if (!hasMainStore) return null;
 
   return (
     <StoreProvider>

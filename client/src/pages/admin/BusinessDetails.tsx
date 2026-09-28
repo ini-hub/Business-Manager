@@ -40,6 +40,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HrProfileConfig } from "./HrProfileConfig";
 
 export default function BusinessDetails() {
   const { id } = useParams<{ id: string }>();
@@ -319,6 +320,7 @@ export default function BusinessDetails() {
               <TabsTrigger value="users" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">Roster</TabsTrigger>
               <TabsTrigger value="transactions" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">Transactions</TabsTrigger>
               <TabsTrigger value="logs" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">Audit trail</TabsTrigger>
+              <TabsTrigger value="hr-profile" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">HR Profile</TabsTrigger>
             </TabsList>
 
             {/* Overview Tab Content */}
@@ -527,6 +529,10 @@ export default function BusinessDetails() {
                   ))
                 )}
               </div>
+            </TabsContent>
+
+            <TabsContent value="hr-profile" className="animate-in fade-in duration-300">
+              <HrProfileConfig businessId={id} />
             </TabsContent>
           </Tabs>
         </div>

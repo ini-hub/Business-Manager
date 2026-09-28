@@ -1,0 +1,15 @@
+-- 0077_hr_field_validation.sql
+--
+-- Adds Google-Forms-style "response validation" to the HR dynamic field
+-- builder (hr_field_definitions). Until now a field's fieldType only chose
+-- which input widget to render (client/src/components/hr/DynamicFieldForm.tsx)
+-- and which storage column to write (server/services/HrPersonalProfileService.ts)
+-- - there was no format/range enforcement at all, so a "phone" field happily
+-- accepted "abc" and required fields could be saved empty.
+--
+-- `validation` is a single jsonb bag rather than typed columns because its
+-- shape depends on fieldType (minLength/maxLength/pattern for text, min/max
+-- for number, minLength/maxLength for phone, ...) - see
+-- shared/hr-field-validation.ts for the shared enforcement logic and
+-- shared/schema/hr-field-definitions.ts for the zod shape admins submit.
+ALTER TABLE "hr_field_definitions" ADD COLUMN IF NOT EXISTS "validation" jsonb;

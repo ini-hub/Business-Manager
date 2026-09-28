@@ -15,11 +15,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 import { WizardProgress } from "./wizard-progress";
+import { BookingSidebar } from "./booking-sidebar";
 import { StepCustomer } from "./step-customer";
 import { StepItems } from "./step-items";
 import { StepSchedule } from "./step-schedule";
 import { StepSummary } from "./step-summary";
-import { bookingFormSchema, BookingFormValues, WizardStep } from "./types";
+import { bookingFormSchema, BookingFormValues, STEP_FIELDS, WizardStep, WIZARD_STEPS } from "./types";
 
 export default function BookingFormPage() {
   const { id } = useParams();
@@ -165,6 +166,16 @@ export default function BookingFormPage() {
     setCurrentStep(to);
   };
 
+  const stepIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
+  const nextStepId = WIZARD_STEPS[stepIndex + 1]?.id;
+  const prevStepId = stepIndex > 0 ? WIZARD_STEPS[stepIndex - 1].id : undefined;
+
+  const handleSidebarNext = async () => {
+    const fields = STEP_FIELDS[currentStep];
+    const valid = fields.length === 0 || (await form.trigger(fields));
+    if (valid && nextStepId) goNext(currentStep, nextStepId);
+  };
+
   const onSubmit = (values: BookingFormValues) => {
     mutation.mutate(values);
   };
@@ -221,32 +232,33 @@ export default function BookingFormPage() {
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          {currentStep === "customer" && (
-            <StepCustomer
-              form={form}
-              onNext={() => goNext("customer", "items")}
-            />
-          )}
-          {currentStep === "items" && (
-            <StepItems
-              form={form}
-              onBack={() => goBack("customer")}
-              onNext={() => goNext("items", "schedule")}
-            />
-          )}
-          {currentStep === "schedule" && (
-            <StepSchedule
-              form={form}
-              onBack={() => goBack("items")}
-              onNext={() => goNext("schedule", "summary")}
-            />
-          )}
-          {currentStep === "summary" && (
+          {currentStep === "summary" ? (
             <StepSummary
               form={form}
               onBack={() => goBack("schedule")}
               isSubmitting={mutation.isPending}
             />
+          ) : (
+            <div className="flex flex-col lg:flex-row gap-6 items-start">
+              <div className="flex-grow min-w-0 flex flex-col gap-5">
+                {currentStep === "customer" && <StepCustomer form={form} />}
+                {currentStep === "items" && <StepItems form={form} />}
+                {currentStep === "schedule" && <StepSchedule form={form} />}
+              </div>
+              <BookingSidebar
+                form={form}
+                nextLabel={
+                  currentStep === "customer"
+                    ? "Continue to items"
+                    : currentStep === "items"
+                    ? "Continue to schedule"
+                    : "Continue to payment"
+                }
+                onNext={handleSidebarNext}
+                onBack={prevStepId ? () => goBack(prevStepId) : undefined}
+                backLabel={prevStepId ? `Back to ${WIZARD_STEPS.find((s) => s.id === prevStepId)?.label.toLowerCase()}` : undefined}
+              />
+            </div>
           )}
         </form>
       </Form>

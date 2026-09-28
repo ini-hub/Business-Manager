@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, numeric, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, unique, uniqueIndex, numeric, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { trimmedString, optionalTrimmedString } from "./_helpers";
@@ -23,6 +23,7 @@ export const stores = pgTable("stores", {
   commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).$type<number>().notNull().default(0.3000), // Default 30% service commission
   managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
+  isMain: boolean("is_main").notNull().default(false), // The business's primary store - at most one per business, enforced below
   createdAt: timestamp("created_at").notNull().defaultNow(),
   commissionSplitOverride: boolean("commission_split_override").notNull().default(false),
   commissionSplitBusinessShare: integer("commission_split_business_share").notNull().default(80),
@@ -30,6 +31,7 @@ export const stores = pgTable("stores", {
 }, (table) => [
   unique("store_business_name_unique").on(table.businessId, table.name),
   unique("store_business_code_unique").on(table.businessId, table.code),
+  uniqueIndex("uq_stores_single_main_per_business").on(table.businessId).where(sql`is_main = true`),
 ]);
 
 export const storesRelations = relations(stores, ({ one, many }) => ({
@@ -44,7 +46,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   storeCounters: many(storeCounters),
 }));
 
-export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, createdAt: true }).extend({
+export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, createdAt: true, isMain: true }).extend({
   name: trimmedString(1, "Store name is required"),
   code: z.string().transform(s => s.trim().toUpperCase()).pipe(z.string().min(1, "Store code is required")),
   address: optionalTrimmedString(),

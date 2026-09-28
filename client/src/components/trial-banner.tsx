@@ -45,9 +45,10 @@ export function TrialBanner({ business }: { business: Business | null | undefine
       <Link
         href="/settings/billing"
         data-testid="link-trial-banner"
-        className="hidden sm:flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors"
+        className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors"
       >
-        You're on the free plan · Add features any time
+        <span className="sm:hidden">Free plan</span>
+        <span className="hidden sm:inline">You're on the free plan · Add features any time</span>
       </Link>
     );
   }

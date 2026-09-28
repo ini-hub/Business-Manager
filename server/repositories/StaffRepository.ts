@@ -37,6 +37,7 @@ import {
 import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull, inArray } from "drizzle-orm";
 import { commissionService } from "../services/CommissionService";
 import type { PaginationOptions, PaginatedResult } from "../storage";
+import { joinFullName as composeFullName } from "@shared/name-utils";
 
 export class StaffRepository {
   // ─── Revenue share helper ─────────────────────────────────────────────────
@@ -278,14 +279,30 @@ export class StaffRepository {
       ...staffMember,
       email: staffMember.email.toLowerCase(),
       staffNumber,
+      // `name` is derived, never trusted as submitted input - see the
+      // column's comment in shared/schema/staff.ts. firstName/lastName are
+      // required by insertStaffSchema, so this is always the real full name.
+      name: composeFullName(staffMember.firstName, staffMember.lastName),
     }).returning();
     return newStaff;
   }
 
   async updateStaff(id: string, staffData: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined> {
-    const normalizedData = staffData.email
+    let normalizedData = staffData.email
       ? { ...staffData, email: staffData.email.toLowerCase() }
       : staffData;
+
+    if (normalizedData.firstName !== undefined || normalizedData.lastName !== undefined) {
+      const [current] = await db.select({ firstName: staff.firstName, lastName: staff.lastName }).from(staff).where(eq(staff.id, id));
+      normalizedData = {
+        ...normalizedData,
+        name: composeFullName(
+          normalizedData.firstName !== undefined ? normalizedData.firstName : current?.firstName,
+          normalizedData.lastName !== undefined ? normalizedData.lastName : current?.lastName,
+        ),
+      };
+    }
+
     const [updated] = await db.update(staff).set(normalizedData).where(eq(staff.id, id)).returning();
     return updated;
   }

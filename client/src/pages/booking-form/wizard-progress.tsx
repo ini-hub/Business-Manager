@@ -12,57 +12,55 @@ export function WizardProgress({ currentStep, completedSteps, onStepClick }: Wiz
   const currentIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
 
   return (
-    <div className="relative">
-      {/* Connector line */}
-      <div className="absolute left-0 right-0 top-5 h-px bg-border hidden sm:block" />
-      <ol className="relative z-10 flex justify-between gap-2">
-        {WIZARD_STEPS.map((step, idx) => {
-          const isCompleted = completedSteps.has(step.id);
-          const isCurrent = step.id === currentStep;
-          const isAccessible = idx <= currentIndex || isCompleted;
+    <ol aria-label="Booking steps" className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {WIZARD_STEPS.map((step, idx) => {
+        const isCompleted = completedSteps.has(step.id);
+        const isCurrent = step.id === currentStep;
+        const isAccessible = idx <= currentIndex || isCompleted;
 
-          return (
-            <li key={step.id} className="flex flex-col items-center gap-2 flex-1">
-              <button
-                type="button"
-                onClick={() => isAccessible && onStepClick(step.id)}
-                disabled={!isAccessible}
+        return (
+          <li key={step.id}>
+            <button
+              type="button"
+              onClick={() => isAccessible && onStepClick(step.id)}
+              disabled={!isAccessible}
+              aria-current={isCurrent ? "step" : undefined}
+              className={cn(
+                "w-full flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left bg-card transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isCurrent ? "border-2 border-primary" : "border-border",
+                isAccessible ? "cursor-pointer hover:border-primary/50" : "cursor-not-allowed opacity-60"
+              )}
+            >
+              <span
                 className={cn(
-                  "h-10 w-10 rounded-full flex items-center justify-center border-2 text-sm font-semibold transition-all duration-200",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  isCompleted &&
-                    "bg-primary border-primary text-primary-foreground shadow-md shadow-primary/20",
-                  isCurrent &&
-                    !isCompleted &&
-                    "bg-background border-primary text-primary shadow-md shadow-primary/20 ring-4 ring-primary/10",
-                  !isCurrent &&
-                    !isCompleted &&
-                    "bg-muted border-muted-foreground/30 text-muted-foreground",
-                  isAccessible && "cursor-pointer hover:opacity-80",
-                  !isAccessible && "cursor-not-allowed opacity-50"
+                  "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                  isCompleted
+                    ? "bg-emerald-600 text-white"
+                    : isCurrent
+                    ? "bg-primary text-primary-foreground"
+                    : "border-[1.5px] border-muted-foreground/40 text-muted-foreground"
                 )}
-                aria-label={`Step ${idx + 1}: ${step.label}`}
-                aria-current={isCurrent ? "step" : undefined}
               >
-                {isCompleted ? <Check className="h-5 w-5" /> : <span>{idx + 1}</span>}
-              </button>
-              <div className="text-center hidden sm:block">
-                <p
+                {isCompleted ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : idx + 1}
+              </span>
+              <span className="flex flex-col min-w-0">
+                <span
                   className={cn(
-                    "text-xs font-semibold leading-tight",
-                    isCurrent ? "text-foreground" : "text-muted-foreground"
+                    "text-sm leading-tight truncate",
+                    isCurrent ? "font-bold text-foreground" : "font-semibold text-foreground/90"
                   )}
                 >
                   {step.label}
-                </p>
-                <p className="text-[10px] text-muted-foreground leading-tight hidden md:block">
+                </span>
+                <span className="text-xs text-muted-foreground leading-tight truncate hidden sm:block">
                   {step.description}
-                </p>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
+                </span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

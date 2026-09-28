@@ -22,7 +22,6 @@ export default function SettingsPaymentIntegrationsPage() {
       <PageHeader
         title="Payment Integrations"
         description="Connect Flutterwave, Stripe, or Paystack for this store's own checkout."
-        compact
         actions={<BackToSettingsButton />}
       />
       {!currentStore || currentStore.id === "all" ? (

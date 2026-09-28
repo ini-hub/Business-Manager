@@ -152,7 +152,7 @@ export const passwordSchema = z.string()
   .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
   .regex(/[a-z]/, "Password must contain at least one lowercase letter")
   .regex(/[0-9]/, "Password must contain at least one number")
-  .regex(/[!@#$%^&*(),.?":{}|<>]/, "Password must contain at least one symbol")
+  .regex(/[!@#$%^&*(),.?":{}|<>_\-+=~`\[\];'\/\\]/, "Password must contain at least one symbol")
   .regex(/^\S*$/, "Password must not contain spaces");
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true }).extend({

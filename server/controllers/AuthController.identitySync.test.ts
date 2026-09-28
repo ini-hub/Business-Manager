@@ -49,8 +49,8 @@ describe("AuthController - identity sync with linked staff rows", () => {
 
     expect(S.updateUser).toHaveBeenCalledWith("user-1", { name: "Folakemi", profilePhotoUrl: undefined });
     expect(S.getAllStaffByUserId).toHaveBeenCalledWith("user-1");
-    expect(S.updateStaff).toHaveBeenCalledWith("staff-1", { name: "Folakemi" });
-    expect(S.updateStaff).toHaveBeenCalledWith("staff-2", { name: "Folakemi" });
+    expect(S.updateStaff).toHaveBeenCalledWith("staff-1", { firstName: "Folakemi", lastName: "" });
+    expect(S.updateStaff).toHaveBeenCalledWith("staff-2", { firstName: "Folakemi", lastName: "" });
   });
 
   it("updateProfile does not touch staff rows when name is not part of the request", async () => {

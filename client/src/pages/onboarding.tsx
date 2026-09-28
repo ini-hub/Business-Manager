@@ -15,7 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight, Upload } from "lucide-react";
+import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight, Upload, Wallet } from "lucide-react";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { uploadContractFileToStaging } from "@/lib/contract-upload";
 
@@ -38,7 +38,8 @@ const storeSchema = z.object({
 });
 
 const staffSchema = z.object({
-  name: z.string().min(1, "Staff name is required"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
   email: z.string().trim().email("Enter a valid email address (e.g. name@example.com)."),
   mobileNumber: z.string().min(1, "Phone number is required"),
   countryCode: z.string().default("+234"),
@@ -54,13 +55,19 @@ const inventorySchema = z.object({
   quantity: z.coerce.number().int().min(0).default(0),
 });
 
+const capitalSchema = z.object({
+  initialCapital: z.coerce.number().min(0).optional(),
+  openingCash: z.coerce.number().min(0).optional(),
+});
+
 // ─── Step Configuration ────────────────────────────────────────────────────────
 
 const STEPS = [
   { id: 1, label: "Store", icon: Store, description: "Create your first store location" },
   { id: 2, label: "Staff", icon: Users, description: "Add a staff member" },
   { id: 3, label: "Inventory", icon: Package, description: "Add your first product or service" },
-  { id: 4, label: "Start Selling", icon: ShoppingCart, description: "You're ready to go!" },
+  { id: 4, label: "Capital", icon: Wallet, description: "Record what you've invested so far" },
+  { id: 5, label: "Start Selling", icon: ShoppingCart, description: "You're ready to go!" },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -97,11 +104,25 @@ export default function OnboardingWizard() {
     onError: (error: Error) => toast({ title: "Failed to create store", description: getUserFriendlyError(error, "store"), variant: "destructive" }),
   });
 
+  const skipMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/stores/skip-setup", {});
+      return res.json();
+    },
+    onSuccess: async (store) => {
+      logFunnelEvent("onboarding_skipped_to_dashboard");
+      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+      toast({ title: "You're all set!", description: `We created "${store.name}" for you. You can rename it anytime from Settings.` });
+      await finishOnboarding("/");
+    },
+    onError: (error: Error) => toast({ title: "Couldn't skip setup", description: getUserFriendlyError(error, "store"), variant: "destructive" }),
+  });
+
   // ── Step 2: Staff ──────────────────────────────────────────────────────────
 
   const staffForm = useForm<z.infer<typeof staffSchema>>({
     resolver: zodResolver(staffSchema),
-    defaultValues: { name: "", email: "", mobileNumber: "", countryCode: "+234", role: "staff", payPerMonth: 0 },
+    defaultValues: { firstName: "", lastName: "", email: "", mobileNumber: "", countryCode: "+234", role: "staff", payPerMonth: 0 },
   });
 
   // Optional contract, attached inline the same way as the standalone New
@@ -164,15 +185,71 @@ export default function OnboardingWizard() {
 
   const inventoryMutation = useMutation({
     mutationFn: async (data: z.infer<typeof inventorySchema>) => {
-      const res = await apiRequest("POST", "/api/inventory", { ...data, storeId: createdStoreId });
-      return res.json();
+      // Matches the current product+variant model (see client/src/pages/inventory-new.tsx):
+      // a product "group" is created first, then a single default variant carrying
+      // the actual price/stock. The legacy flat POST /api/inventory shape is stale.
+      const parentRes = await apiRequest("POST", "/api/products", {
+        storeId: createdStoreId,
+        name: data.name,
+        type: data.type,
+      });
+      const product = await parentRes.json();
+      const variantRes = await apiRequest("POST", `/api/products/${product.id}/variants`, {
+        name: data.name,
+        costPrice: data.costPrice,
+        sellingPrice: data.sellingPrice,
+        quantity: data.quantity,
+        sku: `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      });
+      return variantRes.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       toast({ title: "Item added to inventory!" });
       setStep(4);
     },
     onError: (error: Error) => toast({ title: "Failed to add item", description: getUserFriendlyError(error, "inventory"), variant: "destructive" }),
+  });
+
+  // ── Step 4: Capital ────────────────────────────────────────────────────────
+  // Optional. Feeds the Balance Sheet / true-profitability report
+  // (client/src/pages/balance-sheet.tsx) - capital invested and opening cash
+  // let that report compute ROI and net worth alongside the existing P&L.
+  // Fillable later from Settings → Capital & Assets if skipped here.
+
+  const capitalForm = useForm<z.infer<typeof capitalSchema>>({
+    resolver: zodResolver(capitalSchema),
+    defaultValues: { initialCapital: undefined, openingCash: undefined },
+  });
+
+  const capitalMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof capitalSchema>) => {
+      const today = new Date().toISOString().slice(0, 10);
+      if (data.initialCapital && data.initialCapital > 0) {
+        await apiRequest("POST", "/api/accounting/capital", {
+          storeId: createdStoreId,
+          type: "capital_injection",
+          amount: data.initialCapital,
+          description: "Initial capital invested (onboarding)",
+          date: today,
+        });
+      }
+      if (data.openingCash && data.openingCash > 0) {
+        await apiRequest("POST", "/api/accounting/assets", {
+          storeId: createdStoreId,
+          name: "Opening cash",
+          category: "cash",
+          value: data.openingCash,
+          acquiredDate: today,
+        });
+      }
+    },
+    onSuccess: () => {
+      toast({ title: "Capital recorded!" });
+      setStep(5);
+    },
+    onError: (error: Error) => toast({ title: "Failed to record capital", description: getUserFriendlyError(error, "capital"), variant: "destructive" }),
   });
 
   const finishOnboarding = async (destination: string = "/") => {
@@ -272,9 +349,14 @@ export default function OnboardingWizard() {
                       </FormItem>
                     )} />
                   </div>
-                  <Button type="submit" className="w-full" disabled={storeMutation.isPending}>
-                    {storeMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : <>Create Store <ChevronRight className="h-4 w-4 ml-1" /></>}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => skipMutation.mutate()} disabled={skipMutation.isPending || storeMutation.isPending}>
+                      {skipMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Setting up...</> : "Skip to Dashboard"}
+                    </Button>
+                    <Button type="submit" className="flex-1" disabled={storeMutation.isPending || skipMutation.isPending}>
+                      {storeMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : <>Create Store <ChevronRight className="h-4 w-4 ml-1" /></>}
+                    </Button>
+                  </div>
                 </form>
               </Form>
             </CardContent>
@@ -291,10 +373,17 @@ export default function OnboardingWizard() {
               <Form {...staffForm}>
                 <form onSubmit={staffForm.handleSubmit(onStaffSubmit)} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <FormField control={staffForm.control} name="name" render={({ field }) => (
+                    <FormField control={staffForm.control} name="firstName" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Full Name</FormLabel>
-                        <FormControl><Input placeholder="Jane Doe" {...field} /></FormControl>
+                        <FormLabel>First Name</FormLabel>
+                        <FormControl><Input placeholder="Jane" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={staffForm.control} name="lastName" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Last Name</FormLabel>
+                        <FormControl><Input placeholder="Doe" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -494,6 +583,45 @@ export default function OnboardingWizard() {
         )}
 
         {step === 4 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Record Your Capital</CardTitle>
+              <CardDescription>How much have you invested in this business so far? This powers your true-profitability report (ROI on what you put in, not just sales minus expenses). You can skip this and add it later from Settings.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Form {...capitalForm}>
+                <form onSubmit={capitalForm.handleSubmit(d => capitalMutation.mutate(d))} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField control={capitalForm.control} name="initialCapital" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Capital Invested <span className="text-muted-foreground text-xs">(optional)</span></FormLabel>
+                        <FormControl><Input type="number" min="0" placeholder="0" {...field} value={field.value ?? ""} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={capitalForm.control} name="openingCash" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Opening Cash <span className="text-muted-foreground text-xs">(optional)</span></FormLabel>
+                        <FormControl><Input type="number" min="0" placeholder="0" {...field} value={field.value ?? ""} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "capital" }); setStep(5); }}>
+                      Skip for now
+                    </Button>
+                    <Button type="submit" className="flex-1" disabled={capitalMutation.isPending}>
+                      {capitalMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : <>Save <ChevronRight className="h-4 w-4 ml-1" /></>}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
+        )}
+
+        {step === 5 && (
           <Card className="border-primary/30 bg-primary/5">
             <CardContent className="pt-8 pb-8 text-center space-y-6">
               <div className="flex justify-center">

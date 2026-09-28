@@ -22,11 +22,9 @@ import { BookingFormValues } from "./types";
 
 interface StepItemsProps {
   form: UseFormReturn<BookingFormValues>;
-  onBack: () => void;
-  onNext: () => void;
 }
 
-export function StepItems({ form, onBack, onNext }: StepItemsProps) {
+export function StepItems({ form }: StepItemsProps) {
   const { currentStore } = useStore();
 
   const { fields, append, remove } = useFieldArray({
@@ -49,13 +47,8 @@ export function StepItems({ form, onBack, onNext }: StepItemsProps) {
   const watchItems = form.watch("bookingItems");
   const subtotal = watchItems.reduce((acc, item) => acc + Number(item.quantity) * Number(item.unitPrice), 0);
 
-  const handleNext = async () => {
-    const valid = await form.trigger("bookingItems");
-    if (valid) onNext();
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -200,15 +193,6 @@ export function StepItems({ form, onBack, onNext }: StepItemsProps) {
           )}
         </CardContent>
       </Card>
-
-      <div className="flex justify-between gap-3">
-        <Button type="button" variant="outline" onClick={onBack} id="booking-back-step-2">
-          ← Back
-        </Button>
-        <Button type="button" onClick={handleNext} id="booking-next-step-2" className="min-w-[140px]">
-          Next: Schedule →
-        </Button>
-      </div>
     </div>
   );
 }

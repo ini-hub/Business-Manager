@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Plus, Store, Pencil, Archive, ArchiveRestore, Trash2, MapPin, Phone, Globe, Coins, User } from "lucide-react";
+import { Plus, Store, Pencil, Archive, ArchiveRestore, Trash2, MapPin, Phone, Globe, Coins, User, Star } from "lucide-react";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store as StoreType, Staff } from "@shared/schema";
 import { getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
@@ -25,6 +25,7 @@ export function StoresManagementSection() {
     archiveStore,
     restoreStore,
     deleteStore,
+    setMainStore,
   } = useStore();
 
   const activeStores = stores.filter((s) => s.isActive !== false);
@@ -121,6 +122,19 @@ export function StoresManagementSection() {
     setLocation("/settings/stores/new");
   };
 
+  const handleSetMainStore = async (store: StoreType) => {
+    try {
+      await setMainStore(store.id);
+      toast({ title: `"${store.name}" is now your main store` });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: getUserFriendlyError(error),
+        variant: "destructive",
+      });
+    }
+  };
+
   const renderStoreDetails = (store: StoreType) => (
     <CardContent className="text-sm text-muted-foreground space-y-1">
       {store.address && (
@@ -197,14 +211,32 @@ export function StoresManagementSection() {
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <CardTitle className="text-base truncate" data-testid={`text-store-name-${store.id}`}>
-                          {store.name}
-                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-base truncate" data-testid={`text-store-name-${store.id}`}>
+                            {store.name}
+                          </CardTitle>
+                          {store.isMain && (
+                            <Badge variant="default" className="gap-1" data-testid={`badge-main-store-${store.id}`}>
+                              <Star className="h-3 w-3" />
+                              Main
+                            </Badge>
+                          )}
+                        </div>
                         <CardDescription className="font-mono text-xs" data-testid={`text-store-code-${store.id}`}>
                           Code: {store.code}
                         </CardDescription>
                       </div>
                       <div className="flex gap-1">
+                        {!store.isMain && (
+                          <IconButton
+                            label="Set as main store"
+                            variant="ghost"
+                            onClick={() => handleSetMainStore(store)}
+                            data-testid={`button-set-main-store-${store.id}`}
+                          >
+                            <Star className="h-4 w-4" />
+                          </IconButton>
+                        )}
                         <IconButton
                           label="Edit store"
                           variant="ghost"
@@ -214,10 +246,16 @@ export function StoresManagementSection() {
                           <Pencil className="h-4 w-4" />
                         </IconButton>
                         <IconButton
-                          label={activeStores.length === 1 ? "You must have at least one active store" : "Archive store"}
+                          label={
+                            store.isMain
+                              ? "Set another store as main before archiving this one"
+                              : activeStores.length === 1
+                                ? "You must have at least one active store"
+                                : "Archive store"
+                          }
                           variant="ghost"
                           onClick={() => setArchivingStore(store)}
-                          disabled={activeStores.length === 1}
+                          disabled={activeStores.length === 1 || store.isMain}
                           data-testid={`button-archive-store-${store.id}`}
                         >
                           <Archive className="h-4 w-4" />

@@ -96,6 +96,50 @@ export function verifyLegalConsentPendingToken(token: string): { userId: string;
   }
 }
 
+// Minted instead of the real jwt_token when login, or first-time staff
+// activation, finds required HR profile sections (personal/emergency/
+// guarantor, per hr_section_config) still incomplete - see
+// server/lib/hrProfileGate.ts and server/lib/authFlow.ts. Same
+// structurally-incapable-of-authenticating design as
+// generateContractPendingToken: a distinct claim shape, verified by its own
+// function, attached to req.profileSession rather than req.user. The
+// contract gate takes priority over this one when both are outstanding
+// (see authFlow.ts) - a signature is a legal document, profile fields are
+// not.
+export function generateProfilePendingToken(userId: string, staffId: string): string {
+  return jwt.sign({ userId, staffId, action: "profile_pending" }, JWT_SECRET_VALUE, { expiresIn: "2h" });
+}
+
+export function verifyProfilePendingToken(token: string): { userId: string; staffId: string } | undefined {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
+    if (decoded?.action !== "profile_pending" || !decoded.userId || !decoded.staffId) return undefined;
+    return { userId: decoded.userId, staffId: decoded.staffId };
+  } catch (error) {
+    return undefined;
+  }
+}
+
+// Minted when a guarantor form is submitted (status flips to
+// pending_signature) so the guarantor - who has no users row and therefore
+// can never log in - can reach the signing page via a mailed/shared link
+// instead. Scoped to one guarantorFormId, not a userId: verifying this
+// token never yields anything resembling a user identity, so like the
+// tokens above it can never satisfy isAuthenticated even by accident.
+export function generateGuarantorSigningToken(guarantorFormId: string): string {
+  return jwt.sign({ guarantorFormId, action: "guarantor_pending" }, JWT_SECRET_VALUE, { expiresIn: "30d" });
+}
+
+export function verifyGuarantorSigningToken(token: string): { guarantorFormId: string } | undefined {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
+    if (decoded?.action !== "guarantor_pending" || !decoded.guarantorFormId) return undefined;
+    return { guarantorFormId: decoded.guarantorFormId };
+  } catch (error) {
+    return undefined;
+  }
+}
+
 export function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
   if (!cookieHeader) return list;
@@ -175,6 +219,37 @@ export const requireContractPendingToken: RequestHandler = async (req, res, next
   return next();
 };
 
+// Gates the self-service profile-completion routes
+// (server/routes/profile-completion.routes.ts). Reads the
+// profile_pending_token cookie set by login / set-activated-password when
+// required HR sections are outstanding, and attaches req.profileSession -
+// never req.user, for the same reason requireContractPendingToken above
+// never sets it.
+export const requireProfilePendingToken: RequestHandler = async (req, res, next) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies.profile_pending_token;
+  const claims = token ? verifyProfilePendingToken(token) : undefined;
+  if (!claims) {
+    return res.status(401).json({ error: "Your session to complete your profile has expired. Please log in again." });
+  }
+  (req as any).profileSession = claims;
+  return next();
+};
+
+// Gates the guarantor's own signing/decline routes
+// (server/routes/guarantor.routes.ts /api/guarantor/*). The guarantor has
+// no users row, so this never sets req.user and is reached via a mailed/
+// shared link rather than a login.
+export const requireGuarantorSigningToken: RequestHandler = async (req, res, next) => {
+  const token = typeof req.query.token === "string" ? req.query.token : req.body?.token;
+  const claims = token ? verifyGuarantorSigningToken(token) : undefined;
+  if (!claims) {
+    return res.status(401).json({ error: "This signing link is invalid or has expired." });
+  }
+  (req as any).guarantorSession = claims;
+  return next();
+};
+
 // Gates POST /api/legal/consent-pending/accept (server/routes/legal.routes.ts).
 // Reads the legal_consent_pending_token cookie set by login / set-activated-
 // password when consent is outstanding, and attaches req.legalConsentSession
@@ -207,7 +282,7 @@ export const requireLegalConsentPendingToken: RequestHandler = async (req, res, 
 // (see requireContractPendingToken above), so this is belt-and-suspenders
 // rather than load-bearing, but keeps the exemption list an honest map of
 // every pre-full-auth route family.
-const ORG_LOCK_EXEMPT_PREFIXES = ["/api/auth", "/api/billing", "/api/support", "/api/admin", "/api/contract", "/api/legal"];
+const ORG_LOCK_EXEMPT_PREFIXES = ["/api/auth", "/api/billing", "/api/support", "/api/admin", "/api/contract", "/api/legal", "/api/profile-completion", "/api/guarantor"];
 const ORG_LOCK_EXEMPT_PATHS = new Set(["/api/business", "/api/health"]);
 
 function isOrgLockExempt(path: string): boolean {

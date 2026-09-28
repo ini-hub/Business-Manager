@@ -324,7 +324,6 @@ export default function TaxesCompliancePage() {
       <PageHeader
         title="Taxes & Compliance"
         description="Configure VAT levels, automate checkout surcharge calculations, and audit monthly tax logs."
-        compact
         actions={
           <div className="flex items-center gap-2">
             <BackToSettingsButton />
@@ -337,7 +336,6 @@ export default function TaxesCompliancePage() {
                 storeId={currentStore.id}
                 pdfTitle="Tax Rates Report"
                 showImportOption={isManagerOrOwner}
-                compact
               />
             </div>
             <div className="hidden lg:block">

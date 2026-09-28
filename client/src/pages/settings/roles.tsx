@@ -13,7 +13,6 @@ export default function SettingsRolesPage() {
       <PageHeader
         title="Roles & Permissions"
         description="Create custom staff roles with specific module access."
-        compact
         actions={<BackToSettingsButton />}
       />
       <RolesPermissionsSection />

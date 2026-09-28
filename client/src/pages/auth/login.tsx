@@ -259,6 +259,16 @@ export default function Login() {
           title: "One more step",
           description: data.message || "Please review and sign your contract to continue.",
         });
+      } else if (data.status === "profile_completion_required" || data.nextStep === "complete-profile") {
+        // Required HR profile sections (personal/emergency/guarantor) are
+        // still outstanding - server minted a profile_pending_token cookie;
+        // client/src/pages/complete-profile.tsx reads it via the
+        // /api/profile-completion/* routes.
+        toast({
+          title: "One more step",
+          description: data.message || "Please complete your profile to continue.",
+        });
+        setLocation("/complete-profile");
       } else if (data.status === "legal_consent_required") {
         // Covers both a brand-new-feature backfill and a stale acceptance
         // (a super admin published a new document version since this
@@ -376,6 +386,14 @@ export default function Login() {
         });
         return;
       }
+      if (data.nextStep === "complete-profile") {
+        toast({
+          title: "Password set!",
+          description: data.message || "Please complete your profile to continue.",
+        });
+        setLocation("/complete-profile");
+        return;
+      }
       toast({
         title: "Password Set Successfully!",
         description: "Welcome to Kowope.",
@@ -485,6 +503,14 @@ export default function Login() {
           title: "One more step",
           description: data.message || "Please review and sign your contract to continue.",
         });
+        return;
+      }
+      if (data.status === "profile_completion_required" || data.nextStep === "complete-profile") {
+        toast({
+          title: "One more step",
+          description: data.message || "Please complete your profile to continue.",
+        });
+        setLocation("/complete-profile");
         return;
       }
       toast({

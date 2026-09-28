@@ -12,7 +12,7 @@ import {
 } from "../email";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { staffInviteService, type InviteOutcome, type ExistingLink } from "../services/StaffInviteService";
-import { syncStaffNameToLinkedUser } from "../services/IdentitySync";
+import { syncStaffNameToLinkedUser, syncStaffToHrPersonalFields } from "../services/IdentitySync";
 import { staffContractService } from "../services/StaffContractService";
 import { objectStorage } from "../lib/objectStorage";
 
@@ -150,8 +150,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         if (req.user?.role === "staff") {
           redactWages(result.data);
         }
-        await attachInviteStatus(result.data);
-        await attachContractStatus(result.data);
+        await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data)]);
         redactUserId(result.data);
         return res.json(result);
       }
@@ -160,8 +159,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (req.user?.role === "staff") {
         redactWages(staffList);
       }
-      await attachInviteStatus(staffList);
-      await attachContractStatus(staffList);
+      await Promise.all([attachInviteStatus(staffList), attachContractStatus(staffList)]);
       redactUserId(staffList);
       res.json(staffList);
     } catch (error) {
@@ -269,8 +267,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       let normalizedInvitePhone: string | undefined;
       if (data.mobileNumber) {
         normalizedInvitePhone = normalizePhoneForStorage(data.mobileNumber, data.countryCode);
-        const emailOwner = data.email ? await storage.getUserByIdentifier(data.email.toLowerCase()) : undefined;
-        const phoneOwner = await storage.getUserByIdentifier(normalizedInvitePhone);
+        const [emailOwner, phoneOwner] = await Promise.all([
+          data.email ? storage.getUserByIdentifier(data.email.toLowerCase()) : Promise.resolve(undefined),
+          storage.getUserByIdentifier(normalizedInvitePhone),
+        ]);
         // Only a problem if the phone belongs to a DIFFERENT account than
         // the one email already resolves to - auto-merge-into-existing-user
         // stays email-only (email is the authoritative invite identifier
@@ -285,6 +285,18 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const staffMember = await storage.createStaff(data);
       const ctx = await getAuditContext(req, { storeId: data.storeId });
       auditLogger.logEvent(ctx, "CREATE", "staff", staffMember.id, "success", { newValues: staffMember });
+
+      // Seed the HR "complete profile" personal fields with what was just
+      // collected here (name/email/mobile are compulsory at creation) so
+      // onboarding never starts from a blank slate that could diverge from
+      // the record created moments ago - see IdentitySync.
+      await syncStaffToHrPersonalFields(staffMember.id, {
+        firstName: staffMember.firstName ?? undefined,
+        lastName: staffMember.lastName ?? undefined,
+        email: staffMember.email,
+        mobileNumber: staffMember.mobileNumber,
+        countryCode: staffMember.countryCode,
+      }, getUserId(req));
 
       // Invitation + activation. One call into StaffInviteService, which owns
       // the new-user / existing-user branching and is the same code path used
@@ -433,7 +445,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
 
       const sanitizedBody: any = {
         ...req.body,
-        ...(req.body.name !== undefined && { name: sanitizeString(req.body.name) }),
+        ...(req.body.firstName !== undefined && { firstName: sanitizeString(req.body.firstName) }),
+        ...(req.body.lastName !== undefined && { lastName: sanitizeString(req.body.lastName) }),
         ...(req.body.email !== undefined && { email: sanitizeString(req.body.email)?.toLowerCase() }),
         ...(req.body.mobileNumber !== undefined && { mobileNumber: sanitizePhoneNumber(req.body.mobileNumber) }),
         ...(req.body.payPerMonth !== undefined && { payPerMonth: sanitizeNumber(req.body.payPerMonth) }),
@@ -460,6 +473,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       };
       // Remove storeId to prevent cross-store migration via PATCH (use transfer endpoint instead)
       delete sanitizedBody.storeId;
+      // name is derived from firstName/lastName (StaffRepository recomputes
+      // it) - never accept it directly, or a stale client sending the old
+      // combined field could bypass that and write it out of step again.
+      delete sanitizedBody.name;
       const data = insertStaffSchema.partial().parse(sanitizedBody);
 
       // ── Email change ────────────────────────────────────────────────────
@@ -605,8 +622,22 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // (The email side of this is already handled above by the
       // reinvite/overwrite_and_verify/relink branches; name has no such
       // branch since it never needs re-verification, just a mirrored write.)
-      if (data.name !== undefined && data.name !== staffMember.name && staffMember.userId) {
+      const nameChanged = (data.firstName !== undefined || data.lastName !== undefined) && updatedStaffMember.name !== staffMember.name;
+      if (nameChanged && staffMember.userId) {
         await syncStaffNameToLinkedUser(staffMember.id, staffMember.userId, updatedStaffMember.name);
+      }
+
+      // Keep the HR "complete profile" personal fields (first_name/last_name/
+      // work_email/mobile_number) in step with whatever a manager just typed
+      // here - see IdentitySync.syncStaffToHrPersonalFields.
+      if (data.firstName !== undefined || data.lastName !== undefined || data.email !== undefined || data.mobileNumber !== undefined) {
+        await syncStaffToHrPersonalFields(staffMember.id, {
+          firstName: data.firstName !== undefined ? updatedStaffMember.firstName ?? undefined : undefined,
+          lastName: data.lastName !== undefined ? updatedStaffMember.lastName ?? undefined : undefined,
+          email: data.email !== undefined ? updatedStaffMember.email : undefined,
+          mobileNumber: data.mobileNumber !== undefined ? updatedStaffMember.mobileNumber : undefined,
+          countryCode: data.mobileNumber !== undefined ? updatedStaffMember.countryCode : undefined,
+        }, getUserId(req));
       }
 
       const changedFields = Object.keys(data).filter((key) => JSON.stringify((staffMember as any)[key]) !== JSON.stringify((updatedStaffMember as any)[key]));

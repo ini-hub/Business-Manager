@@ -31,6 +31,7 @@ import {
   users,
 } from "@shared/schema";
 import { eq, and, ilike, count } from "drizzle-orm";
+import { seedDefaultHrConfig } from "../lib/hrDefaults";
 
 export class BusinessRepository {
   // ─── Organisations ────────────────────────────────────────────────────────
@@ -66,6 +67,10 @@ export class BusinessRepository {
 
   async createOrganisation(data: InsertOrganisation): Promise<Organisation> {
     const [org] = await db.insert(organisations).values(data).returning();
+    // Every business needs hr_section_config rows or hrProfileGate.ts
+    // (server/lib/hrProfileGate.ts) has nothing to read for it - see
+    // server/lib/hrDefaults.ts for why this can't just live in a migration.
+    await seedDefaultHrConfig(org.id);
     return org;
   }
 
@@ -184,7 +189,7 @@ export class BusinessRepository {
     return store;
   }
 
-  async createStore(store: InsertStore): Promise<Store> {
+  async createStore(store: InsertStore & { isMain?: boolean }): Promise<Store> {
     const [newStore] = await db.insert(stores).values(store).returning();
     await db.insert(storeCounters).values({ storeId: newStore.id, nextCustomerNumber: 1 });
     return newStore;
@@ -221,6 +226,33 @@ export class BusinessRepository {
       .from(stores)
       .where(and(eq(stores.businessId, businessId), eq(stores.isActive, true)));
     return result[0].count;
+  }
+
+  async getMainStore(businessId: string): Promise<Store | undefined> {
+    const [store] = await db
+      .select()
+      .from(stores)
+      .where(and(eq(stores.businessId, businessId), eq(stores.isMain, true)))
+      .limit(1);
+    return store;
+  }
+
+  // Flips isMain off the current main store (if any) and onto storeId in one
+  // transaction, so the partial unique index (uq_stores_single_main_per_business)
+  // never sees two rows both true at once.
+  async setMainStore(businessId: string, storeId: string): Promise<Store> {
+    return await db.transaction(async (tx) => {
+      await tx
+        .update(stores)
+        .set({ isMain: false })
+        .where(and(eq(stores.businessId, businessId), eq(stores.isMain, true)));
+      const [updated] = await tx
+        .update(stores)
+        .set({ isMain: true })
+        .where(eq(stores.id, storeId))
+        .returning();
+      return updated;
+    });
   }
 
   async hasStoreData(id: string): Promise<boolean> {

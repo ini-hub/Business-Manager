@@ -38,7 +38,8 @@ import { useEffect, useState } from "react";
 
 const localStaffSchema = z.object({
   storeId: z.string().min(1, "Store ID is required"),
-  name: z.string().min(1, "Staff name is required"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
@@ -258,7 +259,7 @@ export default function StaffFormPage() {
     resolver: zodResolver(localStaffSchema),
     defaultValues: {
       storeId: (currentStore?.id === "all" ? "" : currentStore?.id) || "",
-      name: "", email: "", staffNumber: "", countryCode: "NG", mobileNumber: "",
+      firstName: "", lastName: "", email: "", staffNumber: "", countryCode: "NG", mobileNumber: "",
       payPerMonth: 0, signedContract: false, role: "staff", paymentMethod: "hybrid",
       overridePaymentMethod: false, overrideCommission: false,
       commissionTypeOverride: "percentage", commissionFixedAmountOverride: 0,
@@ -281,7 +282,8 @@ export default function StaffFormPage() {
       }
       form.reset({
         storeId: staffMember.storeId,
-        name: staffMember.name,
+        firstName: staffMember.firstName || "",
+        lastName: staffMember.lastName || "",
         email: staffMember.email || "",
         staffNumber: staffMember.staffNumber,
         countryCode,
@@ -411,7 +413,7 @@ export default function StaffFormPage() {
   }
 
   const currencyInfo = getCurrencyByCode(currentStore?.currency || "NGN");
-  const nameInitials = form.watch("name")?.slice(0, 2).toUpperCase() || "";
+  const nameInitials = form.watch("firstName")?.slice(0, 2).toUpperCase() || "";
   const watchRole = form.watch("role");
   const roleLabel = watchRole === "owner" ? "Owner" : watchRole === "manager" ? "Manager" : watchRole === "staff" ? "Staff" : watchRole || "Staff";
 
@@ -471,7 +473,7 @@ export default function StaffFormPage() {
                   </div>
                   <div className="pb-1">
                     <p className="font-semibold text-sm leading-tight">
-                      {form.watch("name") || (staffId ? "Staff Member" : "New Employee")}
+                      {[form.watch("firstName"), form.watch("lastName")].filter(Boolean).join(" ") || (staffId ? "Staff Member" : "New Employee")}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Badge variant="outline" className="text-[10px]">{roleLabel}</Badge>
@@ -511,10 +513,18 @@ export default function StaffFormPage() {
                 <SectionHeader icon={<User className="h-3.5 w-3.5" />} label="Personal Information" />
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField control={form.control} name="name" render={({ field }) => (
-                    <FormItem className="sm:col-span-2">
-                      <FormLabel>Full Name <span className="text-destructive">*</span></FormLabel>
-                      <FormControl><Input placeholder="e.g. Jane Adeyemi" className="h-11" autoFocus {...field} /></FormControl>
+                  <FormField control={form.control} name="firstName" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>First Name <span className="text-destructive">*</span></FormLabel>
+                      <FormControl><Input placeholder="e.g. Jane" className="h-11" autoFocus {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  <FormField control={form.control} name="lastName" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Last Name <span className="text-destructive">*</span></FormLabel>
+                      <FormControl><Input placeholder="e.g. Adeyemi" className="h-11" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />

@@ -211,8 +211,44 @@ export async function destroyStore(storeId: string, businessId: string): Promise
   await db.execute(sql`DELETE FROM expense_categories WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM settings WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM customers WHERE store_id = ${storeId}`);
+  // HR module tables (shared/schema/hr-*.ts) all reference staff.id with no
+  // ON DELETE CASCADE, so every one that could hold a row for this store's
+  // staff has to be cleared before the DELETE FROM staff below.
+  await db.execute(sql`DELETE FROM hr_field_values WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_job_info_history WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_additional_job_info_history WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_time_off_history WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_time_off_requests WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_time_off_balances WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_emergency_contacts WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_documents WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_dependants WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_estate_beneficiaries WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_disciplinary_records WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`DELETE FROM hr_guarantor_form_signatures WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`
+    DELETE FROM hr_guarantor_form_documents
+      WHERE guarantor_form_version_id IN (
+        SELECT v.id FROM hr_guarantor_form_versions v
+        JOIN hr_guarantor_forms f ON f.id = v.guarantor_form_id
+        WHERE f.staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})
+      )`);
+  await db.execute(sql`
+    UPDATE hr_guarantor_forms SET current_version_id = NULL
+      WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  await db.execute(sql`
+    DELETE FROM hr_guarantor_form_versions
+      WHERE guarantor_form_id IN (SELECT id FROM hr_guarantor_forms WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId}))`);
+  await db.execute(sql`DELETE FROM hr_guarantor_forms WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
   await db.execute(sql`DELETE FROM staff WHERE store_id = ${storeId}`);
+  // shared/schema/accounting.ts tables reference stores.id with no cascade.
+  await db.execute(sql`DELETE FROM capital_contributions WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM assets WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM liabilities WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM stores WHERE id = ${storeId}`);
+  await db.execute(sql`DELETE FROM hr_field_definitions WHERE business_id = ${businessId}`);
+  await db.execute(sql`DELETE FROM hr_section_config WHERE business_id = ${businessId}`);
+  await db.execute(sql`DELETE FROM hr_document_folders WHERE business_id = ${businessId}`);
   await db.execute(sql`DELETE FROM organisations WHERE id = ${businessId}`);
 }
 

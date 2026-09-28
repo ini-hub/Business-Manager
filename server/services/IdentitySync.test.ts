@@ -38,8 +38,8 @@ describe("syncUserIdentityToLinkedStaff", () => {
   it("mirrors name/email onto every staff row linked to the user", async () => {
     S.getAllStaffByUserId.mockResolvedValue([{ id: "staff-1" }, { id: "staff-2" }]);
     await syncUserIdentityToLinkedStaff("user-1", { name: "Folakemi", email: "folakemi@example.com" });
-    expect(S.updateStaff).toHaveBeenCalledWith("staff-1", { name: "Folakemi", email: "folakemi@example.com" });
-    expect(S.updateStaff).toHaveBeenCalledWith("staff-2", { name: "Folakemi", email: "folakemi@example.com" });
+    expect(S.updateStaff).toHaveBeenCalledWith("staff-1", { firstName: "Folakemi", lastName: "", email: "folakemi@example.com" });
+    expect(S.updateStaff).toHaveBeenCalledWith("staff-2", { firstName: "Folakemi", lastName: "", email: "folakemi@example.com" });
   });
 
   it("does nothing when neither field is provided", async () => {

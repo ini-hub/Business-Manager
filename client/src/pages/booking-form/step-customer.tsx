@@ -41,10 +41,9 @@ import { getDefaultCountryCode } from "@/lib/validation-utils";
 
 interface StepCustomerProps {
   form: UseFormReturn<BookingFormValues>;
-  onNext: () => void;
 }
 
-export function StepCustomer({ form, onNext }: StepCustomerProps) {
+export function StepCustomer({ form }: StepCustomerProps) {
   const { currentStore } = useStore();
   const { toast } = useToast();
 
@@ -150,17 +149,12 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
   const watchCustomerId = form.watch("customerId");
   const selectedCustomer = customers.find((c) => c.id === watchCustomerId);
 
-  const handleNext = async () => {
-    const valid = await form.trigger(["type", "customerId"]);
-    if (valid) onNext();
-  };
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <Card>
         <CardHeader>
-          <CardTitle>Booking Type</CardTitle>
-          <CardDescription>Select whether this is a service appointment or a product pre-order.</CardDescription>
+          <CardTitle>What kind of booking?</CardTitle>
+          <CardDescription>This decides whether the next steps ask for an appointment time or a pick-up date.</CardDescription>
         </CardHeader>
         <CardContent>
           <FormField
@@ -175,8 +169,8 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
                     className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                   >
                     {[
-                      { value: "appointment", label: "Service Appointment", desc: "Schedule a service at a specific time" },
-                      { value: "order", label: "Product Pre-Order", desc: "Reserve products for pick-up or delivery" },
+                      { value: "appointment", label: "Service appointment", desc: "Book a service at a specific date and time" },
+                      { value: "order", label: "Product pre-order", desc: "Reserve products for pick-up or delivery" },
                     ].map((opt) => (
                       <label
                         key={opt.value}
@@ -208,8 +202,8 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Select Customer</CardTitle>
-          <CardDescription>Search existing customers or add a new one.</CardDescription>
+          <CardTitle>Customer</CardTitle>
+          <CardDescription>Find an existing customer, or add someone new without leaving this booking.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <FormField
@@ -359,12 +353,6 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button type="button" onClick={handleNext} id="booking-next-step-1" className="min-w-[140px]">
-          Next: Items & Services →
-        </Button>
-      </div>
-
       {/* New Customer Dialog */}
       <Dialog open={newCustomerDialogOpen} onOpenChange={setNewCustomerDialogOpen}>
         <DialogContent>
@@ -375,7 +363,13 @@ export function StepCustomer({ form, onNext }: StepCustomerProps) {
             </DialogDescription>
           </DialogHeader>
           <Form {...customerForm}>
-            <form onSubmit={customerForm.handleSubmit(handleCreateCustomer)} className="space-y-4">
+            <form
+              onSubmit={(e) => {
+                e.stopPropagation();
+                customerForm.handleSubmit(handleCreateCustomer)(e);
+              }}
+              className="space-y-4"
+            >
               <FormField
                 control={customerForm.control}
                 name="name"

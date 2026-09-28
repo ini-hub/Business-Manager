@@ -57,8 +57,28 @@ export function csrfMiddleware(req: Request, res: Response, next: NextFunction) 
   if (
     EXEMPT_ROUTES.has(req.path) ||
     req.path.startsWith("/api/webhooks") ||
-    req.path.startsWith("/api/billing/webhook")
+    req.path.startsWith("/api/billing/webhook") ||
+    // Public magic-link booking actions (server/routes/customer-booking.routes.ts) -
+    // reached by a customer with no session/cookie, so there's no CSRF cookie to check.
+    // The token itself (unguessable, scoped to one booking) is the access control.
+    req.path.startsWith("/api/my-booking/")
   ) {
+    return next();
+  }
+
+  // Bearer-authenticated clients (the mobile app) carry no browser cookie jar,
+  // so a forged cross-site request can't ride their session - there's nothing
+  // for CSRF to protect against. But server/auth.ts resolves the session as
+  // `cookies.jwt_token || authorization header`, so a request that presents
+  // BOTH is still cookie-authenticated (the cookie wins there) and must go
+  // through the CSRF check below. Exempting on bearer-presence alone, without
+  // requiring the cookie's absence, would let an attacker's cross-site form
+  // ride the victim's jwt_token cookie past this middleware by simply adding
+  // an (attacker-controlled, unused) Authorization header - a full CSRF
+  // bypass on every state-mutating route.
+  const hasBearer = Boolean(req.headers["authorization"]);
+  const hasAuthCookie = Boolean(getCookie(req.headers.cookie, "jwt_token"));
+  if (hasBearer && !hasAuthCookie) {
     return next();
   }
 
