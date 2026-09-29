@@ -252,6 +252,7 @@ export function ClockInCard() {
     ? (isInAppBrowser()
         ? "Open this page in Chrome or Safari (use the menu ⋮ and choose \"Open in browser\"), then sign in again."
         : "Tap the lock or site-info icon next to your browser's address bar and allow Location for this site. Also make sure Location is switched on in your phone's settings. This page rechecks automatically, or tap Check again.")
+      + ` [Browser said: ${fence.rawError ?? "unknown"}]`
     : null;
   const canClockIn = fence.state === "inside" && !punchMutation.isPending;
   // Clock-out is checked against the same geofence server-side (see

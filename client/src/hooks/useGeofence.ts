@@ -25,6 +25,8 @@ export type GeofenceReading = {
   latitude: number | null;
   longitude: number | null;
   error: string | null;
+  /** Browser's own error (code + message), shown for support diagnostics. */
+  rawError: string | null;
   refresh: () => void;
 };
 
@@ -46,6 +48,7 @@ export function useGeofence(centre: GeofenceCentre | null, enabled: boolean): Ge
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [rawError, setRawError] = useState<string | null>(null);
 
   const watchIdRef = useRef<number | null>(null);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
@@ -120,6 +123,7 @@ export function useGeofence(centre: GeofenceCentre | null, enabled: boolean): Ge
     };
 
     const onError = (err: GeolocationPositionError) => {
+      setRawError(`code ${err.code}${err.message ? `: ${err.message}` : ""}`);
       if (err.code === err.PERMISSION_DENIED) {
         setState("denied");
         setError("Location permission is off. Turn it on for this site to clock in.");
@@ -150,6 +154,7 @@ export function useGeofence(centre: GeofenceCentre | null, enabled: boolean): Ge
     latitude: coords?.latitude ?? null,
     longitude: coords?.longitude ?? null,
     error,
+    rawError,
     refresh,
   };
 }
