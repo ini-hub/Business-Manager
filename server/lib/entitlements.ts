@@ -164,26 +164,44 @@ export async function hasFeature(organisationId: string, featureKey: string): Pr
 }
 
 /**
+ * Entitlements resolved at most once per request. The central policy
+ * middleware (featurePolicy.ts) and any per-route requireFeature share it via
+ * res.locals, so gating adds no extra queries. Request-scoped on purpose: a
+ * purchase or removal still takes effect on the very next request.
+ */
+export function getRequestEntitlements(res: { locals: Record<string, any> }, organisationId: string): Promise<Set<string>> {
+  if (!res.locals.__orgEntitlements) res.locals.__orgEntitlements = getOrgEntitlements(organisationId);
+  return res.locals.__orgEntitlements;
+}
+
+/** The standard 402 body for a paid feature the org doesn't have. */
+export async function featureNotPurchasedBody(featureKey: string) {
+  const feature = await getFeatureByKey(featureKey);
+  return {
+    error: "feature_not_purchased",
+    featureKey,
+    featureName: feature?.name ?? featureKey,
+    message: feature ? `This needs the "${feature.name}" add-on. Add it from Settings > Billing to continue.` : "This feature isn't included in your plan yet.",
+  };
+}
+
+/**
  * Route-level gate for orgs that already passed enforceOrgAccess (whole-org
  * lock) but haven't purchased this specific add-on. Returns 402, distinct
  * from enforceOrgAccess's 403 {locked:true}, so the client can branch to an
- * in-context upgrade prompt instead of a full paywall screen. Only wire this
- * onto mutating routes - GET stays open so data from a since-removed feature
- * stays readable (soft-locked, never deleted).
+ * in-context upgrade prompt instead of a full paywall screen. Mutating routes
+ * are gated by default; GET stays open so data from a since-removed feature
+ * stays readable (soft-locked, never deleted) - except where the read IS the
+ * feature (see featurePolicy.ts). New gates belong in that table; this stays
+ * for handler-level checks that depend on the request body.
  */
 export function requireFeature(featureKey: string): RequestHandler {
   return async (req, res, next) => {
     const businessId = (req as any).user?.businessId;
     if (!businessId) return res.status(401).json({ error: "Authentication required." });
     try {
-      if (await hasFeature(businessId, featureKey)) return next();
-      const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.key, featureKey)).limit(1);
-      return res.status(402).json({
-        error: "feature_not_purchased",
-        featureKey,
-        featureName: feature?.name ?? featureKey,
-        message: feature ? `This needs the "${feature.name}" add-on. Add it from Settings > Billing to continue.` : "This feature isn't included in your plan yet.",
-      });
+      if ((await getRequestEntitlements(res, businessId)).has(featureKey)) return next();
+      return res.status(402).json(await featureNotPurchasedBody(featureKey));
     } catch (error) {
       console.error(`requireFeature(${featureKey}) error:`, error);
       return res.status(500).json({ error: "We couldn't verify feature access. Please try again." });
@@ -200,73 +218,139 @@ const LIMIT_FEATURE_KEY: Record<CountLimitType, string> = {
 };
 
 /**
- * Race-safe gate for the two hard-blocked free-tier limits (1 staff, 50
- * customers - FAC-6). Holds a Postgres transaction-scoped advisory lock
- * keyed to (organisationId, limitType) so two concurrent creates can't both
- * read "under the limit" and both insert - no denormalized counter to drift
- * against archive/restore/bulk-import paths, and nothing to clean up on
- * crash (pg_advisory_xact_lock releases automatically at commit/rollback),
- * mirroring the atomic-claim idiom in maybeProcessDueRenewal
- * (server/lib/billing.ts).
- *
- * `getCurrentCount` runs inside the locked transaction. `create` does NOT -
- * it calls back out to the existing storage.createStaff/createCustomer,
- * which use the shared pooled connection, not this transaction. That leaves
- * a narrow window between this check committing and that insert completing
- * where two near-simultaneous requests could both be told "allowed". Fully
- * closing it means threading a `tx` parameter through StaffRepository /
- * the customer insert path - a larger change tracked as follow-up, not
- * attempted here to avoid a hand-rolled connection-locking scheme (session
- * advisory locks held across a manually checked-out pool client) that risks
- * leaking a lock if the release path is ever missed.
+ * Fallback when the catalog row has no freeLimit (seed drift, or an admin
+ * clearing the field): the documented free tier, never 0. A 0 would block the
+ * very first store/staff/customer and lock a post-trial org out of setup.
+ */
+const DEFAULT_FREE_LIMIT: Record<CountLimitType, number> = { staff_seats: 1, customer_count: 50, store_count: 1 };
+
+const LIMIT_NOUN: Record<CountLimitType, string> = { staff_seats: "staff member", customer_count: "customer", store_count: "store" };
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Thrown by the storage layer (create/restore/bulk paths) when a free-tier
+ * count cap would be exceeded. Carries everything the 402 body needs so any
+ * route - or the global error handler - can map it with sendPlanLimitError.
+ * Existing rows are never touched: an org already over its cap keeps its
+ * data and is only blocked from adding more.
+ */
+export class CountLimitError extends Error {
+  readonly status = 402;
+  readonly code = "count_limit_reached";
+  readonly featureKey: string;
+  constructor(readonly limitType: CountLimitType, readonly limit: number, readonly used: number, readonly adding = 1) {
+    const noun = LIMIT_NOUN[limitType];
+    super(
+      adding > 1
+        ? `Importing ${adding} ${noun}s would exceed your free-tier limit of ${limit} (${used} in use). Add the ${noun} add-on to import more.`
+        : `You're on the free tier of ${limit} ${noun}${limit === 1 ? "" : "s"}. Add the ${noun} add-on to add more.`
+    );
+    this.name = "CountLimitError";
+    this.featureKey = LIMIT_FEATURE_KEY[limitType];
+  }
+  toBody() {
+    return { error: "count_limit_reached", limitType: this.limitType, limit: this.limit, used: this.used, featureKey: this.featureKey, message: this.message };
+  }
+}
+
+/**
+ * Maps a CountLimitError to the standard 402 response. Returns true when it
+ * handled the error, so a route's catch block can do
+ * `if (sendPlanLimitError(res, error)) return;` before its generic 500.
+ */
+export function sendPlanLimitError(res: { status(code: number): { json(body: unknown): unknown } }, error: unknown): boolean {
+  if (!(error instanceof CountLimitError)) return false;
+  res.status(402).json(error.toBody());
+  return true;
+}
+
+async function evaluateCountLimit(
+  tx: Tx,
+  organisationId: string,
+  limitType: CountLimitType
+): Promise<{ limit: number; used: number; unlimited: boolean }> {
+  const [org] = await tx
+    .select({ status: organisations.status, trialEndsAt: organisations.trialEndsAt })
+    .from(organisations)
+    .where(eq(organisations.id, organisationId))
+    .limit(1);
+  if (org && isOrgTrialing(org)) return { limit: Infinity, used: 0, unlimited: true };
+
+  const [feature] = await tx.select().from(featureCatalog).where(eq(featureCatalog.key, LIMIT_FEATURE_KEY[limitType])).limit(1);
+  const limit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
+
+  const [entitlement] = feature
+    ? await tx
+        .select({ id: orgFeatureEntitlements.id })
+        .from(orgFeatureEntitlements)
+        .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.featureId, feature.id), eq(orgFeatureEntitlements.status, "active")))
+        .limit(1)
+    : [];
+  if (entitlement) return { limit, used: 0, unlimited: true };
+
+  let used = 0;
+  if (limitType === "staff_seats") {
+    const [row] = await tx
+      .select({ c: sql<number>`count(*)::int` })
+      .from(staff)
+      .innerJoin(stores, eq(staff.storeId, stores.id))
+      .where(and(eq(stores.businessId, organisationId), eq(staff.isArchived, false)));
+    used = row?.c ?? 0;
+  } else if (limitType === "customer_count") {
+    const [row] = await tx
+      .select({ c: sql<number>`count(*)::int` })
+      .from(customers)
+      .innerJoin(stores, eq(customers.storeId, stores.id))
+      .where(and(eq(stores.businessId, organisationId), eq(customers.isArchived, false)));
+    used = row?.c ?? 0;
+  } else {
+    const [row] = await tx
+      .select({ c: sql<number>`count(*)::int` })
+      .from(stores)
+      .where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
+    used = row?.c ?? 0;
+  }
+  return { limit, used, unlimited: false };
+}
+
+/**
+ * Race-safe gate for the hard-blocked free-tier caps (1 staff, 50 customers,
+ * 1 store). MUST be called inside the same transaction as the insert/restore
+ * it protects: it takes a transaction-scoped Postgres advisory lock keyed to
+ * (organisationId, limitType), counts, and throws CountLimitError when
+ * `used + adding` would exceed the cap. Because the lock is held until the
+ * caller's transaction commits, two concurrent creates can't both read
+ * "under the limit" - the second waits, then sees the first's row. Lives in
+ * the storage layer (not per route) so bulk import, restore, link-customer,
+ * WhatsApp and onboarding paths are all covered by construction.
+ */
+export async function assertWithinCountLimit(tx: Tx, organisationId: string, limitType: CountLimitType, adding = 1): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${organisationId + ":" + limitType}))`);
+  const { limit, used, unlimited } = await evaluateCountLimit(tx, organisationId, limitType);
+  if (!unlimited && used + adding > limit) throw new CountLimitError(limitType, limit, used, adding);
+}
+
+/** Resolves the owning organisation of a store inside a transaction (undefined if the store doesn't exist). */
+export async function getBusinessIdForStore(tx: Tx, storeId: string): Promise<string | undefined> {
+  const [row] = await tx.select({ businessId: stores.businessId }).from(stores).where(eq(stores.id, storeId)).limit(1);
+  return row?.businessId ?? undefined;
+}
+
+/**
+ * Non-throwing pre-flight (route middleware fast-fail and bulk pre-checks).
+ * The authoritative check is assertWithinCountLimit inside the storage
+ * transaction; this just lets a route reject early with the right numbers.
  */
 export async function checkCountLimit(
   organisationId: string,
-  limitType: CountLimitType
+  limitType: CountLimitType,
+  adding = 1
 ): Promise<{ allowed: boolean; limit: number; used: number }> {
-  if (await isOrgCurrentlyTrialing(organisationId)) {
-    return { allowed: true, limit: Infinity, used: 0 };
-  }
-
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${organisationId + ":" + limitType}))`);
-
-    const [feature] = await tx.select().from(featureCatalog).where(eq(featureCatalog.key, LIMIT_FEATURE_KEY[limitType])).limit(1);
-    const limit = feature?.freeLimit ?? 0;
-
-    const [entitlement] = feature
-      ? await tx
-          .select({ id: orgFeatureEntitlements.id })
-          .from(orgFeatureEntitlements)
-          .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.featureId, feature.id), eq(orgFeatureEntitlements.status, "active")))
-          .limit(1)
-      : [];
-    if (entitlement) return { allowed: true, limit, used: 0 };
-
-    let used = 0;
-    if (limitType === "staff_seats") {
-      const [row] = await tx
-        .select({ c: sql<number>`count(*)::int` })
-        .from(staff)
-        .innerJoin(stores, eq(staff.storeId, stores.id))
-        .where(and(eq(stores.businessId, organisationId), eq(staff.isArchived, false)));
-      used = row?.c ?? 0;
-    } else if (limitType === "customer_count") {
-      const [row] = await tx
-        .select({ c: sql<number>`count(*)::int` })
-        .from(customers)
-        .innerJoin(stores, eq(customers.storeId, stores.id))
-        .where(and(eq(stores.businessId, organisationId), eq(customers.isArchived, false)));
-      used = row?.c ?? 0;
-    } else {
-      const [row] = await tx
-        .select({ c: sql<number>`count(*)::int` })
-        .from(stores)
-        .where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
-      used = row?.c ?? 0;
-    }
-
-    return { allowed: used < limit, limit, used };
+    const { limit, used, unlimited } = await evaluateCountLimit(tx, organisationId, limitType);
+    if (unlimited) return { allowed: true, limit, used };
+    return { allowed: used + adding <= limit, limit, used };
   });
 }
 
@@ -405,7 +489,7 @@ export async function getActiveFeaturePricing(
 /** Read-only limit status for GET /api/entitlements - no advisory lock needed, this never gates a write. */
 export async function getCountLimitStatus(organisationId: string, limitType: CountLimitType): Promise<{ limit: number; used: number; unlimited: boolean }> {
   const feature = await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
-  const limit = feature?.freeLimit ?? 0;
+  const limit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
   // Trialing counts as unlimited too (§1) - getOrgEntitlements already grants
   // the addon key outright while trialing, so this `.has()` check covers both
   // "purchased" and "still inside the trial" without a separate branch here.
@@ -427,23 +511,13 @@ export async function getCountLimitStatus(organisationId: string, limitType: Cou
 
 /** Express middleware wrapping checkCountLimit with the standard 402 response shape. */
 export function requireCountLimit(limitType: CountLimitType): RequestHandler {
-  const nounFor: Record<CountLimitType, string> = { staff_seats: "staff member", customer_count: "customer", store_count: "store" };
   return async (req, res, next) => {
     const businessId = (req as any).user?.businessId;
     if (!businessId) return res.status(401).json({ error: "Authentication required." });
     try {
       const outcome = await checkCountLimit(businessId, limitType);
       if (outcome.allowed) return next();
-      const noun = nounFor[limitType];
-      const addon = LIMIT_FEATURE_KEY[limitType];
-      return res.status(402).json({
-        error: "count_limit_reached",
-        limitType,
-        limit: outcome.limit,
-        used: outcome.used,
-        featureKey: addon,
-        message: `You're on the free tier of ${outcome.limit} ${noun}${outcome.limit === 1 ? "" : "s"}. Add the ${noun} add-on to add more.`,
-      });
+      return res.status(402).json(new CountLimitError(limitType, outcome.limit, outcome.used).toBody());
     } catch (error) {
       console.error(`requireCountLimit(${limitType}) error:`, error);
       return res.status(500).json({ error: "We couldn't verify your plan limits. Please try again." });

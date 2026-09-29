@@ -29,6 +29,18 @@ services:
       # coordinates without it.
       - key: VITE_GOOGLE_MAPS_API_KEY
         sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        sync: false
 
   # Pings the app every 14 minutes to prevent Render free-tier spin-down
   - type: cron

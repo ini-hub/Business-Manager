@@ -112,7 +112,7 @@ export default function OnboardingWizard() {
     onSuccess: async (store) => {
       logFunnelEvent("onboarding_skipped_to_dashboard");
       queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
-      toast({ title: "You're all set!", description: `We created "${store.name}" for you. You can rename it anytime from Settings.` });
+      toast({ title: "You're all set!", description: `"${store.name}" is ready. You can rename it anytime from Settings.` });
       await finishOnboarding("/");
     },
     onError: (error: Error) => toast({ title: "Couldn't skip setup", description: getUserFriendlyError(error, "store"), variant: "destructive" }),

@@ -1,6 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { invalidateStoreTimezone } from "../lib/dateUtils";
 import { storage } from "../storage";
+import { LOGO_PATH, LogoError, isDataUrl, isS3Ref, s3KeyOf, parseDataUrl, persistableLogo, withPublicLogo } from "../lib/businessLogo";
+import { objectStorage } from "../lib/objectStorage";
 import { isAuthenticated } from "../auth";
 import {
   insertBusinessSchema,
@@ -43,7 +45,7 @@ import { isTrialExpired } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
-import { requireCountLimit } from "../lib/entitlements";
+import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
 import { splitNormalizedPhone } from "@shared/phone-utils";
 import { splitFullName } from "@shared/name-utils";
 
@@ -98,13 +100,35 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
           }
         }
 
-        return res.json(business || null);
+        return res.json(business ? withPublicLogo(business) : null);
       }
 
       res.json(null);
     } catch (error) {
       console.error("GET /api/business error:", error);
       res.status(500).json({ error: "We couldn't load business information. Please try again." });
+    }
+  });
+
+  // Serves the active org's logo out of the JSON path. Legacy inline data: URLs
+  // are decoded here; s3: refs redirect to a short-lived signed URL. The ?v=
+  // hash in withPublicLogo makes the response safe to cache for a long time.
+  app.get(LOGO_PATH, isAuthenticated, async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      const business = businessId ? await storage.getBusinessById(businessId) : undefined;
+      const stored = business?.logoUrl;
+      if (isS3Ref(stored)) {
+        res.set("Cache-Control", "private, max-age=240");
+        return res.redirect(302, await objectStorage.getSignedGetUrl(s3KeyOf(stored), 300));
+      }
+      const parsed = isDataUrl(stored) ? parseDataUrl(stored) : null;
+      if (!parsed) return res.status(404).end();
+      res.set({ "Content-Type": parsed.contentType, "Cache-Control": "private, max-age=86400" });
+      res.send(parsed.buffer);
+    } catch (error) {
+      console.error("GET /api/business/logo error:", error);
+      res.status(500).end();
     }
   });
 
@@ -164,7 +188,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     try {
       const data = insertBusinessSchema.parse(req.body);
       const business = await storage.createBusiness(data);
-      res.status(201).json(business);
+      res.status(201).json(withPublicLogo(business));
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -179,12 +203,20 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(403).json({ error: "Unauthorized access to business data." });
       }
       const data = insertBusinessSchema.partial().parse(req.body);
+      if ("logoUrl" in data) {
+        const logo = await persistableLogo(req.params.id, data.logoUrl);
+        if (logo === undefined) delete data.logoUrl;
+        else data.logoUrl = logo;
+      }
       const business = await storage.updateBusiness(req.params.id, data);
       if (!business) {
         return res.status(404).json({ error: "Business not found." });
       }
-      res.json(business);
+      res.json(withPublicLogo(business));
     } catch (error) {
+      if (error instanceof LogoError) {
+        return res.status(400).json({ error: error.message });
+      }
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -388,6 +420,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
 
       res.status(201).json(store);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -399,18 +432,26 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
   // dashboard - we still need a store for staff/inventory/sales to attach
   // to, so this creates one on their behalf ("Main Store"/"MAIN") instead
   // of making them fill out the form.
-  app.post("/api/stores/skip-setup", requireRole("owner"), requireCountLimit("store_count"), async (req, res) => {
+  // Idempotent: if the business already has an active store (e.g. the owner
+  // created one in the wizard, then hit Skip), that store is returned instead
+  // of creating a second one. No requireCountLimit here for the same reason -
+  // it would 402 exactly that case; storage.createStore still enforces the cap.
+  app.post("/api/stores/skip-setup", requireRole("owner"), async (req, res) => {
     try {
       const userBusinessId = (req as any).user?.businessId;
       if (!userBusinessId) {
         return res.status(401).json({ error: "Authentication required." });
       }
 
+      const existing = (await storage.getStores(userBusinessId)).find((s) => s.isActive);
+      if (existing) return res.status(200).json(existing);
+
       const store = await createDefaultStore(userBusinessId);
       await addOwnerAsStaff(store, req);
 
       res.status(201).json(store);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -544,6 +585,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       auditLogger.logEvent(ctx, "RESTORE", "store", req.params.id, "success", { previousValues: store, newValues: restored });
       res.json(restored);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       res.status(500).json({ error: "We couldn't restore the store. Please try again." });
     }
   });
@@ -873,6 +915,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       res.status(201).json(customer);
     } catch (error) {
       auditLogger.logDataModification("customer", undefined, getUserId(req), "CREATE", false, (error as Error).message);
+      if (sendPlanLimitError(res, error)) return;
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -1024,6 +1067,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       auditLogger.logEvent(ctx, "RESTORE", "customer", req.params.id, "success", { previousValues: customer, newValues: restored });
       res.json(restored);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       res.status(500).json({ error: "We couldn't restore this customer. Please try again." });
     }
   });
@@ -1077,6 +1121,13 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
+      // Reject the whole file up front if it would push the org past its customer cap.
+      const businessId = (req as any).user?.businessId;
+      if (businessId) {
+        const outcome = await checkCountLimit(businessId, "customer_count", data.length);
+        if (!outcome.allowed) return res.status(402).json(new CountLimitError("customer_count", outcome.limit, outcome.used, data.length).toBody());
+      }
+
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };
 
       for (let i = 0; i < data.length; i++) {
@@ -1097,7 +1148,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
           result.failed++;
           const message = error instanceof z.ZodError
             ? error.errors.map(e => e.message).join(", ")
-            : "Invalid data";
+            : error instanceof CountLimitError ? error.message : "Invalid data";
           result.errors.push({ row: i + 2, message });
         }
       }

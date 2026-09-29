@@ -38,6 +38,7 @@ import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull, inArray } from 
 import { commissionService } from "../services/CommissionService";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 import { joinFullName as composeFullName } from "@shared/name-utils";
+import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
 
 export class StaffRepository {
   // ─── Revenue share helper ─────────────────────────────────────────────────
@@ -274,17 +275,23 @@ export class StaffRepository {
   }
 
   async createStaff(staffMember: InsertStaff & { userId?: string | null }): Promise<Staff> {
-    const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
-    const [newStaff] = await db.insert(staff).values({
-      ...staffMember,
-      email: staffMember.email.toLowerCase(),
-      staffNumber,
-      // `name` is derived, never trusted as submitted input - see the
-      // column's comment in shared/schema/staff.ts. firstName/lastName are
-      // required by insertStaffSchema, so this is always the real full name.
-      name: composeFullName(staffMember.firstName, staffMember.lastName),
-    }).returning();
-    return newStaff;
+    return db.transaction(async (tx) => {
+      // Free-tier seat cap, checked under the same lock/transaction as the insert.
+      const businessId = await getBusinessIdForStore(tx, staffMember.storeId);
+      if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats");
+
+      const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
+      const [newStaff] = await tx.insert(staff).values({
+        ...staffMember,
+        email: staffMember.email.toLowerCase(),
+        staffNumber,
+        // `name` is derived, never trusted as submitted input - see the
+        // column's comment in shared/schema/staff.ts. firstName/lastName are
+        // required by insertStaffSchema, so this is always the real full name.
+        name: composeFullName(staffMember.firstName, staffMember.lastName),
+      }).returning();
+      return newStaff;
+    });
   }
 
   async updateStaff(id: string, staffData: Partial<InsertStaff> & { userId?: string }): Promise<Staff | undefined> {
@@ -385,8 +392,16 @@ export class StaffRepository {
   }
 
   async restoreStaff(id: string): Promise<Staff | undefined> {
-    const [updated] = await db.update(staff).set({ isArchived: false }).where(eq(staff.id, id)).returning();
-    return updated;
+    return db.transaction(async (tx) => {
+      const [current] = await tx.select({ storeId: staff.storeId, isArchived: staff.isArchived }).from(staff).where(eq(staff.id, id)).limit(1);
+      // Un-archiving takes a seat back, so it's subject to the same free-tier cap as a new hire.
+      if (current?.isArchived) {
+        const businessId = await getBusinessIdForStore(tx, current.storeId);
+        if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats");
+      }
+      const [updated] = await tx.update(staff).set({ isArchived: false }).where(eq(staff.id, id)).returning();
+      return updated;
+    });
   }
 
   async hasStaffCheckouts(id: string): Promise<boolean> {

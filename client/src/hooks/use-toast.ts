@@ -1,4 +1,5 @@
 import * as React from "react"
+import { isDuplicatePlanLimitToast } from "@/lib/upgrade-prompt"
 
 import type {
   ToastActionElement,
@@ -141,6 +142,12 @@ type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
   const id = genId()
+
+  // The global upgrade dialog already says this (with an upgrade button), so a
+  // page's own error toast repeating the same plan-limit text is just noise.
+  if (isDuplicatePlanLimitToast(props.description)) {
+    return { id, dismiss: () => {}, update: (_props: ToasterToast) => {} }
+  }
 
   const update = (props: ToasterToast) =>
     dispatch({

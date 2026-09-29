@@ -63,13 +63,43 @@ const requiresSsl =
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: parseInt(process.env.DB_POOL_MAX || "20"),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
+  idleTimeoutMillis: 5 * 60_000,
+  connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT_MS || "20000"),
+  // Keep a couple of TLS connections warm and TCP-alive: a cold connect to a
+  // remote Neon endpoint costs ~4s, which stacks up when a page load fires many
+  // parallel API calls.
+  min: parseInt(process.env.DB_POOL_MIN || "2"),
+  keepAlive: true,
   options: "-c timezone=UTC",
   ssl: requiresSsl ? { rejectUnauthorized: true } : undefined,
 });
 
+// An idle pooled connection dropped by Neon/pooler emits 'error' on the pool;
+// with no listener that would crash the process. pg-pool discards the client.
+pool.on("error", (err) => console.warn("[db] idle client error:", err.message));
+
 export const db = drizzle(pool, { schema });
+
+// A new connection to a remote Neon endpoint can take 4-15s (TLS + pooler
+// handshake over a long path); queries on an established one take ~0.3s. So
+// open `min` connections up front and keep them exercised, otherwise the first
+// burst of requests after idle each pays the handshake, and any that exceed the
+// connect timeout surface as "Connection terminated due to connection timeout".
+// pg-pool's own `min` only stops idle eviction; it never opens connections.
+const warmTarget = Math.max(0, parseInt(process.env.DB_POOL_MIN || "2"));
+async function warmPool(): Promise<void> {
+  const clients = await Promise.allSettled(Array.from({ length: warmTarget }, () => pool.connect()));
+  for (const c of clients) {
+    if (c.status === "fulfilled") {
+      await c.value.query("select 1").catch(() => undefined);
+      c.value.release();
+    }
+  }
+}
+if (warmTarget > 0 && process.env.NODE_ENV !== "test") {
+  void warmPool();
+  setInterval(() => void warmPool(), 60_000).unref();
+}
 
 // Either the pool-backed `db` or a transaction handle. Lets a repository method
 // be called standalone or enlisted into a caller's transaction without the

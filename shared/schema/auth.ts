@@ -17,6 +17,25 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+// Server-side record of each issued login JWT (its `sid` claim). Lets logout,
+// password change and "sign out everywhere" revoke a token before it expires.
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull(),
+    organisationId: varchar("organisation_id"),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    revokedReason: text("revoked_reason"),
+  },
+  (table) => [index("idx_auth_sessions_user_active").on(table.userId)],
+);
+
 // User roles enum
 export const userRoleEnum = ["owner", "manager", "staff"] as const;
 export type UserRole = typeof userRoleEnum[number];

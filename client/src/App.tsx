@@ -3,6 +3,9 @@ import { useEffect, lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { UpgradePromptDialog } from "@/components/billing/UpgradePromptDialog";
+import { FeatureGate } from "@/components/billing/FeatureGate";
+import { LimitGate } from "@/components/billing/LimitGate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -172,6 +175,25 @@ function OnboardingRoute() {
   return <OnboardingWizard />;
 }
 
+// Pages that ARE the paid feature render a locked card instead of a form that
+// can only fail with a 402. Only write/report pages are wrapped - lists of data
+// the org already owns (e.g. /expenses) stay readable after an add-on lapses.
+function withFeatureGate<P extends object>(featureKey: string, featureName: string, Page: React.ComponentType<P>) {
+  return function GatedPage(props: P) {
+    return (
+      <FeatureGate featureKey={featureKey} featureName={featureName}>
+        <Page {...props} />
+      </FeatureGate>
+    );
+  };
+}
+const GatedProfitLoss = withFeatureGate("financial_management", "Profit & Loss", ProfitLossPage);
+const GatedAddExpense = withFeatureGate("financial_management", "Expenses", AddExpensePage);
+const GatedExpenseEdit = withFeatureGate("financial_management", "Expenses", ExpenseEditPage);
+const GatedExpenseCategories = withFeatureGate("financial_management", "Expenses", ExpenseCategoriesPage);
+const GatedStaffPerformance = withFeatureGate("staff_performance_tracking", "Staff Performance Tracking", StaffPerformancePage);
+const GatedRoleForm = withFeatureGate("custom_roles_permissions", "Custom Roles & Permissions", RoleFormPage);
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -181,6 +203,7 @@ export default function App() {
             <Router />
           </ErrorBoundary>
           <Toaster />
+          <UpgradePromptDialog />
           <OfflineSyncManager />
         </TooltipProvider>
       </ThemeProvider>
@@ -450,7 +473,9 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <StaffDashboard /> : <Dashboard />}
                   </Route>
                   <Route path="/customers" component={Customers} />
-                  <Route path="/customers/new" component={CustomerFormPage} />
+                  <Route path="/customers/new">
+                    <LimitGate limitType="customer_count"><CustomerFormPage /></LimitGate>
+                  </Route>
                   <Route path="/customers/:id/edit" component={CustomerFormPage} />
                   <Route path="/customers/:id" component={CustomerDetails} />
                   {/* Singular /staff/* = personal, identical for staff, manager, and
@@ -468,7 +493,7 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <NotAuthorized /> : <StaffPage />}
                   </Route>
                   <Route path="/staffs/new">
-                    {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
+                    {user?.role === "staff" ? <NotAuthorized /> : <LimitGate limitType="staff_seats"><StaffFormPage /></LimitGate>}
                   </Route>
                   <Route path="/staffs/:id/edit">
                     {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
@@ -480,7 +505,7 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <NotAuthorized /> : <AttendancePage />}
                   </Route>
                   <Route path="/staffs/performance">
-                    {user?.role === "staff" ? <NotAuthorized /> : <StaffPerformancePage />}
+                    {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformance />}
                   </Route>
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/new" component={InventoryNewPage} />
@@ -491,11 +516,11 @@ function AuthenticatedLayout() {
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
                   <Route path="/transactions/:id" component={TransactionDetailsPage} />
-                  <Route path="/profit-loss" component={ProfitLossPage} />
+                  <Route path="/profit-loss" component={GatedProfitLoss} />
                   <Route path="/expenses" component={ExpensesPage} />
-                  <Route path="/expenses/new" component={AddExpensePage} />
-                  <Route path="/expenses/categories" component={ExpenseCategoriesPage} />
-                  <Route path="/expenses/:id/edit" component={ExpenseEditPage} />
+                  <Route path="/expenses/new" component={GatedAddExpense} />
+                  <Route path="/expenses/categories" component={GatedExpenseCategories} />
+                  <Route path="/expenses/:id/edit" component={GatedExpenseEdit} />
                   <Route path="/credit-sales" component={CreditSalesPage} />
                   <Route path="/bookings/new" component={BookingFormPage} />
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
@@ -548,7 +573,7 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBulkOperationsPage />}
                   </Route>
                   <Route path="/settings/stores/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
+                    {user?.role === "staff" ? <Redirect to="/" /> : <LimitGate limitType="store_count"><StoreFormPage /></LimitGate>}
                   </Route>
                   <Route path="/settings/stores/:id/edit">
                     {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
@@ -560,10 +585,10 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <Redirect to="/" /> : <BusinessFormPage />}
                   </Route>
                   <Route path="/settings/roles/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
+                    {user?.role === "staff" ? <Redirect to="/" /> : <GatedRoleForm />}
                   </Route>
                   <Route path="/settings/roles/:id/edit">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <RoleFormPage />}
+                    {user?.role === "staff" ? <Redirect to="/" /> : <GatedRoleForm />}
                   </Route>
                   <Route path="/vendors" component={VendorsPage} />
                   <Route path="/vendors/new" component={VendorFormPage} />

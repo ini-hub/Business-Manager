@@ -2,7 +2,9 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
+import { enforceFeaturePolicy } from "./lib/featurePolicy";
 import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken, generateLegalConsentPendingToken } from "./auth";
+import { issueSession, revokeSession, revokeAllUserSessions } from "./lib/authSessions";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { completeLoginForUser, completeStaffActivation } from "./lib/authFlow";
 import { registerContractRoutes } from "./routes/contract.routes";
@@ -192,6 +194,9 @@ export async function registerRoutes(
   // Blocks API access for suspended/trial-expired orgs, not just the SPA
   // shell's paywall screen — see server/auth.ts for the exempt paths.
   app.use("/api", enforceOrgAccess);
+  // Deny-by-default paid-feature gate (see server/lib/featurePolicy.ts). Count caps
+  // (staff/customers/stores) are enforced in the storage layer instead.
+  app.use("/api", enforceFeaturePolicy);
 
   // Initialize dynamic OOP Router Registry
   const registry = new RouterRegistry([
@@ -917,14 +922,7 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
+      await issueSession(req, res, payload);
 
       const sessionUser = {
         id: user.id,
@@ -975,14 +973,7 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
+      await issueSession(req, res, payload);
 
       const sessionUser = {
         id: user.id,
@@ -1051,14 +1042,7 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
+      await issueSession(req, res, payload);
 
       const sessionUser = {
         id: user.id,
@@ -1358,7 +1342,7 @@ export async function registerRoutes(
       // completeStaffActivation (server/lib/authFlow.ts) - reused verbatim
       // by POST /api/legal/consent-pending/accept once a first-time
       // activation with both gates pending clears the legal-consent step.
-      await completeStaffActivation(user, res);
+      await completeStaffActivation(user, req, res);
     } catch (error) {
       console.error("Set activated password error:", error);
       res.status(500).json({ error: "Failed to set password." });
@@ -1485,14 +1469,7 @@ export async function registerRoutes(
         email: user.email || undefined,
       };
 
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
+      await issueSession(req, res, payload);
 
       res.json({
         message: "Email verified and logged in successfully.",
@@ -1557,7 +1534,17 @@ export async function registerRoutes(
   });
 
   // Logout
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
+    // Revoke server-side too, or a copied cookie/Bearer token would outlive logout.
+    // Works without isAuthenticated so an already-expired client can still clear its cookie.
+    const claims = req.user;
+    if (claims?.sid) {
+      try {
+        await revokeSession(claims.sid, "logout");
+      } catch (error) {
+        console.error("Logout session revoke error:", error);
+      }
+    }
     res.clearCookie("jwt_token");
     res.json({ message: "Logged out successfully." });
   });
@@ -1697,6 +1684,8 @@ export async function registerRoutes(
         lockedUntil: null,
         lockoutCount: 0,
       });
+
+      await revokeAllUserSessions(user.id, "password_reset");
 
       if (user.email) {
         await sendPasswordChangedEmail(user.email, user.name || user.email);

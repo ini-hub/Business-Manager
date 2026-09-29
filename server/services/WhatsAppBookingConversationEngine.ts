@@ -17,6 +17,7 @@ import { normalizePhoneNumber } from "../sanitize";
 import { getStoreTimezone } from "../lib/dateUtils";
 import { sendFreeTextMessage, sendInteractiveMessage } from "./WhatsAppService";
 import { getAppUrl } from "../lib/appUrl";
+import { CountLimitError } from "../lib/entitlements";
 
 const customerRepository = new CustomerRepository();
 const bookingRepository = new BookingRepository();
@@ -151,13 +152,25 @@ async function finalizeBooking(storeId: string, waPhoneE164: string, conversatio
     // stores.phoneCountryCode), not insertCustomerSchema's form-input
     // default, which is for a different (ISO-selector) input path.
     const [store] = await db.select({ phoneCountryCode: stores.phoneCountryCode }).from(stores).where(eq(stores.id, storeId));
-    customer = await customerRepository.createCustomer({
-      storeId,
-      name: `WhatsApp ${normalizedPhone}`,
-      mobileNumber: normalizedPhone,
-      countryCode: store?.phoneCountryCode || "+234",
-      address: "",
-    } as any);
+    try {
+      customer = await customerRepository.createCustomer({
+        storeId,
+        name: `WhatsApp ${normalizedPhone}`,
+        mobileNumber: normalizedPhone,
+        countryCode: store?.phoneCountryCode || "+234",
+        address: "",
+      } as any);
+    } catch (error) {
+      // The business is at its free-tier customer cap: no new customer record
+      // can be created, so tell the person to contact the business directly
+      // rather than dropping the conversation silently.
+      if (error instanceof CountLimitError) {
+        await sendFreeTextMessage(storeId, waPhoneE164, "Sorry, we can't take new booking requests through WhatsApp right now. Please contact the business directly.");
+        await touchConversation(conversation.id, { state: "abandoned" });
+        return;
+      }
+      throw error;
+    }
   }
   await ensureImplicitOptIn(storeId, customer.id);
 

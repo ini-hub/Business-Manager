@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireProfilePendingToken, generateToken, generateGuarantorSigningToken } from "../auth";
+import { issueSession } from "../lib/authSessions";
 import { isHrProfileComplete } from "../lib/hrProfileGate";
 import { hrPersonalProfileService } from "../services/HrPersonalProfileService";
 import { hrEmergencyContactService } from "../services/HrEmergencyContactService";
@@ -252,14 +253,7 @@ export function registerProfileCompletionRoutes(app: Express): void {
         staffId: activatedMember.staffId || undefined,
         email: user.email || undefined,
       };
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
+      await issueSession(req, res, payload);
       res.clearCookie("profile_pending_token");
 
       auditLogger.log({

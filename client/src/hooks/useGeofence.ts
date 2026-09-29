@@ -49,6 +49,37 @@ export function useGeofence(centre: GeofenceCentre | null, enabled: boolean): Ge
 
   const watchIdRef = useRef<number | null>(null);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  const stateRef = useRef<GeofenceState>("idle");
+  stateRef.current = state;
+
+  // watchPosition ends for good on its first PERMISSION_DENIED, so somebody who
+  // dismisses the prompt and then allows location in site settings would stay
+  // stuck on "denied" until they found the retry button. Restart the watch as
+  // soon as the permission flips, or when they come back to the tab.
+  useEffect(() => {
+    if (!enabled || !centre) return;
+    let status: PermissionStatus | null = null;
+    let cancelled = false;
+    const onChange = () => { if (stateRef.current === "denied") refresh(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onChange();
+    };
+    try {
+      navigator.permissions?.query({ name: "geolocation" as PermissionName }).then((s) => {
+        if (cancelled) return;
+        status = s;
+        s.addEventListener("change", onChange);
+      }).catch(() => {});
+    } catch { /* Permissions API unavailable (older Safari) — focus fallback below */ }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onChange);
+    return () => {
+      cancelled = true;
+      status?.removeEventListener("change", onChange);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onChange);
+    };
+  }, [enabled, !!centre, refresh]);
 
   useEffect(() => {
     if (!enabled || !centre) {

@@ -1,9 +1,10 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { announcePlanLimit, toPlanLimitDetails, type PlanLimitDetails } from "./upgrade-prompt";
 
 // Some endpoints return a machine-readable `error.code` alongside the
 // human-readable message (e.g. "SMS_UNAVAILABLE"), so callers can branch on
 // the failure reason instead of pattern-matching the message text.
-export type ApiError = Error & { code?: string; field?: string };
+export type ApiError = Error & { code?: string; field?: string; planLimit?: PlanLimitDetails };
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -39,6 +40,10 @@ async function throwIfResNotOk(res: Response) {
       if (typeof jsonError.field === "string") {
         error.field = jsonError.field;
       }
+      if (res.status === 402) {
+        const planLimit = toPlanLimitDetails(jsonError);
+        if (planLimit) error.planLimit = planLimit;
+      }
       throw error;
     } catch (parseError) {
       // If not JSON, use the text directly (without status code prefix)
@@ -66,7 +71,16 @@ export async function apiRequest(
     credentials: "include",
   });
 
-  await throwIfResNotOk(res);
+  try {
+    await throwIfResNotOk(res);
+  } catch (error) {
+    // A blocked write (free-plan cap or an add-on the org doesn't have) opens
+    // the global upgrade dialog, wherever the request came from. Reads are left
+    // to the page's FeatureGate so merely opening a page never pops a dialog.
+    const planLimit = (error as ApiError).planLimit;
+    if (planLimit && method.toUpperCase() !== "GET") announcePlanLimit(planLimit);
+    throw error;
+  }
   return res;
 }
 

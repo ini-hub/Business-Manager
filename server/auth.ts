@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
 import { getOrgAccessState } from "./lib/trial";
 import { maybeProcessDueRenewal } from "./lib/billing";
+import { isSessionActive } from "./lib/authSessions";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -21,6 +22,8 @@ export interface JWTPayload {
   role?: string;
   staffId?: string;
   email?: string;
+  /** auth_sessions.id; absent on tokens minted before session tracking. */
+  sid?: string;
 }
 
 export function generateToken(payload: JWTPayload): string {
@@ -157,7 +160,17 @@ export async function setupAuth(app: Express) {
     const token = cookies.jwt_token || req.headers["authorization"]?.replace("Bearer ", "");
     
     if (token) {
-      const claims = verifyToken(token);
+      let claims = verifyToken(token);
+      // Tokens carrying a `sid` are only valid while their server-side session
+      // is unrevoked (logout, password change). Legacy tokens without one
+      // age out via their 24h expiry.
+      if (claims?.sid) {
+        try {
+          if (!(await isSessionActive(claims.sid))) claims = undefined;
+        } catch (dbError) {
+          console.error("Auth middleware session lookup error:", dbError);
+        }
+      }
       if (claims) {
         let businessId = claims.organisationId;
         if (!businessId && claims.userId) {

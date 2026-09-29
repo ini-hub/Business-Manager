@@ -547,6 +547,9 @@ export default function Landing() {
             <p className="text-white/45 max-w-lg mx-auto text-sm">
               Every plan starts with a 14-day free trial — full access, no card required.
             </p>
+            <p className="text-white/35 max-w-lg mx-auto text-xs mt-2">
+              After the trial you keep the free plan — 1 staff seat, 50 customers and 1 store — and add only the features you need.
+            </p>
           </div>
 
           {plans.length > 0 && (

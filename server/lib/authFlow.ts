@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
 import { generateToken, generateOrgSelectToken, generateContractPendingToken, generateProfilePendingToken } from "../auth";
+import { issueSession } from "./authSessions";
 import { staffContractService } from "../services/StaffContractService";
 import { isHrProfileComplete } from "./hrProfileGate";
 import { broadcastDataChange } from "../websocket";
@@ -142,14 +143,7 @@ export async function completeLoginForUser(user: any, req: Request, res: Respons
     email: user.email || undefined,
   };
 
-  const token = generateToken(payload);
-
-  res.cookie("jwt_token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 24 * 60 * 60 * 1000,
-    sameSite: "lax",
-  });
+  await issueSession(req, res, payload);
 
   const sessionUser = {
     id: user.id,
@@ -176,7 +170,7 @@ export async function completeLoginForUser(user: any, req: Request, res: Respons
  * POST /api/legal/consent-pending/accept once a first-time staff activation
  * accepts. Assumes the caller has already set the account's password.
  */
-export async function completeStaffActivation(user: any, res: Response): Promise<void> {
+export async function completeStaffActivation(user: any, req: Request, res: Response): Promise<void> {
   const members = await storage.getOrganisationsByUserId(user.id);
   let targetMember = members.find((m: any) => m.status === "partial") || members.find((m: any) => m.status === "pending")
     || members.find((m: any) => m.status === "contract_pending") || members.find((m: any) => m.status === "active");
@@ -276,14 +270,7 @@ export async function completeStaffActivation(user: any, res: Response): Promise
     email: user.email || undefined,
   };
 
-  const token = generateToken(payload);
-
-  res.cookie("jwt_token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 24 * 60 * 60 * 1000,
-    sameSite: "lax",
-  });
+  await issueSession(req, res, payload);
 
   res.json({
     message: "Password set and logged in successfully.",

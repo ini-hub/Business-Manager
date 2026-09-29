@@ -71,7 +71,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
-import { requireCountLimit } from "../lib/entitlements";
+import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -398,6 +398,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       });
     } catch (error) {
       auditLogger.logDataModification("staff", undefined, getUserId(req), "CREATE", false, (error as Error).message);
+      if (sendPlanLimitError(res, error)) return;
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -894,6 +895,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       auditLogger.logEvent(ctx, "RESTORE", "staff", req.params.id, "success", { previousValues: staffMember, newValues: restored });
       res.json(restored);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       res.status(500).json({ error: "We couldn't restore this staff member. Please try again." });
     }
   });
@@ -1102,9 +1104,17 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(403).json({ error: "You don't have access to this store." });
       }
 
+      // Reject the whole file up front if it would push the org past its seat cap.
+      const businessId = (req as any).user?.businessId;
+      if (businessId) {
+        const outcome = await checkCountLimit(businessId, "staff_seats", data.length);
+        if (!outcome.allowed) return res.status(402).json(new CountLimitError("staff_seats", outcome.limit, outcome.used, data.length).toBody());
+      }
+
       const result = await bulkUploadService.importStaff(data, storeId, getUserId(req));
       res.json(result);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       res.status(500).json({ error: "We couldn't import your staff. Please try again." });
     }
   });
@@ -1170,6 +1180,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       auditLogger.logDataModification("customer", customerId, getUserId(req), "LINK_STAFF", true, `Linked to staff ${req.params.id}`);
       res.json(updated);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       res.status(500).json({ error: "Could not link customer profile." });
     }
   });

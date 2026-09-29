@@ -32,6 +32,7 @@ import {
 } from "@shared/schema";
 import { eq, and, ilike, count } from "drizzle-orm";
 import { seedDefaultHrConfig } from "../lib/hrDefaults";
+import { assertWithinCountLimit } from "../lib/entitlements";
 
 export class BusinessRepository {
   // ─── Organisations ────────────────────────────────────────────────────────
@@ -190,9 +191,13 @@ export class BusinessRepository {
   }
 
   async createStore(store: InsertStore & { isMain?: boolean }): Promise<Store> {
-    const [newStore] = await db.insert(stores).values(store).returning();
-    await db.insert(storeCounters).values({ storeId: newStore.id, nextCustomerNumber: 1 });
-    return newStore;
+    return db.transaction(async (tx) => {
+      // Free-tier store cap, checked under the same lock/transaction as the insert.
+      if (store.businessId) await assertWithinCountLimit(tx, store.businessId, "store_count");
+      const [newStore] = await tx.insert(stores).values(store).returning();
+      await tx.insert(storeCounters).values({ storeId: newStore.id, nextCustomerNumber: 1 });
+      return newStore;
+    });
   }
 
   async updateStore(id: string, storeData: Partial<InsertStore>): Promise<Store | undefined> {
@@ -216,8 +221,15 @@ export class BusinessRepository {
   }
 
   async restoreStore(id: string): Promise<Store | undefined> {
-    const [updated] = await db.update(stores).set({ isActive: true }).where(eq(stores.id, id)).returning();
-    return updated;
+    return db.transaction(async (tx) => {
+      const [current] = await tx.select({ businessId: stores.businessId, isActive: stores.isActive }).from(stores).where(eq(stores.id, id)).limit(1);
+      // Reactivating an archived store takes a store slot back, so it's subject to the same free-tier cap as a new one.
+      if (current && !current.isActive && current.businessId) {
+        await assertWithinCountLimit(tx, current.businessId, "store_count");
+      }
+      const [updated] = await tx.update(stores).set({ isActive: true }).where(eq(stores.id, id)).returning();
+      return updated;
+    });
   }
 
   async countActiveStores(businessId: string): Promise<number> {

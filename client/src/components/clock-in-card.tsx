@@ -35,6 +35,13 @@ type TodayContext = {
 
 type PunchOutcome = { isLate: boolean; lateMinutes: number; localDate: string };
 
+// Webviews inside WhatsApp/Instagram/Facebook etc. refuse geolocation no matter
+// what the phone's settings say, so "allow it for this site" cannot work there.
+function isInAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /FBAN|FBAV|Instagram|WhatsApp|Line\/|MicroMessenger|; wv\)|Snapchat|TikTok|Twitter/i.test(navigator.userAgent);
+}
+
 export function ClockInCard() {
   const { toast } = useToast();
   const { currentStore } = useStore();
@@ -217,7 +224,12 @@ export function ClockInCard() {
       case "weak":
         return { text: "Weak GPS signal — move near a window or step outside", tone: "warn" };
       case "denied":
-        return { text: "Location is off. Turn it on for this site to continue.", tone: "bad" };
+        return {
+          text: isInAppBrowser()
+            ? "This in-app browser can't share your location."
+            : "Location is off. Turn it on for this site to continue.",
+          tone: "bad",
+        };
       case "insecure":
         return { text: "This needs a secure (https) connection.", tone: "bad" };
       case "unsupported":
@@ -237,7 +249,9 @@ export function ClockInCard() {
   // no page reload needed, so "Check again" is the thing to press once
   // they're done, not a dead end.
   const locationHelpText = fence.state === "denied"
-    ? "Tap the lock or site-info icon next to your browser's address bar, allow Location for this site, then check again below."
+    ? (isInAppBrowser()
+        ? "Open this page in Chrome or Safari (use the menu ⋮ and choose \"Open in browser\"), then sign in again."
+        : "Tap the lock or site-info icon next to your browser's address bar and allow Location for this site. Also make sure Location is switched on in your phone's settings. This page rechecks automatically, or tap Check again.")
     : null;
   const canClockIn = fence.state === "inside" && !punchMutation.isPending;
   // Clock-out is checked against the same geofence server-side (see
@@ -316,7 +330,7 @@ export function ClockInCard() {
                   </Button>
 
                   {(fence.state === "weak" || fence.state === "outside" || fence.state === "denied") && (
-                    <Button variant="ghost" size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
+                    <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
                       {fence.state === "denied" ? "Check again" : "Try my location again"}
                     </Button>
                   )}
@@ -355,7 +369,7 @@ export function ClockInCard() {
               </Button>
 
               {(fence.state === "weak" || fence.state === "outside" || fence.state === "denied") && (
-                <Button variant="ghost" size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
+                <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
                   {fence.state === "denied" ? "Check again" : "Try my location again"}
                 </Button>
               )}

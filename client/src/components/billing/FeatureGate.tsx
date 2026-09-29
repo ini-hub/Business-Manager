@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Lock } from "lucide-react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useLocation } from "wouter";
+import { openBilling } from "@/lib/upgrade-prompt";
 
 /**
  * Centralizes the "hide/disable a gated form field or section, show an
@@ -30,19 +31,7 @@ export function FeatureGate({
   if (hasFeature(featureKey)) return <>{children}</>;
   if (fallback) return <>{fallback}</>;
 
-  const goToBilling = () => {
-    // Stash where we actually are before hopping to the billing page, so
-    // FeatureAddOns can send the user back HERE after checkout instead of
-    // just to /settings/billing (which is only a stop on the way) - see
-    // requirements plan §6 (return-to-last-state).
-    try {
-      sessionStorage.setItem("billing_return_to", window.location.pathname + window.location.search);
-    } catch {
-      // sessionStorage can throw in a locked-down browser context - fall
-      // back to the default that billing-callback.tsx uses in that case.
-    }
-    navigate("/settings/billing");
-  };
+  const goToBilling = () => openBilling(navigate);
 
   return (
     <Card className="border-dashed">

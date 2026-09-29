@@ -146,7 +146,7 @@ export function registerLegalRoutes(app: Express): void {
       res.clearCookie("legal_consent_pending_token");
 
       if (continueTo === "staff_activation") {
-        await completeStaffActivation(user, res);
+        await completeStaffActivation(user, req, res);
       } else {
         await completeLoginForUser(user, req, res);
       }

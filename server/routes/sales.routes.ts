@@ -38,7 +38,7 @@ import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { isOrgTrialing } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
-import { requireFeature } from "../lib/entitlements";
+import { requireFeature, getRequestEntitlements, featureNotPurchasedBody } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -536,6 +536,14 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       const data = checkoutSchema.parse(req.body);
 
       if (!(await checkStoreAccess(data.storeId, req, res))) return;
+
+      // Selling on credit (alone or as one leg of a split) is the paid Credit Sale
+      // add-on. Body-dependent, so it can't live in the central route table.
+      const usesCredit = data.paymentMethod === "credit" || !!data.splitPayments?.some((p) => p.method === "credit");
+      const orgId = (req as any).user?.businessId;
+      if (usesCredit && orgId && !(await getRequestEntitlements(res, orgId)).has("credit_sale")) {
+        return res.status(402).json(await featureNotPurchasedBody("credit_sale"));
+      }
 
       // Staff with a linked profile can only ring up sales under their own name;
       // shared/unlinked staff logins fall back to the old free-pick behavior.

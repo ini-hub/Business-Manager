@@ -5,6 +5,7 @@ import { z } from "zod";
 import { auditLogger } from "../audit";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
+import { CountLimitError } from "../lib/entitlements";
 
 type BulkResult = { success: number; failed: number; errors: { row: number; message: string }[] };
 
@@ -101,7 +102,7 @@ export class BulkUploadService {
         result.failed++;
         const message = error instanceof z.ZodError
           ? error.errors.map(e => e.message).join(", ")
-          : "Invalid data";
+          : error instanceof CountLimitError ? error.message : "Invalid data";
         result.errors.push({ row: i + 2, message });
       }
     }

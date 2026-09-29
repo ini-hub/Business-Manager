@@ -15,6 +15,7 @@ import {
 import { eq, and, or, ilike, inArray, count, asc, sql, gte, lte, desc } from "drizzle-orm";
 import { normalizePhoneNumber } from "../sanitize";
 import { searchTokens, infix, searchPhoneDigits } from "../lib/searchTerms";
+import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 
 export class CustomerRepository {
@@ -159,17 +160,24 @@ export class CustomerRepository {
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
-    const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
     const { birthday, ...rest } = customer;
 
     const normalizedPhone = customer.mobileNumber ? normalizePhoneNumber(customer.mobileNumber) : null;
 
-    const [newCustomer] = await db.insert(customers).values({
-      ...rest,
-      mobileNumber: normalizedPhone || null,
-      customerNumber,
-      birthday: birthday ? new Date(birthday) : null,
-    }).returning();
+    const newCustomer = await db.transaction(async (tx) => {
+      // Free-tier customer cap, checked under the same lock/transaction as the insert.
+      const businessId = await getBusinessIdForStore(tx, customer.storeId);
+      if (businessId) await assertWithinCountLimit(tx, businessId, "customer_count");
+
+      const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
+      const [inserted] = await tx.insert(customers).values({
+        ...rest,
+        mobileNumber: normalizedPhone || null,
+        customerNumber,
+        birthday: birthday ? new Date(birthday) : null,
+      }).returning();
+      return inserted;
+    });
 
     await this.linkGlobalCustomerIds(newCustomer.id);
 
@@ -211,8 +219,16 @@ export class CustomerRepository {
   }
 
   async restoreCustomer(id: string): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers).set({ isArchived: false, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
-    return updated;
+    return db.transaction(async (tx) => {
+      const [current] = await tx.select({ storeId: customers.storeId, isArchived: customers.isArchived }).from(customers).where(eq(customers.id, id)).limit(1);
+      // Un-archiving takes a slot back, so it's subject to the same free-tier cap as a new customer.
+      if (current?.isArchived) {
+        const businessId = await getBusinessIdForStore(tx, current.storeId);
+        if (businessId) await assertWithinCountLimit(tx, businessId, "customer_count");
+      }
+      const [updated] = await tx.update(customers).set({ isArchived: false, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
+      return updated;
+    });
   }
 
   async hasCustomerTransactions(id: string): Promise<boolean> {

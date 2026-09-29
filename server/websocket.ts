@@ -1,11 +1,13 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server, IncomingMessage } from "http";
 import { verifyToken } from "./auth";
+import { isSessionActive, onSessionRevoked } from "./lib/authSessions";
 
 let wss: WebSocketServer | null = null;
 
 interface AuthenticatedWebSocket extends WebSocket {
   __businessId: string;
+  __sid?: string;
 }
 
 // Map businessId -> set of authenticated WebSocket connections
@@ -21,12 +23,14 @@ function parseCookieHeader(cookieHeader: string | undefined): Record<string, str
   return list;
 }
 
-function getBusinessIdFromRequest(request: IncomingMessage): string | null {
+async function getAuthFromRequest(request: IncomingMessage): Promise<{ businessId: string; sid?: string } | null> {
   const cookies = parseCookieHeader(request.headers.cookie);
   const token = cookies["jwt_token"];
   if (!token) return null;
   const claims = verifyToken(token);
-  return claims?.organisationId ?? null;
+  if (!claims?.organisationId) return null;
+  if (claims.sid && !(await isSessionActive(claims.sid))) return null;
+  return { businessId: claims.organisationId, sid: claims.sid };
 }
 
 function removeSocket(businessId: string, ws: AuthenticatedWebSocket): void {
@@ -39,20 +43,30 @@ function removeSocket(businessId: string, ws: AuthenticatedWebSocket): void {
 export function initWebSocketServer(server: Server) {
   wss = new WebSocketServer({ noServer: true });
 
-  server.on("upgrade", (request, socket, head) => {
+  // Close open sockets the moment their session is revoked (logout, password reset).
+  onSessionRevoked((sid) => {
+    for (const bucket of Array.from(businessClients.values())) {
+      for (const client of Array.from(bucket)) {
+        if (client.__sid === sid) client.close(4401, "session_revoked");
+      }
+    }
+  });
+
+  server.on("upgrade", async (request, socket, head) => {
     try {
       const url = request.url || "";
       if (!url.includes("/ws/notifications")) return;
 
-      const businessId = getBusinessIdFromRequest(request);
-      if (!businessId) {
+      const auth = await getAuthFromRequest(request);
+      if (!auth) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
       }
 
       wss?.handleUpgrade(request, socket, head, (ws) => {
-        (ws as AuthenticatedWebSocket).__businessId = businessId;
+        (ws as AuthenticatedWebSocket).__businessId = auth.businessId;
+        (ws as AuthenticatedWebSocket).__sid = auth.sid;
         wss?.emit("connection", ws, request);
       });
     } catch (err) {

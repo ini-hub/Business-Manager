@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireContractPendingToken, generateToken } from "../auth";
+import { issueSession } from "../lib/authSessions";
 import { staffContractService } from "../services/StaffContractService";
 import { signContractSchema, declineContractSchema } from "@shared/schema";
 import { getClientIp } from "./helpers";
@@ -105,14 +106,7 @@ export function registerContractRoutes(app: Express): void {
         staffId: activatedMember.staffId || undefined,
         email: user.email || undefined,
       };
-      const token = generateToken(payload);
-
-      res.cookie("jwt_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: "lax",
-      });
+      await issueSession(req, res, payload);
       res.clearCookie("contract_pending_token");
 
       broadcastDataChange(businessId, "staff", staff.storeId, "updated");
