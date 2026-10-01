@@ -108,6 +108,8 @@ function FieldBuilder({ section, title }: { section: "personal" | "job_current";
   const queryClient = useQueryClient();
   const url = `/api/hr/fields/${section}`;
   const [open, setOpen] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [reorderingFields, setReorderingFields] = useState<FieldDefinition[]>([]);
   const [form, setForm] = useState({ fieldKey: "", label: "", fieldType: "text" as typeof FIELD_TYPES[number], isRequired: false, validation: EMPTY_VALIDATION as HrFieldValidation });
 
   const { data: fields = [], isLoading } = useQuery<FieldDefinition[]>({ queryKey: [url], queryFn: async () => (await apiRequest("GET", url)).json() });
@@ -139,12 +141,52 @@ function FieldBuilder({ section, title }: { section: "personal" | "job_current";
     onError: (error) => toast({ variant: "destructive", title: "Could not remove field", description: getUserFriendlyError(error) }),
   });
 
+  const reorderFields = useMutation({
+    mutationFn: async (orderedIds: string[]) => apiRequest("POST", `${url}/reorder`, { orderedIds }),
+    onSuccess: () => {
+      toast({ title: "Field order saved" });
+      queryClient.invalidateQueries({ queryKey: [url] });
+      setReorderMode(false);
+    },
+    onError: (error) => toast({ variant: "destructive", title: "Could not reorder fields", description: getUserFriendlyError(error) }),
+  });
+
+  const moveField = (index: number, direction: "up" | "down") => {
+    const newFields = [...reorderingFields];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex >= 0 && targetIndex < newFields.length) {
+      [newFields[index], newFields[targetIndex]] = [newFields[targetIndex], newFields[index]];
+      setReorderingFields(newFields);
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">{title}</CardTitle>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Add field</Button></DialogTrigger>
+        <div className="flex gap-2">
+          {reorderMode && (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => reorderFields.mutate(reorderingFields.map((f) => f.id))}
+              disabled={reorderFields.isPending}
+            >
+              {reorderFields.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save Order
+            </Button>
+          )}
+          {reorderMode && (
+            <Button size="sm" variant="outline" onClick={() => setReorderMode(false)}>
+              Cancel
+            </Button>
+          )}
+          {!reorderMode && (
+            <Button size="sm" variant="outline" onClick={() => { setReorderingFields([...fields]); setReorderMode(true); }}>
+              <GripVertical className="h-4 w-4 mr-1" />Reorder
+            </Button>
+          )}
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild><Button size="sm" variant="outline" disabled={reorderMode}><Plus className="h-4 w-4 mr-1" />Add field</Button></DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add custom field</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -165,10 +207,30 @@ function FieldBuilder({ section, title }: { section: "personal" | "job_current";
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </CardHeader>
       <CardContent className="divide-y">
-        {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
+        {reorderMode ? (
+          reorderingFields.map((f, idx) => (
+            <div key={f.id} className="flex items-center justify-between py-2.5">
+              <div className="flex items-center gap-2">
+                <GripVertical className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">{f.label} <span className="text-xs text-muted-foreground">({f.fieldType})</span></p>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" variant="ghost" onClick={() => moveField(idx, "up")} disabled={idx === 0}>
+                  ↑
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => moveField(idx, "down")} disabled={idx === reorderingFields.length - 1}>
+                  ↓
+                </Button>
+              </div>
+            </div>
+          ))
+        ) : isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
           <div key={f.id} className="flex items-center justify-between py-2.5">
             <div>
               <p className="text-sm font-medium">{f.label} <span className="text-xs text-muted-foreground">({f.fieldType})</span></p>
