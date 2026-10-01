@@ -139,29 +139,20 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         });
       };
 
-      // Support both paginated and non-paginated queries
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
+      // Pagination is REQUIRED - default: page 1, limit 50 (never load all staff)
+      // This prevents loading 1000s of staff members on a single request
+      const search = req.query.search as string;
+      const includeArchived = req.query.includeArchived === 'true';
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(200, Math.max(10, parseInt(req.query.limit as string) || 50));
 
-      if (page > 0 && limit > 0) {
-        const search = req.query.search as string;
-        const includeArchived = req.query.includeArchived === 'true';
-        const result = await storage.getStaffPaginated(storeId, { page, limit, search, includeArchived });
-        if (req.user?.role === "staff") {
-          redactWages(result.data);
-        }
-        await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data)]);
-        redactUserId(result.data);
-        return res.json(result);
-      }
-
-      const staffList = await storage.getStaffList(storeId);
+      const result = await storage.getStaffPaginated(storeId, { page, limit, search, includeArchived });
       if (req.user?.role === "staff") {
-        redactWages(staffList);
+        redactWages(result.data);
       }
-      await Promise.all([attachInviteStatus(staffList), attachContractStatus(staffList)]);
-      redactUserId(staffList);
-      res.json(staffList);
+      await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data)]);
+      redactUserId(result.data);
+      res.json(result);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your staff members. Please try again." });
     }

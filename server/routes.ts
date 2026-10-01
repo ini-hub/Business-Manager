@@ -1714,14 +1714,25 @@ export async function registerRoutes(
           const orgId = req.user.organisationId || user.businessId;
           let business = null;
           let activeRole = user.role;
+          let ownStaffRecord = null;
+
           if (orgId) {
-            business = await storage.getBusinessById(orgId);
-            const member = await storage.getOrganisationMember(user.id, orgId);
+            // Parallelize business + member + staff lookups instead of sequential
+            const [fetchedBusiness, member, staffRecord] = await Promise.all([
+              storage.getBusinessById(orgId),
+              storage.getOrganisationMember(user.id, orgId),
+              storage.getStaffByUserId(user.id),
+            ]);
+            business = fetchedBusiness;
+            ownStaffRecord = staffRecord;
             if (member) {
               activeRole = member.role;
             }
+          } else {
+            // Even if no org, fetch staff record in parallel
+            ownStaffRecord = await storage.getStaffByUserId(user.id);
           }
-          const ownStaffRecord = await storage.getStaffByUserId(user.id);
+
           auditLogger.logAuthAttempt(user.id, getClientIp(req), true);
           return res.json({
             ...user,

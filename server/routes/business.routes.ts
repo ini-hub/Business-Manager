@@ -151,24 +151,30 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.json({ announcements: [] });
       }
 
-      const business = await storage.getBusinessById(orgId);
+      // Parallelize business + subscription queries instead of sequential
+      const [business, [subscription]] = await Promise.all([
+        storage.getBusinessById(orgId),
+        db
+          .select({ planName: plans.name })
+          .from(subscriptions)
+          .innerJoin(plans, eq(subscriptions.planId, plans.id))
+          .where(eq(subscriptions.organisationId, orgId)),
+      ]);
+
       if (!business) {
         return res.json({ announcements: [] });
       }
 
-      const [subscription] = await db
-        .select({ planName: plans.name })
-        .from(subscriptions)
-        .innerJoin(plans, eq(subscriptions.planId, plans.id))
-        .where(eq(subscriptions.organisationId, orgId));
       const planName = subscription?.planName?.toLowerCase();
 
       const now = new Date();
+      // CRITICAL: Add LIMIT to prevent loading thousands of announcements
       const rows = await db
         .select()
         .from(announcements)
         .where(and(lte(announcements.showFrom, now), gte(announcements.showUntil, now)))
-        .orderBy(desc(announcements.createdAt));
+        .orderBy(desc(announcements.createdAt))
+        .limit(100);
 
       const visible = rows.filter((ann) => {
         if (ann.target === "all") return true;

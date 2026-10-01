@@ -64,3 +64,15 @@ CREATE INDEX IF NOT EXISTS "idx_inventory_business_id"
 -- Transactions: Index on storeId for store transactions
 CREATE INDEX IF NOT EXISTS "idx_transactions_store_id"
   ON "transactions" ("store_id");
+
+-- ========== ANNOUNCEMENTS - CRITICAL FOR 27s SLOWDOWN ==========
+-- The /api/announcements endpoint does a date range filter on ALL announcements
+-- These indexes are CRITICAL and were completely missing
+
+-- Composite index for time-range queries
+CREATE INDEX IF NOT EXISTS "idx_announcements_show_window"
+  ON "announcements" ("show_from", "show_until");
+
+-- Index for ordering by creation time (commonly used in WHERE + ORDER BY)
+CREATE INDEX IF NOT EXISTS "idx_announcements_created_at"
+  ON "announcements" ("created_at" DESC);
