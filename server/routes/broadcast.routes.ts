@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { customers } from "@shared/schema";
 import { BroadcastRepository } from "../repositories/BroadcastRepository";
 import { sendTemplateMessage } from "../services/WhatsAppService";
@@ -111,8 +111,15 @@ export function registerBroadcastRoutes(app: Express, { isAuthenticated, require
 
       const mapping = (broadcast.variableMapping ?? {}) as Record<string, string>;
 
+      // Batch-load all customers in one query instead of N queries
+      const customerIds = recipients.map(r => r.recipient.customerId);
+      const allCustomers = customerIds.length > 0
+        ? await db.select().from(customers).where(inArray(customers.id, customerIds))
+        : [];
+      const customerMap = new Map(allCustomers.map(c => [c.id, c]));
+
       for (const { recipient, customerName } of recipients) {
-        const [customer] = await db.select().from(customers).where(eq(customers.id, recipient.customerId));
+        const customer = customerMap.get(recipient.customerId);
         if (!customer?.mobileNumber) continue;
         const phone = `${customer.countryCode || "+234"}${customer.mobileNumber.replace(/^0/, "")}`;
 

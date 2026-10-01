@@ -29,7 +29,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
+import { eq, and, gte, lte, gt, count, desc, inArray, asc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { isValidLatitude, isValidLongitude } from "@shared/geo";
 import { getOrgEntitlements, getFeatureByKey } from "../lib/entitlements";
@@ -301,13 +301,15 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       if (storeId === "all") {
         const stores = await getUserStores(req);
         if (stores.length === 0) return res.json([]);
-        const list = await Promise.all(
-          stores.map(async (s) => {
-            const promos = await storage.getPromotions(s.id);
-            return promos.map(p => ({ ...p, storeName: s.name }));
-          })
-        );
-        return res.json(list.flat().sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+
+        const storeIds = stores.map(s => s.id);
+        const allPromos = await db.select().from(promotions)
+          .where(and(inArray(promotions.storeId, storeIds), eq(promotions.isDeleted, false)))
+          .orderBy(desc(promotions.createdAt));
+
+        const storeMap = new Map(stores.map(s => [s.id, s.name]));
+        const list = allPromos.map(p => ({ ...p, storeName: storeMap.get(p.storeId) }));
+        return res.json(list);
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;

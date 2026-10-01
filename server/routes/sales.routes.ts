@@ -30,7 +30,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
+import { eq, and, gte, lte, gt, count, desc, inArray } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
@@ -558,9 +558,16 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(400).json({ error: "Flutterwave cannot be combined with split payments. Choose either Flutterwave OR split payment." });
       }
 
+      // Batch-load all inventory items for validation instead of N queries
+      const invItemIds = data.items.map(i => i.inventoryId);
+      const invItems = invItemIds.length > 0
+        ? await db.select().from(inventory).where(inArray(inventory.id, invItemIds))
+        : [];
+      const invItemMap = new Map(invItems.map(i => [i.id, i]));
+
       // Validate each item's quantity against its allowFractional flag
       for (const item of data.items) {
-        const invItem = await storage.getInventoryItem(item.inventoryId);
+        const invItem = invItemMap.get(item.inventoryId);
         if (!invItem) {
           return res.status(400).json({ error: `Item not found: ${item.inventoryId}` });
         }

@@ -62,13 +62,13 @@ const requiresSsl =
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: parseInt(process.env.DB_POOL_MAX || "20"),
+  max: parseInt(process.env.DB_POOL_MAX || "40"),
   idleTimeoutMillis: 5 * 60_000,
   connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT_MS || "20000"),
   // Keep a couple of TLS connections warm and TCP-alive: a cold connect to a
   // remote Neon endpoint costs ~4s, which stacks up when a page load fires many
   // parallel API calls.
-  min: parseInt(process.env.DB_POOL_MIN || "2"),
+  min: parseInt(process.env.DB_POOL_MIN || "4"),
   keepAlive: true,
   options: "-c timezone=UTC",
   ssl: requiresSsl ? { rejectUnauthorized: true } : undefined,
