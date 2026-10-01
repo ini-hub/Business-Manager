@@ -32,6 +32,9 @@ import {
   initiateGuarantorFormSchema,
   ALLOWED_GUARANTOR_DOC_MIME_TYPES,
   MAX_GUARANTOR_DOC_FILE_SIZE_BYTES,
+  createHrFieldDefinitionSchema,
+  updateHrFieldDefinitionSchema,
+  hrFieldSectionEnum,
 } from "@shared/schema";
 
 interface RouteMiddlewares {
@@ -129,6 +132,87 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
       console.error("HR section update error:", error);
       res.status(500).json({ error: "Could not update this section." });
+    }
+  });
+
+  // ─── Field management (business owner) ──────────────────────────────────
+
+  app.post("/api/hr/fields/:section", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const userRole = user?.role;
+
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can create custom HR fields." });
+
+      const section = hrFieldSectionEnum.find((s) => s === req.params.section);
+      if (!section) return res.status(400).json({ error: "Unknown section." });
+
+      const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
+      const input = createHrFieldDefinitionSchema.parse(req.body);
+      const result = await hrFieldDefinitionService.create(businessId, section, input);
+      if ("error" in result) return res.status(400).json({ error: result.error });
+
+      const ctx = await getAuditContext(req, {});
+      auditLogger.logEvent(ctx, "HR_FIELD_CREATED", "hr_field_definitions", result.id, "success", { details: { section, fieldKey: input.fieldKey, label: input.label } });
+
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("HR field create error:", error);
+      res.status(500).json({ error: "Could not create this field." });
+    }
+  });
+
+  app.patch("/api/hr/fields/:fieldId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const userRole = user?.role;
+
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can modify HR fields." });
+
+      const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
+      const input = updateHrFieldDefinitionSchema.parse(req.body);
+      const row = await hrFieldDefinitionService.update(businessId, req.params.fieldId, input);
+      if (!row) return res.status(404).json({ error: "Field not found." });
+
+      const ctx = await getAuditContext(req, {});
+      auditLogger.logEvent(ctx, "HR_FIELD_UPDATED", "hr_field_definitions", req.params.fieldId, "success", { newValues: input });
+
+      res.json(row);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("HR field update error:", error);
+      res.status(500).json({ error: "Could not update this field." });
+    }
+  });
+
+  app.delete("/api/hr/fields/:fieldId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const userRole = user?.role;
+
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can delete HR fields." });
+
+      const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
+      const outcome = await hrFieldDefinitionService.remove(businessId, req.params.fieldId);
+      if (outcome.kind === "not_found") return res.status(404).json({ error: "Field not found." });
+      if (outcome.kind === "refused_system_field") {
+        return res.status(409).json({ error: "This is a default field and cannot be deleted - disable it instead." });
+      }
+
+      const ctx = await getAuditContext(req, {});
+      auditLogger.logEvent(ctx, "HR_FIELD_DELETED", "hr_field_definitions", req.params.fieldId, "success", { businessId });
+
+      res.json({ message: "Deleted." });
+    } catch (error) {
+      console.error("HR field delete error:", error);
+      res.status(500).json({ error: "Could not delete this field." });
     }
   });
 
