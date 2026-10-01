@@ -12,6 +12,7 @@ import {
   Database,
   MessageSquare,
   Wallet,
+  Users,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -51,6 +52,13 @@ const BUSINESS_SETTINGS: SettingsCard[] = [
     description: "Create custom staff roles with specific module access.",
     icon: ShieldCheck,
     href: "/settings/roles",
+    roles: ["owner"],
+  },
+  {
+    title: "Staff Profile Settings",
+    description: "Configure which staff profile sections are required during onboarding.",
+    icon: Users,
+    href: "/settings/hr-profiles",
     roles: ["owner"],
   },
   {

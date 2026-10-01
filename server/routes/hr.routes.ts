@@ -91,7 +91,7 @@ async function authorizeStaffAccess(
  * pre-activation onboarding-gate version of personal/emergency/guarantor).
  */
 export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlewares): void {
-  // ─── Sections (per-business enabled/required config, read-only here) ────
+  // ─── Sections (per-business enabled/required config) ────────────────────
 
   app.get("/api/hr/sections", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -102,6 +102,33 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
     } catch (error) {
       console.error("HR sections error:", error);
       res.status(500).json({ error: "Could not load HR section settings." });
+    }
+  });
+
+  app.put("/api/hr/sections/:section", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const userRole = user?.role;
+
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can modify HR profile settings." });
+
+      const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
+      const section = req.params.section as any;
+      const body = z.object({ isEnabled: z.boolean().optional(), isRequiredForOnboarding: z.boolean().optional() }).parse(req.body);
+
+      const row = await hrFieldDefinitionService.updateSection(businessId, section, body);
+      if (!row) return res.status(404).json({ error: "Section config not found for this business." });
+
+      const ctx = await getAuditContext(req, {});
+      auditLogger.logEvent(ctx, "HR_SECTION_UPDATED", "hr_section_config", `${businessId}:${section}`, "success", { section, ...body });
+
+      res.json(row);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("HR section update error:", error);
+      res.status(500).json({ error: "Could not update this section." });
     }
   });
 

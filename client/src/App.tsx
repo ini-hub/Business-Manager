@@ -107,6 +107,7 @@ const SettingsIndexPage = lazy(() => import("@/pages/settings/index"));
 const SettingsBusinessPage = lazy(() => import("@/pages/settings-business"));
 const SettingsStoresPage = lazy(() => import("@/pages/settings/stores"));
 const SettingsRolesPage = lazy(() => import("@/pages/settings/roles"));
+const SettingsHrProfilesPage = lazy(() => import("@/pages/settings/hr-profiles"));
 const SettingsStorePage = lazy(() => import("@/pages/settings-store"));
 const SettingsStoreDetailsPage = lazy(() => import("@/pages/settings/store-details"));
 const SettingsAttendancePage = lazy(() => import("@/pages/settings/attendance"));
@@ -544,6 +545,9 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/settings/roles">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsRolesPage />}
+                  </Route>
+                  <Route path="/settings/hr-profiles">
+                    {user?.role !== "owner" ? <Redirect to="/" /> : <SettingsHrProfilesPage />}
                   </Route>
                   <Route path="/settings/business">
                     {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBusinessPage />}
