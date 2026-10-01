@@ -35,6 +35,8 @@ import {
   createHrFieldDefinitionSchema,
   updateHrFieldDefinitionSchema,
   hrFieldSectionEnum,
+  reorderHrFieldDefinitionsSchema,
+  createHrDocumentFolderSchema,
 } from "@shared/schema";
 
 interface RouteMiddlewares {
@@ -213,6 +215,72 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
     } catch (error) {
       console.error("HR field delete error:", error);
       res.status(500).json({ error: "Could not delete this field." });
+    }
+  });
+
+  app.post("/api/hr/fields/:section/reorder", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const userRole = user?.role;
+
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can reorder HR fields." });
+
+      const section = hrFieldSectionEnum.find((s) => s === req.params.section);
+      if (!section) return res.status(400).json({ error: "Unknown section." });
+
+      const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
+      const { orderedIds } = reorderHrFieldDefinitionsSchema.parse(req.body);
+      await hrFieldDefinitionService.reorder(businessId, section, orderedIds);
+
+      const ctx = await getAuditContext(req, {});
+      auditLogger.logEvent(ctx, "HR_FIELDS_REORDERED", "hr_field_definitions", `${businessId}:${section}`, "success", { details: { section, orderedIds } });
+
+      res.json({ message: "Reordered." });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("HR field reorder error:", error);
+      res.status(500).json({ error: "Could not reorder fields." });
+    }
+  });
+
+  // ─── Document folders (business owner) ──────────────────────────────────
+
+  app.get("/api/hr/document-folders", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      const { hrDocumentService } = await import("../services/HrDocumentService");
+      res.json(await hrDocumentService.listFolders(businessId));
+    } catch (error) {
+      console.error("HR document folders error:", error);
+      res.status(500).json({ error: "Could not load document folders." });
+    }
+  });
+
+  app.post("/api/hr/document-folders", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const businessId = user?.businessId;
+      const userRole = user?.role;
+
+      if (!businessId) return res.status(400).json({ error: "No business in scope." });
+      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can create document folders." });
+
+      const { hrDocumentService } = await import("../services/HrDocumentService");
+      const input = createHrDocumentFolderSchema.parse(req.body);
+      const result = await hrDocumentService.createFolder(businessId, input);
+      if ("error" in result) return res.status(400).json({ error: result.error });
+
+      const ctx = await getAuditContext(req, {});
+      auditLogger.logEvent(ctx, "HR_DOCUMENT_FOLDER_CREATED", "hr_document_folders", result.id, "success", { newValues: input });
+
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("HR document folder create error:", error);
+      res.status(500).json({ error: "Could not create this folder." });
     }
   });
 
