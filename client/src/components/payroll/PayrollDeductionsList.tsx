@@ -111,6 +111,7 @@ export function PayrollDeductionsList({
           // Recovery" line (no salaryAdvanceId) behaves like any other
           // manual deduction: plain badge, plain delete.
           const isAdvanceRecovery = d.type === "advance_recovery" && !!d.salaryAdvanceId;
+          const isLateArrival = d.type === "late_arrival";
           // Waived AND forgiven: the Borrow Book entry behind this line was
           // written off, so undoing it has to restore the debt, not just the
           // deduction.
@@ -186,6 +187,11 @@ export function PayrollDeductionsList({
                     Excluded from this payroll. The advance stays open and will be proposed again next period.
                   </p>
                 )}
+                {isLateArrival && d.isWaived && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Waived for {d.lateDate}. This charge won't reappear even if the day is still marked late.
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className={`font-mono text-sm font-semibold ${d.isWaived ? "text-muted-foreground line-through" : "text-destructive"}`}>
@@ -233,6 +239,13 @@ export function PayrollDeductionsList({
                     // for a salary advance the way there is for shop credit.
                     // Skipping just defers it to the next period, same as
                     // waiving does for staff credit's "skip" half.
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                      onClick={() => deleteDeductionMutation?.mutate(d.id)}>
+                      Skip this period
+                    </Button>
+                  ) : isLateArrival ? (
+                    // Late arrival is auto-proposed from attendance, so skip just
+                    // defers it to the next period if the day is still marked late.
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
                       onClick={() => deleteDeductionMutation?.mutate(d.id)}>
                       Skip this period

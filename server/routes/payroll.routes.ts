@@ -489,13 +489,14 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const existing = await storage.getPayrollDeduction(req.params.deductionId);
       if (!existing || existing.periodId !== req.params.id) return res.status(404).json({ error: "Deduction not found." });
 
-      // A system-proposed line — staff credit, or an advance_recovery line
+      // A system-proposed line — staff credit, late arrival, or an advance_recovery line
       // tied to a salary advance — is waived, never deleted. Payroll is
       // recalculated on every sale, so a deleted proposal would be
       // re-inserted within minutes and the manager's decision silently
       // undone. A manager's own free-text advance_recovery line (no
       // salaryAdvanceId) has no proposal to re-insert, so it stays deletable.
       const isSystemProposed = existing.type === "staff_credit"
+        || existing.type === "late_arrival"
         || (existing.type === "advance_recovery" && !!existing.salaryAdvanceId);
       if (isSystemProposed) {
         const waived = await storage.setPayrollDeductionWaived(req.params.deductionId, true, userId);
