@@ -15,9 +15,15 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 
 const FIELD_TYPES = ["text", "textarea", "number", "date", "select", "multiselect", "boolean", "email", "phone"] as const;
-const SECTION_TITLES: Record<"personal" | "job_current", string> = {
+const SECTION_TITLES: Record<"personal" | "job_current" | "time_off" | "emergency" | "documents" | "benefits" | "disciplinary" | "guarantor", string> = {
   personal: "Personal Information Fields",
   job_current: "Job Information Fields",
+  time_off: "Time Off Fields",
+  emergency: "Emergency Contacts Fields",
+  documents: "Documents Fields",
+  benefits: "Benefits Fields",
+  disciplinary: "Disciplinary Records Fields",
+  guarantor: "Guarantor Form Fields",
 };
 
 interface HrFieldValidation { minLength?: number; maxLength?: number; min?: number; max?: number; integerOnly?: boolean; pattern?: string; patternErrorMessage?: string }
@@ -31,7 +37,7 @@ const VALIDATION_SUPPORT: Record<string, Array<"length" | "range" | "pattern">> 
   number: ["range"],
 };
 
-export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal" | "job_current"; onBack: () => void }) {
+export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal" | "job_current" | "time_off" | "emergency" | "documents" | "benefits" | "disciplinary" | "guarantor"; onBack: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const url = `/api/hr/fields/${section}`;

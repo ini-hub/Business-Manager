@@ -5,7 +5,7 @@ import { HrProfileSettingsSection } from "./components/hr-profile-settings";
 import { HrSectionFieldsBuilder } from "./components/hr-section-fields-builder";
 
 export default function SettingsHrProfilesPage() {
-  const [selectedSection, setSelectedSection] = useState<"personal" | "job_current" | null>(null);
+  const [selectedSection, setSelectedSection] = useState<"personal" | "job_current" | "time_off" | "emergency" | "documents" | "benefits" | "disciplinary" | "guarantor" | null>(null);
 
   if (selectedSection) {
     return (

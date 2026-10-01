@@ -117,7 +117,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       const userRole = user?.role;
 
       if (!businessId) return res.status(400).json({ error: "No business in scope." });
-      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can modify HR profile settings." });
+      if (userRole !== "owner" && userRole !== "manager") return res.status(403).json({ error: "Only business owners and managers can modify HR profile settings." });
 
       const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
       const section = req.params.section as any;
@@ -146,7 +146,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       const userRole = user?.role;
 
       if (!businessId) return res.status(400).json({ error: "No business in scope." });
-      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can create custom HR fields." });
+      if (userRole !== "owner" && userRole !== "manager") return res.status(403).json({ error: "Only business owners and managers can create custom HR fields." });
 
       const section = hrFieldSectionEnum.find((s) => s === req.params.section);
       if (!section) return res.status(400).json({ error: "Unknown section." });
@@ -174,7 +174,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       const userRole = user?.role;
 
       if (!businessId) return res.status(400).json({ error: "No business in scope." });
-      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can modify HR fields." });
+      if (userRole !== "owner" && userRole !== "manager") return res.status(403).json({ error: "Only business owners and managers can modify HR fields." });
 
       const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
       const input = updateHrFieldDefinitionSchema.parse(req.body);
@@ -199,7 +199,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       const userRole = user?.role;
 
       if (!businessId) return res.status(400).json({ error: "No business in scope." });
-      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can delete HR fields." });
+      if (userRole !== "owner" && userRole !== "manager") return res.status(403).json({ error: "Only business owners and managers can delete HR fields." });
 
       const { hrFieldDefinitionService } = await import("../services/HrFieldDefinitionService");
       const outcome = await hrFieldDefinitionService.remove(businessId, req.params.fieldId);
@@ -225,7 +225,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       const userRole = user?.role;
 
       if (!businessId) return res.status(400).json({ error: "No business in scope." });
-      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can reorder HR fields." });
+      if (userRole !== "owner" && userRole !== "manager") return res.status(403).json({ error: "Only business owners and managers can reorder HR fields." });
 
       const section = hrFieldSectionEnum.find((s) => s === req.params.section);
       if (!section) return res.status(400).json({ error: "Unknown section." });
@@ -266,7 +266,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       const userRole = user?.role;
 
       if (!businessId) return res.status(400).json({ error: "No business in scope." });
-      if (userRole !== "owner") return res.status(403).json({ error: "Only business owners can create document folders." });
+      if (userRole !== "owner" && userRole !== "manager") return res.status(403).json({ error: "Only business owners and managers can create document folders." });
 
       const { hrDocumentService } = await import("../services/HrDocumentService");
       const input = createHrDocumentFolderSchema.parse(req.body);

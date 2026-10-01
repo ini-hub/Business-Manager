@@ -6,11 +6,9 @@ import { staff } from "./staff";
 import { users } from "./auth";
 
 // See migrations/0064_hr_field_definitions.sql for the full rationale.
-// Only these two sections are admin-configurable field bags - everything
-// else (job history, time off, emergency contacts, documents, benefits,
-// disciplinary, guarantor) is a fixed relational table with real structure
-// a generic value bag can't express. See the HR module plan.
-export const hrFieldSectionEnum = ["personal", "job_current"] as const;
+// All HR sections are now configurable by business owners/managers.
+// Each section allows custom field creation and configuration.
+export const hrFieldSectionEnum = ["personal", "job_current", "time_off", "emergency", "documents", "benefits", "disciplinary", "guarantor"] as const;
 export type HrFieldSection = typeof hrFieldSectionEnum[number];
 
 export const hrFieldTypeEnum = [

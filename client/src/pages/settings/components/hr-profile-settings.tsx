@@ -13,19 +13,19 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 
 const SECTIONS = [
-  { key: "personal", label: "Personal Information", editable: true },
-  { key: "job", label: "Job Information", editable: true },
-  { key: "time_off", label: "Time Off", editable: false },
-  { key: "emergency", label: "Emergency Contacts", editable: false },
-  { key: "documents", label: "Documents", editable: false },
-  { key: "benefits", label: "Benefits", editable: false },
-  { key: "disciplinary", label: "Disciplinary Records", editable: false },
-  { key: "guarantor", label: "Guarantor Form", editable: false },
+  { key: "personal", label: "Personal Information" },
+  { key: "job", label: "Job Information" },
+  { key: "time_off", label: "Time Off" },
+  { key: "emergency", label: "Emergency Contacts" },
+  { key: "documents", label: "Documents" },
+  { key: "benefits", label: "Benefits" },
+  { key: "disciplinary", label: "Disciplinary Records" },
+  { key: "guarantor", label: "Guarantor Form" },
 ] as const;
 
 interface SectionConfig { section: string; isEnabled: boolean; isRequiredForOnboarding: boolean }
 
-export function HrProfileSettingsSection({ onSelectSection }: { onSelectSection?: (section: "personal" | "job_current") => void }) {
+export function HrProfileSettingsSection({ onSelectSection }: { onSelectSection?: (section: "personal" | "job_current" | "time_off" | "emergency" | "documents" | "benefits" | "disciplinary" | "guarantor") => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const sectionsUrl = `/api/hr/sections`;
@@ -54,29 +54,21 @@ export function HrProfileSettingsSection({ onSelectSection }: { onSelectSection?
         <CardDescription>Control which profile sections new staff members must complete before getting full access. Click a section to customize its fields.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {SECTIONS.map(({ key, label, editable }) => {
+        {SECTIONS.map(({ key, label }) => {
           const cfg = sections.find((s) => s.section === key);
           const mappedKey = key === "job" ? "job_current" : (key as "personal" | "job_current");
           return (
             <div key={key} className="border rounded-lg p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  {editable ? (
-                    <button
-                      onClick={() => onSelectSection?.(mappedKey)}
-                      className="text-left w-full hover:underline cursor-pointer"
-                    >
-                      <p className="text-sm font-medium text-primary">{label}</p>
-                      {cfg?.isRequiredForOnboarding && <Badge variant="secondary" className="mt-1">Required for onboarding</Badge>}
-                      <p className="text-xs text-muted-foreground mt-1">Click to manage fields →</p>
-                    </button>
-                  ) : (
-                    <div>
-                      <p className="text-sm font-medium">{label}</p>
-                      {cfg?.isRequiredForOnboarding && <Badge variant="secondary" className="mt-1">Required for onboarding</Badge>}
-                      <p className="text-xs text-muted-foreground mt-1">System-managed section</p>
-                    </div>
-                  )}
+                  <button
+                    onClick={() => onSelectSection?.(mappedKey)}
+                    className="text-left w-full hover:underline cursor-pointer"
+                  >
+                    <p className="text-sm font-medium text-primary">{label}</p>
+                    {cfg?.isRequiredForOnboarding && <Badge variant="secondary" className="mt-1">Required for onboarding</Badge>}
+                    <p className="text-xs text-muted-foreground mt-1">Click to manage fields →</p>
+                  </button>
                 </div>
                 <div className="flex items-center gap-4 ml-4 flex-shrink-0">
                   <label className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
