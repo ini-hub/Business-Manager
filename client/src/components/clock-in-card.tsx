@@ -46,7 +46,18 @@ type TodayContext = {
 
 type PunchOutcome = { isLate: boolean; lateMinutes: number; localDate: string };
 
-export function ClockInCard() {
+/** Minutes since midnight for an "HH:mm" string, or null. */
+function toMinutes(hhmm: string | null | undefined): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm ?? "");
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+function fromMinutes(total: number): string {
+  const t = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+}
+
+export function ClockInCard({ variant = "default" }: { variant?: "default" | "hero" }) {
   const { toast } = useToast();
   const { currentStore } = useStore();
   const [outcome, setOutcome] = useState<PunchOutcome | null>(null);
@@ -201,6 +212,14 @@ export function ClockInCard() {
     },
   });
 
+  // Ticks the hero's big clock; the default card has no clock face.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (variant !== "hero") return;
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, [variant]);
+
   if (isLoading) return null;
 
   // A manager/owner with no staff record linked (common — not every owner
@@ -283,6 +302,211 @@ export function ClockInCard() {
   // before the first GPS fix arrives ships null coordinates and comes back
   // denied with a nonsense distance.
   const canClockOut = fence.state === "inside" && !punchMutation.isPending;
+
+  const dialogs = (
+    <>
+      <AlertDialog open={consentOpen} onOpenChange={setConsentOpen}>
+        <AlertDialogContent data-testid="dialog-location-consent">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Use your current location?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We'll use this device's position to check that you're at the branch when you clock in or out. Choose Not now and we'll ask again next time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-location-deny">Not now</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-location-allow"
+              onClick={() => {
+                setConsentOpen(false);
+                setLocationConsent(true);
+              }}
+            >
+              Allow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Colour carries the verdict before the words are read. */}
+      <Dialog open={!!outcome} onOpenChange={(open) => !open && setOutcome(null)}>
+        <DialogContent
+          className={outcome?.isLate
+            ? "border-amber-500/50 bg-amber-50 dark:bg-amber-950/30"
+            : "border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/30"}
+          data-testid={outcome?.isLate ? "dialog-clocked-in-late" : "dialog-clocked-in-on-time"}
+        >
+          <DialogHeader>
+            <DialogTitle className={outcome?.isLate ? "text-amber-900 dark:text-amber-200" : "text-emerald-900 dark:text-emerald-200"}>
+              {outcome?.isLate ? "Clocked in — late" : "Clocked in — on time"}
+            </DialogTitle>
+            <DialogDescription className={outcome?.isLate ? "text-amber-800 dark:text-amber-300" : "text-emerald-800 dark:text-emerald-300"}>
+              {outcome?.isLate
+                ? `You arrived ${formatDurationLong(outcome.lateMinutes)} after opening time. If that was outside your control, ask your manager to review it.`
+                : "You're recorded as present for today."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setOutcome(null)} data-testid="button-close-clock-in-result">Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* The escape hatch, offered at the moment of refusal rather than buried. */}
+      <Dialog open={!!denial} onOpenChange={(open) => !open && setDenial(null)}>
+        <DialogContent data-testid="dialog-clock-in-denied">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TriangleAlert className="h-4 w-4 text-destructive" />
+              {denial?.kind === "clock_out" ? "Couldn't clock you out" : "Couldn't clock you in"}
+            </DialogTitle>
+            <DialogDescription>{denial?.message}</DialogDescription>
+          </DialogHeader>
+
+          <Alert>
+            <CalendarClock className="h-4 w-4" />
+            <AlertDescription>
+              If you're at work and this is wrong, tell your manager what happened and they can record
+              {denial?.kind === "clock_out" ? " your clock-out " : " today "}for you.
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="retro-reason">What happened?</Label>
+            <Textarea
+              id="retro-reason"
+              data-testid="input-retro-reason"
+              placeholder="e.g. My phone battery died on the way in."
+              value={retroReason}
+              onChange={(e) => setRetroReason(e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setDenial(null)}>Close</Button>
+            <Button
+              onClick={() => retroMutation.mutate()}
+              disabled={retroReason.trim().length === 0 || retroMutation.isPending}
+              data-testid="button-submit-retro-request"
+            >
+              {retroMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Ask my manager
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+
+  if (variant === "hero") {
+    const tz = today.timezone;
+    const clockText = formatInTimeZone(now, tz, "HH:mm");
+    const tzAbbr = formatInTimeZone(now, tz, "zzz");
+    const nowMin = toMinutes(clockText) ?? 0;
+    const openMin = toMinutes(today.openingTime);
+    const byTime = openMin == null ? null : fromMinutes(openMin + (today.graceMinutes ?? 0));
+    const untilOpen = openMin == null ? null : openMin - nowMin;
+    const opensIn = untilOpen == null ? null : untilOpen > 0 ? formatDurationCompact(untilOpen) : "Open now";
+    const deniedBanner = fence.state === "denied" ? (
+      <LocationHelp
+        onCheckAgain={() => window.location.reload()}
+        placeName={currentStore?.name}
+      />
+    ) : null;
+    const statusBadge = alreadyIn ? (
+      <Badge variant={today.isLate ? "destructive" : "secondary"} data-testid="badge-clock-in-status">
+        {today.isLate ? `Late by ${formatDurationCompact(today.lateMinutes ?? 0)}` : "On time"}
+      </Badge>
+    ) : (
+      <Badge variant="secondary" className="font-medium" data-testid="badge-clock-in-status">
+        <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-muted-foreground" /> Not clocked in
+      </Badge>
+    );
+    const action = alreadyIn ? (alreadyOut ? null : (
+      <Button variant="outline" size="lg" className="w-full" onClick={() => punchMutation.mutate("clock_out")} disabled={!canClockOut} data-testid="button-clock-out">
+        {punchMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+        Clock out
+      </Button>
+    )) : (
+      <Button size="lg" className="w-full" onClick={() => punchMutation.mutate("clock_in")} disabled={!canClockIn} data-testid="button-clock-in">
+        {punchMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Clock className="mr-2 h-4 w-4" />}
+        Clock in
+      </Button>
+    );
+    const caption = alreadyOut
+      ? `Clocked out at ${formatInTimeZone(parseISO(today.clockedOutAt!), tz, "h:mm a")}`
+      : alreadyIn
+        ? `Clocked in at ${formatInTimeZone(parseISO(today.clockedInAt!), tz, "h:mm a")} · clocking out is optional`
+        : fence.state === "inside" ? "You're at the branch — you can clock in."
+        : null;
+
+    return (
+      <>
+        <Card className="overflow-hidden" data-testid="card-clock-in">
+          <div className="grid md:grid-cols-2">
+            <div className="space-y-4 p-5 sm:p-7">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold sm:text-base">Today's attendance</h2>
+                {statusBadge}
+              </div>
+              <div className="flex items-end justify-between gap-3 md:block">
+                <p className="font-mono text-5xl font-bold leading-none tracking-tight sm:text-6xl" data-testid="text-clock-time">
+                  {clockText}
+                  <span className="ml-2 hidden font-sans text-sm font-normal text-muted-foreground md:inline">{tzAbbr}</span>
+                </p>
+                {/* Phones: a compact two-line summary beside the clock. */}
+                <div className="text-right text-xs text-muted-foreground md:hidden">
+                  {today.openingTime && <p>Branch opens {today.openingTime}</p>}
+                  {opensIn && <p className="font-semibold text-foreground">{untilOpen! > 0 ? `Opens in ${opensIn}` : opensIn}</p>}
+                </div>
+              </div>
+              <div className="hidden grid-cols-3 gap-2 md:grid">
+                {[
+                  ["Branch opens", today.openingTime ?? "—"],
+                  ["Clock in by", byTime ?? "—"],
+                  ["Opens in", untilOpen != null && untilOpen > 0 ? opensIn! : "Open now"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg bg-muted/60 px-3 py-2">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="text-sm font-semibold">{value}</p>
+                  </div>
+                ))}
+              </div>
+              {today.scheduledOff && <p className="text-xs text-muted-foreground">Today is your day off.</p>}
+            </div>
+
+            <div className="space-y-3 border-t bg-muted/20 p-5 sm:p-7 md:border-l md:border-t-0">
+              {deniedBanner ?? (
+                <div
+                  className={
+                    "flex items-center gap-2 text-sm " +
+                    (status.tone === "ok" ? "text-emerald-600" : status.tone === "bad" ? "text-destructive" : "text-amber-600")
+                  }
+                  data-testid="text-geofence-status"
+                >
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  <span>{status.text}</span>
+                </div>
+              )}
+              {action}
+              <p className="text-center text-xs text-muted-foreground">
+                {caption ?? (
+                  <>
+                    <span className="md:hidden">Unlocks once your location is confirmed</span>
+                    <span className="hidden md:inline">Clock in unlocks once your location is confirmed.</span>
+                  </>
+                )}
+              </p>
+              {consentButton}
+              {fence.state !== "denied" && retryButton}
+            </div>
+          </div>
+        </Card>
+        {dialogs}
+      </>
+    );
+  }
 
   return (
     <>
@@ -392,97 +616,7 @@ export function ClockInCard() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={consentOpen} onOpenChange={setConsentOpen}>
-        <AlertDialogContent data-testid="dialog-location-consent">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Use your current location?</AlertDialogTitle>
-            <AlertDialogDescription>
-              We'll use this device's position to check that you're at the branch when you clock in or out. Choose Not now and we'll ask again next time.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-location-deny">Not now</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="button-location-allow"
-              onClick={() => {
-                setConsentOpen(false);
-                setLocationConsent(true);
-              }}
-            >
-              Allow
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Colour carries the verdict before the words are read. */}
-      <Dialog open={!!outcome} onOpenChange={(open) => !open && setOutcome(null)}>
-        <DialogContent
-          className={outcome?.isLate
-            ? "border-amber-500/50 bg-amber-50 dark:bg-amber-950/30"
-            : "border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/30"}
-          data-testid={outcome?.isLate ? "dialog-clocked-in-late" : "dialog-clocked-in-on-time"}
-        >
-          <DialogHeader>
-            <DialogTitle className={outcome?.isLate ? "text-amber-900 dark:text-amber-200" : "text-emerald-900 dark:text-emerald-200"}>
-              {outcome?.isLate ? "Clocked in — late" : "Clocked in — on time"}
-            </DialogTitle>
-            <DialogDescription className={outcome?.isLate ? "text-amber-800 dark:text-amber-300" : "text-emerald-800 dark:text-emerald-300"}>
-              {outcome?.isLate
-                ? `You arrived ${formatDurationLong(outcome.lateMinutes)} after opening time. If that was outside your control, ask your manager to review it.`
-                : "You're recorded as present for today."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={() => setOutcome(null)} data-testid="button-close-clock-in-result">Done</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* The escape hatch, offered at the moment of refusal rather than buried. */}
-      <Dialog open={!!denial} onOpenChange={(open) => !open && setDenial(null)}>
-        <DialogContent data-testid="dialog-clock-in-denied">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <TriangleAlert className="h-4 w-4 text-destructive" />
-              {denial?.kind === "clock_out" ? "Couldn't clock you out" : "Couldn't clock you in"}
-            </DialogTitle>
-            <DialogDescription>{denial?.message}</DialogDescription>
-          </DialogHeader>
-
-          <Alert>
-            <CalendarClock className="h-4 w-4" />
-            <AlertDescription>
-              If you're at work and this is wrong, tell your manager what happened and they can record
-              {denial?.kind === "clock_out" ? " your clock-out " : " today "}for you.
-            </AlertDescription>
-          </Alert>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="retro-reason">What happened?</Label>
-            <Textarea
-              id="retro-reason"
-              data-testid="input-retro-reason"
-              placeholder="e.g. My phone battery died on the way in."
-              value={retroReason}
-              onChange={(e) => setRetroReason(e.target.value)}
-              rows={3}
-            />
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setDenial(null)}>Close</Button>
-            <Button
-              onClick={() => retroMutation.mutate()}
-              disabled={retroReason.trim().length === 0 || retroMutation.isPending}
-              data-testid="button-submit-retro-request"
-            >
-              {retroMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Ask my manager
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {dialogs}
     </>
   );
 }
