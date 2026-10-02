@@ -22,6 +22,7 @@ import type { Customer, Staff, Inventory } from "@shared/schema";
 import { BookingFormValues } from "./types";
 import { cn } from "@/lib/utils";
 import { SegmentedControl } from "./segmented-control";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 interface StepSummaryProps {
   form: UseFormReturn<BookingFormValues>;
@@ -44,6 +45,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
   });
   const { data: staff = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled: !!currentStore?.id,
   });
   const { data: inventory = [] } = useQuery<Inventory[]>({

@@ -22,6 +22,7 @@ import { ExportToolbar } from "@/components/export-toolbar";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 export default function PayrollAdvancesPage() {
   const { currentStore, business } = useStore();
@@ -45,10 +46,7 @@ export default function PayrollAdvancesPage() {
 
   const { data: staffList = [] } = useQuery<any[]>({
     queryKey: ["/api/staff", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/staff?storeId=${currentStore?.id}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 

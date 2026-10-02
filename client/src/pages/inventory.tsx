@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { fetchAllStaff } from "@/lib/staff-api";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } from "@shared/schema";
@@ -195,7 +196,7 @@ export default function InventoryPage() {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  const { data: staffList = [] } = useMultiStoreQuery<Staff>("/api/staff", { staleTime: STALE_TIMES.reference });
+  const { data: staffList = [] } = useMultiStoreQuery<Staff>("/api/staff", { staleTime: STALE_TIMES.reference, fetchList: fetchAllStaff<Staff> });
 
   const { data: auditDetail, isLoading: isLoadingAuditDetail } = useQuery<AuditDetail>({
     queryKey: ["/api/stock-audits", selectedAuditId],

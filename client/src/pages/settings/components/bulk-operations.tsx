@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { fetchAllStaff } from "@/lib/staff-api";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,9 +84,14 @@ export function BulkOperationsSection() {
         filename = `${currentStore.name}_customers_export.csv`;
       }
 
-      const res = await fetch(endpoint);
-      if (!res.ok) throw new Error("Failed to fetch list.");
-      const listData = await res.json();
+      let listData: any;
+      if (type === "staff") {
+        listData = await fetchAllStaff(currentStore.id);
+      } else {
+        const res = await fetch(endpoint);
+        if (!res.ok) throw new Error("Failed to fetch list.");
+        listData = await res.json();
+      }
 
       if (!Array.isArray(listData) || listData.length === 0) {
         toast({

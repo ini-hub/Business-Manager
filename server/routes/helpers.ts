@@ -35,6 +35,14 @@ setInterval(() => {
   });
 }, 10 * 60 * 1000).unref();
 
+/**
+ * Single source of truth for "may this request touch this store?". Used by
+ * routes.ts and BaseController so the two can't drift apart.
+ *
+ * Staff are pinned to the store(s) they are assigned to. That lookup is never
+ * cached: a reassignment must take effect immediately, and the cached result
+ * above only covers org membership.
+ */
 export async function checkStoreAccessHelper(storeId: string, req: Request, res: Response): Promise<boolean> {
   const userId = (req as any).user?.userId || (req as any).user?.id;
   if (!userId) {
@@ -45,26 +53,37 @@ export async function checkStoreAccessHelper(storeId: string, req: Request, res:
   const cacheKey = `${userId}:${storeId}`;
   const now = Date.now();
   const cached = _accessCache.get(cacheKey);
+  let authorized: boolean;
   if (cached && cached.expires > now) {
-    if (!cached.authorized) {
+    authorized = cached.authorized;
+    if (!authorized) {
       res.status(403).json({ error: "Unauthorized access to store data." });
+      return false;
     }
-    return cached.authorized;
+  } else {
+    const store = await storage.getStore(storeId);
+    if (!store) {
+      res.status(404).json({ error: "Store not found." });
+      _accessCache.set(cacheKey, { authorized: false, expires: now + _ACCESS_TTL });
+      return false;
+    }
+    const member = await storage.getOrganisationMember(userId, store.businessId);
+    authorized = !!member;
+    _accessCache.set(cacheKey, { authorized, expires: now + _ACCESS_TTL });
+    if (!authorized) {
+      res.status(403).json({ error: "Unauthorized access to store data." });
+      return false;
+    }
   }
 
-  const store = await storage.getStore(storeId);
-  if (!store) {
-    res.status(404).json({ error: "Store not found." });
-    _accessCache.set(cacheKey, { authorized: false, expires: now + _ACCESS_TTL });
-    return false;
+  if ((req as any).user?.role === "staff") {
+    const staffRecord = await storage.getStaffByUserId(userId, storeId);
+    if (!staffRecord) {
+      res.status(403).json({ error: "Staff members can only access their assigned store." });
+      return false;
+    }
   }
-  const member = await storage.getOrganisationMember(userId, store.businessId);
-  const authorized = !!member;
-  _accessCache.set(cacheKey, { authorized, expires: now + _ACCESS_TTL });
-  if (!authorized) {
-    res.status(403).json({ error: "Unauthorized access to store data." });
-  }
-  return authorized;
+  return true;
 }
 
 export async function checkBusinessAccess(businessId: string, req: Request, res: Response): Promise<boolean> {

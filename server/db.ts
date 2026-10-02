@@ -88,13 +88,30 @@ export const db = drizzle(pool, { schema });
 // pg-pool's own `min` only stops idle eviction; it never opens connections.
 const warmTarget = Math.max(0, parseInt(process.env.DB_POOL_MIN || "2"));
 async function warmPool(): Promise<void> {
-  const clients = await Promise.allSettled(Array.from({ length: warmTarget }, () => pool.connect()));
-  for (const c of clients) {
-    if (c.status === "fulfilled") {
-      await c.value.query("select 1").catch(() => undefined);
-      c.value.release();
-    }
-  }
+  // Each client is warmed independently. pg-pool detaches its own 'error'
+  // listener while a client is checked out, so a connection that Neon drops
+  // between checkout and the query would emit an unhandled 'error' and take the
+  // process down; attach a listener for the duration of the checkout and
+  // release(err) so the pool discards a dead client instead of reusing it.
+  await Promise.allSettled(
+    Array.from({ length: warmTarget }, async () => {
+      const client = await pool.connect();
+      let failure: Error | undefined;
+      const onError = (err: Error) => {
+        failure = err;
+        console.warn("[db] warm client error:", err.message);
+      };
+      client.on("error", onError);
+      try {
+        await client.query("select 1");
+      } catch (err) {
+        failure = err as Error;
+      } finally {
+        client.removeListener("error", onError);
+        client.release(failure);
+      }
+    }),
+  );
 }
 if (warmTarget > 0 && process.env.NODE_ENV !== "test") {
   void warmPool();

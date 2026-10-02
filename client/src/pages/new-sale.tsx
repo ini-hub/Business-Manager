@@ -74,6 +74,7 @@ import { ReceiptModal } from "@/components/receipt-modal";
 import type { Customer, Staff, Inventory } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { saveOfflineCheckout } from "@/lib/offline-db";
+import { fetchAllStaff } from "@/lib/staff-api";
 import {
   Dialog,
   DialogContent,
@@ -632,6 +633,7 @@ export default function NewSale() {
 
   const { data: staffList = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
     staleTime: STALE_TIMES.reference,
   });

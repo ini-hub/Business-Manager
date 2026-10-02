@@ -485,6 +485,7 @@ function AuthenticatedLayout() {
                       attendance/performance), manager/owner only: a staff account
                       hitting one of these gets an in-page "not authorized" card, not
                       a redirect — the URL never bounces. */}
+                  <Route path="/staff" component={StaffDashboard} />
                   <Route path="/staff/attendance" component={StaffAttendancePage} />
                   <Route path="/staff/performance" component={MyPerformancePage} />
                   <Route path="/staff/payroll" component={MyPayrollPage} />

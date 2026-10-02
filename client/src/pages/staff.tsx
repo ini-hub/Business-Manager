@@ -78,6 +78,7 @@ function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
+import { fetchAllStaff } from "@/lib/staff-api";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { exportReportToPDF } from "@/lib/export-utils";
 
@@ -105,9 +106,7 @@ export default function StaffPage() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/staff?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as StaffRow[];
+              const list = await fetchAllStaff<StaffRow>(s.id);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -130,9 +129,7 @@ export default function StaffPage() {
         }
         return Array.from(mergedMap.values());
       }
-      const res = await fetch(`/api/staff?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch staff");
-      return res.json();
+      return fetchAllStaff<StaffRow>(currentStore!.id);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
     staleTime: STALE_TIMES.reference,

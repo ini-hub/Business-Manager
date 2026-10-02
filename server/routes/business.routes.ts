@@ -35,6 +35,7 @@ import {
   plans,
 } from "@shared/schema";
 import { z } from "zod";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
@@ -57,6 +58,52 @@ export type RouteMiddlewares = {
 };
 
 export function registerBusinessRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
+  // ========== GEOCODE (branch location search) ==========
+  // Keyless fallback for the location picker. Proxied because Nominatim's usage
+  // policy requires an identifying User-Agent and light use, which a browser
+  // calling it directly can't guarantee.
+  const geocodeLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => {
+      const userId = req.user?.userId ?? req.user?.id;
+      return userId != null ? String(userId) : ipKeyGenerator(req.ip ?? "");
+    },
+    message: { error: "Too many searches. Please wait a moment." },
+  });
+  const geocodeCache = new Map<string, { at: number; results: { label: string; lat: number; lng: number }[] }>();
+  const GEOCODE_TTL_MS = 10 * 60_000;
+
+  app.get("/api/geocode", isAuthenticated, geocodeLimiter, async (req, res) => {
+    const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
+    if (q.length < 3) return res.json([]);
+
+    const key = q.toLowerCase();
+    const hit = geocodeCache.get(key);
+    if (hit && Date.now() - hit.at < GEOCODE_TTL_MS) return res.json(hit.results);
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(q)}`;
+      const upstream = await fetch(url, {
+        headers: { "User-Agent": "BusinessManager/1.0 (branch location search)", "Accept-Language": "en" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!upstream.ok) return res.status(502).json({ error: "Address search is unavailable right now." });
+      const rows = (await upstream.json()) as Array<{ display_name?: string; lat?: string; lon?: string }>;
+      const results = rows
+        .map((r) => ({ label: String(r.display_name ?? ""), lat: Number(r.lat), lng: Number(r.lon) }))
+        .filter((r) => r.label && Number.isFinite(r.lat) && Number.isFinite(r.lng));
+
+      if (geocodeCache.size > 500) geocodeCache.clear();
+      geocodeCache.set(key, { at: Date.now(), results });
+      res.json(results);
+    } catch {
+      res.status(502).json({ error: "Address search is unavailable right now." });
+    }
+  });
+
   // ========== BUSINESS ==========
   app.get("/api/business", isAuthenticated, async (req, res) => {
     try {
@@ -295,7 +342,12 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(403).json({ error: "Unauthorized access to business data." });
       }
 
-      const storeList = await storage.getStores(businessId);
+      let storeList = await storage.getStores(businessId);
+      // Staff only see the store(s) they are assigned to.
+      if ((req as any).user?.role === "staff") {
+        const assigned = new Set((await storage.getAllStaffByUserId(userId)).map((st) => st.storeId));
+        storeList = storeList.filter((st) => assigned.has(st.id));
+      }
       res.json(storeList);
     } catch (error) {
       console.error("GET /api/stores error:", error);

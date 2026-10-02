@@ -222,16 +222,19 @@ export const signupSchema = z.object({
   // a super admin can add or archive sections (LegalDocuments.tsx) at any
   // time, and this schema is static at module-load time so it can't reflect
   // that set; the client renders one checkbox per actual current document.
-  acceptedLegalTerms: z.literal(true, {
-    errorMap: () => ({ message: "You must agree to our current legal documents to continue" }),
-  }),
+  // Not literal(true): when no legal documents are published there is
+  // nothing to agree to. Enforcement that every *existing* document was
+  // accepted lives in the signup handler's exact-match check on
+  // acceptedDocumentTypes (a client sending [] while documents exist gets
+  // LEGAL_DOCUMENTS_STALE), so this flag is informational.
+  acceptedLegalTerms: z.boolean().optional(),
   // The exact document types the signup form actually rendered checkboxes
   // for and got checked - server-validated against what's current at
   // submission time (LegalDocumentService.recordAcceptance) so a document
   // archived/reactivated/added between page-load and submit can't be
   // silently recorded as accepted (or skipped) without the user ever
   // seeing it.
-  acceptedDocumentTypes: z.array(z.string().min(1)).min(1, "You must agree to our current legal documents to continue"),
+  acceptedDocumentTypes: z.array(z.string().min(1)).default([]),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],

@@ -25,8 +25,8 @@ services:
       - key: RESEND_FROM_EMAIL
         sync: false
       # Baked into the client bundle at build time, so it must be set here before
-      # the build runs. Optional: the branch geofence picker falls back to manual
-      # coordinates without it.
+      # the build runs. Optional: without it the branch geofence picker uses OpenStreetMap
+      # (Leaflet) with server-proxied address search.
       - key: VITE_GOOGLE_MAPS_API_KEY
         sync: false
       - key: S3_BUCKET

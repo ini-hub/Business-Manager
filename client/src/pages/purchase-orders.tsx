@@ -35,6 +35,7 @@ import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
 import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { PurchaseOrder, PurchaseOrderItem, Inventory, Staff } from "@shared/schema";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 type Vendor = { id: string; name: string; phoneNumber?: string; email?: string; companyName?: string };
 type POWithVendor = PurchaseOrder & { vendor?: Vendor; vendorName?: string; poNumber: string };
@@ -154,9 +155,7 @@ export default function PurchaseOrdersPage() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/staff?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as Staff[];
+              const list = await fetchAllStaff<Staff>(s.id);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -165,8 +164,7 @@ export default function PurchaseOrdersPage() {
         );
         return responses.flat();
       }
-      const res = await apiRequest("GET", `/api/staff?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllStaff<Staff>(currentStore!.id);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });

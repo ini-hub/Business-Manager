@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { storage } from "../storage";
+import { checkStoreAccessHelper } from "../routes/helpers";
 
 export abstract class BaseController {
   /**
@@ -46,23 +47,7 @@ export abstract class BaseController {
   }
 
   protected async checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
-    const userId = (req as any).user?.userId || (req as any).user?.id;
-    if (!userId) {
-      res.status(401).json({ error: "Authentication required." });
-      return false;
-    }
-    const store = await storage.getStore(storeId);
-    if (!store) {
-      res.status(404).json({ error: "Store not found." });
-      return false;
-    }
-
-    const member = await storage.getOrganisationMember(userId, store.businessId);
-    if (!member) {
-      res.status(403).json({ error: "Unauthorized access to store data." });
-      return false;
-    }
-    return true;
+    return checkStoreAccessHelper(storeId, req, res);
   }
 
   protected async verifyStoreAccess(req: any, storeId: string): Promise<boolean> {

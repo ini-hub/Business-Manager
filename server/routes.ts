@@ -1,3 +1,4 @@
+import { checkStoreAccessHelper } from "./routes/helpers";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
@@ -210,40 +211,8 @@ export async function registerRoutes(
 
 
   // ========== MULTI-TENANCY HELPERS ==========
-  async function checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
-    const userId = req.user?.userId;
-    if (!userId) {
-      res.status(401).json({ error: "Authentication required." });
-      return false;
-    }
-    const store = await storage.getStore(storeId);
-    if (!store) {
-      res.status(404).json({ error: "Store not found." });
-      return false;
-    }
-
-    // Verify user has direct membership access to the business the store belongs to
-    const member = await storage.getOrganisationMember(userId, store.businessId);
-    if (!member) {
-      res.status(403).json({ error: "Unauthorized access to store data." });
-      return false;
-    }
-
-    // Staff members are restricted to their own assigned store. Scoping the
-    // lookup itself (rather than fetching one arbitrary row and comparing) is
-    // what makes this correct for a staff record linked to rows in more than
-    // one store: a miss here means "not assigned to *this* store", not "has
-    // no staff record at all".
-    const userRole = req.user?.role;
-    if (userRole === "staff") {
-      const staffRecord = await storage.getStaffByUserId(userId, storeId);
-      if (!staffRecord) {
-        res.status(403).json({ error: "Staff members can only access their assigned store." });
-        return false;
-      }
-    }
-
-    return true;
+  function checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
+    return checkStoreAccessHelper(storeId, req, res);
   }
 
   async function checkBusinessAccess(businessId: string, req: Request, res: Response): Promise<boolean> {

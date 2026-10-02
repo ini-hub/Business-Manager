@@ -25,6 +25,7 @@ import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplay
 import { cn } from "@/lib/utils";
 import { BookingFormValues } from "./types";
 import { SegmentedControl } from "./segmented-control";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 interface StepScheduleProps {
   form: UseFormReturn<BookingFormValues>;
@@ -38,6 +39,7 @@ export function StepSchedule({ form }: StepScheduleProps) {
 
   const { data: staff = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled: !!currentStore?.id,
   });
 

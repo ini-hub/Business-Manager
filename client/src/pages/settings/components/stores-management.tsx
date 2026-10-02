@@ -13,6 +13,7 @@ import type { Store as StoreType, Staff } from "@shared/schema";
 import { getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
 import { getTimezoneOffset } from "@/lib/timezones";
 import { Clock } from "lucide-react";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 export function StoresManagementSection() {
   const [, setLocation] = useLocation();
@@ -42,11 +43,7 @@ export function StoresManagementSection() {
       const staffByStore: Record<string, Staff[]> = {};
       for (const store of stores) {
         try {
-          const response = await fetch(`/api/staff?storeId=${store.id}`);
-          if (response.ok) {
-            const staff = await response.json();
-            staffByStore[store.id] = staff;
-          }
+          staffByStore[store.id] = await fetchAllStaff<Staff>(store.id);
         } catch {
           staffByStore[store.id] = [];
         }

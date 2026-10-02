@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store, Staff } from "@shared/schema";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 const storeFormSchema = z.object({
   name: z.string().min(1, "Store name is required").max(200, "Name is too long"),
@@ -90,10 +91,7 @@ export default function StoreFormPage() {
   const { data: staffList = [], isLoading: isLoadingStaff } = useQuery<Staff[]>({
     queryKey: ["/api/staff", storeId],
     enabled: !!storeId,
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/staff?storeId=${storeId}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllStaff(storeId!),
   });
 
   const activeStaff = staffList.filter(s => !s.isArchived);

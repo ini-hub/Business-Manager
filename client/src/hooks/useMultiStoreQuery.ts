@@ -3,7 +3,7 @@ import { useStore } from "@/lib/store-context";
 
 type MergeStrategy = "flat" | "dedup-by-id";
 
-interface UseMultiStoreQueryOptions {
+interface UseMultiStoreQueryOptions<T = unknown> {
   enabled?: boolean;
   merge?: MergeStrategy;
   staleTime?: number;
@@ -11,6 +11,8 @@ interface UseMultiStoreQueryOptions {
    *  so two callers of the same path with different params do not share a cache
    *  entry (e.g. /api/products with and without ?include=supplies). */
   params?: Record<string, string>;
+  /** Replaces the per-store fetch (e.g. for endpoints that must be paged). */
+  fetchList?: (storeId: string) => Promise<T[]>;
 }
 
 /**
@@ -20,10 +22,10 @@ interface UseMultiStoreQueryOptions {
  */
 export function useMultiStoreQuery<T extends { id: string | number }>(
   path: string,
-  options: UseMultiStoreQueryOptions = {}
+  options: UseMultiStoreQueryOptions<T> = {}
 ) {
   const { currentStore, stores } = useStore();
-  const { enabled = true, merge = "flat", staleTime, params } = options;
+  const { enabled = true, merge = "flat", staleTime, params, fetchList } = options;
 
   const isAll = currentStore?.id === "all";
   const queryEnabled = enabled && (isAll ? stores.length > 0 : !!currentStore?.id);
@@ -38,9 +40,14 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`${path}?storeId=${s.id}${suffix}`);
-              if (!res.ok) return [] as (T & { storeName?: string })[];
-              const list = (await res.json()) as T[];
+              let list: T[];
+              if (fetchList) {
+                list = await fetchList(s.id);
+              } else {
+                const res = await fetch(`${path}?storeId=${s.id}${suffix}`);
+                if (!res.ok) return [] as (T & { storeName?: string })[];
+                list = (await res.json()) as T[];
+              }
               return list.map((item) => ({ ...item, storeName: s.name }));
             } catch {
               return [] as (T & { storeName?: string })[];
@@ -68,6 +75,7 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
         return responses.flat();
       }
 
+      if (fetchList) return fetchList(currentStore!.id);
       const res = await fetch(`${path}?storeId=${currentStore?.id}${suffix}`);
       if (!res.ok) throw new Error(`Failed to fetch ${path}`);
       return res.json();

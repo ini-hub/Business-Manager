@@ -23,6 +23,7 @@ import { useStore } from "@/lib/store-context";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { Check, AlertCircle, Plus, PackageX } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 interface AddendumDialogProps {
   open: boolean;
@@ -95,10 +96,7 @@ export function AddendumDialog({
 
   const { data: staffList = [] } = useQuery({
     queryKey: ["/api/staff", storeId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/staff?storeId=${storeId}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllStaff(storeId),
     enabled: open && !!storeId,
   });
 

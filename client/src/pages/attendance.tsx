@@ -39,6 +39,7 @@ import { AttendanceExceptions } from "@/components/attendance-exceptions";
 import { AttendanceLog } from "@/components/attendance-log";
 import type { Staff, AttendanceRecord, AttendanceStatus } from "@shared/schema";
 import { formatDurationCompact } from "@/lib/duration-utils";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 const STATUS_CONFIG: Record<AttendanceStatus, { label: string; color: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
   present:  { label: "Present",  color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800",  icon: CheckCircle2 },
@@ -199,6 +200,7 @@ export default function AttendancePage() {
 
   const { data: staffList = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", currentStore?.id],
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 

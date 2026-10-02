@@ -50,6 +50,8 @@ const signupSchema = z.object({
   // static at module-load time, so it can't reflect whatever a super admin
   // has added/archived since) - the checkboxes below individually name
   // whichever documents currently exist.
+  // Only meaningful when documents exist - the useEffect below sets this to
+  // true automatically when the list is empty (nothing to agree to).
   acceptedLegalTerms: z.boolean().refine((v) => v === true, {
     message: "You must agree to all of the documents below to continue",
   }),
@@ -116,10 +118,12 @@ export default function Signup() {
   const [hasInteractedWithConsent, setHasInteractedWithConsent] = useState(false);
 
   useEffect(() => {
-    const allChecked = legalDocs.length > 0 && legalDocs.every((d) => acceptedDocs[d.documentType]);
+    // No published documents (and the list has finished loading) means
+    // there is nothing to consent to - don't block signup on it.
+    const allChecked = legalDocsQuery.isSuccess && legalDocs.every((d) => acceptedDocs[d.documentType]);
     form.setValue("acceptedLegalTerms", allChecked, { shouldValidate: hasInteractedWithConsent });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acceptedDocs, legalDocs.length]);
+  }, [acceptedDocs, legalDocs.length, legalDocsQuery.isSuccess]);
 
   const password = form.watch("password");
 

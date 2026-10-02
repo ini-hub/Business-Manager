@@ -4,6 +4,7 @@ import { useStore } from "@/lib/store-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Check, Circle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 /**
  * Onboarding's "Skip for now" buttons let a user reach checkout with no
@@ -24,6 +25,7 @@ export function GettingStartedChecklist() {
 
   const { data: staffList = [] } = useQuery<any[]>({
     queryKey: ["/api/staff", currentStore?.id],
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled,
   });
   const { data: products = [] } = useQuery<any[]>({

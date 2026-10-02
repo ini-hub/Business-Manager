@@ -78,6 +78,12 @@ const managementItems: MenuItem[] = [
     shortcut: "⌥C",
   },
   {
+    title: "My Dashboard",
+    url: "/staff",
+    icon: LayoutDashboard,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
     title: "Staff",
     url: "/staffs",
     icon: UserCog,

@@ -14,8 +14,25 @@ const LEGACY_APPLIED = [
   "custom_rename_profit.sql",
 ];
 
+// A cold connect to a remote Neon pooler can exceed the pool's connect timeout
+// (the warm-up in db.ts opens several connections at the same moment). That is
+// transient, and failing here takes the whole server down at boot, so retry a
+// few times before giving up.
+async function connectWithRetry(attempts = 4) {
+  for (let i = 1; ; i++) {
+    try {
+      return await pool.connect();
+    } catch (err) {
+      if (i >= attempts) throw err;
+      const delay = 1000 * i;
+      console.warn(`[migrate] connect failed (${(err as Error).message}); retry ${i}/${attempts - 1} in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 export async function runMigrations() {
-  const client = await pool.connect();
+  const client = await connectWithRetry();
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS _migrations (

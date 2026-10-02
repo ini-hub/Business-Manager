@@ -17,6 +17,7 @@ import { useStore } from "@/lib/store-context";
 import { apiRequest } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { cn } from "@/lib/utils";
+import { fetchAllStaff } from "@/lib/staff-api";
 
 interface AuditItem {
   inventoryId: string;
@@ -38,10 +39,7 @@ export default function InventoryAuditNewPage() {
 
   const { data: staffList = [] } = useQuery<any[]>({
     queryKey: ["/api/staff", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/staff?storeId=${currentStore!.id}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllStaff(currentStore!.id),
     enabled: !!currentStore?.id,
   });
 
