@@ -2,6 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Crosshair, Loader2, MapPin, TriangleAlert } from "lucide-react";
 import { LocationPickerOsm } from "@/components/location-picker-osm";
@@ -41,6 +51,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
     hasGoogleMapsKey() ? "loading" : "unavailable",
   );
   const [osmFailed, setOsmFailed] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
 
@@ -252,7 +263,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
           type="button"
           variant="outline"
           size="sm"
-          onClick={useCurrentLocation}
+          onClick={() => setConfirmOpen(true)}
           disabled={disabled || locating}
           data-testid="button-use-current-location"
         >
@@ -297,6 +308,30 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
           />
         </div>
       </div>
+
+      {/* Our own pre-prompt: the browser's permission popup only appears after Allow. */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-location-consent">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Use your current location?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We'll use this device's position to set the branch location for clock-in checks.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-location-deny">Don't allow</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-location-allow"
+              onClick={() => {
+                setConfirmOpen(false);
+                useCurrentLocation();
+              }}
+            >
+              Allow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
