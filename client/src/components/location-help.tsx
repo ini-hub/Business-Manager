@@ -37,7 +37,7 @@ const GUIDES: Record<Platform, { title: string; steps: string[] }> = {
       "Open Settings > Privacy & Security > Location Services.",
       "Make sure Location Services is switched on at the top.",
       "Scroll down, tap Safari (Websites), and choose While Using the App.",
-      "Come back to this page. It rechecks by itself.",
+      "Still blocked afterwards? Reload this page.",
     ],
   },
   "ios-other": {
@@ -46,7 +46,7 @@ const GUIDES: Record<Platform, { title: string; steps: string[] }> = {
       "Open Settings > Privacy & Security > Location Services.",
       "Make sure Location Services is switched on at the top.",
       "Scroll down, tap your browser (Chrome, Firefox or Edge), and choose While Using the App.",
-      "Come back to this page. It rechecks by itself.",
+      "Still blocked afterwards? Reload this page.",
     ],
   },
   android: {
@@ -54,7 +54,7 @@ const GUIDES: Record<Platform, { title: string; steps: string[] }> = {
     steps: [
       "Swipe down and make sure Location is switched on.",
       "Tap the lock or tune icon beside the web address, then Permissions, and set Location to Allow.",
-      "Come back to this page. It rechecks by itself.",
+      "Still blocked afterwards? Reload this page.",
     ],
   },
   "mac-safari": {
@@ -64,6 +64,7 @@ const GUIDES: Record<Platform, { title: string; steps: string[] }> = {
       "Make sure Location Services is switched on at the top.",
       "Scroll down and switch on Safari.",
       "In Safari, choose Safari > Settings > Websites > Location and set this site to Allow.",
+      "Still blocked afterwards? Reload this page.",
     ],
   },
   desktop: {
@@ -71,7 +72,7 @@ const GUIDES: Record<Platform, { title: string; steps: string[] }> = {
     steps: [
       "Click the lock or tune icon beside the web address and set Location to Allow.",
       "Make sure location is switched on in your computer's system settings too.",
-      "Come back to this page. It rechecks by itself.",
+      "Still blocked afterwards? Reload this page.",
     ],
   },
 };

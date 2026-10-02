@@ -269,8 +269,11 @@ export function ClockInCard() {
       <MapPin className="mr-2 h-4 w-4" /> Use my location
     </Button>
   ) : null;
+  // Some browsers keep reporting "denied" for the life of the page even after the
+  // setting is fixed, so a denied retry reloads the app. Queued offline punches
+  // live in IndexedDB and survive the reload.
   const retryButton = !needsConsent && (fence.state === "weak" || fence.state === "outside" || fence.state === "denied") ? (
-    <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
+    <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.state === "denied" ? () => window.location.reload() : fence.refresh} data-testid="button-retry-location">
       {fence.state === "denied" ? "Check again" : "Try my location again"}
     </Button>
   ) : null;
