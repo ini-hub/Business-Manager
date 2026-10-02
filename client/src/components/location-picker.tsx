@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Crosshair, Loader2, MapPin, TriangleAlert } from "lucide-react";
+import { LocationHelp } from "@/components/location-help";
 import { LocationPickerOsm } from "@/components/location-picker-osm";
 import { hasGoogleMapsKey, loadGoogleMaps } from "@/lib/google-maps";
 
@@ -54,6 +55,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
+  const [locationBlocked, setLocationBlocked] = useState(false);
 
   // Latest onChange without re-running the map setup on every parent render.
   const onChangeRef = useRef(onChange);
@@ -178,6 +180,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
   // ── Capture from the device ───────────────────────────────────────────────
   const useCurrentLocation = () => {
     setLocateError(null);
+    setLocationBlocked(false);
 
     if (!navigator.geolocation) {
       setLocateError("This browser cannot report a location.");
@@ -192,7 +195,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false);
-            const lat = Number(pos.coords.latitude.toFixed(6));
+        const lat = Number(pos.coords.latitude.toFixed(6));
         const lng = Number(pos.coords.longitude.toFixed(6));
         onChangeRef.current({ latitude: lat, longitude: lng, label: value.label });
         if (mapRef.current) {
@@ -202,10 +205,15 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
       },
       (err) => {
         setLocating(false);
-        // Refusing the permission just ends the attempt quietly.
         if (err.code !== err.PERMISSION_DENIED) {
           setLocateError("Could not get a location fix. Try again outside or near a window.");
+          return;
         }
+        // Dismissing the popup also reports "denied" but leaves the state at
+        // "prompt", so stay quiet then; only a real block needs the help.
+        navigator.permissions?.query({ name: "geolocation" as PermissionName })
+          .then((st) => { if (st.state === "denied") setLocationBlocked(true); })
+          .catch(() => setLocationBlocked(true));
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
@@ -281,6 +289,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
       {locateError && (
         <p className="text-sm text-destructive" data-testid="text-locate-error">{locateError}</p>
       )}
+      {locationBlocked && <LocationHelp />}
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">

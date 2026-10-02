@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { useGeofence, type GeofenceCentre } from "@/hooks/useGeofence";
+import { LocationHelp, isInAppBrowser } from "@/components/location-help";
 import { getDeviceId, newPunchId } from "@/lib/device-id";
 import { saveOfflinePunch } from "@/lib/offline-db";
 import { CheckCircle2, Clock, LogOut, MapPin, Loader2, TriangleAlert, CalendarClock } from "lucide-react";
@@ -44,13 +45,6 @@ type TodayContext = {
 };
 
 type PunchOutcome = { isLate: boolean; lateMinutes: number; localDate: string };
-
-// Webviews inside WhatsApp/Instagram/Facebook etc. refuse geolocation no matter
-// what the phone's settings say, so "allow it for this site" cannot work there.
-function isInAppBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /FBAN|FBAV|Instagram|WhatsApp|Line\/|MicroMessenger|; wv\)|Snapchat|TikTok|Twitter/i.test(navigator.userAgent);
-}
 
 export function ClockInCard() {
   const { toast } = useToast();
@@ -270,18 +264,6 @@ export function ClockInCard() {
   };
 
   const status = fenceLabel();
-  // Once a browser permission is explicitly denied, no web API can make it
-  // re-prompt - only the browser's own site-settings UI can. fence.refresh()
-  // still matters here despite that: after the person flips the setting
-  // there themselves, a fresh watchPosition call picks it up immediately,
-  // no page reload needed, so "Check again" is the thing to press once
-  // they're done, not a dead end.
-  const locationHelpText = fence.state === "denied"
-    ? (isInAppBrowser()
-        ? "Open this page in Chrome or Safari (use the menu ⋮ and choose \"Open in browser\"), then sign in again."
-        : "Tap the lock or site-info icon next to your browser's address bar and allow Location for this site. Also make sure Location is switched on in your phone's settings. This page rechecks automatically, or tap Check again.")
-      + ` [Browser said: ${fence.rawError ?? "unknown"}]`
-    : null;
   const consentButton = needsConsent ? (
     <Button variant="outline" size="sm" className="w-full" onClick={() => setConsentOpen(true)} data-testid="button-use-my-location">
       <MapPin className="mr-2 h-4 w-4" /> Use my location
@@ -351,9 +333,7 @@ export function ClockInCard() {
                     <MapPin className="h-4 w-4 shrink-0" />
                     <span>{status.text}</span>
                   </div>
-                  {locationHelpText && (
-                    <p className="text-xs text-muted-foreground">{locationHelpText}</p>
-                  )}
+                  {fence.state === "denied" && <LocationHelp />}
 
                   <Button
                     variant="outline"
@@ -388,9 +368,7 @@ export function ClockInCard() {
                 <MapPin className="h-4 w-4 shrink-0" />
                 <span>{status.text}</span>
               </div>
-              {locationHelpText && (
-                <p className="text-xs text-muted-foreground">{locationHelpText}</p>
-              )}
+              {fence.state === "denied" && <LocationHelp />}
 
               <Button
                 className="w-full"
@@ -416,11 +394,11 @@ export function ClockInCard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Use your current location?</AlertDialogTitle>
             <AlertDialogDescription>
-              We'll use this device's position to check that you're at the branch when you clock in or out.
+              We'll use this device's position to check that you're at the branch when you clock in or out. Choose Not now and we'll ask again next time.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-location-deny">Don't allow</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-location-deny">Not now</AlertDialogCancel>
             <AlertDialogAction
               data-testid="button-location-allow"
               onClick={() => {
