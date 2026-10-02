@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,16 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -77,7 +87,24 @@ export function ClockInCard() {
   // which the server coerced to (0, 0) and reported as a distance in the
   // millions of metres.
   const awaitingAction = !!today?.clockInEnabled && !today?.clockedOutAt;
-  const fence = useGeofence(centre, awaitingAction);
+
+  // Our own pre-prompt: the browser's permission popup only appears after Allow.
+  // If the browser already granted this site, skip the dialog and start watching.
+  const [locationConsent, setLocationConsent] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
+  useEffect(() => {
+    if (locationConsent || !awaitingAction) return;
+    let cancelled = false;
+    try {
+      navigator.permissions?.query({ name: "geolocation" as PermissionName }).then((s) => {
+        if (!cancelled && s.state === "granted") setLocationConsent(true);
+      }).catch(() => {});
+    } catch { /* Permissions API unavailable — the dialog covers it */ }
+    return () => { cancelled = true; };
+  }, [awaitingAction, locationConsent]);
+
+  const needsConsent = awaitingAction && !!centre && !locationConsent;
+  const fence = useGeofence(centre, awaitingAction && locationConsent);
 
   const punchMutation = useMutation({
     mutationFn: async (kind: "clock_in" | "clock_out") => {
@@ -211,6 +238,7 @@ export function ClockInCard() {
   const alreadyOut = !!today.clockedOutAt;
 
   const fenceLabel = (): { text: string; tone: "ok" | "warn" | "bad" } => {
+    if (needsConsent) return { text: "Share your location to clock in or out", tone: "warn" };
     switch (fence.state) {
       case "inside":
         return { text: "You're at the branch", tone: "ok" };
@@ -254,6 +282,16 @@ export function ClockInCard() {
         : "Tap the lock or site-info icon next to your browser's address bar and allow Location for this site. Also make sure Location is switched on in your phone's settings. This page rechecks automatically, or tap Check again.")
       + ` [Browser said: ${fence.rawError ?? "unknown"}]`
     : null;
+  const consentButton = needsConsent ? (
+    <Button variant="outline" size="sm" className="w-full" onClick={() => setConsentOpen(true)} data-testid="button-use-my-location">
+      <MapPin className="mr-2 h-4 w-4" /> Use my location
+    </Button>
+  ) : null;
+  const retryButton = !needsConsent && (fence.state === "weak" || fence.state === "outside" || fence.state === "denied") ? (
+    <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
+      {fence.state === "denied" ? "Check again" : "Try my location again"}
+    </Button>
+  ) : null;
   const canClockIn = fence.state === "inside" && !punchMutation.isPending;
   // Clock-out is checked against the same geofence server-side (see
   // checkGeofence), so it needs the same gating — otherwise a click fired
@@ -330,11 +368,8 @@ export function ClockInCard() {
                     Clock out
                   </Button>
 
-                  {(fence.state === "weak" || fence.state === "outside" || fence.state === "denied") && (
-                    <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
-                      {fence.state === "denied" ? "Check again" : "Try my location again"}
-                    </Button>
-                  )}
+                  {consentButton}
+                  {retryButton}
                 </>
               )}
               <p className="text-xs text-muted-foreground">Clocking out is optional.</p>
@@ -369,15 +404,35 @@ export function ClockInCard() {
                 Clock in
               </Button>
 
-              {(fence.state === "weak" || fence.state === "outside" || fence.state === "denied") && (
-                <Button variant={fence.state === "denied" ? "outline" : "ghost"} size="sm" className="w-full" onClick={fence.refresh} data-testid="button-retry-location">
-                  {fence.state === "denied" ? "Check again" : "Try my location again"}
-                </Button>
-              )}
+              {consentButton}
+              {retryButton}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={consentOpen} onOpenChange={setConsentOpen}>
+        <AlertDialogContent data-testid="dialog-location-consent">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Use your current location?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We'll use this device's position to check that you're at the branch when you clock in or out.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-location-deny">Don't allow</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-location-allow"
+              onClick={() => {
+                setConsentOpen(false);
+                setLocationConsent(true);
+              }}
+            >
+              Allow
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Colour carries the verdict before the words are read. */}
       <Dialog open={!!outcome} onOpenChange={(open) => !open && setOutcome(null)}>
