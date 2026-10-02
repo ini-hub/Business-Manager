@@ -53,14 +53,6 @@ CREATE INDEX IF NOT EXISTS "idx_staff_store_id"
 CREATE INDEX IF NOT EXISTS "idx_customers_store_id"
   ON "customers" ("store_id");
 
--- Customers: Index on businessId for business customer lookups
-CREATE INDEX IF NOT EXISTS "idx_customers_business_id"
-  ON "customers" ("business_id");
-
--- Inventory: Index on businessId for business inventory lookups
-CREATE INDEX IF NOT EXISTS "idx_inventory_business_id"
-  ON "inventory" ("business_id");
-
 -- Transactions: Index on storeId for store transactions
 CREATE INDEX IF NOT EXISTS "idx_transactions_store_id"
   ON "transactions" ("store_id");
