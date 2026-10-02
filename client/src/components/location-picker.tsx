@@ -43,7 +43,6 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
   const [osmFailed, setOsmFailed] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
-  const [permissionDenied, setPermissionDenied] = useState(false);
 
   // Latest onChange without re-running the map setup on every parent render.
   const onChangeRef = useRef(onChange);
@@ -166,39 +165,8 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
   }, [value.latitude, value.longitude, mapsState]);
 
   // ── Capture from the device ───────────────────────────────────────────────
-  // Once a user refuses, the browser will not show the prompt again, so a repeat
-  // click can only fail the same way. Watch the permission instead: when they
-  // re-enable it in the site settings, clear the notice and retry automatically.
-  useEffect(() => {
-    if (!permissionDenied || !navigator.permissions?.query) return;
-    let status: PermissionStatus | null = null;
-    let cancelled = false;
-    const onPermissionChange = () => {
-      if (status && status.state !== "denied") {
-        setPermissionDenied(false);
-        setLocateError(null);
-        if (status.state === "granted") useCurrentLocationRef.current();
-      }
-    };
-    navigator.permissions
-      .query({ name: "geolocation" as PermissionName })
-      .then((s) => {
-        if (cancelled) return;
-        status = s;
-        s.addEventListener("change", onPermissionChange);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      status?.removeEventListener("change", onPermissionChange);
-    };
-  }, [permissionDenied]);
-
-  const useCurrentLocationRef = useRef<() => void>(() => {});
-
   const useCurrentLocation = () => {
     setLocateError(null);
-    setPermissionDenied(false);
 
     if (!navigator.geolocation) {
       setLocateError("This browser cannot report a location.");
@@ -213,8 +181,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false);
-        setPermissionDenied(false);
-        const lat = Number(pos.coords.latitude.toFixed(6));
+            const lat = Number(pos.coords.latitude.toFixed(6));
         const lng = Number(pos.coords.longitude.toFixed(6));
         onChangeRef.current({ latitude: lat, longitude: lng, label: value.label });
         if (mapRef.current) {
@@ -224,33 +191,14 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
       },
       (err) => {
         setLocating(false);
-        if (err.code === err.PERMISSION_DENIED) {
-          // Dismissing the popup also reports "denied", but the state stays "prompt"
-          // and the next click shows the popup again, so say nothing in that case.
-          // Only a real block (state "denied") needs the settings instructions.
-          const showBlocked = () => {
-            setPermissionDenied(true);
-            setLocateError(
-              "Location access is blocked for this site, and the browser won't ask again. " +
-                "Click the lock icon in the address bar, set Location to Allow, then tap the button again " +
-                "(it will retry automatically once allowed). Or type the coordinates below.",
-            );
-          };
-          const query = navigator.permissions?.query?.({ name: "geolocation" as PermissionName });
-          if (query) {
-            query.then((s) => { if (s.state === "denied") showBlocked(); }).catch(showBlocked);
-          } else {
-            showBlocked();
-          }
-        } else {
+        // Refusing the permission just ends the attempt quietly.
+        if (err.code !== err.PERMISSION_DENIED) {
           setLocateError("Could not get a location fix. Try again outside or near a window.");
         }
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
   };
-
-  useCurrentLocationRef.current = useCurrentLocation;
 
   const setCoord = (key: "latitude" | "longitude", raw: string) => {
     const trimmed = raw.trim();

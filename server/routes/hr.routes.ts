@@ -127,7 +127,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       if (!row) return res.status(404).json({ error: "Section config not found for this business." });
 
       const ctx = await getAuditContext(req, {});
-      auditLogger.logEvent(ctx, "HR_SECTION_UPDATED", "hr_section_config", `${businessId}:${section}`, "success", { section, ...body });
+      auditLogger.logEvent(ctx, "HR_SECTION_UPDATED", "hr_section_config", `${businessId}:${section}`, "success", { details: { section, ...body } });
 
       res.json(row);
     } catch (error) {
@@ -209,7 +209,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       }
 
       const ctx = await getAuditContext(req, {});
-      auditLogger.logEvent(ctx, "HR_FIELD_DELETED", "hr_field_definitions", req.params.fieldId, "success", { businessId });
+      auditLogger.logEvent(ctx, "HR_FIELD_DELETED", "hr_field_definitions", req.params.fieldId, "success", { details: { businessId } });
 
       res.json({ message: "Deleted." });
     } catch (error) {
