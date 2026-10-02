@@ -524,6 +524,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const existing = await storage.getPayrollDeduction(req.params.deductionId);
       if (!existing || existing.periodId !== req.params.id) return res.status(404).json({ error: "Deduction not found." });
       const isSystemProposed = existing.type === "staff_credit"
+        || existing.type === "late_arrival"
         || (existing.type === "advance_recovery" && !!existing.salaryAdvanceId);
       if (!isSystemProposed) return res.status(400).json({ error: "Only system-proposed deductions can be restored." });
 

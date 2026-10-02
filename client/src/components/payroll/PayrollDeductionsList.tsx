@@ -244,11 +244,13 @@ export function PayrollDeductionsList({
                       Skip this period
                     </Button>
                   ) : isLateArrival ? (
-                    // Late arrival is auto-proposed from attendance, so skip just
-                    // defers it to the next period if the day is still marked late.
+                    // Late arrival is auto-proposed from attendance and tied to one
+                    // day. Waiving forgives that day for good — it never moves to
+                    // the next period, and the resync won't re-create it.
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                      title="Forgive this late charge. It won't carry to the next period."
                       onClick={() => deleteDeductionMutation?.mutate(d.id)}>
-                      Skip this period
+                      Waive
                     </Button>
                   ) : (
                     <IconButton variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
