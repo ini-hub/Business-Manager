@@ -120,38 +120,3 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
   return "Something went wrong. Please try again or contact support if the problem persists.";
 }
 
-function formatValidationErrors(errors: Array<{ path?: string[]; message: string }>): string {
-  if (!errors || errors.length === 0) {
-    return "Please check your input and try again.";
-  }
-
-  const fieldMessages = errors.map((err) => {
-    const field = err.path?.[0] || "field";
-    const fieldName = formatFieldName(field);
-    return `${fieldName}: ${err.message}`;
-  });
-
-  if (fieldMessages.length === 1) {
-    return fieldMessages[0];
-  }
-
-  return `Please fix the following: ${fieldMessages.join(", ")}`;
-}
-
-function formatFieldName(field: string): string {
-  const fieldMappings: Record<string, string> = {
-    name: "Name",
-    customerNumber: "Customer Number",
-    staffNumber: "Staff Number",
-    mobileNumber: "Mobile Number",
-    address: "Address",
-    payPerMonth: "Monthly Pay",
-    signedContract: "Contract Status",
-    costPrice: "Cost Price",
-    sellingPrice: "Selling Price",
-    quantity: "Quantity",
-    type: "Type",
-  };
-
-  return fieldMappings[field] || field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, " $1");
-}

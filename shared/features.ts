@@ -374,16 +374,10 @@ export const FEATURES = [
 
 export type FeatureKey = (typeof FEATURES)[number]["key"];
 
-const FEATURE_KEYS: readonly FeatureKey[] = FEATURES.map((f) => f.key);
-
 const BY_KEY: ReadonlyMap<string, FeatureDef> = new Map(FEATURES.map((f) => [f.key, f]));
 
 export function getFeatureDef(key: string): FeatureDef | undefined {
   return BY_KEY.get(key);
-}
-
-function isFeatureKey(key: string): key is FeatureKey {
-  return BY_KEY.has(key);
 }
 
 /** Free features are granted on every plan, including with an empty or missing catalog row. */

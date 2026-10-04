@@ -95,10 +95,6 @@ function getUserAgent(req: Request): string {
   return typeof ua === "string" ? ua : "unknown";
 }
 
-function getUserId(req: Request): string | undefined {
-  return req.user?.userId;
-}
-
 // Rate limiting configuration for security
 const apiLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
@@ -187,7 +183,6 @@ export async function registerRoutes(
   ]);
   app.use("/api", registry.registerAll());
 
-
   // ========== MULTI-TENANCY HELPERS ==========
   function checkStoreAccess(storeId: string, req: Request, res: Response): Promise<boolean> {
     return checkStoreAccessHelper(storeId, req, res);
@@ -215,8 +210,6 @@ export async function registerRoutes(
     return await storage.getStores(user.businessId);
   }
 
-
-
   // ========== CUSTOM AUTH ROUTES ==========
 
   const LOCKOUT_TIME_MS = 30 * 60 * 1000;
@@ -227,7 +220,6 @@ export async function registerRoutes(
   function nextLockoutDurationMs(priorLockoutCount: number): number {
     return Math.min(LOCKOUT_TIME_MS * Math.pow(2, priorLockoutCount), LOCKOUT_MAX_MS);
   }
-
 
   // Single Entry point continue route
   app.post("/api/auth/continue", async (req: Request, res: Response) => {
@@ -1649,7 +1641,6 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to reset password. Please try again." });
     }
   });
-
 
   // Get current user
   app.get("/api/auth/user", async (req: any, res) => {

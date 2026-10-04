@@ -11,7 +11,6 @@ import { API_DOMAIN_OWNERS, WRITE_METHODS, compilePathPattern, getFeatureDef, ty
 import { APP_SCREEN_PATHS } from "./screens";
 
 export type GateRuleKind = "route" | "screen";
-type GateRuleStatus = "draft" | "active";
 
 /** "*" (any method), "writes" (POST/PUT/PATCH/DELETE) or a comma list such as "POST,PATCH". */
 export type MethodSpec = string;
@@ -45,13 +44,6 @@ export function parseMethods(spec: MethodSpec): readonly HttpMethod[] | "*" | nu
   const parts = s.split(",").map((p) => p.trim().toUpperCase()).filter(Boolean);
   if (!parts.length || !parts.every((p) => (ALL_METHODS as readonly string[]).includes(p))) return null;
   return Array.from(new Set(parts)) as HttpMethod[];
-}
-
-function describeMethods(spec: MethodSpec): string {
-  const m = parseMethods(spec);
-  if (m === "*") return "any method";
-  if (m === WRITE_METHODS) return "writes";
-  return m ? m.join(", ") : spec;
 }
 
 export interface ValidateOptions {

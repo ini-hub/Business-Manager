@@ -42,8 +42,6 @@ function sameBusinessExistingLinks(
   return outcome.existingLinks.filter((l) => l.businessId === businessId);
 }
 
-const SALT_ROUNDS = 12;
-
 export type RouteMiddlewares = {
   isAuthenticated: any;
   requireRole: (...roles: any[]) => any;

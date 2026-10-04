@@ -22,8 +22,6 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-const STORAGE_KEY = "selectedStoreId";
-
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [currentStore, setCurrentStoreState] = useState<Store | null>(null);
   const { user } = useAuth();

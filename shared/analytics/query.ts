@@ -254,8 +254,6 @@ export const analyticsQuerySchema = baseQuerySchema.superRefine((q, ctx) => {
 export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;
 export type AnalyticsQueryInput = z.input<typeof analyticsQuerySchema>;
 export type Filter = z.infer<typeof filterSchema>;
-type Having = z.infer<typeof havingSchema>;
-type TopN = z.infer<typeof topNSchema>;
 
 /** Persisted shape of a saved view: the query plus how it was being displayed. */
 export const analyticsViewSpecSchema = z.object({

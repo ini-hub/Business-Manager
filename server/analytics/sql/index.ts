@@ -36,8 +36,6 @@ const registry = new Map<CubeId, CubeSql>([
   ["bookings", bookingsCube],
 ]);
 
-const CUBE_SQL: ReadonlyMap<CubeId, CubeSql> = registry;
-
 export function getCubeSql(id: CubeId): CubeSql | undefined {
   return registry.get(id);
 }

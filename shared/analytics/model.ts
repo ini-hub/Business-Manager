@@ -146,14 +146,6 @@ export type FilterOperator =
   | "is_null"
   | "is_not_null";
 
-interface Filter {
-  /** Must resolve in the dimension registry — never used as a raw SQL identifier. */
-  dimension: string;
-  op: FilterOperator;
-  /** Bound as query parameters, never interpolated into SQL text. */
-  values: (string | number | boolean)[];
-}
-
 /** Which operators make sense for which dimension type. Enforced during compilation. */
 export const OPERATORS_BY_DIMENSION_TYPE: Record<DimensionType, readonly FilterOperator[]> = {
   time: ["eq", "neq", "gt", "gte", "lt", "lte", "between"],
@@ -179,22 +171,6 @@ export const BINARY_OPERATORS: readonly FilterOperator[] = ["between"];
 
 /** Statistical transforms available on correlation and scatter surfaces. */
 export type StatTransform = "none" | "pct_change" | "difference";
-
-type IndicatorType =
-  | "sma"
-  | "ema"
-  | "rsi"
-  | "pct_change"
-  | "difference"
-  | "zscore"
-  | "momentum";
-
-interface IndicatorSpec {
-  type: IndicatorType;
-  /** Measure id the indicator is computed on. Must be one of the query's measures. */
-  on: string;
-  period?: number;
-}
 
 export type ComparePeriod = "none" | "previous_period" | "previous_year";
 

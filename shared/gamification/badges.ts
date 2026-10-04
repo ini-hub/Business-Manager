@@ -32,10 +32,6 @@ export const BADGE_DEFINITIONS: BadgeDefinition[] = [
   { key: "customers_100", subjectType: "owner", label: "Growing Community", description: "100 customers served", icon: "Users" },
 ];
 
-function getBadgeDefinition(key: string): BadgeDefinition | undefined {
-  return BADGE_DEFINITIONS.find(b => b.key === key);
-}
-
 export function badgesForSubject(subjectType: GamificationSubjectType): BadgeDefinition[] {
   return BADGE_DEFINITIONS.filter(b => b.subjectType === subjectType);
 }

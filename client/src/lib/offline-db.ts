@@ -87,46 +87,6 @@ export async function saveOfflinePunch(payload: any): Promise<string> {
   });
 }
 
-async function getOfflinePunches(): Promise<OfflinePunch[]> {
-  const db = await openOfflineDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(PUNCH_STORE, "readonly");
-    const req = tx.objectStore(PUNCH_STORE).getAll();
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => {
-      const all = (req.result ?? []) as OfflinePunch[];
-      resolve(all.filter(r => r.status !== "done").sort((a, b) => a.createdAt - b.createdAt));
-    };
-  });
-}
-
-async function updateOfflinePunch(id: string, changes: Partial<OfflinePunch>): Promise<void> {
-  const db = await openOfflineDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(PUNCH_STORE, "readwrite");
-    const store = tx.objectStore(PUNCH_STORE);
-    const getReq = store.get(id);
-    getReq.onerror = () => reject(getReq.error);
-    getReq.onsuccess = () => {
-      const existing = getReq.result;
-      if (!existing) { resolve(); return; }
-      const putReq = store.put({ ...existing, ...changes });
-      putReq.onerror = () => reject(putReq.error);
-      putReq.onsuccess = () => resolve();
-    };
-  });
-}
-
-async function deleteOfflinePunch(id: string): Promise<void> {
-  const db = await openOfflineDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(PUNCH_STORE, "readwrite");
-    const req = tx.objectStore(PUNCH_STORE).delete(id);
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => resolve();
-  });
-}
-
 // Monotonically increasing counter stored in localStorage per store
 function nextSequence(storeId: string): number {
   const key = `offline_seq_${storeId}`;

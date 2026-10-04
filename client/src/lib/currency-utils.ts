@@ -90,35 +90,3 @@ export function formatCurrencyCompact(value: number, currencyCode: string = "NGN
   return `${getCurrencySymbol(currencyCode)}${compactNumber(value)}`;
 }
 
-const USD_EXCHANGE_RATES: Record<string, number> = {
-  NGN: 1500,
-  GBP: 0.79,
-  EUR: 0.92,
-  GHS: 12.5,
-  KES: 153,
-  ZAR: 18.5,
-  EGP: 31,
-  AED: 3.67,
-  INR: 83,
-  CAD: 1.35,
-  AUD: 1.52,
-  USD: 1,
-};
-
-function convertToUSD(value: number, fromCurrency: string): number {
-  const rate = USD_EXCHANGE_RATES[fromCurrency] || 1;
-  return value / rate;
-}
-
-function formatDualCurrency(value: number, storeCurrency: string = "NGN"): { primary: string; secondary: string | null } {
-  const primary = formatCurrency(value, storeCurrency);
-  
-  if (storeCurrency === "USD") {
-    return { primary, secondary: null };
-  }
-  
-  const usdValue = convertToUSD(value, storeCurrency);
-  const secondary = formatCurrency(usdValue, "USD");
-  
-  return { primary, secondary };
-}

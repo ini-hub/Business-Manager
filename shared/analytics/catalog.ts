@@ -380,7 +380,6 @@ export const MEASURES: readonly MeasureDef[] = [...SALES_MEASURES, ...OPERATIONS
 
 const MEASURE_BY_ID = new Map(MEASURES.map((m) => [m.id, m]));
 const DIMENSION_BY_ID = new Map(DIMENSIONS.map((d) => [d.id, d]));
-const CUBE_BY_ID = new Map(CUBES.map((c) => [c.id, c]));
 
 export function getMeasure(id: string): MeasureDef | undefined {
   return MEASURE_BY_ID.get(id);
@@ -388,18 +387,6 @@ export function getMeasure(id: string): MeasureDef | undefined {
 
 export function getDimension(id: string): DimensionDef | undefined {
   return DIMENSION_BY_ID.get(id);
-}
-
-function getCube(id: CubeId): CubeDef | undefined {
-  return CUBE_BY_ID.get(id);
-}
-
-function listMeasureIds(): string[] {
-  return Array.from(MEASURE_BY_ID.keys());
-}
-
-function listDimensionIds(): string[] {
-  return Array.from(DIMENSION_BY_ID.keys());
 }
 
 /**

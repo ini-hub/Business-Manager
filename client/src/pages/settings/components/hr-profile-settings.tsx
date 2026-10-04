@@ -1,16 +1,11 @@
-import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, GripVertical } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 
 const SECTIONS = [
   { key: "personal", label: "Personal Information" },
@@ -97,81 +92,3 @@ export function HrProfileSettingsSection({ onSelectSection }: { onSelectSection?
   );
 }
 
-function HrFieldsSettingsSection() {
-  return <DocumentFoldersSection />;
-}
-
-interface DocumentFolder { id: string; key: string; label: string }
-
-function DocumentFoldersSection() {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const url = `/api/hr/document-folders`;
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ key: "", label: "" });
-
-  const { data: folders = [], isLoading } = useQuery<DocumentFolder[]>({
-    queryKey: [url],
-    queryFn: async () => (await apiRequest("GET", url)).json(),
-  });
-
-  const createFolder = useMutation({
-    mutationFn: async () => apiRequest("POST", url, form),
-    onSuccess: () => {
-      toast({ title: "Document folder created" });
-      queryClient.invalidateQueries({ queryKey: [url] });
-      setOpen(false);
-      setForm({ key: "", label: "" });
-    },
-    onError: (error) => toast({ variant: "destructive", title: "Could not create folder", description: getUserFriendlyError(error) }),
-  });
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">Document Organization</CardTitle>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Add folder</Button></DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Create document folder</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Folder key (machine name)</Label>
-                <Input value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="e.g. licenses" />
-                <p className="text-xs text-muted-foreground">Lowercase letters, numbers, and underscores only</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Folder label</Label>
-                <Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g. Professional Licenses" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button onClick={() => createFolder.mutate()} disabled={!form.key || !form.label || createFolder.isPending}>
-                {createFolder.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Create
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        ) : folders.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No document folders yet. Create one to organize staff documents.</p>
-        ) : (
-          <div className="divide-y">
-            {folders.map((f) => (
-              <div key={f.id} className="flex items-center gap-3 py-3">
-                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{f.label}</p>
-                  <p className="text-xs text-muted-foreground">{f.key}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}

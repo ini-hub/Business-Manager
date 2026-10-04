@@ -222,30 +222,6 @@ export async function featureNotPurchasedBody(featureKey: string) {
   };
 }
 
-/**
- * Route-level gate for orgs that already passed enforceOrgAccess (whole-org
- * lock) but haven't purchased this specific add-on. Returns 402, distinct
- * from enforceOrgAccess's 403 {locked:true}, so the client can branch to an
- * in-context upgrade prompt instead of a full paywall screen. Mutating routes
- * are gated by default; GET stays open so data from a since-removed feature
- * stays readable (soft-locked, never deleted) - except where the read IS the
- * feature (see featurePolicy.ts). New gates belong in that table; this stays
- * for handler-level checks that depend on the request body.
- */
-function requireFeature(featureKey: string): RequestHandler {
-  return async (req, res, next) => {
-    const businessId = (req as any).user?.businessId;
-    if (!businessId) return res.status(401).json({ error: "Authentication required." });
-    try {
-      if ((await getRequestEntitlements(res, businessId)).has(featureKey)) return next();
-      return res.status(402).json(await featureNotPurchasedBody(featureKey));
-    } catch (error) {
-      console.error(`requireFeature(${featureKey}) error:`, error);
-      return res.status(500).json({ error: "We couldn't verify feature access. Please try again." });
-    }
-  };
-}
-
 export type CountLimitType = "staff_seats" | "customer_count" | "store_count";
 
 const LIMIT_FEATURE_KEY: Record<CountLimitType, string> = {

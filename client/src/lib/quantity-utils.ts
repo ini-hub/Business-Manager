@@ -13,11 +13,6 @@
 /** Stock is stored as numeric(14,4); nothing should ask for more than 4dp. */
 const MAX_QUANTITY_DP = 4;
 
-/** Decimal places to use for an inventory item — supplies need the full 4. */
-function quantityDp(type?: string | null): number {
-  return type === "supply" ? MAX_QUANTITY_DP : 2;
-}
-
 /**
  * Format a quantity for display. Strips trailing zeros up to `maxDp` places.
  * Optionally appends a unit label.
@@ -60,8 +55,3 @@ export function quantityStep(allowFractional: boolean, maxDp = 2): string {
   );
 }
 
-/** Minimum valid quantity for a field. */
-function minQuantity(allowFractional: boolean, maxDp = 2): number {
-  if (!allowFractional) return 1;
-  return 1 / Math.pow(10, Math.min(Math.max(maxDp, 1), MAX_QUANTITY_DP));
-}

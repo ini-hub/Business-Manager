@@ -4,12 +4,6 @@ export type PayPeriodRef = { id: string; startDate: string; endDate: string; per
 
 export type PeriodRange = { from: string; to: string; label: string };
 
-const PRESET_KEYS = ["current", "month", "last-month", "3m", "year", "custom"] as const;
-type PresetKey = (typeof PRESET_KEYS)[number];
-
-/** A preset key, or "period:<payroll period id>" for one specific pay period. */
-type RangeKey = PresetKey | `period:${string}`;
-
 /** Longest span a custom range may cover, so one request can't ask for years of days. */
 const MAX_RANGE_DAYS = 366;
 

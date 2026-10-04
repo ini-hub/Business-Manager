@@ -1,4 +1,3 @@
-import { z } from "zod";
 
 // ── Email ────────────────────────────────────────────────────────────────────
 
@@ -41,45 +40,3 @@ export function getDefaultCountryCode(currency?: string): string {
   return CURRENCY_TO_COUNTRY[currency ?? "NGN"] ?? "NG";
 }
 
-// ── Reusable Zod chains ───────────────────────────────────────────────────────
-
-/** Required email field */
-const zodRequiredEmail = z
-  .string()
-  .trim()
-  .min(1, "Email address is required.")
-  .email("Enter a valid email address (e.g. name@example.com).")
-  .max(EMAIL_MAX_LENGTH, "Email address is too long.")
-  .transform((v) => v.toLowerCase());
-
-/** Optional email — empty string or valid email */
-const zodOptionalEmail = z
-  .string()
-  .trim()
-  .transform((v) => v.toLowerCase())
-  .refine(
-    (v) => v === "" || EMAIL_REGEX.test(v),
-    "Enter a valid email address (e.g. name@example.com)."
-  )
-  .optional()
-  .or(z.literal(""));
-
-/** Required phone — min 7 chars after trimming */
-const zodRequiredPhone = z
-  .string()
-  .trim()
-  .min(7, "Enter a valid phone number.");
-
-/** Optional phone — empty or at least 7 chars */
-const zodOptionalPhone = z
-  .string()
-  .trim()
-  .refine((v) => v === "" || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.")
-  .optional()
-  .or(z.literal(""));
-
-/** emailOrPhone field used in auth forms */
-const zodEmailOrPhone = z
-  .string()
-  .min(1, "Enter your email or phone number.")
-  .refine(validateEmailOrPhone, "Enter a valid email address or phone number.");

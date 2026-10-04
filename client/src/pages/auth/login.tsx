@@ -20,17 +20,6 @@ import { LegalFooter } from "@/components/legal-footer";
 import { legalDocHref } from "@/lib/legal-docs";
 import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 
-// Password policy validator
-const validatePassword = (password: string) => {
-  return {
-    minLength: password.length >= 8,
-    hasUpper: /[A-Z]/.test(password),
-    hasLower: /[a-z]/.test(password),
-    hasNumber: /[0-9]/.test(password),
-    hasSpecial: /[^A-Za-z0-9]/.test(password),
-  };
-};
-
 export default function Login() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
