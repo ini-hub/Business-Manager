@@ -44,9 +44,9 @@ describe("feature registry", () => {
   it("owns exactly the API domains that were previously declared free", () => {
     expect(Array.from(API_DOMAIN_OWNERS.keys()).sort()).toEqual([
       "accounting", "analytics", "attendance", "audit-logs", "auth", "billing", "bookings", "business", "cash-register",
-      "contract", "customers", "funnel-events", "gamification", "guarantor", "hr", "inventory", "legal",
+      "contract", "customers", "funnel-events", "gamification", "guarantor", "hr", "inventory", "inventory-drafts", "legal",
       "my-booking", "notifications", "orders", "payments", "payroll", "products", "profile-completion",
-      "promotions", "purchase-orders", "quotes", "sales", "settings", "staff", "stock-audits",
+      "promotions", "purchase-orders", "quotes", "sales", "settings", "staff", "stock-audits", "stock-transfer-drafts",
       "stock-transfers", "stores", "support", "tax-rates", "transactions", "vendors", "webhooks", "whatsapp",
     ]);
   });
