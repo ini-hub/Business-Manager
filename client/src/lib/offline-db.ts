@@ -7,7 +7,7 @@ const DB_VERSION = 3;
 const STORE_NAME = "checkouts";
 const PUNCH_STORE = "punches";
 
-export type OfflineCheckoutStatus = "pending" | "syncing" | "failed" | "done";
+type OfflineCheckoutStatus = "pending" | "syncing" | "failed" | "done";
 
 export interface OfflineCheckout {
   id: string;
@@ -35,9 +35,9 @@ function upgrade(db: IDBDatabase) {
   }
 }
 
-export type OfflinePunchStatus = "pending" | "syncing" | "failed" | "done";
+type OfflinePunchStatus = "pending" | "syncing" | "failed" | "done";
 
-export interface OfflinePunch {
+interface OfflinePunch {
   id: string;              // also the clientPunchId — the server's replay guard
   payload: any;
   createdAt: number;
@@ -87,7 +87,7 @@ export async function saveOfflinePunch(payload: any): Promise<string> {
   });
 }
 
-export async function getOfflinePunches(): Promise<OfflinePunch[]> {
+async function getOfflinePunches(): Promise<OfflinePunch[]> {
   const db = await openOfflineDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PUNCH_STORE, "readonly");
@@ -100,7 +100,7 @@ export async function getOfflinePunches(): Promise<OfflinePunch[]> {
   });
 }
 
-export async function updateOfflinePunch(id: string, changes: Partial<OfflinePunch>): Promise<void> {
+async function updateOfflinePunch(id: string, changes: Partial<OfflinePunch>): Promise<void> {
   const db = await openOfflineDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PUNCH_STORE, "readwrite");
@@ -117,7 +117,7 @@ export async function updateOfflinePunch(id: string, changes: Partial<OfflinePun
   });
 }
 
-export async function deleteOfflinePunch(id: string): Promise<void> {
+async function deleteOfflinePunch(id: string): Promise<void> {
   const db = await openOfflineDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PUNCH_STORE, "readwrite");
@@ -136,7 +136,7 @@ function nextSequence(storeId: string): number {
   return next;
 }
 
-export function openOfflineDB(): Promise<IDBDatabase> {
+function openOfflineDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onerror = () => reject(request.error);

@@ -172,4 +172,3 @@ export function LegalConsentBanner() {
   );
 }
 
-export default LegalConsentBanner;

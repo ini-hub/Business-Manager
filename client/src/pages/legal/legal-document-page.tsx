@@ -12,7 +12,7 @@ interface LegalDocumentResponse {
 }
 
 /** One component behind /terms, /privacy, /data-usage, and the generic /legal/:type - parameterized by documentType. */
-export function LegalDocumentPage({ documentType }: { documentType: string }) {
+function LegalDocumentPage({ documentType }: { documentType: string }) {
   const { data, isLoading, error } = useQuery<LegalDocumentResponse>({
     queryKey: [`/api/legal/${documentType}`],
   });

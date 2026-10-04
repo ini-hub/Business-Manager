@@ -12,7 +12,7 @@ import { gamificationRepository } from "../repositories/GamificationRepository";
 import type { AttendancePunch, Settings } from "@shared/schema";
 import { startOfISOWeek, endOfISOWeek, format, parseISO } from "date-fns";
 
-export type PunchRejection = {
+type PunchRejection = {
   ok: false;
   status: 400 | 401 | 403 | 409 | 422;
   code:
@@ -28,7 +28,7 @@ export type PunchRejection = {
   radiusMeters?: number;
 };
 
-export type PunchAcceptance = {
+type PunchAcceptance = {
   ok: true;
   punch: AttendancePunch;
   isLate: boolean;
@@ -38,9 +38,9 @@ export type PunchAcceptance = {
   deviceIsNew: boolean;
 };
 
-export type PunchResult = PunchAcceptance | PunchRejection;
+type PunchResult = PunchAcceptance | PunchRejection;
 
-export type AttendanceLogPunch = {
+type AttendanceLogPunch = {
   id: string;
   kind: "clock_in" | "clock_out";
   source: string;
@@ -53,7 +53,7 @@ export type AttendanceLogPunch = {
   reason: string | null;
 };
 
-export type AttendanceLogDay = {
+type AttendanceLogDay = {
   date: string;
   status: string;
   isLate: boolean;
@@ -63,7 +63,7 @@ export type AttendanceLogDay = {
   punches: AttendanceLogPunch[];
 };
 
-export type AttendanceLogGroup = {
+type AttendanceLogGroup = {
   staffId: string;
   staffName: string;
   weekStart: string;
@@ -72,14 +72,14 @@ export type AttendanceLogGroup = {
   days: AttendanceLogDay[];
 };
 
-export type AttendanceLogResult = {
+type AttendanceLogResult = {
   groups: AttendanceLogGroup[];
   page: number;
   pageSize: number;
   totalGroups: number;
 };
 
-export type RecordPunchInput = {
+type RecordPunchInput = {
   storeId: string;
   staffId: string;
   kind: "clock_in" | "clock_out";
@@ -101,7 +101,7 @@ export type RecordPunchInput = {
   effectiveAtOverride?: Date | null;
 };
 
-export class AttendanceService {
+class AttendanceService {
   private punchRepo = new AttendancePunchRepository();
   private recordRepo = new AttendanceRepository();
 

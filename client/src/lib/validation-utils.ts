@@ -2,8 +2,8 @@ import { z } from "zod";
 
 // ── Email ────────────────────────────────────────────────────────────────────
 
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-export const EMAIL_MAX_LENGTH = 254;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const EMAIL_MAX_LENGTH = 254;
 
 export function validateEmail(email: string): { valid: boolean; error?: string } {
   const trimmed = email.trim().toLowerCase();
@@ -17,7 +17,7 @@ export function validateEmail(email: string): { valid: boolean; error?: string }
 // Lenient: accepts valid email OR a phone-like string (7–20 digits/symbols).
 // Server does the real lookup; we only block obvious typos.
 
-export const EMAIL_OR_PHONE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$|^\+?[\d\s\-(). ]{7,20}$/;
+const EMAIL_OR_PHONE_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$|^\+?[\d\s\-(). ]{7,20}$/;
 
 export function validateEmailOrPhone(val: string): boolean {
   return EMAIL_OR_PHONE_REGEX.test(val.trim());
@@ -44,7 +44,7 @@ export function getDefaultCountryCode(currency?: string): string {
 // ── Reusable Zod chains ───────────────────────────────────────────────────────
 
 /** Required email field */
-export const zodRequiredEmail = z
+const zodRequiredEmail = z
   .string()
   .trim()
   .min(1, "Email address is required.")
@@ -53,7 +53,7 @@ export const zodRequiredEmail = z
   .transform((v) => v.toLowerCase());
 
 /** Optional email — empty string or valid email */
-export const zodOptionalEmail = z
+const zodOptionalEmail = z
   .string()
   .trim()
   .transform((v) => v.toLowerCase())
@@ -65,13 +65,13 @@ export const zodOptionalEmail = z
   .or(z.literal(""));
 
 /** Required phone — min 7 chars after trimming */
-export const zodRequiredPhone = z
+const zodRequiredPhone = z
   .string()
   .trim()
   .min(7, "Enter a valid phone number.");
 
 /** Optional phone — empty or at least 7 chars */
-export const zodOptionalPhone = z
+const zodOptionalPhone = z
   .string()
   .trim()
   .refine((v) => v === "" || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.")
@@ -79,7 +79,7 @@ export const zodOptionalPhone = z
   .or(z.literal(""));
 
 /** emailOrPhone field used in auth forms */
-export const zodEmailOrPhone = z
+const zodEmailOrPhone = z
   .string()
   .min(1, "Enter your email or phone number.")
   .refine(validateEmailOrPhone, "Enter a valid email address or phone number.");

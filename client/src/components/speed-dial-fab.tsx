@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Plus, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export interface SpeedDialAction {
+interface SpeedDialAction {
   label: string;
   icon: React.ReactNode;
   onClick: () => void;

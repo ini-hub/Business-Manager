@@ -20,7 +20,7 @@ export class CommissionSplitCalculator {
   }
 }
 
-export class CommissionService {
+class CommissionService {
   /**
    * Calculates the commission share percentages for lead and assistant staff
    * based on the checkout commission split type ("equal" or "standard")

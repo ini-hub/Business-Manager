@@ -15,7 +15,7 @@ export const PERMISSION_MODULES = [
 export type PermissionModule = (typeof PERMISSION_MODULES)[number];
 
 /** What the built-in "staff" role gets (the Staff card on Settings > Roles). */
-export const STAFF_BASE_MODULES: readonly PermissionModule[] = ["Sales & Checkout", "Customers", "Inventory & Catalog"];
+const STAFF_BASE_MODULES: readonly PermissionModule[] = ["Sales & Checkout", "Customers", "Inventory & Catalog"];
 
 export function isPermissionModule(value: string): value is PermissionModule {
   return (PERMISSION_MODULES as readonly string[]).includes(value);

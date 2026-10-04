@@ -4,7 +4,7 @@
  */
 
 /** Avg revenue per present day above which a staff member counts as "above average". */
-export const ABOVE_AVG_DAILY_REVENUE = 5000;
+const ABOVE_AVG_DAILY_REVENUE = 5000;
 
 export type PerformanceTier = "above" | "below";
 

@@ -179,7 +179,7 @@ export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", qu
   );
 }
 
-export function RevenueByItemChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
+function RevenueByItemChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
     queryKey: ["/api/charts/revenue-by-type", storeId, businessId, queryString],
@@ -284,7 +284,7 @@ export function RevenueByItemChart({ storeId, businessId, storeCurrency = "NGN",
   );
 }
 
-export function RevenueBreakdownChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
+function RevenueBreakdownChart({ storeId, businessId, storeCurrency = "NGN", queryString = "" }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: items = [], isLoading } = useQuery<RevenueByTypeData[]>({
     queryKey: ["/api/charts/revenue-by-type", storeId, businessId, queryString],

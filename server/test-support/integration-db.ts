@@ -188,7 +188,7 @@ export async function createFixture(opts?: { payPerMonth?: number }): Promise<Fi
  * Scoped to one store id rather than truncating tables, so a stray run against
  * a database holding other data still cannot take anything else with it.
  */
-export async function destroyStore(storeId: string, businessId: string): Promise<void> {
+async function destroyStore(storeId: string, businessId: string): Promise<void> {
   // payroll_deductions references repayments, credit_entries and
   // salary_advances, so it has to go before all three.
   await db.execute(sql`DELETE FROM payroll_deductions WHERE store_id = ${storeId}`);

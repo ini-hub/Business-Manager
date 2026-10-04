@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 /**
  * Interface representing a displayable entity (OOP principle: Interface Segregation & Dependency Inversion)
  */
-export interface IDisplayableEntity {
+interface IDisplayableEntity {
   getName(): string;
   getIdentifier(): string;
   getSecondaryNumber(): string | null | undefined;
@@ -17,7 +17,7 @@ export interface IDisplayableEntity {
 /**
  * Abstract base class for Display Presenters (OOP principle: Polymorphism, Inheritance & Encapsulation)
  */
-export abstract class BaseEntityPresenter implements IDisplayableEntity {
+abstract class BaseEntityPresenter implements IDisplayableEntity {
   protected name: string;
   protected identifier: string;
   protected secondaryNumber?: string | null;

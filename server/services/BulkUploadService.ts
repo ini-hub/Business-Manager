@@ -9,7 +9,7 @@ import { CountLimitError } from "../lib/entitlements";
 
 type BulkResult = { success: number; failed: number; errors: { row: number; message: string }[] };
 
-export class BulkUploadService {
+class BulkUploadService {
   /**
    * Creates an audit_log_batches row for a CSV import so every row it creates
    * can be correlated back to one reviewable "this import happened" unit —

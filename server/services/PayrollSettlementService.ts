@@ -8,7 +8,7 @@ import { lateArrivalDeductionService } from "./LateArrivalDeductionService";
 import { payrollPostingService } from "./PayrollPostingService";
 import { splitPeriod } from "@shared/payroll-take-home";
 
-export type MarkPaidResult = {
+type MarkPaidResult = {
   period: PayrollPeriod | undefined;
   /** Cash actually leaving the business: sum of max(0, netPay − deductions). */
   totalAmount: number;
@@ -21,7 +21,7 @@ export type MarkPaidResult = {
  * the integration suite — the ordering here is load-bearing and worth pinning:
  * re-sync, then settle, then total from what settlement actually wrote.
  */
-export class PayrollSettlementService {
+class PayrollSettlementService {
   async markPeriodPaid(periodId: string, userId?: string): Promise<MarkPaidResult> {
     const period = await storage.getPayrollPeriod(periodId);
     if (!period) throw new Error("Payroll period not found.");

@@ -12,7 +12,7 @@ export interface SimpleGroup<T> {
   match: (row: T, value: string) => boolean;
 }
 
-export interface SimpleSort<T> {
+interface SimpleSort<T> {
   key: string;
   label: string;
   compare: (a: T, b: T) => number;

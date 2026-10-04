@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { CheckSquare } from "lucide-react";
 
-export interface BulkSelectionAction {
+interface BulkSelectionAction {
   key: string;
   label: string;
   pendingLabel?: string;

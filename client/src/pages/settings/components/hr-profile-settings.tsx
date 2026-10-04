@@ -97,7 +97,7 @@ export function HrProfileSettingsSection({ onSelectSection }: { onSelectSection?
   );
 }
 
-export function HrFieldsSettingsSection() {
+function HrFieldsSettingsSection() {
   return <DocumentFoldersSection />;
 }
 

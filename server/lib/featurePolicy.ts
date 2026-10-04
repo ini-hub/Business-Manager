@@ -46,7 +46,7 @@ export const FEATURE_RULES: readonly FeatureRule[] = FEATURE_ROUTE_RULES;
  * coverage test enforces that. Domains guarded by the storage-layer count caps
  * (staff, customers, stores) are free here.
  */
-export const FREE_ROUTE_DOMAINS: readonly string[] = Array.from(API_DOMAIN_OWNERS.keys());
+const FREE_ROUTE_DOMAINS: readonly string[] = Array.from(API_DOMAIN_OWNERS.keys());
 
 export function matchFeatureRules(method: string, path: string): FeatureRule[] {
   const m = method.toUpperCase() as Method;

@@ -31,7 +31,7 @@ const SYSTEM_MANAGED_FIELD_KEYS: Record<string, (staff: Staff) => string | null>
 // and "work_email" isn't necessarily the login email), so rather than
 // locking them read-only, IdentitySync.ts mirrors changes on either side
 // onto the other. See syncHrPersonalFieldsToStaff/syncStaffToHrPersonalFields.
-export const STAFF_LINKED_FIELD_KEYS = ["first_name", "last_name", "work_email", "mobile_number"] as const;
+const STAFF_LINKED_FIELD_KEYS = ["first_name", "last_name", "work_email", "mobile_number"] as const;
 
 /**
  * Owns the dynamic field builder's read/write path: fetching a business's
@@ -40,7 +40,7 @@ export const STAFF_LINKED_FIELD_KEYS = ["first_name", "last_name", "work_email",
  * CRUD (add/reorder/delete custom fields) - that's admin-only and lives in
  * HrFieldDefinitionService.
  */
-export class HrPersonalProfileService {
+class HrPersonalProfileService {
   async getBusinessIdForStaff(staffId: string): Promise<string | undefined> {
     const staff = await storage.getStaff(staffId);
     if (!staff) return undefined;

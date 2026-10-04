@@ -25,7 +25,7 @@ export interface ViewerContext {
   role: string;
 }
 
-export class AnalyticsViewRepository {
+class AnalyticsViewRepository {
   // ── Views ────────────────────────────────────────────────────────────────
 
   /** Own views, plus anything shared business-wide. */

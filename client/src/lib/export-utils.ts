@@ -492,7 +492,7 @@ export async function exportReportToPDF<T extends Record<string, unknown>>(opts:
   doc.save(`${filename}.pdf`);
 }
 
-export type StatementLineKind = "section" | "line" | "subtotal" | "total";
+type StatementLineKind = "section" | "line" | "subtotal" | "total";
 
 export interface StatementLine {
   kind: StatementLineKind;
@@ -503,7 +503,7 @@ export interface StatementLine {
   indent?: 0 | 1 | 2;
 }
 
-export interface FinancialStatementSchedule<T extends Record<string, unknown>> {
+interface FinancialStatementSchedule<T extends Record<string, unknown>> {
   /** Printed above the table as a small caps heading, e.g. "Supporting Schedule — Item Detail". */
   heading: string;
   columns: ReportColumn<T>[];

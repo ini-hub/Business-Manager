@@ -1,4 +1,4 @@
-export const STAFF_PAGE_SIZE = 200;
+const STAFF_PAGE_SIZE = 200;
 
 /**
  * Loads every staff member of a store (archived included) by walking the

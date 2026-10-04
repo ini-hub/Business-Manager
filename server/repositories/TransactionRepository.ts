@@ -495,7 +495,7 @@ export async function resolveTransactionIdsForCheckouts(checkoutIds: string[]): 
  * results can show who a receipt belongs to. Every line item on a checkout
  * carries the same customer, so any one of them answers the question.
  */
-export async function resolveCustomerNamesForCheckouts(checkoutIds: string[]): Promise<Map<string, string>> {
+async function resolveCustomerNamesForCheckouts(checkoutIds: string[]): Promise<Map<string, string>> {
   if (checkoutIds.length === 0) return new Map();
   const rows = await db
     .select({

@@ -4,8 +4,8 @@
 // every OTP-issuing endpoint (login/signup OTP, forgot-password,
 // email-change, phone-change) enforces the same rate limit instead of
 // relying on the client-side countdown alone.
-export const OTP_RESEND_MAX = 3;
-export const OTP_RESEND_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const OTP_RESEND_MAX = 3;
+const OTP_RESEND_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 export const MAX_OTP_ATTEMPTS = 5;
 
 export type ResendCooldownResult =

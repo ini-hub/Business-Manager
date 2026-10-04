@@ -3,7 +3,7 @@ import { findGatedScreen } from "@shared/gateRules";
 import { gatedFeatureForScreen } from "@shared/features";
 import type { PermissionModule } from "@shared/permissionModules";
 
-export type CountLimitStatus = { limit: number; used: number; unlimited: boolean };
+type CountLimitStatus = { limit: number; used: number; unlimited: boolean };
 
 type EntitlementsResponse = {
   features: string[];

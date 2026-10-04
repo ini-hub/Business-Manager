@@ -1,7 +1,7 @@
 import { apiRequest } from "@/lib/queryClient";
 
 export const PO_RECEIPT_ACCEPT = "application/pdf,image/png,image/jpeg,image/webp";
-export const PO_RECEIPT_MAX_BYTES = 10 * 1024 * 1024;
+const PO_RECEIPT_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Throws a user-readable Error if the file can't be used as a receipt. */
 export function checkPoReceiptFile(file: File): void {

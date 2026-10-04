@@ -20,9 +20,9 @@
 
 import { isPermissionModule, type PermissionModule } from "./permissionModules";
 
-export type FeatureTier = "free" | "paid_flat" | "paid_metered_limit" | "bundle_parent" | "bundle_child";
+type FeatureTier = "free" | "paid_flat" | "paid_metered_limit" | "bundle_parent" | "bundle_child";
 
-export type FeatureCategory =
+type FeatureCategory =
   | "vendor_mgmt"
   | "staff_mgmt"
   | "customer_mgmt"
@@ -37,7 +37,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export const WRITE_METHODS: readonly HttpMethod[] = ["POST", "PUT", "PATCH", "DELETE"];
 
 /** A request this feature must be entitled to before the route runs. */
-export interface RouteRule {
+interface RouteRule {
   methods: readonly HttpMethod[] | "*";
   path: RegExp;
 }
@@ -374,7 +374,7 @@ export const FEATURES = [
 
 export type FeatureKey = (typeof FEATURES)[number]["key"];
 
-export const FEATURE_KEYS: readonly FeatureKey[] = FEATURES.map((f) => f.key);
+const FEATURE_KEYS: readonly FeatureKey[] = FEATURES.map((f) => f.key);
 
 const BY_KEY: ReadonlyMap<string, FeatureDef> = new Map(FEATURES.map((f) => [f.key, f]));
 
@@ -382,7 +382,7 @@ export function getFeatureDef(key: string): FeatureDef | undefined {
   return BY_KEY.get(key);
 }
 
-export function isFeatureKey(key: string): key is FeatureKey {
+function isFeatureKey(key: string): key is FeatureKey {
   return BY_KEY.has(key);
 }
 

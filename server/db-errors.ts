@@ -4,7 +4,7 @@
 // text doesn't say which column collided, so signup/staff-invite were
 // previously reporting phone collisions with a hardcoded "email"/"business
 // name" message regardless of which field actually violated its constraint.
-export const PG_UNIQUE_VIOLATION = "23505";
+const PG_UNIQUE_VIOLATION = "23505";
 
 export function isUniqueViolation(error: unknown): error is { code: string; constraint?: string } {
   return typeof error === "object" && error !== null && (error as any).code === PG_UNIQUE_VIOLATION;

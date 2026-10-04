@@ -55,7 +55,7 @@ export function decryptSecret(packed: string): string {
 }
 
 /** True only if the key-encrypting-key is actually set - lets callers degrade to the env-var fallback instead of throwing. */
-export function isCredentialEncryptionConfigured(): boolean {
+function isCredentialEncryptionConfigured(): boolean {
   try {
     getEncryptionKey();
     return true;

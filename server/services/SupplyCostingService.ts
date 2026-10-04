@@ -2,8 +2,8 @@ import { expenses, expenseCategories, inventory, type Inventory } from "@shared/
 import { eq, and } from "drizzle-orm";
 
 /** System expense categories this module owns. Auto-created on first use. */
-export const SUPPLY_PURCHASE_CATEGORY = "Supplies & Consumables";
-export const SUPPLY_VARIANCE_CATEGORY = "Supply Usage Variance";
+const SUPPLY_PURCHASE_CATEGORY = "Supplies & Consumables";
+const SUPPLY_VARIANCE_CATEGORY = "Supply Usage Variance";
 
 /**
  * Costing mode for a supply.
@@ -24,7 +24,7 @@ export const SUPPLY_VARIANCE_CATEGORY = "Supply Usage Variance";
  */
 export type CostingMode = "expensed" | "metered";
 
-export function isExpensedSupply(item: Pick<Inventory, "type" | "costingMode">): boolean {
+function isExpensedSupply(item: Pick<Inventory, "type" | "costingMode">): boolean {
   return item.type === "supply" && (item.costingMode ?? "expensed") === "expensed";
 }
 
@@ -33,7 +33,7 @@ export function isMeteredSupply(item: Pick<Inventory, "type" | "costingMode">): 
 }
 
 /** Find or create a system expense category, inside the caller's transaction. */
-export async function ensureSystemCategory(tx: any, storeId: string, name: string): Promise<string> {
+async function ensureSystemCategory(tx: any, storeId: string, name: string): Promise<string> {
   const [existing] = await tx
     .select()
     .from(expenseCategories)

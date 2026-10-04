@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "../db";
 import { hrEmergencyContacts, type HrEmergencyContact, type UpsertHrEmergencyContactInput } from "@shared/schema";
 
-export class HrEmergencyContactService {
+class HrEmergencyContactService {
   async list(staffId: string): Promise<HrEmergencyContact[]> {
     return db.select().from(hrEmergencyContacts)
       .where(eq(hrEmergencyContacts.staffId, staffId))

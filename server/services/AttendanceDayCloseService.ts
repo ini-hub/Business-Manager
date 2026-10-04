@@ -35,7 +35,7 @@ export function previousLocalDate(today: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function closeStoreDay(storeId: string): Promise<{ closed: number; marked: number } | null> {
+async function closeStoreDay(storeId: string): Promise<{ closed: number; marked: number } | null> {
   const [config] = await db.select().from(settingsTable).where(eq(settingsTable.storeId, storeId)).limit(1);
   if (!config?.clockInEnabled) return null;
 
@@ -98,7 +98,7 @@ export async function closeStoreDay(storeId: string): Promise<{ closed: number; 
   return { closed: recordIds.length, marked };
 }
 
-export async function runAttendanceDayClose(): Promise<void> {
+async function runAttendanceDayClose(): Promise<void> {
   const allStores = await db.select({ id: stores.id, name: stores.name }).from(stores).where(eq(stores.isActive, true));
 
   for (const store of allStores) {

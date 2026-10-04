@@ -39,7 +39,7 @@ async function getOwnerEmail(organisationId: string): Promise<string | undefined
  * with platform billing credentials - a correctness/security risk.
  */
 
-export function generatePaymentReference(organisationId: string): string {
+function generatePaymentReference(organisationId: string): string {
   return `sub-${organisationId}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 

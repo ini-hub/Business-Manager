@@ -3,11 +3,11 @@
  * Framework-free so it can be unit tested without mounting the page.
  */
 
-export type LastVisitedPreset = "7d" | "30d" | "30d+" | "never";
-export type SpendPreset = "top10" | "none";
-export type DateAddedPreset = "month" | "3months";
+type LastVisitedPreset = "7d" | "30d" | "30d+" | "never";
+type SpendPreset = "top10" | "none";
+type DateAddedPreset = "month" | "3months";
 
-export interface DateRange {
+interface DateRange {
   from?: string;
   to?: string;
 }

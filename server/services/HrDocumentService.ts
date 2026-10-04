@@ -12,10 +12,10 @@ import {
   type CreateHrDocumentFolderInput,
 } from "@shared/schema";
 
-export type AttachOutcome = { kind: "attached"; document: HrDocument } | { kind: "invalid"; reason: string };
+type AttachOutcome = { kind: "attached"; document: HrDocument } | { kind: "invalid"; reason: string };
 
 /** Reuses the presigned-S3-URL pattern from StaffContractService - see server/lib/objectStorage.ts. */
-export class HrDocumentService {
+class HrDocumentService {
   async listFolders(businessId: string): Promise<HrDocumentFolder[]> {
     return db.select().from(hrDocumentFolders)
       .where(and(eq(hrDocumentFolders.businessId, businessId), eq(hrDocumentFolders.isEnabled, true)))

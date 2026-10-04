@@ -1,6 +1,6 @@
 import { BaseApiService } from "./BaseApiService";
 
-export class AnalyticsApiService extends BaseApiService {
+class AnalyticsApiService extends BaseApiService {
   public async getProfitLossSummary(storeId: string, startDate?: string, endDate?: string): Promise<any> {
     const params = new URLSearchParams();
     params.append("storeId", storeId);

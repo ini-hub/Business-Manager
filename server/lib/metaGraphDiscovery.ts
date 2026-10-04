@@ -12,7 +12,7 @@ async function graphGet<T = any>(path: string, accessToken: string): Promise<T> 
   return body as T;
 }
 
-export type DiscoveredPhoneNumber = {
+type DiscoveredPhoneNumber = {
   phoneNumberId: string;
   displayPhoneNumber: string;
   verifiedName: string;

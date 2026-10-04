@@ -38,7 +38,7 @@ export const STAGE_LABELS: Record<CreditStage, string> = {
 };
 
 /** Open covers owing, partial and overdue. */
-export function creditStageOf(status: string): CreditStage {
+function creditStageOf(status: string): CreditStage {
   return status === "settled" ? "settled" : status === "written_off" ? "written_off" : "open";
 }
 

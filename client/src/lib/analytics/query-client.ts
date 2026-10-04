@@ -68,7 +68,7 @@ export function stableHash(value: unknown): string {
  * and refetching the whole catalog with it.
  */
 export const ANALYTICS_MODEL_KEY = ["/api/analytics/model"] as const;
-export const ANALYTICS_QUERY_ROOT = "analytics:query";
+const ANALYTICS_QUERY_ROOT = "analytics:query";
 
 export function analyticsQueryKey(body: AnalyticsQueryInput): [string, string] {
   return [ANALYTICS_QUERY_ROOT, stableHash(body)];

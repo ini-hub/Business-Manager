@@ -9,7 +9,7 @@
 import { OTHER_MEMBER_KEY } from "@shared/analytics/constants";
 
 /** Fixed order. Assigned by slot and never cycled — a 9th series folds to "Other". */
-export const VIZ_SLOTS = 8;
+const VIZ_SLOTS = 8;
 
 export const SERIES_COLORS: string[] = Array.from(
   { length: VIZ_SLOTS },
@@ -20,10 +20,10 @@ export const SERIES_COLORS: string[] = Array.from(
  * Forms where every series can sit next to every other (scatter, bubble) need
  * all-pairs separation, which the full eight cannot clear. Three can.
  */
-export const ALL_PAIRS_SERIES_CAP = 3;
+const ALL_PAIRS_SERIES_CAP = 3;
 
 /** Neutral for the folded-together remainder — it is not an entity, so it gets no hue. */
-export const OTHER_COLOR = "hsl(var(--muted-foreground))";
+const OTHER_COLOR = "hsl(var(--muted-foreground))";
 
 /**
  * Stable member → slot assignment.
@@ -61,7 +61,7 @@ export function colorFor(member: string, assignment: Record<string, number>): st
 }
 
 /** Sequential ramp stop for a 0..1 magnitude. One hue, light → dark. */
-export function sequentialColor(t: number): string {
+function sequentialColor(t: number): string {
   const clamped = Math.min(1, Math.max(0, t));
   return `color-mix(in oklab, hsl(var(--viz-seq-to)) ${Math.round(clamped * 100)}%, hsl(var(--viz-seq-from)))`;
 }

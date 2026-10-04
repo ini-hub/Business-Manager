@@ -88,4 +88,4 @@ export async function listScreenGates(): Promise<ScreenGate[]> {
   return [...baseline, ...dynamic];
 }
 
-export { findGatedScreen };
+;

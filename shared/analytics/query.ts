@@ -19,7 +19,7 @@ import { getDimension, getMeasure, resolveCubes } from "./catalog";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export const grainSchema = z.enum([
+const grainSchema = z.enum([
   "day",
   "week",
   "biweek",
@@ -30,7 +30,7 @@ export const grainSchema = z.enum([
   "custom",
 ]);
 
-export const filterOperatorSchema = z.enum([
+const filterOperatorSchema = z.enum([
   "eq",
   "neq",
   "in",
@@ -46,25 +46,25 @@ export const filterOperatorSchema = z.enum([
   "is_not_null",
 ]);
 
-export const filterSchema = z.object({
+const filterSchema = z.object({
   dimension: z.string().min(1),
   op: filterOperatorSchema,
   values: z.array(z.union([z.string(), z.number(), z.boolean()])).max(500).default([]),
 });
 
-export const havingSchema = z.object({
+const havingSchema = z.object({
   ref: z.string().min(1),
   op: z.enum(["gt", "gte", "lt", "lte", "eq", "neq"]),
   value: z.number(),
 });
 
-export const indicatorSchema = z.object({
+const indicatorSchema = z.object({
   type: z.enum(["sma", "ema", "rsi", "pct_change", "difference", "zscore", "momentum"]),
   on: z.string().min(1),
   period: z.number().int().min(2).max(365).optional(),
 });
 
-export const timeSchema = z.object({
+const timeSchema = z.object({
   from: z.string().regex(ISO_DATE, "from must be YYYY-MM-DD"),
   to: z.string().regex(ISO_DATE, "to must be YYYY-MM-DD"),
   grain: grainSchema.default("day"),
@@ -72,7 +72,7 @@ export const timeSchema = z.object({
   compare: z.enum(["none", "previous_period", "previous_year"]).default("none"),
 });
 
-export const topNSchema = z.object({
+const topNSchema = z.object({
   dimension: z.string().min(1),
   measure: z.string().min(1),
   n: z.number().int().min(1).max(ANALYTICS_LIMITS.maxTopN),
@@ -108,7 +108,7 @@ export function inclusiveDaySpan(from: string, to: string): number {
 }
 
 /** Approximate bucket count for a range, used only to reject absurd requests early. */
-export function estimateBucketCount(
+function estimateBucketCount(
   from: string,
   to: string,
   grain: string,
@@ -254,8 +254,8 @@ export const analyticsQuerySchema = baseQuerySchema.superRefine((q, ctx) => {
 export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;
 export type AnalyticsQueryInput = z.input<typeof analyticsQuerySchema>;
 export type Filter = z.infer<typeof filterSchema>;
-export type Having = z.infer<typeof havingSchema>;
-export type TopN = z.infer<typeof topNSchema>;
+type Having = z.infer<typeof havingSchema>;
+type TopN = z.infer<typeof topNSchema>;
 
 /** Persisted shape of a saved view: the query plus how it was being displayed. */
 export const analyticsViewSpecSchema = z.object({

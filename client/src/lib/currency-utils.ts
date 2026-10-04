@@ -105,12 +105,12 @@ const USD_EXCHANGE_RATES: Record<string, number> = {
   USD: 1,
 };
 
-export function convertToUSD(value: number, fromCurrency: string): number {
+function convertToUSD(value: number, fromCurrency: string): number {
   const rate = USD_EXCHANGE_RATES[fromCurrency] || 1;
   return value / rate;
 }
 
-export function formatDualCurrency(value: number, storeCurrency: string = "NGN"): { primary: string; secondary: string | null } {
+function formatDualCurrency(value: number, storeCurrency: string = "NGN"): { primary: string; secondary: string | null } {
   const primary = formatCurrency(value, storeCurrency);
   
   if (storeCurrency === "USD") {

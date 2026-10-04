@@ -31,4 +31,3 @@ export function AccountPaused() {
   );
 }
 
-export default AccountPaused;

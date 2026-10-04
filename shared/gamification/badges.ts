@@ -32,7 +32,7 @@ export const BADGE_DEFINITIONS: BadgeDefinition[] = [
   { key: "customers_100", subjectType: "owner", label: "Growing Community", description: "100 customers served", icon: "Users" },
 ];
 
-export function getBadgeDefinition(key: string): BadgeDefinition | undefined {
+function getBadgeDefinition(key: string): BadgeDefinition | undefined {
   return BADGE_DEFINITIONS.find(b => b.key === key);
 }
 

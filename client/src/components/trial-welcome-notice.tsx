@@ -86,4 +86,3 @@ export function TrialWelcomeNotice({ business }: { business: Business }) {
   );
 }
 
-export default TrialWelcomeNotice;

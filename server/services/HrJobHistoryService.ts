@@ -10,7 +10,7 @@ import {
 } from "@shared/schema";
 
 /** Insert-only history tables - see shared/schema/hr-job.ts. */
-export class HrJobHistoryService {
+class HrJobHistoryService {
   async listJobInfo(staffId: string): Promise<HrJobInfoHistory[]> {
     return db.select().from(hrJobInfoHistory).where(eq(hrJobInfoHistory.staffId, staffId)).orderBy(desc(hrJobInfoHistory.effectiveDate));
   }

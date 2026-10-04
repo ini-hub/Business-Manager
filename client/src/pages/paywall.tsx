@@ -126,4 +126,3 @@ export function Paywall({ business }: { business: Business | null | undefined })
   );
 }
 
-export default Paywall;

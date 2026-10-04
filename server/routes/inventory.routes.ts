@@ -51,7 +51,7 @@ import { withInventoryId } from '../utils/slug-resolver';
  *   positive number here is what used to force owners to invent one.
  * - product: unchanged.
  */
-export function validateItemPricing(type: string, costPrice: number, sellingPrice: number): string | null {
+function validateItemPricing(type: string, costPrice: number, sellingPrice: number): string | null {
   if (type === "supply") {
     return costPrice > 0 ? null : "Unit cost must be greater than zero.";
   }
@@ -70,7 +70,7 @@ export function validateItemPricing(type: string, costPrice: number, sellingPric
 }
 
 /** Services are the only stockless type; products and supplies both carry quantity. */
-export function normaliseItemStock(type: string, quantity: number): { quantity: number; error: string | null } {
+function normaliseItemStock(type: string, quantity: number): { quantity: number; error: string | null } {
   if (type === "service") return { quantity: 0, error: null };
   if (quantity === undefined || quantity === null || isNaN(quantity) || quantity < 0) {
     return { quantity: 0, error: "Stock quantity must be 0 or greater." };

@@ -2,9 +2,9 @@ import { PolymorphicTable, ColumnConfig, TableFilterConfig, RowAction } from "./
 import type { BulkAction } from "./oop-ui/BulkActionsBar";
 
 export type { RowAction };
-export type { BulkAction, BulkActionSelection, BulkActionPrecheck, BulkActionResult } from "./oop-ui/BulkActionsBar";
+export type { BulkAction, BulkActionSelection,   } from "./oop-ui/BulkActionsBar";
 
-export interface Column<T> {
+interface Column<T> {
   key: keyof T | string;
   header: string;
   render?: (item: T) => React.ReactNode;

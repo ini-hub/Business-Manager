@@ -26,7 +26,7 @@ import { storage } from "../storage";
  * sale is idempotent, and a manager can forgive a single day without touching
  * any other late day on the payslip.
  */
-export class LateArrivalDeductionService {
+class LateArrivalDeductionService {
   /**
    * Rewrites this period's `late_arrival` proposals from the current state of
    * attendance_records.

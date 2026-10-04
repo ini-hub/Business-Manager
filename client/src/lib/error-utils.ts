@@ -120,7 +120,7 @@ export function getUserFriendlyError(error: Error | unknown, context?: string): 
   return "Something went wrong. Please try again or contact support if the problem persists.";
 }
 
-export function formatValidationErrors(errors: Array<{ path?: string[]; message: string }>): string {
+function formatValidationErrors(errors: Array<{ path?: string[]; message: string }>): string {
   if (!errors || errors.length === 0) {
     return "Please check your input and try again.";
   }

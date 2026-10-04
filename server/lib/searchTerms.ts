@@ -14,7 +14,7 @@ const MAX_TOKENS = 6;
  * Escapes the LIKE metacharacters so a user typing `%` or `_` searches for that
  * literal character instead of matching every row.
  */
-export function likeEscape(value: string): string {
+function likeEscape(value: string): string {
   return value.replace(/([\\%_])/g, "\\$1");
 }
 

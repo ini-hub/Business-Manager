@@ -7,7 +7,7 @@
  * or rejected key leaves the manual coordinate inputs working.
  */
 
-export const GOOGLE_MAPS_API_KEY: string =
+const GOOGLE_MAPS_API_KEY: string =
   (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined) ?? "";
 
 export const hasGoogleMapsKey = (): boolean => GOOGLE_MAPS_API_KEY.trim().length > 0;

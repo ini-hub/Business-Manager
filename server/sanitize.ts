@@ -36,7 +36,7 @@ export function escapeHtml(input: string | undefined | null): string {
     .replace(/'/g, "&#x27;");
 }
 
-export function sanitizeHtml(input: string | undefined | null): string {
+function sanitizeHtml(input: string | undefined | null): string {
   if (!input) return "";
   return input
     .trim()
@@ -119,19 +119,19 @@ export function sanitizeStoreCode(input: string | undefined | null): string {
   return input.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
 }
 
-export function validatePositiveNumber(value: number): boolean {
+function validatePositiveNumber(value: number): boolean {
   return typeof value === "number" && !isNaN(value) && value >= 0;
 }
 
-export function validateNonEmptyString(value: string): boolean {
+function validateNonEmptyString(value: string): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export function validateMaxLength(value: string, maxLength: number): boolean {
+function validateMaxLength(value: string, maxLength: number): boolean {
   return typeof value === "string" && value.length <= maxLength;
 }
 
-export function sanitizeRequestBody<T extends object>(body: T, schema: Record<keyof T, "string" | "number" | "boolean" | "uuid">): Partial<T> {
+function sanitizeRequestBody<T extends object>(body: T, schema: Record<keyof T, "string" | "number" | "boolean" | "uuid">): Partial<T> {
   const sanitized: Partial<T> = {};
   
   for (const key of Object.keys(schema) as Array<keyof T>) {

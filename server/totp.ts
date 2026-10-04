@@ -39,7 +39,7 @@ export function generateSecret(length = 16): string {
 }
 
 // Generate standard TOTP token (RFC 6238)
-export function generateTOTP(secret: string, offset = 0): string {
+function generateTOTP(secret: string, offset = 0): string {
   const key = base32Decode(secret);
   const epoch = Math.floor(Date.now() / 1000);
   const timeStep = Math.floor(epoch / 30) + offset;

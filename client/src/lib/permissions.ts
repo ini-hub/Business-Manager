@@ -3,14 +3,14 @@ import { useAuth } from "@/hooks/useAuth";
 
 import { PERMISSION_MODULES, roleHasModule, type PermissionModule } from "@shared/permissionModules";
 
-export { PERMISSION_MODULES, type PermissionModule };
+export {  type PermissionModule };
 
 /**
  * Client-side mirror of server/lib/permissions.ts hasModulePermission - used
  * for showing/hiding UI only. The server route is always the real gate; this
  * just avoids flashing controls the API will reject.
  */
-export function hasModulePermission(
+function hasModulePermission(
   role: string | undefined,
   customRoles: { name: string; permissions?: string[] | null }[],
   module: PermissionModule,

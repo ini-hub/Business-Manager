@@ -105,7 +105,7 @@ export function selectPendingStaffCreditForUpdate(exec: DbExecutor, periodId: st
   )).for("update");
 }
 
-export class StaffCreditDeductionService {
+class StaffCreditDeductionService {
   /**
    * Rewrites this period's `staff_credit` proposals from the current state of
    * the Borrow Book and the current net pay.

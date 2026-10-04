@@ -96,7 +96,7 @@ async function loadDisabledFlagKeys(conn: DbOrTx): Promise<Set<string>> {
  * "not locked out" - getOrgEntitlements/checkCountLimit/getCountLimitStatus
  * all short-circuit on this rather than resolving purchases as normal.
  */
-export async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
+async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
   const [org] = await db
     .select({ status: organisations.status, trialEndsAt: organisations.trialEndsAt })
     .from(organisations)
@@ -232,7 +232,7 @@ export async function featureNotPurchasedBody(featureKey: string) {
  * feature (see featurePolicy.ts). New gates belong in that table; this stays
  * for handler-level checks that depend on the request body.
  */
-export function requireFeature(featureKey: string): RequestHandler {
+function requireFeature(featureKey: string): RequestHandler {
   return async (req, res, next) => {
     const businessId = (req as any).user?.businessId;
     if (!businessId) return res.status(401).json({ error: "Authentication required." });

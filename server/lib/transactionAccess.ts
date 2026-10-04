@@ -16,7 +16,7 @@ import type { NextFunction, Request, Response } from "express";
 
 type AccessUser = { id?: string; userId?: string; role?: string; businessId?: string } | undefined;
 
-export function isOwnerOrManager(user: AccessUser): boolean {
+function isOwnerOrManager(user: AccessUser): boolean {
   return user?.role === "owner" || user?.role === "manager";
 }
 

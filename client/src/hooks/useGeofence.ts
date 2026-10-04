@@ -8,7 +8,7 @@ export type GeofenceCentre = {
   maxAccuracyMeters: number;
 };
 
-export type GeofenceState =
+type GeofenceState =
   | "idle"          // nothing to measure against yet
   | "unsupported"   // browser has no geolocation
   | "insecure"      // not an https origin, so the browser will refuse

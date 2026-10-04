@@ -28,9 +28,9 @@ import { commissionForFormula } from "./payroll/commissionFormula";
 import { staffContractService } from "./StaffContractService";
 import { staffInviteService } from "./StaffInviteService";
 
-export type PayrollExcludedStaff = { staffId: string; name: string; reason: "pending_signature" | "declined" | "invite_pending" };
+type PayrollExcludedStaff = { staffId: string; name: string; reason: "pending_signature" | "declined" | "invite_pending" };
 
-export class PayrollService {
+class PayrollService {
   /**
    * Splits a store's non-archived staff into who's payable this run and who
    * isn't. Attendance/sales can still be recorded against a staff member who

@@ -60,7 +60,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export type Allocation = { advanceId: string; amount: number };
+type Allocation = { advanceId: string; amount: number };
 
 /**
  * Splits the pay a staff member has left, after higher-priority deductions,
@@ -70,7 +70,7 @@ export type Allocation = { advanceId: string; amount: number };
  * rather than a shared import so each service's correctness stays
  * independently readable and neither can regress the other by accident.
  */
-export function allocateAgainstPay(available: number, advances: SalaryAdvance[]): Allocation[] {
+function allocateAgainstPay(available: number, advances: SalaryAdvance[]): Allocation[] {
   let remaining = Math.max(0, available);
   const out: Allocation[] = [];
 
@@ -94,7 +94,7 @@ export function allocateAgainstPay(available: number, advances: SalaryAdvance[])
  * committed row. Only rows with a `salary_advance_id` are system-tracked — a
  * manager's free-text `advance_recovery` line has nothing to settle here.
  */
-export function selectPendingAdvanceRecoveryForUpdate(exec: DbExecutor, periodId: string) {
+function selectPendingAdvanceRecoveryForUpdate(exec: DbExecutor, periodId: string) {
   return exec.select().from(payrollDeductions).where(and(
     eq(payrollDeductions.periodId, periodId),
     eq(payrollDeductions.type, "advance_recovery"),
@@ -104,7 +104,7 @@ export function selectPendingAdvanceRecoveryForUpdate(exec: DbExecutor, periodId
   )).for("update");
 }
 
-export class SalaryAdvanceDeductionService {
+class SalaryAdvanceDeductionService {
   /**
    * Rewrites this period's `advance_recovery` proposals from the current
    * state of `salary_advances`.

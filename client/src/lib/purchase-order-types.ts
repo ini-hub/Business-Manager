@@ -1,6 +1,6 @@
 import type { PurchaseOrder, PurchaseOrderItem, Inventory } from "@shared/schema";
 
-export type PoVendor = {
+type PoVendor = {
   id: string;
   name: string;
   phone?: string | null;

@@ -115,12 +115,12 @@ export async function setWhatsAppPlatformConfig(
   }
 }
 
-export async function isWhatsAppPlatformAppSecretSet(): Promise<boolean> {
+async function isWhatsAppPlatformAppSecretSet(): Promise<boolean> {
   const value = await getPlatformConfigValue<string>("whatsapp_app_secret_encrypted");
   return !!value;
 }
 
-export async function isWhatsAppPlatformVerifyTokenSet(): Promise<boolean> {
+async function isWhatsAppPlatformVerifyTokenSet(): Promise<boolean> {
   const value = await getPlatformConfigValue<string>("whatsapp_verify_token");
   return !!value;
 }

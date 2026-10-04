@@ -11,7 +11,7 @@ import { getViolatedConstraint } from "../db-errors";
 
 const SALT_ROUNDS = 12;
 
-export type InviteReason = "create" | "email_change" | "manual_resend";
+type InviteReason = "create" | "email_change" | "manual_resend";
 
 /**
  * One other staff row a matched account was already linked to, surfaced as

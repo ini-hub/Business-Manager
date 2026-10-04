@@ -39,7 +39,7 @@ export interface CalendarFilterState {
 
 export const EMPTY_CALENDAR_FILTERS: CalendarFilterState = { staff: [], stages: [], noTimeOnly: false };
 
-export function stageOf(status: string): "upcoming" | "completed" | "cancelled" {
+function stageOf(status: string): "upcoming" | "completed" | "cancelled" {
   if (status === "completed") return "completed";
   if (status === "cancelled" || status === "no_show") return "cancelled";
   return "upcoming";

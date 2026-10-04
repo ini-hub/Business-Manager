@@ -264,7 +264,7 @@ export function postingsBalance(lines: PostingLine[]): { balanced: boolean; delt
   return { balanced: false, delta: imbalances[0].delta };
 }
 
-export class PayrollPostingService {
+class PayrollPostingService {
   /**
    * Writes (or rewrites) a period's postings.
    *

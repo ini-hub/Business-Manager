@@ -84,11 +84,11 @@ const dialCodesByLength: string[] = Array.from(new Set(countryCodes.map((c) => c
   (a, b) => b.length - a.length
 );
 
-export function getCountryByCode(code: string): CountryCode | undefined {
+function getCountryByCode(code: string): CountryCode | undefined {
   return countryCodes.find((c) => c.code === code);
 }
 
-export function getCountryByDialCode(dialCode: string): CountryCode | undefined {
+function getCountryByDialCode(dialCode: string): CountryCode | undefined {
   return countryCodes.find((c) => c.dialCode === dialCode);
 }
 

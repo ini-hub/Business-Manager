@@ -23,7 +23,7 @@
 
 import { round2 } from "./payroll-take-home";
 
-export type CommissionReasonCode =
+type CommissionReasonCode =
   /** Non-zero. The derivation steps still explain how it was reached. */
   | "earned"
   /** paymentMethod "fixed" — there is no commission component at all. */
@@ -37,9 +37,9 @@ export type CommissionReasonCode =
   /** An entry calculated before the snapshot carried enough detail to say. */
   | "unknown";
 
-export type CommissionStepKind = "add" | "less" | "subtotal" | "result";
+type CommissionStepKind = "add" | "less" | "subtotal" | "result";
 
-export interface CommissionStep {
+interface CommissionStep {
   label: string;
   value: number;
   /** "money" renders through the caller's currency formatter; "count" is a plain integer. */
@@ -72,7 +72,7 @@ export interface CommissionInputs {
   grossCommission?: number | null;
 }
 
-export const FORMULA_LABELS: Record<string, string> = {
+const FORMULA_LABELS: Record<string, string> = {
   formula_a: "Formula A",
   formula_b: "Formula B",
   formula_c: "Formula C",

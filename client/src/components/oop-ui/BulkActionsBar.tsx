@@ -24,7 +24,7 @@ import { X, MoreHorizontal, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** How a bulk action is allowed to behave — see BulkActionsBar's module doc. */
-export type BulkActionKind = "safe" | "reversible" | "destructive";
+type BulkActionKind = "safe" | "reversible" | "destructive";
 
 export interface BulkActionSelection<T> {
   mode: "page" | "all";
@@ -49,7 +49,7 @@ export interface BulkActionPrecheck {
   reason: string;
 }
 
-export interface BulkActionResult {
+interface BulkActionResult {
   succeeded: number;
   failed: number;
   failedIds?: (string | number)[];

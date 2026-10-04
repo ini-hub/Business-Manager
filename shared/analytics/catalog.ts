@@ -37,7 +37,7 @@ const ALL_CUBES: readonly CubeId[] = [
  * cube declares its own time column and kind, and the compiler emits the same
  * bucket *keys* from each. That is what makes it conformed.
  */
-export const DATE_DIM: DimensionDef = {
+const DATE_DIM: DimensionDef = {
   id: "date",
   label: "Date",
   type: "time",
@@ -46,7 +46,7 @@ export const DATE_DIM: DimensionDef = {
   description: "Bucketed in the store's own timezone, not UTC.",
 };
 
-export const STORE_DIM: DimensionDef = {
+const STORE_DIM: DimensionDef = {
   id: "store",
   label: "Store",
   type: "entity",
@@ -56,7 +56,7 @@ export const STORE_DIM: DimensionDef = {
   description: "Always available, and always the tenancy predicate.",
 };
 
-export const SALES_ITEM_DIM: DimensionDef = {
+const SALES_ITEM_DIM: DimensionDef = {
   id: "sales.item",
   label: "Item (variant)",
   type: "entity",
@@ -67,7 +67,7 @@ export const SALES_ITEM_DIM: DimensionDef = {
   description: "A single sellable SKU — the inventory row, not the product group.",
 };
 
-export const SALES_PRODUCT_DIM: DimensionDef = {
+const SALES_PRODUCT_DIM: DimensionDef = {
   id: "sales.product",
   label: "Product (group)",
   type: "entity",
@@ -76,7 +76,7 @@ export const SALES_PRODUCT_DIM: DimensionDef = {
   drillTo: "sales.item",
 };
 
-export const SALES_CATEGORY_DIM: DimensionDef = {
+const SALES_CATEGORY_DIM: DimensionDef = {
   id: "sales.category",
   label: "Category",
   type: "categorical",
@@ -85,7 +85,7 @@ export const SALES_CATEGORY_DIM: DimensionDef = {
   description: "From the product group — inventory rows carry no category of their own.",
 };
 
-export const SALES_BRAND_DIM: DimensionDef = {
+const SALES_BRAND_DIM: DimensionDef = {
   id: "sales.brand",
   label: "Brand",
   type: "categorical",
@@ -93,7 +93,7 @@ export const SALES_BRAND_DIM: DimensionDef = {
   drillTo: "sales.product",
 };
 
-export const SALES_ITEM_TYPE_DIM: DimensionDef = {
+const SALES_ITEM_TYPE_DIM: DimensionDef = {
   id: "sales.item_type",
   label: "Item Type",
   type: "categorical",
@@ -104,7 +104,7 @@ export const SALES_ITEM_TYPE_DIM: DimensionDef = {
   enumValues: ["product", "service", "supply"],
 };
 
-export const SALES_CUSTOMER_DIM: DimensionDef = {
+const SALES_CUSTOMER_DIM: DimensionDef = {
   id: "sales.customer",
   label: "Customer",
   type: "entity",
@@ -114,7 +114,7 @@ export const SALES_CUSTOMER_DIM: DimensionDef = {
   lookup: { endpoint: "/api/customers", labelKey: "name" },
 };
 
-export const SALES_STAFF_DIM: DimensionDef = {
+const SALES_STAFF_DIM: DimensionDef = {
   id: "sales.staff",
   label: "Staff",
   type: "entity",
@@ -124,7 +124,7 @@ export const SALES_STAFF_DIM: DimensionDef = {
     "The staff member who rang up the sale. Lead/assistant attribution is a separate measure.",
 };
 
-export const SALES_PAYMENT_METHOD_DIM: DimensionDef = {
+const SALES_PAYMENT_METHOD_DIM: DimensionDef = {
   id: "sales.payment_method",
   label: "Payment method",
   type: "categorical",
@@ -132,7 +132,7 @@ export const SALES_PAYMENT_METHOD_DIM: DimensionDef = {
   enumValues: ["cash", "transfer", "flutterwave", "credit", "split"],
 };
 
-export const DIMENSIONS: readonly DimensionDef[] = [
+const DIMENSIONS: readonly DimensionDef[] = [
   DATE_DIM,
   STORE_DIM,
   SALES_ITEM_DIM,
@@ -160,7 +160,7 @@ const LINE_DIMS = [
   "sales.item_type",
 ] as const;
 
-export const SALES_MEASURES: readonly MeasureDef[] = [
+const SALES_MEASURES: readonly MeasureDef[] = [
   {
     id: "sales.net_revenue",
     cube: "sales_lines",
@@ -390,15 +390,15 @@ export function getDimension(id: string): DimensionDef | undefined {
   return DIMENSION_BY_ID.get(id);
 }
 
-export function getCube(id: CubeId): CubeDef | undefined {
+function getCube(id: CubeId): CubeDef | undefined {
   return CUBE_BY_ID.get(id);
 }
 
-export function listMeasureIds(): string[] {
+function listMeasureIds(): string[] {
   return Array.from(MEASURE_BY_ID.keys());
 }
 
-export function listDimensionIds(): string[] {
+function listDimensionIds(): string[] {
   return Array.from(DIMENSION_BY_ID.keys());
 }
 

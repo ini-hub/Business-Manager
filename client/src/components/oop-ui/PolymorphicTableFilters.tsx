@@ -56,7 +56,7 @@ export interface FilterFieldController {
   handleKeyDown: (e: React.KeyboardEvent) => void;
 }
 
-export function useFilterFieldController(
+function useFilterFieldController(
   config: TableFilterConfig,
   data: any[],
   value: any,
@@ -167,7 +167,7 @@ export function useFilterFieldController(
 // Presentational-only: the actual options UI for a filter field (searchable checkbox
 // list / min-max range / date bounds). Takes nothing but the controller, so it drops
 // unchanged into either a desktop Popover or a mobile Sheet.
-export function FilterFieldBody({ controller }: { controller: FilterFieldController }) {
+function FilterFieldBody({ controller }: { controller: FilterFieldController }) {
   const { config } = controller;
 
   if (config.type === "select") {

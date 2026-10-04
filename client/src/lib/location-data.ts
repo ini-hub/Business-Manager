@@ -47,7 +47,7 @@ export async function getCityOptions(countryIsoCode: string | undefined, stateIs
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-export function isNigeria(countryIsoCode: string | undefined): boolean {
+function isNigeria(countryIsoCode: string | undefined): boolean {
   return countryIsoCode === "NG";
 }
 

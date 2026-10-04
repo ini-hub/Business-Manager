@@ -20,22 +20,22 @@ type NewVersionPayload = Omit<
   "id" | "staffContractId" | "versionNumber" | "createdByUserId" | "createdAt" | "supersededAt"
 >;
 
-export type AttachContractOutcome =
+type AttachContractOutcome =
   | { kind: "attached"; contract: StaffContract; version: StaffContractVersion }
   | { kind: "replaced"; contract: StaffContract; version: StaffContractVersion }
   | { kind: "refused_already_signed" }
   | { kind: "invalid"; reason: string };
 
-export type SignOutcome =
+type SignOutcome =
   | { kind: "signed"; contract: StaffContract; signature: StaffContractSignature }
   | { kind: "not_pending"; reason: string }
   | { kind: "name_mismatch"; reason: string };
 
-export type DeclineOutcome =
+type DeclineOutcome =
   | { kind: "declined"; contract: StaffContract }
   | { kind: "not_pending"; reason: string };
 
-export interface ContractForReview {
+interface ContractForReview {
   contract: StaffContract;
   version: StaffContractVersion;
   /** Only present for file/image contracts. */
@@ -48,7 +48,7 @@ export interface ContractForReview {
  * returns instead of throwing for expected states, one db.transaction per
  * multi-row write (delegated to StaffContractRepository).
  */
-export class StaffContractService {
+class StaffContractService {
   private repo = new StaffContractRepository();
 
   // ─── Attach / replace ──────────────────────────────────────────────────────

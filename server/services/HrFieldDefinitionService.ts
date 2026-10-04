@@ -11,7 +11,7 @@ import {
   type UpdateHrFieldDefinitionInput,
 } from "@shared/schema";
 
-export type DeleteFieldOutcome = { kind: "deleted" } | { kind: "refused_system_field" } | { kind: "not_found" };
+type DeleteFieldOutcome = { kind: "deleted" } | { kind: "refused_system_field" } | { kind: "not_found" };
 
 /**
  * Super-admin-only CRUD over the dynamic field builder (hr_field_definitions)
@@ -19,7 +19,7 @@ export type DeleteFieldOutcome = { kind: "deleted" } | { kind: "refused_system_f
  * The validation + "never delete a system field" rule lives here, not at the
  * route boundary, so it can't be bypassed by any other caller later.
  */
-export class HrFieldDefinitionService {
+class HrFieldDefinitionService {
   // ─── Field definitions (personal / job_current) ─────────────────────────
 
   async list(businessId: string, section: HrFieldSection): Promise<HrFieldDefinition[]> {

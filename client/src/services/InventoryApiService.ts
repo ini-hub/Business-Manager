@@ -1,7 +1,7 @@
 import { BaseApiService } from "./BaseApiService";
 import type { Inventory, InsertInventory } from "@shared/schema";
 
-export class InventoryApiService extends BaseApiService {
+class InventoryApiService extends BaseApiService {
   public async getInventory(storeId: string): Promise<Inventory[]> {
     return this.get<Inventory[]>(`/api/inventory?storeId=${storeId}`);
   }

@@ -66,7 +66,7 @@ export function generateContractPendingToken(userId: string, staffContractId: st
   return jwt.sign({ userId, staffContractId, action: "contract_pending" }, JWT_SECRET_VALUE, { expiresIn: "1h" });
 }
 
-export function verifyContractPendingToken(token: string): { userId: string; staffContractId: string } | undefined {
+function verifyContractPendingToken(token: string): { userId: string; staffContractId: string } | undefined {
   try {
     const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
     if (decoded?.action !== "contract_pending" || !decoded.userId || !decoded.staffContractId) return undefined;
@@ -89,7 +89,7 @@ export function generateLegalConsentPendingToken(userId: string, continueTo: "lo
   return jwt.sign({ userId, continueTo, action: "legal_consent_pending" }, JWT_SECRET_VALUE, { expiresIn: "1h" });
 }
 
-export function verifyLegalConsentPendingToken(token: string): { userId: string; continueTo: "login" | "staff_activation" } | undefined {
+function verifyLegalConsentPendingToken(token: string): { userId: string; continueTo: "login" | "staff_activation" } | undefined {
   try {
     const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
     if (decoded?.action !== "legal_consent_pending" || !decoded.userId || !decoded.continueTo) return undefined;
@@ -113,7 +113,7 @@ export function generateProfilePendingToken(userId: string, staffId: string): st
   return jwt.sign({ userId, staffId, action: "profile_pending" }, JWT_SECRET_VALUE, { expiresIn: "2h" });
 }
 
-export function verifyProfilePendingToken(token: string): { userId: string; staffId: string } | undefined {
+function verifyProfilePendingToken(token: string): { userId: string; staffId: string } | undefined {
   try {
     const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
     if (decoded?.action !== "profile_pending" || !decoded.userId || !decoded.staffId) return undefined;
@@ -133,7 +133,7 @@ export function generateGuarantorSigningToken(guarantorFormId: string): string {
   return jwt.sign({ guarantorFormId, action: "guarantor_pending" }, JWT_SECRET_VALUE, { expiresIn: "30d" });
 }
 
-export function verifyGuarantorSigningToken(token: string): { guarantorFormId: string } | undefined {
+function verifyGuarantorSigningToken(token: string): { guarantorFormId: string } | undefined {
   try {
     const decoded = jwt.verify(token, JWT_SECRET_VALUE) as any;
     if (decoded?.action !== "guarantor_pending" || !decoded.guarantorFormId) return undefined;
@@ -143,7 +143,7 @@ export function verifyGuarantorSigningToken(token: string): { guarantorFormId: s
   }
 }
 
-export function parseCookies(cookieHeader?: string): Record<string, string> {
+function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
   if (!cookieHeader) return list;
   cookieHeader.split(";").forEach((cookie) => {

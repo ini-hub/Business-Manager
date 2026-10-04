@@ -17,17 +17,17 @@ import {
   type HrGuarantorFormSignature,
 } from "@shared/schema";
 
-export type InitiateOutcome =
+type InitiateOutcome =
   | { kind: "initiated"; form: HrGuarantorForm; version: HrGuarantorFormVersion }
   | { kind: "refused_already_signed" }
   | { kind: "invalid"; reason: string };
 
-export type FillAndSignOutcome =
+type FillAndSignOutcome =
   | { kind: "signed"; form: HrGuarantorForm; signature: HrGuarantorFormSignature }
   | { kind: "not_awaiting_guarantor"; reason: string }
   | { kind: "invalid"; reason: string };
 
-export type DeclineOutcome =
+type DeclineOutcome =
   | { kind: "declined"; form: HrGuarantorForm }
   | { kind: "not_awaiting_guarantor"; reason: string };
 
@@ -40,7 +40,7 @@ export type DeclineOutcome =
  * atomic, one-time action (server/routes/guarantor.routes.ts). See
  * shared/schema/hr-guarantor.ts for the full status-lifecycle rationale.
  */
-export class GuarantorFormService {
+class GuarantorFormService {
   async getByStaffId(staffId: string): Promise<HrGuarantorForm | undefined> {
     const [row] = await db.select().from(hrGuarantorForms).where(eq(hrGuarantorForms.staffId, staffId));
     return row;

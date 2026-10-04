@@ -8,7 +8,7 @@ import { Link } from "wouter";
  * Accent for tiles that carry a status meaning (owed, overdue, settled).
  * A closed set rather than free-form classNames so the JIT can see every variant.
  */
-export type MetricTone = "default" | "amber" | "rose" | "emerald" | "blue" | "sky";
+type MetricTone = "default" | "amber" | "rose" | "emerald" | "blue" | "sky";
 
 const TONE_BORDER: Record<MetricTone, string> = {
   default: "",

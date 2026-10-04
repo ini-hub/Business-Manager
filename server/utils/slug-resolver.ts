@@ -53,11 +53,11 @@ async function resolveInventoryOrProductId(param: string): Promise<string | null
   if (inventoryId) return inventoryId;
   return resolveProductId(param);
 }
-export const resolveCustomerId = (p: string) => resolveParam(p, customers);
-export const resolveVendorId = (p: string) => resolveParam(p, vendors);
-export const resolveVendorBillId = (p: string) => resolveParam(p, vendorBills);
-export const resolveExpenseId = (p: string) => resolveParam(p, expenses);
-export const resolveProductId = (p: string) => resolveParam(p, products);
+const resolveCustomerId = (p: string) => resolveParam(p, customers);
+const resolveVendorId = (p: string) => resolveParam(p, vendors);
+const resolveVendorBillId = (p: string) => resolveParam(p, vendorBills);
+const resolveExpenseId = (p: string) => resolveParam(p, expenses);
+const resolveProductId = (p: string) => resolveParam(p, products);
 
 /**
  * Resolves a product slug. If the slug matches an inventory item (variant)

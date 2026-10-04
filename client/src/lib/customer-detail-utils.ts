@@ -52,7 +52,7 @@ export function groupByDay<T>(items: T[], getDate: (item: T) => string | Date, n
   return groups;
 }
 
-export type TransactionStatusTone = "success" | "warning" | "destructive" | "muted";
+type TransactionStatusTone = "success" | "warning" | "destructive" | "muted";
 export interface TransactionStatus {
   label: string;
   tone: TransactionStatusTone;

@@ -188,7 +188,7 @@ export interface PaginatedResult<T> {
   };
 }
 
-export interface IStorage {
+interface IStorage {
   // Users & Auth
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
@@ -577,7 +577,7 @@ export interface IStorage {
   productRepo: ProductRepository;
 }
 
-export class DatabaseStorage implements IStorage {
+class DatabaseStorage implements IStorage {
   private userRepo = new UserRepository();
   public readonly inventoryRepo = new InventoryRepository();
   public readonly productRepo = new ProductRepository();

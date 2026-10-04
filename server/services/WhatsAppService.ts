@@ -240,7 +240,7 @@ export async function sendFreeTextMessage(
   }
 }
 
-export type InteractiveListSection = { title?: string; rows: { id: string; title: string; description?: string }[] };
+type InteractiveListSection = { title?: string; rows: { id: string; title: string; description?: string }[] };
 export type InteractiveMessage =
   | { kind: "list"; bodyText: string; buttonText: string; sections: InteractiveListSection[] }
   | { kind: "buttons"; bodyText: string; buttons: { id: string; title: string }[] };

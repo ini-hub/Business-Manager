@@ -28,7 +28,7 @@ const TREND_WARNING =
   "Both series are strongly trending, so a correlation on raw levels is likely " +
   "spurious — almost any two growing measures correlate near 1. Compare % change instead.";
 
-export interface ScatterPoint {
+interface ScatterPoint {
   x: number;
   y: number;
   /** Bucket date or dimension member key. */

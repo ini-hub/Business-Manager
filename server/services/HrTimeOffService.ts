@@ -11,7 +11,7 @@ import {
   type CreateHrTimeOffRequestInput,
 } from "@shared/schema";
 
-export type ReviewOutcome =
+type ReviewOutcome =
   | { kind: "approved"; request: HrTimeOffRequest; balance: HrTimeOffBalance }
   | { kind: "rejected"; request: HrTimeOffRequest }
   | { kind: "not_pending"; reason: string };
@@ -24,7 +24,7 @@ const ALL_LEAVE_TYPES: HrLeaveType[] = ["annual", "sick", "bereavement", "matern
  * (see the HR module plan's risk resolution for why this is a ledger, not a
  * bag of fields). No endpoint ever writes balances directly.
  */
-export class HrTimeOffService {
+class HrTimeOffService {
   async getBalances(staffId: string): Promise<HrTimeOffBalance[]> {
     const rows = await db.select().from(hrTimeOffBalances).where(eq(hrTimeOffBalances.staffId, staffId));
     const byType = new Map(rows.map((r) => [r.leaveType, r]));

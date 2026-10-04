@@ -2,7 +2,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db";
 import { hrDisciplinaryRecords, type HrDisciplinaryRecord, type UpsertHrDisciplinaryRecordInput } from "@shared/schema";
 
-export class HrDisciplinaryService {
+class HrDisciplinaryService {
   async list(staffId: string): Promise<HrDisciplinaryRecord[]> {
     return db.select().from(hrDisciplinaryRecords).where(eq(hrDisciplinaryRecords.staffId, staffId)).orderBy(desc(hrDisciplinaryRecords.incidentDate));
   }

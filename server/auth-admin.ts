@@ -30,7 +30,7 @@ export function generateAdminToken(payload: Omit<AdminJWTPayload, "lastActivity"
 }
 
 // Verify secure JWT token
-export function verifyAdminToken(token: string): AdminJWTPayload | undefined {
+function verifyAdminToken(token: string): AdminJWTPayload | undefined {
   try {
     const decoded = jwt.verify(token, JWT_ADMIN_SECRET_VALUE) as AdminJWTPayload;
     return decoded;

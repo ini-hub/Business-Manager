@@ -2,8 +2,8 @@ import { eq, and, ne, sql } from "drizzle-orm";
 import { db } from "../db";
 import { hrDependants, hrEstateBeneficiaries, type HrDependant, type HrEstateBeneficiary, type UpsertHrDependantInput, type UpsertHrEstateBeneficiaryInput } from "@shared/schema";
 
-export type BeneficiaryOutcome = { kind: "ok"; beneficiary: HrEstateBeneficiary } | { kind: "exceeds_100"; totalAfter: number };
-export type DeleteOutcome = { kind: "ok" } | { kind: "not_found" };
+type BeneficiaryOutcome = { kind: "ok"; beneficiary: HrEstateBeneficiary } | { kind: "exceeds_100"; totalAfter: number };
+type DeleteOutcome = { kind: "ok" } | { kind: "not_found" };
 
 /**
  * Dependants are plain CRUD. Estate beneficiaries carry the "percentages
@@ -14,7 +14,7 @@ export type DeleteOutcome = { kind: "ok" } | { kind: "not_found" };
  * concurrent edits can never both individually pass and together exceed
  * 100%. This is the single enforcement point; every route goes through it.
  */
-export class EstateBeneficiaryService {
+class EstateBeneficiaryService {
   async listDependants(staffId: string): Promise<HrDependant[]> {
     return db.select().from(hrDependants).where(eq(hrDependants.staffId, staffId));
   }

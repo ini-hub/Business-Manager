@@ -25,4 +25,3 @@ export function LegalFooter() {
   );
 }
 
-export default LegalFooter;

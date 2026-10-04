@@ -52,7 +52,7 @@ export type DimensionType = "time" | "entity" | "categorical" | "boolean";
  * over time. Getting this wrong is how analytics tools quietly lie: filling a
  * stock measure with 0 invents a day where the business held no inventory.
  */
-export type Additivity =
+type Additivity =
   /** Sums over time; a bucket with no rows genuinely is 0. Revenue, expense amount. */
   | "flow"
   /** Point-in-time; a bucket with no rows is unknown, not 0. Closing stock, headcount. */
@@ -60,7 +60,7 @@ export type Additivity =
   /** Never summed; recomputed from its parts at every roll-up level. Margin %, avg basket. */
   | "ratio";
 
-export type Polarity = "higher_is_better" | "lower_is_better" | "neutral";
+type Polarity = "higher_is_better" | "lower_is_better" | "neutral";
 
 /** How a cube's time column relates to wall-clock time in the store's timezone. */
 export type TimeColumnKind =
@@ -146,7 +146,7 @@ export type FilterOperator =
   | "is_null"
   | "is_not_null";
 
-export interface Filter {
+interface Filter {
   /** Must resolve in the dimension registry — never used as a raw SQL identifier. */
   dimension: string;
   op: FilterOperator;
@@ -180,7 +180,7 @@ export const BINARY_OPERATORS: readonly FilterOperator[] = ["between"];
 /** Statistical transforms available on correlation and scatter surfaces. */
 export type StatTransform = "none" | "pct_change" | "difference";
 
-export type IndicatorType =
+type IndicatorType =
   | "sma"
   | "ema"
   | "rsi"
@@ -189,7 +189,7 @@ export type IndicatorType =
   | "zscore"
   | "momentum";
 
-export interface IndicatorSpec {
+interface IndicatorSpec {
   type: IndicatorType;
   /** Measure id the indicator is computed on. Must be one of the query's measures. */
   on: string;

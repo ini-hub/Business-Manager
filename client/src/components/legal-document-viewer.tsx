@@ -23,4 +23,3 @@ export function LegalDocumentViewer({ contentMarkdown, className }: { contentMar
   );
 }
 
-export default LegalDocumentViewer;

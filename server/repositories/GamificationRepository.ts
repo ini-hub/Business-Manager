@@ -12,13 +12,13 @@ import { BADGE_DEFINITIONS, POINTS_RULES } from "@shared/gamification/badges";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-export type LeaderboardEntry = {
+type LeaderboardEntry = {
   subjectId: string;
   name: string;
   points: number;
 };
 
-export class GamificationRepository {
+class GamificationRepository {
   async awardPoints(
     storeId: string,
     subjectType: GamificationSubjectType,

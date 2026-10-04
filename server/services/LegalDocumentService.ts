@@ -5,21 +5,21 @@ import {
   type LegalDocumentVersion,
 } from "@shared/schema";
 
-export interface DocumentWithCurrentVersion {
+interface DocumentWithCurrentVersion {
   document: LegalDocument;
   version: LegalDocumentVersion;
 }
 
-export type CreateDocumentOutcome =
+type CreateDocumentOutcome =
   | { kind: "created"; document: LegalDocument; version: LegalDocumentVersion }
   | { kind: "duplicate_type" };
 
-export type DeleteDocumentOutcome =
+type DeleteDocumentOutcome =
   | { kind: "deleted" }
   | { kind: "not_found" }
   | { kind: "has_acceptances"; acceptanceCount: number };
 
-export type RecordAcceptanceOutcome =
+type RecordAcceptanceOutcome =
   | { kind: "recorded" }
   | { kind: "stale"; currentDocumentTypes: string[] };
 
@@ -30,7 +30,7 @@ export type RecordAcceptanceOutcome =
  * multi-row write, sha256 content hashing at publish time, hash-pinned
  * acceptance rows.
  */
-export class LegalDocumentService {
+class LegalDocumentService {
   private repo = new LegalDocumentRepository();
 
   // ─── Reads ──────────────────────────────────────────────────────────────

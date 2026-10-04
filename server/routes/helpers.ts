@@ -166,7 +166,7 @@ export async function verifyRecordStoreAccess(req: any, recordStoreId: string): 
 // Built once per mutation to carry actor identity + origin into audit writes.
 // See server/audit.ts for how this feeds AuditLogEntry, and the design plan at
 // /Users/mac/.claude/plans/going-forward-let-s-treat-compressed-sunbeam.md.
-export type AuditChannel = "web" | "api" | "import" | "system" | "admin";
+type AuditChannel = "web" | "api" | "import" | "system" | "admin";
 
 export interface AuditContext {
   userId?: string;
