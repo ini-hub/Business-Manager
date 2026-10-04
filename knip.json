@@ -10,6 +10,5 @@
     "**/*.itest.ts"
   ],
   "project": ["client/src/**/*.{ts,tsx}", "server/**/*.ts", "shared/**/*.ts", "scripts/**/*.ts"],
-  "ignore": ["client/src/components/ui/**"],
   "drizzle": false
 }
