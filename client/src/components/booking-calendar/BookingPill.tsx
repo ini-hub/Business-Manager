@@ -9,7 +9,7 @@ export function BookingPill({ booking }: { booking: CalendarBooking }) {
     <div
       title={`${timed ? format(parseISO(booking.scheduledAt), "h:mm a") : "No time"} · ${name}`}
       className={cn(
-        "truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+        "truncate rounded-md border px-2 py-0.5 text-[11px] font-medium",
         !timed
           ? "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-400"
           : isUpcoming(booking)

@@ -185,7 +185,7 @@ export default function BusinessFormPage() {
                         }
                       }}
                     />
-                    <p className="text-[10px] text-muted-foreground mt-1.5">
+                    <p className="text-[11px] text-muted-foreground mt-1.5">
                       Upload logo (JPG, PNG). Max size 2MB (Strictly enforced).
                     </p>
                   </div>

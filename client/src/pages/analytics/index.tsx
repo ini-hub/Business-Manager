@@ -301,14 +301,14 @@ export default function AnalyticsExplorerPage() {
             </Select>
 
             {isFetching && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground flex items-center gap-2">
                 <Loader2 className="h-3 w-3 animate-spin" /> Updating…
               </span>
             )}
 
             {/* Right-aligned once there is room; wraps in place on narrow screens
                 instead of pushing past the card edge. */}
-            <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
               <SaveViewDialog spec={viewSpec} onLoad={applySpec} />
               <PinToDashboardDialog
                 spec={viewSpec}

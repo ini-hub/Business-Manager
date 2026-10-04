@@ -220,7 +220,7 @@ export default function QuoteFormPage() {
         type="button"
         onClick={() => setBuilderView("items")}
         className={cn(
-          "flex-1 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors",
+          "flex-1 flex items-center justify-center gap-2 rounded-md py-2 text-xs font-medium transition-colors",
           builderView === "items" ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
         )}
       >
@@ -230,13 +230,13 @@ export default function QuoteFormPage() {
         type="button"
         onClick={() => setBuilderView("review")}
         className={cn(
-          "flex-1 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors relative",
+          "flex-1 flex items-center justify-center gap-2 rounded-md py-2 text-xs font-medium transition-colors relative",
           builderView === "review" ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
         )}
       >
         <ShoppingCart className="h-3.5 w-3.5" /> Review
         {quoteCart.length > 0 && (
-          <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">{quoteCart.length}</Badge>
+          <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[11px]">{quoteCart.length}</Badge>
         )}
       </button>
     </div>
@@ -305,7 +305,7 @@ export default function QuoteFormPage() {
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-3 border-t bg-background/95 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between lg:static lg:mx-0 lg:rounded-lg lg:border lg:bg-muted/20 lg:backdrop-blur-none">
         <div>
           <span className="text-sm text-muted-foreground">Proposal Total</span>
-          <h2 className="text-2xl font-bold font-mono text-primary mt-1">{formatCurrency(quoteTotal)}</h2>
+          <h2 className="text-lg font-bold font-mono text-primary mt-1">{formatCurrency(quoteTotal)}</h2>
         </div>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
           <Button

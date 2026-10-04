@@ -180,9 +180,9 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
               {requests.map((req) => (
                 <div key={req.id} className="flex items-start justify-between gap-3 py-3" data-testid={`row-request-${req.id}`}>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium flex items-center gap-1.5">
+                    <p className="text-sm font-medium flex items-center gap-2">
                       {name(req.staffId)} · {format(parseISO(req.date), "EEE d MMM")}
-                      <Badge variant="outline" className="text-[10px] font-normal">
+                      <Badge variant="outline" className="text-[11px] font-normal">
                         {req.requestedKind === "clock_out" ? "Clock-out" : "Clock-in"}
                       </Badge>
                     </p>
@@ -266,7 +266,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
           ) : (
             <div className="divide-y">
               {devices.map((d) => (
-                <div key={d.id} className="flex items-center justify-between gap-3 py-2.5" data-testid={`row-device-${d.id}`}>
+                <div key={d.id} className="flex items-center justify-between gap-3 py-3" data-testid={`row-device-${d.id}`}>
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{name(d.staffId)}</p>
                     <p className="truncate text-xs text-muted-foreground">
@@ -316,7 +316,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="decision-note">{decision?.approve ? "Note (optional)" : "Reason"}</Label>
             <Textarea id="decision-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} data-testid="input-decision-note" />
           </div>
@@ -345,7 +345,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
           </DialogHeader>
 
           <div className="space-y-3">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Staff</Label>
               <Select value={proxy?.staffId ?? ""} onValueChange={(v) => setProxy((p) => ({ ...p!, staffId: v }))}>
                 <SelectTrigger data-testid="select-proxy-staff"><SelectValue placeholder="Choose staff" /></SelectTrigger>
@@ -354,7 +354,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="proxy-reason">Reason</Label>
               <Textarea
                 id="proxy-reason"

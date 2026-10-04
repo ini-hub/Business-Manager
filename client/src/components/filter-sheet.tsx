@@ -59,7 +59,7 @@ export function FilterSheet<D>({
           <SheetTitle className="text-lg flex items-center gap-2 mr-auto">
             Filters
             {active > 0 && (
-              <span className="min-w-5 h-5 px-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center justify-center">
+              <span className="min-w-5 h-5 px-2 rounded-full bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center justify-center">
                 {active}
               </span>
             )}
@@ -194,7 +194,7 @@ export function ChipOptions({
             aria-pressed={on}
             onClick={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])}
             className={cn(
-              "h-9 px-3.5 rounded-full border text-sm font-medium whitespace-nowrap transition-colors",
+              "h-10 px-4 rounded-full border text-sm font-medium whitespace-nowrap transition-colors",
               on ? "bg-primary/10 border-primary text-primary" : "border-input",
               !on && o.count === 0 && "text-muted-foreground/60",
             )}
@@ -282,7 +282,7 @@ export function MoneyRange({
                 type="button"
                 aria-pressed={on}
                 onClick={() => (on ? onChange(null, null) : onChange(p.min, p.max))}
-                className={cn("h-9 px-3.5 rounded-full border text-sm font-medium whitespace-nowrap", on ? "bg-primary/10 border-primary text-primary" : "border-input")}
+                className={cn("h-10 px-4 rounded-full border text-sm font-medium whitespace-nowrap", on ? "bg-primary/10 border-primary text-primary" : "border-input")}
               >
                 {p.label}
               </button>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
@@ -89,7 +90,7 @@ export default function BookingsPage() {
       key: "storeName",
       header: "Store",
       render: (booking: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {booking.storeName || "Global"}
         </Badge>
       ),
@@ -270,12 +271,7 @@ export default function BookingsPage() {
                 <span className="hidden lg:inline">Calendar</span>
               </Link>
             </Button>
-            <Button asChild className="shrink-0 shadow-sm hover:shadow transition-all">
-              <Link href="/bookings/new">
-                <Plus className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">New Booking</span>
-              </Link>
-            </Button>
+            <AddButton label="New Booking" href="/bookings/new" data-testid="button-new-booking" />
           </div>
         }
       />

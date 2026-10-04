@@ -73,9 +73,9 @@
   --viz-div-neg: 210 68% 50%;
   --viz-div-mid: 40 8% 93%;
   --viz-div-pos: 0 73% 59%;
-  --font-sans: Open Sans, sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
+  --font-mono: "Instrument Sans", ui-sans-serif, system-ui, sans-serif; /* numbers use tabular figures, not a mono face */
   --radius: .5rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(210 5% 12% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(210 5% 12% / 0.00);
@@ -218,8 +218,14 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground transition-colors duration-300;
+    @apply font-sans antialiased bg-background text-foreground transition-colors duration-300 text-sm;
+    font-variant-numeric: tabular-nums;
   }
+
+  /* Headings follow the type scale: 26/700 page, 18/700 section, 15/600 card. */
+  h1 { @apply text-[26px] leading-8 font-bold tracking-[-0.01em]; }
+  h2 { @apply text-lg font-bold; }
+  h3 { @apply text-[15px] font-semibold; }
 }
 
 /**

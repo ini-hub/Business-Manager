@@ -102,7 +102,7 @@ export default function MyPayrollDetailPage() {
 
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold">My Payroll Breakdown</h1>
+          <h1 className="text-[26px] font-bold">My Payroll Breakdown</h1>
           <p className="text-muted-foreground mt-0.5">
             {period && (
               <>{format(parseISO(period.startDate), "MMM d")} – {format(parseISO(period.endDate), "MMM d, yyyy")}</>
@@ -110,7 +110,7 @@ export default function MyPayrollDetailPage() {
           </p>
         </div>
         {period?.status === "paid" && (
-          <Badge variant="outline" className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 gap-1.5">
+          <Badge variant="outline" className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 gap-2">
             <Lock className="h-3 w-3" />
             Paid & Locked
           </Badge>

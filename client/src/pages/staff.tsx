@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
@@ -287,7 +288,7 @@ export default function StaffPage() {
       key: "storeName",
       header: "Store",
       render: (staff: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {staff.storeName || "Global"}
         </Badge>
       ),
@@ -427,7 +428,7 @@ export default function StaffPage() {
       key: "storeName",
       header: "Store",
       render: (staff: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {staff.storeName || "Global"}
         </Badge>
       ),
@@ -637,10 +638,7 @@ export default function StaffPage() {
             </div>
             {isOwner && (
               <Link href="/staffs/new">
-                <Button aria-label="Add Staff" data-testid="button-add-staff">
-                  <Plus className="h-4 w-4 lg:mr-2" />
-                  <span className="hidden lg:inline">Add Staff</span>
-                </Button>
+                <AddButton label="Add Staff" data-testid="button-add-staff" />
               </Link>
             )}
           </div>

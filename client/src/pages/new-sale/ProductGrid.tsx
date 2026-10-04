@@ -219,14 +219,14 @@ export function ProductGrid({
           <div className="flex items-center gap-2 min-w-0">
             <p className="text-xs text-muted-foreground truncate min-w-0">{priceLabel}</p>
             {hasMultipleVariants && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70 shrink-0 whitespace-nowrap">
+              <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground/70 shrink-0 whitespace-nowrap">
                 <Layers className="h-2.5 w-2.5" />
                 {product.variants.length} options
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+        <div className="flex items-center gap-2 shrink-0 ml-2">
           {cartQty > 0 && (
             <Badge variant="secondary">×{cartQty}</Badge>
           )}
@@ -277,13 +277,13 @@ export function ProductGrid({
                     onAddToCart(variant);
                     setOpenPopoverKey(null);
                   }}
-                  className="w-full flex items-start justify-between rounded-md px-3 py-2.5 text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left gap-3"
+                  className="w-full flex items-start justify-between rounded-md px-3 py-3 text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left gap-3"
                 >
                   <div className="flex-1 min-w-0 space-y-0.5">
                     {dimEntries && dimEntries.length > 1 ? (
                       dimEntries.map(([dimKey, value]) => (
-                        <div key={dimKey} className="flex items-baseline gap-1.5 flex-wrap">
-                          <span className="text-[10px] text-muted-foreground uppercase font-semibold shrink-0">
+                        <div key={dimKey} className="flex items-baseline gap-2 flex-wrap">
+                          <span className="text-[11px] text-muted-foreground uppercase font-semibold shrink-0">
                             {dimKey}:
                           </span>
                           <span className="font-medium text-sm break-words">{value}</span>
@@ -293,7 +293,7 @@ export function ProductGrid({
                       <span className="font-medium break-words leading-snug">{label}</span>
                     )}
                     {outOfStock && (
-                      <span className="text-[10px] text-destructive block">Out of stock</span>
+                      <span className="text-[11px] text-destructive block">Out of stock</span>
                     )}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -301,7 +301,7 @@ export function ProductGrid({
                       {formatCurrency(variant.sellingPrice)}
                     </span>
                     {inCartQty > 0 && (
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                      <Badge variant="secondary" className="text-[11px] h-4 px-1">
                         ×{inCartQty}
                       </Badge>
                     )}
@@ -322,7 +322,7 @@ export function ProductGrid({
           <Package className="h-4 w-4" />
           Select Items
           {isOffline && (
-            <span className="ml-auto flex items-center gap-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+            <span className="ml-auto flex items-center gap-1 text-[11px] font-normal text-amber-600 dark:text-amber-400">
               <WifiOff className="h-3 w-3" />
               Cached data
             </span>
@@ -340,7 +340,7 @@ export function ProductGrid({
             data-testid="input-search-items"
           />
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground -mt-2">
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground -mt-2">
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-violet-500 dark:bg-violet-400" />
             Service
@@ -380,7 +380,7 @@ export function ProductGrid({
                     <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Top sellers
                     </span>
-                    <span className="text-[10px] text-muted-foreground/70">Last 30 days</span>
+                    <span className="text-[11px] text-muted-foreground/70">Last 30 days</span>
                     <Button
                       type="button"
                       variant="ghost"

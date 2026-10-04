@@ -36,7 +36,7 @@ export default function VerifyPayslipPage() {
             <div className="flex justify-center">
               <ShieldX className="h-14 w-14 text-destructive" />
             </div>
-            <h1 className="text-xl font-bold text-destructive">Payslip Not Found</h1>
+            <h1 className="text-lg font-bold text-destructive">Payslip Not Found</h1>
             <p className="text-sm text-muted-foreground">
               This document ID does not match any payslip in our records. It may be invalid,
               expired, or the document may have been tampered with.
@@ -106,7 +106,7 @@ export default function VerifyPayslipPage() {
 
 function Row({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className={`flex justify-between items-center px-4 py-2.5 ${highlight ? "bg-green-50" : "bg-white"}`}>
+    <div className={`flex justify-between items-center px-4 py-3 ${highlight ? "bg-green-50" : "bg-white"}`}>
       <span className="text-muted-foreground text-xs">{label}</span>
       <span className={`font-medium text-sm ${highlight ? "text-green-700" : ""}`}>{value}</span>
     </div>

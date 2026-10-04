@@ -1,5 +1,7 @@
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { AddButton } from "@/components/add-button";
+import { useLocation } from "wouter";
+import { SettingsPageHeader } from "@/components/settings-page-header";
+import { useStore } from "@/lib/store-context";
 import { StoresManagementSection } from "./components/stores-management";
 
 /**
@@ -9,12 +11,17 @@ import { StoresManagementSection } from "./components/stores-management";
  * was open, which read as a stray "Business" crumb on the Stores/Roles tabs.
  */
 export default function SettingsStoresPage() {
+  const [, setLocation] = useLocation();
+  const { business } = useStore();
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Manage Stores"
-        description="Add, edit, or remove your business locations."
-        actions={<BackToSettingsButton />}
+      <SettingsPageHeader
+        title="Stores"
+        description="Each store has its own customers, staff and stock."
+        scope="business"
+        actions={
+          <AddButton label="Add a store" onClick={() => setLocation("/settings/stores/new")} disabled={!business} data-testid="button-add-store" />
+        }
       />
       <StoresManagementSection />
     </div>

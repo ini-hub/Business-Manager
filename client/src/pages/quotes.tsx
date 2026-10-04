@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AddButton } from "@/components/add-button";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Printer, Download, MessageCircle, RefreshCw } from "lucide-react";
@@ -389,10 +390,7 @@ export default function QuotesPage() {
         description="Draft pricing proposals, dispatch proforma receipts, and track pipeline values."
         actions={
           <>
-            <Button onClick={() => setLocation("/quotes/new")} aria-label="New Quote" data-testid="button-new-quote">
-              <Plus className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">New Quote</span>
-            </Button>
+            <AddButton label="New Quote" onClick={() => setLocation("/quotes/new")} data-testid="button-new-quote" />
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={QUOTE_BULK_CONFIG}
@@ -585,12 +583,12 @@ export default function QuotesPage() {
               <div id="quote-printable-invoice" className="bg-white text-black p-4 sm:p-8 rounded-lg border shadow-sm">
                 <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start border-b pb-6">
                   <div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-primary uppercase">{currentStore?.name}</h1>
+                    <h1 className="text-[26px] sm:text-[26px] font-bold tracking-tight text-primary uppercase">{currentStore?.name}</h1>
                     <p className="text-xs text-gray-500 mt-1">PROFORMA ESTIMATE proposal</p>
                     <p className="text-sm font-semibold text-gray-700 mt-2">Ref: {fullQuote.quoteRef}</p>
                   </div>
                   <div className="text-right">
-                    <span className="inline-flex items-center justify-center leading-none px-3 py-1.5 bg-indigo-50 border text-indigo-700 rounded-full font-bold text-xs uppercase tracking-wide">
+                    <span className="inline-flex items-center justify-center leading-none px-3 py-2 bg-indigo-50 border text-indigo-700 rounded-full font-bold text-xs uppercase tracking-wide">
                       {fullQuote.status}
                     </span>
                     <p className="text-xs text-gray-400 mt-2">Date: {new Date(fullQuote.createdAt).toLocaleDateString()}</p>
@@ -636,7 +634,7 @@ export default function QuotesPage() {
                           ) : (
                             <p className="font-medium text-gray-800">{item.inventory.name}</p>
                           )}
-                          <Badge variant="outline" className={`text-[10px] leading-none capitalize ${
+                          <Badge variant="outline" className={`text-[11px] leading-none capitalize ${
                             item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
                             : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"
                             : "bg-sky-50 text-sky-700 border-sky-200"}`}>
@@ -682,7 +680,7 @@ export default function QuotesPage() {
                             ) : (
                               <p className="font-medium text-gray-800 break-words max-w-[220px]">{item.inventory.name}</p>
                             )}
-                            <Badge variant="outline" className={`text-[10px] leading-none capitalize ${
+                            <Badge variant="outline" className={`text-[11px] leading-none capitalize ${
                               item.inventory.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200"
                               : item.inventory.type === "mixed" ? "bg-amber-50 text-amber-700 border-amber-200"
                               : "bg-sky-50 text-sky-700 border-sky-200"}`}>
@@ -708,7 +706,7 @@ export default function QuotesPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-400 uppercase font-semibold">Aggregated Quote Value</p>
-                    <h2 className="text-3xl font-extrabold text-indigo-600 font-mono mt-1">
+                    <h2 className="text-lg font-bold text-indigo-600 font-mono mt-1">
                       {formatCurrency(fullQuote.totalPrice)}
                     </h2>
                   </div>

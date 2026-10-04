@@ -149,15 +149,15 @@ export default function BusinessesList() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Businesses Directory</h1>
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Businesses Directory</h1>
           <p className="text-muted-foreground text-sm mt-1">Audit platform accounts, check gross sales volume, and configure access.</p>
         </div>
       </div>
 
       {/* Query Filters */}
-      <div className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <div className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
         <div className="space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Search Company Name</Label>
+          <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Search Company Name</Label>
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
@@ -174,7 +174,7 @@ export default function BusinessesList() {
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Administrative Status</Label>
+          <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Administrative Status</Label>
           <Select
             value={status}
             onValueChange={(val) => {
@@ -194,7 +194,7 @@ export default function BusinessesList() {
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Min Sales (GMV threshold)</Label>
+          <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Min Sales (GMV threshold)</Label>
           <Input
             type="number"
             placeholder="e.g. 100000"
@@ -233,18 +233,18 @@ export default function BusinessesList() {
           <span>Error compiling business directories. Please refresh dashboard.</span>
         </div>
       ) : data.businesses.length === 0 ? (
-        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <Building className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-bold text-foreground text-base">No Businesses Found</h3>
           <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or verify registration timeline.</p>
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl overflow-hidden">
+          <div className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-border bg-background/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <tr className="border-b border-border bg-background/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     <th className="px-6 py-4">Company Name</th>
                     <th className="px-6 py-4">Account Owner</th>
                     <th className="px-6 py-4">Created Date</th>
@@ -264,7 +264,7 @@ export default function BusinessesList() {
                           </div>
                           <div>
                             <span className="block font-bold text-foreground text-sm">{org.name}</span>
-                            <span className="block text-[10px] text-muted-foreground font-mono">slug: {org.slug}</span>
+                            <span className="block text-[11px] text-muted-foreground font-mono">slug: {org.slug}</span>
                           </div>
                         </div>
                       </td>
@@ -273,7 +273,7 @@ export default function BusinessesList() {
                           <User className="h-3.5 w-3.5 text-muted-foreground" />
                           <div>
                             <span className="block text-foreground">{org.owner?.name}</span>
-                            <span className="block text-[10px] text-muted-foreground">{org.owner?.email}</span>
+                            <span className="block text-[11px] text-muted-foreground">{org.owner?.email}</span>
                           </div>
                         </div>
                       </td>
@@ -282,7 +282,7 @@ export default function BusinessesList() {
                       </td>
                       <td className="px-6 py-4">
                         <span className="block text-muted-foreground font-mono">{org.staffCount} Staff Members</span>
-                        <span className="block text-[10px] text-muted-foreground font-mono">{org.transactionsCount} Checkouts</span>
+                        <span className="block text-[11px] text-muted-foreground font-mono">{org.transactionsCount} Checkouts</span>
                       </td>
                       <td className="px-6 py-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                         {formatCurrency(org.gmv)}
@@ -290,7 +290,7 @@ export default function BusinessesList() {
                       <td className="px-6 py-4">
                         <Badge
                           variant="outline"
-                          className={`border-none font-bold uppercase tracking-wider text-[10px] ${
+                          className={`border-none font-bold uppercase tracking-wider text-[11px] ${
                             org.status === "active"
                               ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
                               : org.status === "trialing"
@@ -377,7 +377,7 @@ export default function BusinessesList() {
 
       {/* Suspension Reasons Dialog */}
       <Dialog open={showSuspensionDialog} onOpenChange={setShowSuspensionDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-2xl p-6">
           <DialogHeader className="space-y-3">
             <div className="mx-auto w-12 h-12 bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 rounded-2xl flex items-center justify-center">
               <Ban className="h-6 w-6 text-rose-600 dark:text-rose-400 animate-pulse" />
@@ -392,7 +392,7 @@ export default function BusinessesList() {
 
           <div className="space-y-4 my-4">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suspension Reason Code</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Suspension Reason Code</Label>
               <Select value={suspensionReason} onValueChange={setSuspensionReason}>
                 <SelectTrigger className="bg-background/60 border-border text-foreground rounded-xl">
                   <SelectValue />
@@ -409,7 +409,7 @@ export default function BusinessesList() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Compliance & Audit Notes</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Compliance & Audit Notes</Label>
               <Textarea
                 placeholder="Provide detailed context for this administrative override..."
                 className="bg-background/60 border-border text-foreground rounded-xl min-h-[90px] focus:border-rose-500/80 focus:ring-rose-500/20"

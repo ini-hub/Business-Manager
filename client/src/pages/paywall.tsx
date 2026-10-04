@@ -69,7 +69,7 @@ function SwitchBusinessPanel({ currentBusinessId }: { currentBusinessId: string 
               <Button
                 size="sm"
                 variant="outline"
-                className="gap-1.5"
+                className="gap-2"
                 disabled={switchMutation.isPending}
                 onClick={() => switchMutation.mutate(org.id)}
                 data-testid={`button-switch-business-${org.id}`}
@@ -104,7 +104,7 @@ export function Paywall({ business }: { business: Business | null | undefined })
           <div className="rounded-full bg-destructive/10 p-3">
             <Lock className="h-6 w-6 text-destructive" />
           </div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-[26px] font-bold">
             {isNonPayment ? "Your subscription payment failed" : "This account has been suspended"}
           </h1>
           <p className="text-muted-foreground max-w-md">

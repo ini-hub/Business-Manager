@@ -83,11 +83,11 @@ export function GlobalSearch() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted/50 rounded-md border border-input hover:bg-muted transition-colors w-full max-w-[200px]"
+        className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50 rounded-md border border-input hover:bg-muted transition-colors w-full max-w-[200px]"
       >
         <Search className="h-3 w-3" />
         <span>Search...</span>
-        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100 ml-auto">
+        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-2 font-mono text-[11px] font-medium text-muted-foreground opacity-100 ml-auto">
           <span className="text-xs">⌘</span>K
         </kbd>
       </button>
@@ -114,9 +114,9 @@ export function GlobalSearch() {
                 >
                   <Users className="mr-2 h-4 w-4 text-muted-foreground" />
                   <span className={c.isArchived ? "text-muted-foreground" : undefined}>{c.name}</span>
-                  <Badge variant="outline" className="ml-2 text-[10px]">{c.customerNumber}</Badge>
+                  <Badge variant="outline" className="ml-2 text-[11px]">{c.customerNumber}</Badge>
                   {c.isArchived && (
-                    <Badge className="ml-1 text-[10px] bg-muted text-muted-foreground">Archived</Badge>
+                    <Badge className="ml-1 text-[11px] bg-muted text-muted-foreground">Archived</Badge>
                   )}
                   {c.mobileNumber && (
                     <span className="ml-2 text-xs text-muted-foreground">{c.mobileNumber}</span>
@@ -176,7 +176,7 @@ export function GlobalSearch() {
 
 function Badge({ children, variant, className }: any) {
   return (
-    <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold ${variant === 'outline' ? 'border border-input' : ''} ${className}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${variant === 'outline' ? 'border border-input' : ''} ${className}`}>
       {children}
     </span>
   );

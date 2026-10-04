@@ -194,7 +194,7 @@ export default function AnnouncementsManager() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Platform Announcements</h1>
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Announcements</h1>
           <p className="text-muted-foreground text-sm mt-1">Broadcast high-impact system alert banners or dispatch simulated informational email campaigns.</p>
         </div>
         {canManage && activeTab === "banners" && (
@@ -213,11 +213,11 @@ export default function AnnouncementsManager() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="bg-background/60 border border-border/80 rounded-2xl p-1 mb-6">
-          <TabsTrigger value="banners" className="rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="banners" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
             <Megaphone className="h-4 w-4 mr-2" />
             Banner Broadcasts
           </TabsTrigger>
-          <TabsTrigger value="email" className="rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="email" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
             <Mail className="h-4 w-4 mr-2" />
             Simulated Email Broadcaster
           </TabsTrigger>
@@ -235,7 +235,7 @@ export default function AnnouncementsManager() {
               <span>Failed to fetch active announcements from backend ledger.</span>
             </div>
           ) : listData.announcements.length === 0 ? (
-            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <Megaphone className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">No Announcements Broadcasted</h3>
               <p className="text-xs text-muted-foreground mt-1">Initialize alert banners for system maintenance or software updates.</p>
@@ -249,18 +249,18 @@ export default function AnnouncementsManager() {
                 else if (ann.type === "update") badgeColor = "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400";
 
                 return (
-                  <Card key={ann.id} className="bg-card/40 border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl flex flex-col md:flex-row items-stretch">
+                  <Card key={ann.id} className="bg-card/40 border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl flex flex-col md:flex-row items-stretch">
                     <div className="p-6 flex-1 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className={`border-none text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md ${badgeColor}`}>
+                          <Badge variant="outline" className={`border-none text-[11px] font-bold uppercase py-0.5 px-2 rounded-md ${badgeColor}`}>
                             {ann.type}
                           </Badge>
-                          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground text-[9px] py-0.5 px-2 rounded-md font-semibold">
+                          <Badge variant="outline" className="border-border bg-background/60 text-muted-foreground text-[11px] py-0.5 px-2 rounded-md font-semibold">
                             Scope: {ann.target === "specific_org" ? `Org (${ann.targetOrgId})` : ann.target}
                           </Badge>
                           {ann.dismissible && (
-                            <Badge variant="outline" className="border-none bg-muted text-muted-foreground text-[9px] py-0.5 px-2 rounded-md">
+                            <Badge variant="outline" className="border-none bg-muted text-muted-foreground text-[11px] py-0.5 px-2 rounded-md">
                               Dismissible
                             </Badge>
                           )}
@@ -278,19 +278,19 @@ export default function AnnouncementsManager() {
                         )}
                       </div>
 
-                      <h3 className="text-base font-extrabold text-foreground font-outfit">{ann.title}</h3>
+                      <h3 className="text-base font-bold text-foreground">{ann.title}</h3>
                       <p className="text-muted-foreground text-xs leading-relaxed font-semibold">{ann.message}</p>
 
-                      <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-x-6 gap-y-2 text-[10px] text-muted-foreground">
-                        <div className="flex items-center gap-1.5 font-medium">
+                      <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-2 font-medium">
                           <User className="h-3.5 w-3.5" />
                           <span>Author: {ann.createdBy || "System"}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 font-medium">
+                        <div className="flex items-center gap-2 font-medium">
                           <Clock className="h-3.5 w-3.5" />
                           <span>From: {new Date(ann.showFrom).toLocaleDateString()}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 font-medium">
+                        <div className="flex items-center gap-2 font-medium">
                           <Clock className="h-3.5 w-3.5" />
                           <span>Until: {new Date(ann.showUntil).toLocaleDateString()}</span>
                         </div>
@@ -305,14 +305,14 @@ export default function AnnouncementsManager() {
 
         {/* 2. EMAIL TAB */}
         <TabsContent value="email" className="max-w-2xl animate-in fade-in duration-300">
-          <Card className="bg-card/40 border border-border/80 rounded-3xl shadow-xl overflow-hidden">
+          <Card className="bg-card/40 border border-border/80 rounded-2xl shadow-xl overflow-hidden">
             <CardHeader className="bg-background/20 p-6 border-b border-border/40">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-violet-100 dark:bg-violet-950/40 text-violet-800 dark:text-violet-400">
+                <div className="p-3 rounded-xl bg-violet-100 dark:bg-violet-950/40 text-violet-800 dark:text-violet-400">
                   <Mail className="h-5 w-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-extrabold text-foreground font-outfit">Simulated Email Broadcast</CardTitle>
+                  <CardTitle className="text-base font-bold text-foreground">Simulated Email Broadcast</CardTitle>
                   <CardDescription className="text-xs text-muted-foreground">
                     Compile message details to log or simulate dispatching a HTML newsletter directly to your merchant segments.
                   </CardDescription>
@@ -321,8 +321,8 @@ export default function AnnouncementsManager() {
             </CardHeader>
             <CardContent className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Target Merchant Segment</Label>
+                <div className="space-y-2">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Target Merchant Segment</Label>
                   <Select value={emailTarget} onValueChange={setEmailTarget}>
                     <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                       <SelectValue />
@@ -336,8 +336,8 @@ export default function AnnouncementsManager() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Broadcast Subject</Label>
+                <div className="space-y-2">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Broadcast Subject</Label>
                   <Input
                     placeholder="e.g. Schedule Maintenance: Server Upgrade on Sunday"
                     className="bg-background border-border text-foreground rounded-xl"
@@ -347,8 +347,8 @@ export default function AnnouncementsManager() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">HTML / Text Email Body</Label>
+              <div className="space-y-2">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">HTML / Text Email Body</Label>
                 <Textarea
                   placeholder="Dear Store Owners, We are updating our database engines..."
                   className="bg-background border-border text-foreground rounded-xl min-h-[160px] font-semibold text-xs leading-relaxed"
@@ -358,7 +358,7 @@ export default function AnnouncementsManager() {
               </div>
 
               <div className="pt-4 border-t border-border/40 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-medium">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-medium">
                   <Layers className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                   <span>Emails will be logged inside database simulated outputs.</span>
                 </div>
@@ -387,19 +387,19 @@ export default function AnnouncementsManager() {
 
       {/* Creation Modal for Banner */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-2xl p-6">
           <DialogHeader className="space-y-3">
-            <DialogTitle className="text-lg font-bold text-foreground font-outfit">Create Broadcast Banner</DialogTitle>
+            <DialogTitle className="text-lg font-bold text-foreground">Create Broadcast Banner</DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
               Mount an in-app banner immediately visible in the merchant dashboards.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 my-4">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Announcement Title</Label>
-                <span className="text-[9px] text-muted-foreground">{bannerTitle.length}/80</span>
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Announcement Title</Label>
+                <span className="text-[11px] text-muted-foreground">{bannerTitle.length}/80</span>
               </div>
               <Input
                 placeholder="e.g. Scheduled Network Operations"
@@ -410,10 +410,10 @@ export default function AnnouncementsManager() {
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Banner Alert Message</Label>
-                <span className="text-[9px] text-muted-foreground">{bannerMessage.length}/150</span>
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Banner Alert Message</Label>
+                <span className="text-[11px] text-muted-foreground">{bannerMessage.length}/150</span>
               </div>
               <Textarea
                 placeholder="Alert text content visible to users..."
@@ -425,8 +425,8 @@ export default function AnnouncementsManager() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Visual Severity</Label>
+              <div className="space-y-2">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Visual Severity</Label>
                 <Select value={bannerType} onValueChange={setBannerType}>
                   <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                     <SelectValue />
@@ -440,8 +440,8 @@ export default function AnnouncementsManager() {
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Target Segment</Label>
+              <div className="space-y-2">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Target Segment</Label>
                 <Select value={bannerTarget} onValueChange={setBannerTarget}>
                   <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                     <SelectValue />
@@ -457,8 +457,8 @@ export default function AnnouncementsManager() {
             </div>
 
             {bannerTarget === "specific_org" && (
-              <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-250">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Organisation ID (UUID)</Label>
+              <div className="space-y-2 animate-in slide-in-from-top-2 duration-250">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Organisation ID (UUID)</Label>
                 <Input
                   placeholder="e.g. 748b9a3d-..."
                   className="bg-background border-border text-foreground rounded-xl font-mono text-xs"
@@ -469,8 +469,8 @@ export default function AnnouncementsManager() {
             )}
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Display From (Optional)</Label>
+              <div className="space-y-2">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Display From (Optional)</Label>
                 <Input
                   type="datetime-local"
                   className="bg-background border-border text-foreground rounded-xl text-xs"
@@ -479,8 +479,8 @@ export default function AnnouncementsManager() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Display Until (Optional)</Label>
+              <div className="space-y-2">
+                <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Display Until (Optional)</Label>
                 <Input
                   type="datetime-local"
                   className="bg-background border-border text-foreground rounded-xl text-xs"
@@ -493,7 +493,7 @@ export default function AnnouncementsManager() {
             <div className="flex items-center justify-between p-3 bg-background/60 rounded-2xl border border-border">
               <div className="space-y-0.5">
                 <Label className="text-xs font-bold text-foreground">Merchant Dismissible</Label>
-                <span className="block text-[9px] text-muted-foreground">Allow users to permanently close this notification.</span>
+                <span className="block text-[11px] text-muted-foreground">Allow users to permanently close this notification.</span>
               </div>
               <Switch checked={bannerDismissible} onCheckedChange={setBannerDismissible} />
             </div>

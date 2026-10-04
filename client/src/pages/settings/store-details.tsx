@@ -1,6 +1,5 @@
 import { Store } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
 import { StoreDetailsSection } from "./components/store-details";
 import { NoStoreSelected } from "./components/no-store-selected";
@@ -24,11 +23,7 @@ export default function SettingsStoreDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Store Details"
-        description="Receipt branding, low-stock threshold, payroll defaults, and loyalty configuration."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="Store details" description={`Receipts, stock alerts, staff pay defaults and loyalty for ${currentStore && currentStore.id !== "all" ? currentStore.name : "this store"}.`} scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={Store} action="configure receipt branding and payroll defaults" />
       ) : (

@@ -1,8 +1,7 @@
 import { useMemo } from "react";
+import { BackButton } from "@/components/back-button";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { ArrowLeft, Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Users, Clock, Percent, ArrowUpRight, Award, ShoppingBag, Wrench, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -271,12 +270,7 @@ export default function CustomerInsights() {
         description="Acquisition, retention and visit patterns"
         compact
         actions={
-          <Button variant="outline" asChild data-testid="button-back-to-customers">
-            <Link href="/customers">
-              <ArrowLeft className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">Customers</span>
-            </Link>
-          </Button>
+          <BackButton label="Customers" href="/customers" data-testid="button-back-to-customers" />
         }
       />
       <div className="space-y-6">
@@ -328,7 +322,7 @@ export default function CustomerInsights() {
                 <CardHeader>
                   <CardTitle className="text-sm font-semibold flex items-center justify-between">
                     <span>Acquisition vs Retention Over Time</span>
-                    <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">Last 6 Months</Badge>
+                    <Badge variant="outline" className="text-[11px] font-normal text-muted-foreground">Last 6 Months</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -352,7 +346,7 @@ export default function CustomerInsights() {
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
                               return (
-                                <div className="bg-background/95 backdrop-blur-md border border-border/80 p-3 rounded-lg shadow-xl text-xs space-y-1.5 font-sans min-w-[150px]">
+                                <div className="bg-background/95 backdrop-blur-md border border-border/80 p-3 rounded-lg shadow-xl text-xs space-y-2 font-sans min-w-[150px]">
                                   <p className="font-semibold text-foreground border-b border-border/60 pb-1 mb-1">{label}</p>
                                   {payload.map((item: any, idx: number) => (
                                     <p key={idx} className="flex justify-between gap-4 font-medium" style={{ color: item.color }}>
@@ -394,9 +388,9 @@ export default function CustomerInsights() {
                         const maxVal = topAcquisition[0]?.count || 1;
                         const percentage = Math.round((item.count / maxVal) * 100);
                         return (
-                          <div key={idx} className="space-y-1.5">
+                          <div key={idx} className="space-y-2">
                             <div className="flex justify-between text-xs font-medium">
-                              <span className="truncate flex items-center gap-1.5">
+                              <span className="truncate flex items-center gap-2">
                                 {item.type === "service" ? (
                                   <Wrench className="h-3.5 w-3.5 text-indigo-400" />
                                 ) : (
@@ -433,9 +427,9 @@ export default function CustomerInsights() {
                         const maxVal = topRetention[0]?.count || 1;
                         const percentage = Math.round((item.count / maxVal) * 100);
                         return (
-                          <div key={idx} className="space-y-1.5">
+                          <div key={idx} className="space-y-2">
                             <div className="flex justify-between text-xs font-medium">
-                              <span className="truncate flex items-center gap-1.5">
+                              <span className="truncate flex items-center gap-2">
                                 {item.type === "service" ? (
                                   <Wrench className="h-3.5 w-3.5 text-emerald-400" />
                                 ) : (

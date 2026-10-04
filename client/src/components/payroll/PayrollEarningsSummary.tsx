@@ -122,20 +122,20 @@ export function PayrollEarningsSummary({
       {/* Narrow: the sum as a ledger */}
       <dl className="mt-4 md:hidden divide-y text-sm">
         {parts.map(p => (
-          <div key={p.label} className="flex items-start justify-between gap-3 py-2.5">
+          <div key={p.label} className="flex items-start justify-between gap-3 py-3">
             <div><dt className="font-medium">{p.label}</dt><dd className="text-xs text-muted-foreground">{p.sub}</dd></div>
             <dd className="font-semibold tabular-nums">{fmtCur(p.value)}</dd>
           </div>
         ))}
-        <div className="flex items-start justify-between gap-3 py-2.5">
+        <div className="flex items-start justify-between gap-3 py-3">
           <div><dt className="font-semibold">Gross pay</dt><dd className="text-xs text-muted-foreground">Before deductions</dd></div>
           <dd className="font-bold tabular-nums">{fmtCur(grossPay)}</dd>
         </div>
-        <div className="flex items-start justify-between gap-3 py-2.5">
+        <div className="flex items-start justify-between gap-3 py-3">
           <div><dt className="font-medium">Deductions</dt><dd className="text-xs text-muted-foreground">{itemsNote}</dd></div>
           <dd className={`font-semibold tabular-nums ${totalDeductions > 0 ? "text-destructive" : ""}`}>{totalDeductions > 0 ? "−" : ""}{fmtCur(totalDeductions)}</dd>
         </div>
-        <div className="flex items-center justify-between gap-3 py-2.5">
+        <div className="flex items-center justify-between gap-3 py-3">
           <dt className="font-bold">Net pay</dt>
           <dd className="font-bold tabular-nums text-primary">{fmtCur(takeHomePay)}</dd>
         </div>

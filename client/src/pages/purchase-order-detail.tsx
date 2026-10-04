@@ -84,7 +84,7 @@ function Stepper({ steps }: { steps: Step[] }) {
   return (
     <>
       {/* Phone: slim progress bars */}
-      <div className="grid grid-cols-3 gap-1.5 sm:hidden" role="list">
+      <div className="grid grid-cols-3 gap-2 sm:hidden" role="list">
         {steps.map((s) => (
           <div key={s.key} role="listitem" aria-current={s.state === "current" ? "step" : undefined}>
             <div className={`h-1 rounded-full ${s.state === "todo" ? "bg-muted" : "bg-primary"}`} />
@@ -235,7 +235,7 @@ export default function PurchaseOrderDetailPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl sm:text-3xl font-bold font-mono tracking-tight">{po.poNumber}</h1>
+              <h1 className="text-[26px] sm:text-[26px] font-bold font-mono tracking-tight">{po.poNumber}</h1>
               <Badge variant="secondary" className={STATUS_STYLE[po.status] ?? ""}>{PO_STATUS_LABEL[po.status] ?? po.status}</Badge>
             </div>
             <p className="hidden sm:block text-sm text-muted-foreground mt-1">

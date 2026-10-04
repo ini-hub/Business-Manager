@@ -165,7 +165,7 @@ export default function MyPayrollPage() {
       {summary?.period?.id && (
         <div className="flex items-center justify-end gap-4">
           <Button
-            variant="ghost" size="sm" className="h-8 text-xs gap-1.5"
+            variant="ghost" size="sm" className="h-8 text-xs gap-2"
             disabled={downloadingId === summary.period.id}
             onClick={() => handleDownload(summary.period.id)}
           >
@@ -260,11 +260,11 @@ export default function MyPayrollPage() {
                       {/* What was actually paid out on the day. */}
                       <div className="font-bold text-sm">{formatCurrency(item.takeHomePay ?? item.netPay)}</div>
                       {(item.deductionsTotal ?? 0) > 0 && (
-                        <div className="text-[10px] text-muted-foreground">
+                        <div className="text-[11px] text-muted-foreground">
                           gross {formatCurrency(item.grossPay ?? item.netPay)} − {formatCurrency(item.deductionsTotal)}
                         </div>
                       )}
-                      <span className="text-[10px] text-green-600 font-medium">PAID</span>
+                      <span className="text-[11px] text-green-600 font-medium">PAID</span>
                     </div>
                     <IconButton
                       label="Download payslip PDF"

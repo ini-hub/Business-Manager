@@ -302,7 +302,7 @@ export default function AddExpensePage() {
                     name="date"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-sm font-medium flex items-center gap-1.5">
+                        <FormLabel className="text-sm font-medium flex items-center gap-2">
                           <Calendar className="h-3.5 w-3.5 text-muted-foreground" /> Date
                         </FormLabel>
                         <FormControl>
@@ -372,14 +372,14 @@ export default function AddExpensePage() {
 
                 {/* Multi-select product/service linker */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium flex items-center gap-1.5">
+                  <label className="text-sm font-medium flex items-center gap-2">
                     <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
                     Related Services / Products <span className="text-muted-foreground font-normal">(Optional)</span>
                   </label>
 
                   {/* Selected chips */}
                   {linkedProductIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-1">
+                    <div className="flex flex-wrap gap-2 mb-1">
                       {linkedProductIds.map(pid => {
                         const p = productGroups.find(g => g.id === pid);
                         return (
@@ -421,7 +421,7 @@ export default function AddExpensePage() {
                   </Select>
 
                   {linkedProductIds.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
+                    <div className="space-y-2 pt-1">
                       <p className="text-xs font-medium text-muted-foreground">Allocation driver</p>
                       <div className="flex gap-3">
                         {(["count", "revenue"] as const).map(d => (
@@ -429,7 +429,7 @@ export default function AddExpensePage() {
                             key={d}
                             type="button"
                             onClick={() => setAllocationDriver(d)}
-                            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-full border transition-colors ${
                               allocationDriver === d
                                 ? "bg-primary text-primary-foreground border-primary"
                                 : "border-border text-muted-foreground hover:border-primary/50"
@@ -451,7 +451,7 @@ export default function AddExpensePage() {
                   name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium flex items-center gap-1.5">
+                      <FormLabel className="text-sm font-medium flex items-center gap-2">
                         <FileText className="h-3.5 w-3.5 text-muted-foreground" /> Additional Notes
                       </FormLabel>
                       <FormControl>
@@ -500,7 +500,7 @@ export default function AddExpensePage() {
                     <CardDescription>Allocate how the total amount was distributed.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4 pt-6">
-                    <div className="flex justify-between items-center text-xs font-semibold p-2.5 bg-muted rounded border border-border/60">
+                    <div className="flex justify-between items-center text-xs font-semibold p-3 bg-muted rounded border border-border/60">
                       <span>Live Outstanding</span>
                       {(() => {
                         const totalAmount = form.watch("amount") || 0;
@@ -534,7 +534,7 @@ export default function AddExpensePage() {
                                 placeholder="0"
                                 value={field.value === 0 ? "" : field.value ?? ""}
                                 onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                                className="h-9 text-sm font-mono focus-visible:ring-primary"
+                                className="h-10 text-sm font-mono focus-visible:ring-primary"
                               />
                             </FormControl>
                             <FormMessage className="text-[11px]" />
@@ -554,7 +554,7 @@ export default function AddExpensePage() {
                                 placeholder="0"
                                 value={field.value === 0 ? "" : field.value ?? ""}
                                 onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                                className="h-9 text-sm font-mono focus-visible:ring-primary"
+                                className="h-10 text-sm font-mono focus-visible:ring-primary"
                               />
                             </FormControl>
                             <FormMessage className="text-[11px]" />
@@ -574,7 +574,7 @@ export default function AddExpensePage() {
                                 placeholder="0"
                                 value={field.value === 0 ? "" : field.value ?? ""}
                                 onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                                className="h-9 text-sm font-mono focus-visible:ring-primary"
+                                className="h-10 text-sm font-mono focus-visible:ring-primary"
                               />
                             </FormControl>
                             <FormMessage className="text-[11px]" />

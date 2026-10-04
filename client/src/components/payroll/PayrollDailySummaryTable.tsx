@@ -67,24 +67,24 @@ export function PayrollDailySummaryTable({
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
-                  <th className="px-5 py-2.5 text-left">Date</th>
-                  <th className="px-3 py-2.5 text-left">Day</th>
-                  <th className="px-3 py-2.5 text-right">Transport</th>
-                  <th className="px-3 py-2.5 text-left">Services</th>
-                  <th className="px-5 py-2.5 text-right">Revenue share</th>
+                  <th className="px-5 py-3 text-left">Date</th>
+                  <th className="px-3 py-3 text-left">Day</th>
+                  <th className="px-3 py-3 text-right">Transport</th>
+                  <th className="px-3 py-3 text-left">Services</th>
+                  <th className="px-5 py-3 text-right">Revenue share</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {visible.map(d => (
                   <tr key={d.date} className="hover:bg-muted/30">
-                    <td className="px-5 py-2.5 whitespace-nowrap">{format(parseISO(d.date), "EEE d MMM")}</td>
-                    <td className="px-3 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${DAY_STYLE[d.dayType]}`}>{d.dayType}</span></td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums ${money(d.transport)}`}>{fmtCur(d.transport)}</td>
-                    <td className={`px-3 py-2.5 ${d.servicesWorked && d.servicesWorked !== "—" ? "" : "text-muted-foreground"}`}>
+                    <td className="px-5 py-3 whitespace-nowrap">{format(parseISO(d.date), "EEE d MMM")}</td>
+                    <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${DAY_STYLE[d.dayType]}`}>{d.dayType}</span></td>
+                    <td className={`px-3 py-3 text-right tabular-nums ${money(d.transport)}`}>{fmtCur(d.transport)}</td>
+                    <td className={`px-3 py-3 ${d.servicesWorked && d.servicesWorked !== "—" ? "" : "text-muted-foreground"}`}>
                       {d.servicesWorked && d.servicesWorked !== "—" ? d.servicesWorked : "No services"}
                       {d.isLate && <span className="ml-2 text-xs font-medium text-destructive">Late{d.lateDeduction > 0 ? ` (−${fmtCur(d.lateDeduction)})` : ""}</span>}
                     </td>
-                    <td className={`px-5 py-2.5 text-right tabular-nums ${d.revenueShare > 0 ? "font-semibold" : "text-muted-foreground"}`}>{fmtCur(d.revenueShare)}</td>
+                    <td className={`px-5 py-3 text-right tabular-nums ${d.revenueShare > 0 ? "font-semibold" : "text-muted-foreground"}`}>{fmtCur(d.revenueShare)}</td>
                   </tr>
                 ))}
               </tbody>

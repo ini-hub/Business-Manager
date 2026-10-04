@@ -171,7 +171,7 @@ function MeasureSelect({
   measures: MeasureDef[];
 }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="h-8 w-[170px] text-xs">

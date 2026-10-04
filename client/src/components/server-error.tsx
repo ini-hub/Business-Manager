@@ -70,7 +70,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
           </div>
           
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-b from-foreground to-foreground/80 bg-clip-text">
+            <h1 className="text-[26px] font-bold tracking-tight bg-gradient-to-b from-foreground to-foreground/80 bg-clip-text">
               Something went wrong
             </h1>
             <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
@@ -81,7 +81,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
           {/* Interactive, copyable error details container */}
           <div className="bg-muted/30 hover:bg-muted/40 rounded-xl p-4 text-left border border-border/40 relative group transition-colors duration-200">
             <div className="flex flex-col mb-3 pb-2 border-b border-border/40">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
                 Troubleshooting Code
               </span>
               <span className="text-sm font-mono font-bold text-destructive mt-0.5" data-testid="troubleshooting-code">
@@ -91,7 +91,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
 
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-              <div className="space-y-1.5 w-full pr-8">
+              <div className="space-y-2 w-full pr-8">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
                   System Diagnostics
                 </p>
@@ -103,7 +103,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
             {/* Super premium absolute Copy Button */}
             <button
               onClick={handleCopy}
-              className="absolute right-3 top-3 p-1.5 rounded-lg border border-border/50 bg-background/50 hover:bg-background text-muted-foreground hover:text-foreground transition-all duration-200 cursor-pointer"
+              className="absolute right-3 top-3 p-2 rounded-lg border border-border/50 bg-background/50 hover:bg-background text-muted-foreground hover:text-foreground transition-all duration-200 cursor-pointer"
               title="Copy diagnostics to clipboard"
             >
               {copied ? (
@@ -115,7 +115,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
           </div>
 
           {/* Support Helpline Card */}
-          <div className="flex items-center gap-3 p-3.5 bg-primary/5 border border-primary/10 rounded-xl text-left animate-in fade-in duration-300">
+          <div className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/10 rounded-xl text-left animate-in fade-in duration-300">
             <Mail className="h-5 w-5 text-primary shrink-0" />
             <div className="space-y-0.5">
               <p className="text-xs font-bold">Need Direct Assistance?</p>
@@ -127,7 +127,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
 
           {/* Premium Dynamic Action Buttons */}
           <div className="flex flex-col gap-2 pt-2">
-            <div className="flex flex-col gap-2.5 sm:flex-row justify-center">
+            <div className="flex flex-col gap-3 sm:flex-row justify-center">
               <Button 
                 variant="default" 
                 className="gap-2 font-medium px-5 shadow-sm group active:scale-[0.98] transition-transform duration-100 cursor-pointer flex-1"

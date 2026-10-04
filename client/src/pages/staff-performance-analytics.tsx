@@ -172,14 +172,14 @@ export default function StaffPerformanceAnalyticsPage() {
   const statusChip = (r: StaffRow) => {
     if (r.isNew) {
       return (
-        <Badge variant="outline" className="h-5 px-1.5 text-[10px] border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800">
+        <Badge variant="outline" className="h-5 px-2 text-[11px] border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800">
           New, {r.recorded} {r.recorded === 1 ? "day" : "days"} on record
         </Badge>
       );
     }
     if (r.absent >= ABSENT_CALLOUT_DAYS) {
       return (
-        <Badge variant="outline" className="h-5 px-1.5 text-[10px] border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800">
+        <Badge variant="outline" className="h-5 px-2 text-[11px] border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800">
           Absent {r.absent} days
         </Badge>
       );
@@ -191,7 +191,7 @@ export default function StaffPerformanceAnalyticsPage() {
     <th
       scope="col"
       aria-sort={tableSort.key === key ? (tableSort.dir === "desc" ? "descending" : "ascending") : "none"}
-      className={cn("px-3 py-2.5 font-medium whitespace-nowrap", align === "right" ? "text-right" : "text-left")}
+      className={cn("px-3 py-3 font-medium whitespace-nowrap", align === "right" ? "text-right" : "text-left")}
     >
       <button
         type="button"
@@ -247,7 +247,7 @@ export default function StaffPerformanceAnalyticsPage() {
             <div
               role="tablist"
               aria-label="Metric"
-              className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:rounded-lg lg:bg-muted lg:p-1 lg:pb-1"
+              className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:rounded-lg lg:bg-muted lg:p-1 lg:pb-1"
             >
               {METRICS.map((m) => (
                 <button
@@ -258,7 +258,7 @@ export default function StaffPerformanceAnalyticsPage() {
                   onClick={() => setSelectedMetric(m.key)}
                   data-testid={`metric-${m.key}`}
                   className={cn(
-                    "shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors lg:rounded-md lg:border-transparent",
+                    "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium transition-colors lg:rounded-md lg:border-transparent",
                     selectedMetric === m.key
                       ? "border-primary bg-primary text-primary-foreground lg:bg-background lg:text-foreground lg:shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -292,7 +292,7 @@ export default function StaffPerformanceAnalyticsPage() {
                   const pct = v && maxValue > 0 ? Math.max((v / maxValue) * 100, 2) : 0;
                   const sample = (selectedMetric === "attendance" || selectedMetric === "perDay") && r.isNew;
                   return (
-                    <li key={r.id} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1.5 lg:grid-cols-[180px_1fr_110px]">
+                    <li key={r.id} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 lg:grid-cols-[180px_1fr_110px]">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">{r.name}</p>
                         {sample && (
@@ -330,7 +330,7 @@ export default function StaffPerformanceAnalyticsPage() {
               <table className="w-full min-w-[640px] text-sm">
                 <thead className="border-y bg-muted/40 text-xs text-muted-foreground">
                   <tr>
-                    <th scope="col" className="px-4 py-2.5 text-left font-medium">Staff</th>
+                    <th scope="col" className="px-4 py-3 text-left font-medium">Staff</th>
                     {sortHeader("revenue", "Revenue")}
                     {sortHeader("services", "Services")}
                     {sortHeader("products", "Products")}
@@ -379,7 +379,7 @@ export default function StaffPerformanceAnalyticsPage() {
               </table>
             </div>
           )}
-          <p className="flex items-center gap-1.5 border-t px-4 py-3 text-xs text-muted-foreground">
+          <p className="flex items-center gap-2 border-t px-4 py-3 text-xs text-muted-foreground">
             <BarChart3 className="h-3.5 w-3.5 shrink-0" />
             Revenue per day present is revenue divided by days present, so staff with different start dates compare fairly.
           </p>

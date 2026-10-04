@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
@@ -50,7 +51,7 @@ import { Badge } from "@/components/ui/badge";
 const CustomerNameCell = ({ customer }: { customer: Customer }) => {
   const presenter = new CustomerPresenter(customer);
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3">
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-xs font-semibold">
           {getCustomerInitials(customer.name)}
@@ -281,7 +282,7 @@ export default function Customers() {
       key: "storeName",
       header: "Store",
       render: (customer: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {customer.storeName || "Global"}
         </Badge>
       ),
@@ -388,7 +389,7 @@ export default function Customers() {
       key: "storeName",
       header: "Store",
       render: (customer: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {customer.storeName || "Global"}
         </Badge>
       ),
@@ -601,10 +602,7 @@ export default function Customers() {
               />
             </div>
             {user?.role !== "staff" && (
-              <Button onClick={openCreateForm} aria-label="Add Customer" data-testid="button-add-customer">
-                <Plus className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">Add Customer</span>
-              </Button>
+              <AddButton label="Add Customer" onClick={openCreateForm} data-testid="button-add-customer" />
             )}
           </div>
         }

@@ -1,6 +1,5 @@
 import { CreditCard } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
 import { StoreIntegrationsSection } from "./components/store-integrations";
 import { NoStoreSelected } from "./components/no-store-selected";
@@ -19,11 +18,7 @@ export default function SettingsPaymentIntegrationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Payment Integrations"
-        description="Connect Flutterwave, Stripe, or Paystack for this store's own checkout."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="Payments" description="Connect Flutterwave, Stripe or Paystack for this store's own checkout." scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={CreditCard} action="configure payment integrations" />
       ) : (

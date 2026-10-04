@@ -671,7 +671,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
       <div className="space-y-4">
         {searchable && (
           <div className="relative max-w-sm">
-            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-10 w-full" />
           </div>
         )}
         <div className="rounded-md border">
@@ -738,7 +738,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                   setSearchTerm("");
                   setCurrentPage(1);
                 }}
-                className="pl-9 h-9"
+                className="pl-9 h-10"
               />
             </div>
           )}
@@ -828,7 +828,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
           {hasActiveFilters && (
             <div className="flex flex-wrap items-center gap-2">
               {activeFilterChips(filterConfigs, activeFilters).map((chip) => (
-                <span key={chip.key} className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium">
+                <span key={chip.key} className="inline-flex items-center gap-1 h-7 pl-3 pr-2 rounded-full border border-input bg-muted/40 text-xs font-medium">
                   {chip.label}
                   <button
                     type="button"
@@ -849,7 +849,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
       )}
 
       {multiselect && shouldShowSelectAllBanner(asSelectionState(), currentPageIds, sortedData.length) && (
-        <div className="flex items-center justify-center gap-1.5 rounded-md bg-primary/10 text-primary text-xs font-medium px-3 py-2" data-testid="banner-select-all">
+        <div className="flex items-center justify-center gap-2 rounded-md bg-primary/10 text-primary text-xs font-medium px-3 py-2" data-testid="banner-select-all">
           {selectionMode === "all" ? (
             <>
               All {sortedData.length} {entityNoun ? pluralizeNoun(sortedData.length, entityNoun) : "records"} selected.{" "}
@@ -1037,12 +1037,12 @@ export function PolymorphicTable<T extends { id: string | number }>({
                   }}
                   className={cn(
                     "relative bg-card text-card-foreground border rounded-xl transition-all cursor-pointer group border-muted/80 min-w-0 overflow-hidden",
-                    useCompactGrid ? "p-3.5 hover-elevate" : "shadow-xs hover:border-primary/45 hover:shadow-md flex flex-col gap-3 p-4",
+                    useCompactGrid ? "p-4 hover-elevate" : "shadow-xs hover:border-primary/45 hover:shadow-md flex flex-col gap-3 p-4",
                     isSelected && "border-primary/50 bg-primary/5"
                   )}
                 >
                   {useCompactGrid ? (
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0">
                       {multiselect && (
                         <div
                           className="shrink-0"
@@ -1093,7 +1093,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                     <>
                       {/* Card Header */}
                       <div className="flex items-start justify-between gap-2 pr-8">
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0">
                           {multiselect && (
                             <div
                               className="shrink-0"
@@ -1168,7 +1168,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
             {mobileDetailItem && columns.map((col) => {
               if (col.key === "actions") return null;
               return (
-                <div key={col.key} className="flex justify-between gap-4 py-2.5 first:pt-0">
+                <div key={col.key} className="flex justify-between gap-4 py-3 first:pt-0">
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{col.header}</span>
                   <span className="text-xs font-bold text-foreground text-right">{formatCellValue(mobileDetailItem, col)}</span>
                 </div>
@@ -1185,7 +1185,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
             Showing {sortedData.length === 0 ? 0 : startIndex + 1} to {Math.min(startIndex + pageSizeState, sortedData.length)} of {sortedData.length} entries
           </p>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Rows:</span>
+            <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider">Rows:</span>
             <Select
               value={String(pageSizeState)}
               onValueChange={(val) => {

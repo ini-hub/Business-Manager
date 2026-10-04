@@ -69,7 +69,7 @@ export function GrainControl({
       </Select>
 
       {grain === "custom" && (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <Input
             type="number"
             min={1}

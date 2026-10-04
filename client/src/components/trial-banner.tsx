@@ -31,8 +31,8 @@ export function TrialBanner({ business }: { business: Business | null | undefine
         data-testid="link-trial-banner"
         className={
           isUrgent
-            ? "flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive hover:bg-destructive/20 transition-colors animate-pulse"
-            : "hidden sm:flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
+            ? "flex items-center gap-2 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive hover:bg-destructive/20 transition-colors animate-pulse"
+            : "hidden sm:flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
         }
       >
         {label}
@@ -45,7 +45,7 @@ export function TrialBanner({ business }: { business: Business | null | undefine
       <Link
         href="/settings/billing"
         data-testid="link-trial-banner"
-        className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors"
+        className="flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/80 transition-colors"
       >
         <span className="sm:hidden">Free plan</span>
         <span className="hidden sm:inline">You're on the free plan · Add features any time</span>

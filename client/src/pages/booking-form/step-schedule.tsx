@@ -64,7 +64,7 @@ function UpcomingStaffBookings({ storeId, staffId, excludeBookingId }: { storeId
       ) : upcoming.length === 0 ? (
         <p className="text-muted-foreground">No upcoming bookings. This staff member is free.</p>
       ) : (
-        <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+        <ul className="max-h-48 space-y-2 overflow-y-auto">
           {upcoming.map((b) => (
             <li key={b.id} className="flex items-center justify-between gap-2">
               <span>{format(new Date(b.scheduledAt), "EEE, d MMM · h:mm a")}</span>

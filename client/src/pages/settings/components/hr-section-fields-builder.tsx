@@ -139,9 +139,9 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
               <DialogContent>
                 <DialogHeader><DialogTitle>Add custom field</DialogTitle></DialogHeader>
                 <div className="space-y-3">
-                  <div className="space-y-1.5"><Label>Field key (machine name)</Label><Input value={form.fieldKey} onChange={(e) => setForm({ ...form, fieldKey: e.target.value })} placeholder="e.g. passport_number" /></div>
-                  <div className="space-y-1.5"><Label>Label</Label><Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g. Passport Number" /></div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2"><Label>Field key (machine name)</Label><Input value={form.fieldKey} onChange={(e) => setForm({ ...form, fieldKey: e.target.value })} placeholder="e.g. passport_number" /></div>
+                  <div className="space-y-2"><Label>Label</Label><Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="e.g. Passport Number" /></div>
+                  <div className="space-y-2">
                     <Label>Type</Label>
                     <Select value={form.fieldType} onValueChange={(v) => setForm({ ...form, fieldType: v as any })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -162,7 +162,7 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
         <CardContent className="divide-y">
           {reorderMode ? (
             reorderingFields.map((f, idx) => (
-              <div key={f.id} className="flex items-center justify-between py-2.5">
+              <div key={f.id} className="flex items-center justify-between py-3">
                 <div className="flex items-center gap-2">
                   <GripVertical className="h-4 w-4 text-muted-foreground" />
                   <div>
@@ -180,7 +180,7 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
               </div>
             ))
           ) : isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
-            <div key={f.id} className="flex items-center justify-between py-2.5">
+            <div key={f.id} className="flex items-center justify-between py-3">
               <div>
                 <p className="text-sm font-medium">{f.label} <span className="text-xs text-muted-foreground">({f.fieldType})</span></p>
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -189,8 +189,8 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">Required <Switch checked={f.isRequired} onCheckedChange={(v) => toggleField.mutate({ fieldId: f.id, isRequired: v })} /></label>
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">Enabled <Switch checked={f.isEnabled} onCheckedChange={(v) => toggleField.mutate({ fieldId: f.id, isEnabled: v })} /></label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">Required <Switch checked={f.isRequired} onCheckedChange={(v) => toggleField.mutate({ fieldId: f.id, isRequired: v })} /></label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">Enabled <Switch checked={f.isEnabled} onCheckedChange={(v) => toggleField.mutate({ fieldId: f.id, isEnabled: v })} /></label>
                 {!f.isSystemField && (
                   <Button size="icon" variant="ghost" onClick={() => deleteField.mutate(f.id)}>
                     <Trash2 className="h-4 w-4 text-destructive" />

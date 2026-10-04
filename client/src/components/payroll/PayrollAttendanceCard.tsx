@@ -23,7 +23,7 @@ export function PayrollAttendanceCard({
         {tiles.map(t => (
           <div key={t.label} className="rounded-lg bg-muted/50 p-3">
             <p className="text-xs text-muted-foreground">{t.label}</p>
-            <p className={`mt-1 text-xl font-bold tabular-nums ${t.tone}`}>{t.days} day{t.days === 1 ? "" : "s"}</p>
+            <p className={`mt-1 text-lg font-bold tabular-nums ${t.tone}`}>{t.days} day{t.days === 1 ? "" : "s"}</p>
             <p className="text-xs text-muted-foreground">{t.sub}</p>
           </div>
         ))}

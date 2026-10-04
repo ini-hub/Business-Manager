@@ -1,11 +1,10 @@
 import { useState } from "react";
+import { ActionButton } from "@/components/action-button";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { FeatureAddOns } from "@/components/billing/FeatureAddOns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,20 +54,11 @@ export default function BillingSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <SettingsPageHeader
         title="Billing"
         description="View your trial status, manage your plan, and update payment details."
-        actions={
-          <>
-            <BackToSettingsButton />
-            <Button variant="outline" asChild data-testid="link-payment-history">
-              <Link href="/settings/billing/payment-history">
-                <History className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">Payment history</span>
-              </Link>
-            </Button>
-          </>
-        }
+        scope="business"
+        actions={<ActionButton variant="outline" icon={History} label="Payment history" href="/settings/billing/payment-history" data-testid="link-payment-history" />}
       />
 
       <Card>

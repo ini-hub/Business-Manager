@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { BackButton } from "@/components/back-button";
+import { AddButton } from "@/components/add-button";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Plus, ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, FileText, RefreshCw } from "lucide-react";
+import { ClipboardList, AlertTriangle, AlertCircle, CheckCircle2, FileText, RefreshCw } from "lucide-react";
 import type { StockAudit, StockAuditItem, Staff } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -130,14 +132,8 @@ export default function InventoryAuditsPage() {
         compact
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setLocation("/inventory")} aria-label="Back to Inventory" data-testid="button-back-inventory">
-              <ArrowLeft className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">Inventory</span>
-            </Button>
-            <Button onClick={() => setLocation("/inventory/audits/new")} aria-label="New Stock Audit" data-testid="button-new-audit">
-              <Plus className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">New Stock Audit</span>
-            </Button>
+            <BackButton label="Inventory" href="/inventory" data-testid="button-back-inventory" />
+            <AddButton label="New Stock Audit" onClick={() => setLocation("/inventory/audits/new")} data-testid="button-new-audit" />
           </div>
         }
       />
@@ -156,7 +152,7 @@ export default function InventoryAuditsPage() {
             key: "storeName",
             header: "Store",
             render: (audit: any) => (
-              <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+              <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
                 {audit.storeName || "Global"}
               </Badge>
             ),
@@ -353,7 +349,7 @@ export default function InventoryAuditsPage() {
                     </span>
                   </div>
                   {auditDetail.notes && (
-                    <div className="col-span-2 space-y-1 pt-1.5 border-t border-muted/20">
+                    <div className="col-span-2 space-y-1 pt-2 border-t border-muted/20">
                       <span className="text-xs text-muted-foreground block">Notes</span>
                       <p className="text-xs text-muted-foreground italic bg-muted/10 p-2 rounded border border-muted/20">
                         {auditDetail.notes}
@@ -405,7 +401,7 @@ export default function InventoryAuditsPage() {
               {auditDetail.status === "draft" && !!variancePreview && variancePreview.total !== 0 && (
                 <Alert className="border-amber-200 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10">
                   <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  <AlertDescription className="text-xs space-y-1.5">
+                  <AlertDescription className="text-xs space-y-2">
                     <p>
                       Approving this count will{" "}
                       {variancePreview.total > 0 ? "charge" : "credit back"}{" "}

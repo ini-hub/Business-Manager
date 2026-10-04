@@ -113,7 +113,7 @@ export default function VendorFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-semibold text-sm truncate">{isEdit ? "Edit Vendor" : "New Vendor"}</h1>
+          <h1 className="font-bold text-sm truncate">{isEdit ? "Edit Vendor" : "New Vendor"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>
         </div>
         <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="shrink-0">
@@ -137,7 +137,7 @@ export default function VendorFormPage() {
                 <p className="font-semibold text-sm leading-tight">
                   {form.name || (isEdit ? "Vendor" : "New Vendor")}
                 </p>
-                <Badge variant="outline" className="text-[10px] mt-0.5">Supplier</Badge>
+                <Badge variant="outline" className="text-[11px] mt-0.5">Supplier</Badge>
               </div>
             </div>
           </CardContent>
@@ -150,7 +150,7 @@ export default function VendorFormPage() {
               <Building2 className="h-3.5 w-3.5" />Business Details
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="v-name">
                 Vendor / Supplier Name <span className="text-destructive">*</span>
               </Label>
@@ -165,9 +165,9 @@ export default function VendorFormPage() {
               {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="v-contact">
-                <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-2">
                   <User className="h-3 w-3" />
                   Contact Person / Organization / Company
                 </span>
@@ -190,7 +190,7 @@ export default function VendorFormPage() {
               <Phone className="h-3.5 w-3.5" />Contact Information
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Phone <span className="font-normal text-muted-foreground text-xs">(optional)</span></Label>
               <div className="flex gap-2">
                 <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
@@ -216,8 +216,8 @@ export default function VendorFormPage() {
               {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="v-email" className="flex items-center gap-1.5">
+            <div className="space-y-2">
+              <Label htmlFor="v-email" className="flex items-center gap-2">
                 <Mail className="h-3 w-3" />
                 Email <span className="font-normal text-muted-foreground text-xs">(optional)</span>
               </Label>
@@ -231,8 +231,8 @@ export default function VendorFormPage() {
               {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="v-address" className="flex items-center gap-1.5">
+            <div className="space-y-2">
+              <Label htmlFor="v-address" className="flex items-center gap-2">
                 <MapPin className="h-3 w-3" />
                 Address <span className="font-normal text-muted-foreground text-xs">(optional)</span>
               </Label>
@@ -253,7 +253,7 @@ export default function VendorFormPage() {
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <FileText className="h-3.5 w-3.5" />Notes
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="v-notes">Internal Notes <span className="font-normal text-muted-foreground text-xs">(optional)</span></Label>
               <Textarea
                 id="v-notes"

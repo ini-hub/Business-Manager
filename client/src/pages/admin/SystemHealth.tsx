@@ -59,7 +59,7 @@ export default function SystemHealth() {
 
   if (error || !data?.health) {
     return (
-      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-3xl flex items-center gap-4 text-rose-700 dark:text-rose-300 max-w-xl mx-auto font-sans">
+      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl flex items-center gap-4 text-rose-700 dark:text-rose-300 max-w-xl mx-auto font-sans">
         <AlertTriangle className="h-8 w-8 shrink-0 animate-bounce" />
         <div>
           <h3 className="font-bold text-foreground">System Diagnostics Offline</h3>
@@ -76,7 +76,7 @@ export default function SystemHealth() {
       {/* Title block */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Platform Diagnostics & Health</h1>
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Diagnostics & Health</h1>
           <p className="text-muted-foreground text-sm mt-1">Real-time health index, latency telemetry and application level error trackers.</p>
         </div>
         <Button
@@ -93,15 +93,15 @@ export default function SystemHealth() {
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Metric 1: API Core Latency */}
-        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">API Latency (p50)</CardTitle>
             <Server className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{health.apiResponseTime}</span>
-              <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-bold text-[9px] uppercase">
+              <span className="text-3xl font-bold text-foreground font-mono">{health.apiResponseTime}</span>
+              <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-bold text-[11px] uppercase">
                 {health.apiStatus}
               </Badge>
             </div>
@@ -110,15 +110,15 @@ export default function SystemHealth() {
         </Card>
 
         {/* Metric 2: DB Latency */}
-        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Database Query Time</CardTitle>
             <Database className="h-5 w-5 text-primary" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{health.databaseQueryTime}</span>
-              <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-bold text-[9px] uppercase">
+              <span className="text-3xl font-bold text-foreground font-mono">{health.databaseQueryTime}</span>
+              <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-bold text-[11px] uppercase">
                 {health.databaseStatus}
               </Badge>
             </div>
@@ -127,15 +127,15 @@ export default function SystemHealth() {
         </Card>
 
         {/* Metric 3: Active Operations */}
-        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active WS Clients</CardTitle>
             <Users className="h-5 w-5 text-violet-600 dark:text-violet-400" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{health.activeSessions}</span>
-              <Badge variant="outline" className="bg-violet-100 dark:bg-violet-950/40 text-violet-800 dark:text-violet-400 border-none font-bold text-[9px] uppercase">
+              <span className="text-3xl font-bold text-foreground font-mono">{health.activeSessions}</span>
+              <Badge variant="outline" className="bg-violet-100 dark:bg-violet-950/40 text-violet-800 dark:text-violet-400 border-none font-bold text-[11px] uppercase">
                 Live Channels
               </Badge>
             </div>
@@ -144,15 +144,15 @@ export default function SystemHealth() {
         </Card>
 
         {/* Metric 4: Platform Error Index */}
-        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">HTTP Error Rate</CardTitle>
             <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{health.errorRate}</span>
-              <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none font-bold text-[9px] uppercase">
+              <span className="text-3xl font-bold text-foreground font-mono">{health.errorRate}</span>
+              <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none font-bold text-[11px] uppercase">
                 Within Bound
               </Badge>
             </div>
@@ -163,7 +163,7 @@ export default function SystemHealth() {
 
       {/* Latency telemetry trend chart */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl lg:col-span-2 overflow-hidden shadow-2xl">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl lg:col-span-2 overflow-hidden shadow-2xl">
           <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
             <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-primary" />
@@ -205,86 +205,86 @@ export default function SystemHealth() {
         </Card>
 
         {/* Dispatch Utilities */}
-        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-3xl overflow-hidden flex flex-col justify-between shadow-2xl">
+        <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden flex flex-col justify-between shadow-2xl">
           <div>
             <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
               <CardTitle className="text-sm font-bold text-foreground tracking-wide">Infrastructure Subsystems</CardTitle>
             </CardHeader>
             <CardContent className="pt-6 space-y-4">
-              <div className="flex items-center justify-between p-3.5 bg-background/50 border border-border rounded-2xl">
+              <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
                 <div className="flex items-center gap-3">
                   <Mail className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                   <div>
                     <span className="block text-xs font-bold text-foreground">Email Server Pool</span>
-                    <span className="text-[10px] text-muted-foreground font-semibold">Dynamic SendGrid API Nodes</span>
+                    <span className="text-[11px] text-muted-foreground font-semibold">Dynamic SendGrid API Nodes</span>
                   </div>
                 </div>
-                <span className="text-xs font-mono font-extrabold text-emerald-600 dark:text-emerald-400">{health.emailDeliveryRate}</span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{health.emailDeliveryRate}</span>
               </div>
 
-              <div className="flex items-center justify-between p-3.5 bg-background/50 border border-border rounded-2xl">
+              <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
                 <div className="flex items-center gap-3">
                   <MessageSquare className="h-5 w-5 text-primary" />
                   <div>
                     <span className="block text-xs font-bold text-foreground">SMS Gateway</span>
-                    <span className="text-[10px] text-muted-foreground font-semibold">AfricaTalking API Pool</span>
+                    <span className="text-[11px] text-muted-foreground font-semibold">AfricaTalking API Pool</span>
                   </div>
                 </div>
-                <span className="text-xs font-mono font-extrabold text-emerald-600 dark:text-emerald-400">{health.smsDeliveryRate}</span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{health.smsDeliveryRate}</span>
               </div>
 
-              <div className="flex items-center justify-between p-3.5 bg-background/50 border border-border rounded-2xl">
+              <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
                 <div className="flex items-center gap-3">
                   <Server className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                   <div>
                     <span className="block text-xs font-bold text-foreground">Edge Node Cache</span>
-                    <span className="text-[10px] text-muted-foreground font-semibold">Memcached Key-Store Pool</span>
+                    <span className="text-[11px] text-muted-foreground font-semibold">Memcached Key-Store Pool</span>
                   </div>
                 </div>
-                <span className="text-xs font-mono font-extrabold text-emerald-600 dark:text-emerald-400">99.8% Hit</span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">99.8% Hit</span>
               </div>
             </CardContent>
           </div>
           <div className="p-5 border-t border-border/40 bg-background/20 text-center">
-            <span className="text-[9px] font-bold text-muted-foreground tracking-wider uppercase">Telemetry Stream: Connected</span>
+            <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase">Telemetry Stream: Connected</span>
           </div>
         </Card>
       </div>
 
       {/* Recent Failing Requests / Errors */}
-      <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
+      <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
         <CardHeader className="bg-background/20 p-6 border-b border-border/40 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base font-extrabold text-foreground font-outfit">Platform Failure Log (Last 24 Hours)</CardTitle>
+            <CardTitle className="text-base font-bold text-foreground">Platform Failure Log (Last 24 Hours)</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
               Aggregated uncaught HTTP anomalies and database integrity errors across all organisations.
             </CardDescription>
           </div>
-          <Badge variant="outline" className="bg-rose-100 dark:bg-rose-500/10 border-none text-rose-700 dark:text-rose-600 dark:text-rose-400 text-[10px] font-extrabold uppercase px-2 py-0.5">
+          <Badge variant="outline" className="bg-rose-100 dark:bg-rose-500/10 border-none text-rose-700 dark:text-rose-600 dark:text-rose-400 text-[11px] font-bold uppercase px-2 py-0.5">
             {recentErrors.length} Uncaught Issues
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-semibold">
-              <thead className="bg-background/40 text-muted-foreground uppercase text-[9px] tracking-wider border-b border-border">
+              <thead className="bg-background/40 text-muted-foreground uppercase text-[11px] tracking-wider border-b border-border">
                 <tr>
-                  <th className="px-6 py-3.5">Timestamp</th>
-                  <th className="px-6 py-3.5">Affected Endpoint</th>
-                  <th className="px-6 py-3.5">Response Status</th>
-                  <th className="px-6 py-3.5">Origin Organisation</th>
+                  <th className="px-6 py-4">Timestamp</th>
+                  <th className="px-6 py-4">Affected Endpoint</th>
+                  <th className="px-6 py-4">Response Status</th>
+                  <th className="px-6 py-4">Origin Organisation</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {recentErrors.map((err: any) => (
                   <tr key={err.id} className="hover:bg-card/30 transition-colors">
-                    <td className="px-6 py-4 text-muted-foreground font-mono text-[10px] flex items-center gap-2">
+                    <td className="px-6 py-4 text-muted-foreground font-mono text-[11px] flex items-center gap-2">
                       <Clock className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                       {new Date(err.timestamp).toLocaleTimeString()}
                     </td>
                     <td className="px-6 py-4 font-mono text-foreground">{err.endpoint}</td>
                     <td className="px-6 py-4">
-                      <Badge variant="outline" className="border-none bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 font-bold text-[10px]">
+                      <Badge variant="outline" className="border-none bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 font-bold text-[11px]">
                         {err.status} ERROR
                       </Badge>
                     </td>

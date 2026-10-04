@@ -68,12 +68,12 @@ export default function AuditLogs() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Operations Audit Trail</h1>
+        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Operations Audit Trail</h1>
         <p className="text-muted-foreground text-sm mt-1">Immutable ledger logging all administrative operations, resets, suspensions and configurations.</p>
       </div>
 
       {/* Filters & Search Toolbar */}
-      <Card className="bg-card/40 border border-border/80 rounded-3xl p-5 shadow-xl">
+      <Card className="bg-card/40 border border-border/80 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
           <div className="relative w-full md:max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -118,16 +118,16 @@ export default function AuditLogs() {
           <span>Failed to compile immutable audit trail stream.</span>
         </div>
       ) : data.logs.length === 0 ? (
-        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <ShieldAlert className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-bold text-foreground text-base">No Matching Audit Entries</h3>
           <p className="text-xs text-muted-foreground mt-1">Refine your active search criteria or target filters.</p>
         </div>
       ) : (
-        <Card className="bg-card/40 border border-border/80 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
+        <Card className="bg-card/40 border border-border/80 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-semibold">
-              <thead className="bg-background/40 text-muted-foreground uppercase text-[9px] tracking-wider border-b border-border">
+              <thead className="bg-background/40 text-muted-foreground uppercase text-[11px] tracking-wider border-b border-border">
                 <tr>
                   <th className="px-6 py-4">Timestamp</th>
                   <th className="px-6 py-4">Administrator</th>
@@ -140,18 +140,18 @@ export default function AuditLogs() {
               <tbody className="divide-y divide-border">
                 {data.logs.map((log: any) => (
                   <tr key={log.id} className="hover:bg-card/30 transition-colors">
-                    <td className="px-6 py-4 text-muted-foreground font-mono text-[10px] flex items-center gap-2">
+                    <td className="px-6 py-4 text-muted-foreground font-mono text-[11px] flex items-center gap-2">
                       <Clock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       {new Date(log.createdAt).toLocaleString()}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-foreground">{log.adminEmail}</span>
-                        <span className="text-[9px] text-muted-foreground font-mono uppercase">{log.adminRole}</span>
+                        <span className="text-[11px] text-muted-foreground font-mono uppercase">{log.adminRole}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <Badge variant="outline" className={`border ${getActionBadgeColor(log.action)} text-[10px] py-0.5 px-2 rounded-md font-extrabold uppercase`}>
+                      <Badge variant="outline" className={`border ${getActionBadgeColor(log.action)} text-[11px] py-0.5 px-2 rounded-md font-bold uppercase`}>
                         {log.action}
                       </Badge>
                     </td>
@@ -172,7 +172,7 @@ export default function AuditLogs() {
                           Inspect
                         </Button>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground italic">None</span>
+                        <span className="text-[11px] text-muted-foreground italic">None</span>
                       )}
                     </td>
                   </tr>
@@ -185,9 +185,9 @@ export default function AuditLogs() {
 
       {/* JSON Payload Detail Dialog */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-lg rounded-3xl p-6 font-sans">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-lg rounded-2xl p-6 font-sans">
           <DialogHeader className="space-y-2">
-            <DialogTitle className="text-lg font-bold text-foreground font-outfit flex items-center gap-2">
+            <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
               <Activity className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               Audit Payload Inspection
             </DialogTitle>
@@ -200,26 +200,26 @@ export default function AuditLogs() {
             <div className="space-y-4 my-3 text-xs leading-relaxed">
               <div className="grid grid-cols-2 gap-3 p-3 bg-background/60 rounded-2xl border border-border text-muted-foreground">
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Admin Email</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Admin Email</span>
                   <span className="font-semibold text-foreground">{selectedLog.adminEmail}</span>
                 </div>
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Security Role</span>
-                  <span className="font-semibold text-muted-foreground font-mono text-[10px] uppercase">{selectedLog.adminRole}</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Security Role</span>
+                  <span className="font-semibold text-muted-foreground font-mono text-[11px] uppercase">{selectedLog.adminRole}</span>
                 </div>
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Execution Date</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Execution Date</span>
                   <span>{new Date(selectedLog.createdAt).toLocaleString()}</span>
                 </div>
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">IP Coordinates</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">IP Coordinates</span>
                   <span className="font-mono">{selectedLog.ipAddress}</span>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Payload Details (JSON)</span>
-                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[220px] font-mono text-[10px] text-indigo-600 dark:text-indigo-400 leading-relaxed shadow-inner">
+              <div className="space-y-2">
+                <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Payload Details (JSON)</span>
+                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[220px] font-mono text-[11px] text-indigo-600 dark:text-indigo-400 leading-relaxed shadow-inner">
                   {JSON.stringify(JSON.parse(selectedLog.details || "{}"), null, 2)}
                 </pre>
               </div>

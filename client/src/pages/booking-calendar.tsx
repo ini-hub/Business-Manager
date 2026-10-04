@@ -1,5 +1,6 @@
 import { Link } from "wouter";
-import { ArrowLeft, Plus } from "lucide-react";
+import { AddButton } from "@/components/add-button";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
@@ -32,13 +33,7 @@ export default function BookingCalendarPage() {
                 <span className="hidden lg:inline">Bookings</span>
               </Link>
             </Button>
-            <Button asChild data-testid="button-new-booking">
-              <Link href="/bookings/new">
-                <Plus className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">New booking</span>
-                <span className="lg:hidden">Book</span>
-              </Link>
-            </Button>
+            <AddButton label="New Booking" href="/bookings/new" data-testid="button-new-booking" />
           </div>
         }
       />

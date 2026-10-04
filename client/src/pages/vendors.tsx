@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AddButton } from "@/components/add-button";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
@@ -392,10 +393,7 @@ export default function VendorsPage() {
               />
             </div>
             {isManagerOrOwner && (
-              <Button onClick={openCreate} aria-label="Add Vendor" data-testid="button-add-vendor">
-                <Plus className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">Add Vendor</span>
-              </Button>
+              <AddButton label="Add Vendor" onClick={openCreate} data-testid="button-add-vendor" />
             )}
           </div>
         }

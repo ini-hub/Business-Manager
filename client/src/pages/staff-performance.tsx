@@ -196,10 +196,10 @@ export default function StaffPerformancePage() {
       header: "Attendance",
       render: (row: any) => (
         <div className="flex items-center gap-2 text-xs">
-          <Badge variant="secondary" className="h-4 px-1 text-[10px]">Present: {row.presentDays}</Badge>
-          <Badge variant="outline" className="h-4 px-1 text-[10px] text-red-600">Absent: {row.absentDays}</Badge>
+          <Badge variant="secondary" className="h-4 px-1 text-[11px]">Present: {row.presentDays}</Badge>
+          <Badge variant="outline" className="h-4 px-1 text-[11px] text-red-600">Absent: {row.absentDays}</Badge>
           {row.lateDays > 0 && (
-            <Badge variant="outline" className="h-4 px-1 text-[10px] text-amber-600">Late: {row.lateDays}</Badge>
+            <Badge variant="outline" className="h-4 px-1 text-[11px] text-amber-600">Late: {row.lateDays}</Badge>
           )}
         </div>
       ),
@@ -469,7 +469,7 @@ export default function StaffPerformancePage() {
                             <td className="px-3 py-2 text-muted-foreground">{format(new Date(s.date), "dd MMM")}</td>
                             <td className="px-3 py-2 text-right font-mono">{formatCurrency(s.revenue)}</td>
                             <td className="px-3 py-2 text-center">
-                              <Badge variant={s.role === "lead" ? "default" : "secondary"} className="text-[10px] h-4 px-1">
+                              <Badge variant={s.role === "lead" ? "default" : "secondary"} className="text-[11px] h-4 px-1">
                                 {s.role === "lead" ? "Lead" : "Assist"}
                               </Badge>
                             </td>

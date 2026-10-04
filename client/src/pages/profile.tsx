@@ -581,7 +581,7 @@ export default function ProfilePage() {
                             }
                           }}
                         />
-                        <p className="text-[10px] text-muted-foreground mt-1">
+                        <p className="text-[11px] text-muted-foreground mt-1">
                           Upload a professional photo (JPG, PNG). Max size 2MB (Strictly enforced).
                         </p>
                       </div>

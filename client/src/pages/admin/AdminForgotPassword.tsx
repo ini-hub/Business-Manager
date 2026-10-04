@@ -48,14 +48,14 @@ export default function AdminForgotPassword() {
           <div className="inline-flex items-center justify-center p-3 bg-card border border-border rounded-2xl mb-4 shadow-xl">
             <Shield className="h-10 w-10 text-primary animate-pulse" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground font-outfit">Business Manager</h1>
+          <h1 className="text-[26px] font-bold tracking-tight text-foreground">Business Manager</h1>
           <p className="text-sm text-muted-foreground mt-1">Super Admin Operations Center</p>
         </div>
 
-        <div className="bg-card backdrop-blur-md border border-border rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+        <div className="bg-card backdrop-blur-md border border-border rounded-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500">
           {submitted ? (
             <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center p-2.5 bg-muted border border-border rounded-xl">
+              <div className="inline-flex items-center justify-center p-3 bg-muted border border-border rounded-xl">
                 <MailCheck className="h-6 w-6 text-primary" />
               </div>
               <h3 className="text-lg font-semibold text-foreground">Check Your Inbox</h3>

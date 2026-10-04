@@ -68,10 +68,10 @@ export const PolymorphicTabsList = React.forwardRef<
           className={cn(
             "transition-all duration-200 select-none",
             // Polymorphic style strategies
-            variant === "default" && "flex items-center justify-center gap-2 py-2.5 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm text-xs md:text-sm px-3 md:px-4",
-            variant === "solid" && "text-xs py-1.5 px-3 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm flex items-center gap-1.5",
+            variant === "default" && "flex items-center justify-center gap-2 py-3 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm text-xs md:text-sm px-3 md:px-4",
+            variant === "solid" && "text-xs py-2 px-3 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm flex items-center gap-2",
             variant === "bordered" &&
-              "flex items-center justify-center gap-2 rounded-lg py-2.5 px-3 text-xs font-medium data-[state=active]:bg-background data-[state=active]:shadow-sm " +
+              "flex items-center justify-center gap-2 rounded-lg py-3 px-3 text-xs font-medium data-[state=active]:bg-background data-[state=active]:shadow-sm " +
               "sm:bg-transparent sm:rounded-none sm:shadow-none sm:py-2 sm:px-1 sm:text-sm sm:border-b-2 sm:border-transparent sm:data-[state=active]:bg-transparent sm:data-[state=active]:shadow-none sm:data-[state=active]:border-primary",
             
             // Enforce non-wrapping on horizontal scrolling lists

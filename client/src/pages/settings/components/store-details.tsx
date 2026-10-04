@@ -2,27 +2,91 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Building2, Coins, Gift } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Link } from "wouter";
+import { Card, Money, SaveBar } from "./settings-ui";
+import { formatCurrency } from "@/lib/currency-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 // Renamed from BusinessSettingsSection: despite the old name, everything
 // here is store-scoped (receipt prefix override, low-stock threshold,
 // payroll defaults, loyalty config - all on the per-store `settings` table),
 // not business-wide. See the Settings Screen Restructure requirements plan.
+const TABS = [
+  { id: "receipts", label: "Receipts and stock" },
+  { id: "pay", label: "Pay rules" },
+  { id: "loyalty", label: "Loyalty" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
+const CLOSING_NOTE_MAX = 120;
+
+const PAY_MODELS = [
+  { value: "fixed", label: "Fixed salary", desc: "The same amount every month, whatever services they do.", pays: "Base salary" },
+  { value: "commission", label: "Commission only", desc: "No base salary. Pay comes from daily transport and commission on services.", pays: "Transport + commission" },
+  { value: "hybrid", label: "Salary + commission", desc: "Base salary, daily transport and commission on services.", pays: "Base + transport + commission" },
+];
+
+const FORMULAS = [
+  { value: "formula_d", label: "Commission on the full service value", desc: "Nothing is taken off first.", eq: "Rate × service revenue" },
+  { value: "formula_b", label: "Take off transport, then commission", desc: "Active and passive day transport come off the pool first.", eq: "Rate × (revenue − active transport − passive transport)", recommended: true },
+  { value: "formula_a", label: "Take off every present day at the active rate", desc: "Each day present is charged at the active day rate.", eq: "Rate × (revenue − days present × active rate)" },
+  { value: "formula_c", label: "Take off transport, leave and holiday pay", desc: "Everything paid for days is taken off the pool first.", eq: "Rate × (revenue − transport − leave − holiday pay)" },
+];
+
+function SplitRow({ title, hint, labels, values, onChange }: { title: string; hint: string; labels: string[]; values: number[]; onChange: (i: number, v: number) => void }) {
+  const total = values.reduce((a, b) => a + b, 0);
+  const ok = total === 100;
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-medium">{title}</p>
+          <p className="text-sm text-muted-foreground">{hint}</p>
+        </div>
+        <span className={cn("rounded px-2 py-0.5 text-xs font-medium", ok ? "bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300")}>{total}% of 100%</span>
+      </div>
+      <div className={cn("mt-3 grid gap-3", values.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+        {labels.map((l, i) => (
+          <div key={l} className="space-y-1">
+            <Label htmlFor={`split-${title}-${i}`} className="text-xs">{l}</Label>
+            <div className="flex">
+              <Input id={`split-${title}-${i}`} type="number" min={0} max={100} value={values[i]} onChange={(e) => onChange(i, parseInt(e.target.value) || 0)} className="rounded-r-none" />
+              <span className="flex items-center rounded-r-md border border-l-0 bg-muted px-2 text-sm text-muted-foreground">%</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-muted">
+        {values.map((v, i) => (
+          <div key={i} className={cn("h-full", i === 0 ? "bg-primary" : i === 1 ? "bg-primary/50" : "bg-primary/25")} style={{ width: `${Math.min(v, 100)}%` }} />
+        ))}
+      </div>
+      <p className={cn("mt-2 text-xs font-medium", ok ? "text-green-700 dark:text-green-400" : "text-destructive")}>{ok ? "Adds up to 100%" : `Adds up to ${total}%. It must be 100%.`}</p>
+    </div>
+  );
+}
+
 export function StoreDetailsSection() {
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
+  const [tab, setTab] = useState<TabId>("receipts");
   const { toast } = useToast();
   
   const { data: settingsData, isLoading } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
     enabled: !!currentStore?.id,
+  });
+
+  const { data: inventory = [] } = useQuery<any[]>({
+    queryKey: ["/api/inventory", currentStore?.id],
+    queryFn: async () => (await apiRequest("GET", `/api/inventory?storeId=${currentStore?.id}`)).json(),
+    enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
   const updateSettingsMutation = useMutation({
@@ -96,588 +160,326 @@ export function StoreDetailsSection() {
   }, [settingsData]);
 
   if (!currentStore) return null;
-  if (isLoading) return <Card className="p-8 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></Card>;
+  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+
+  const currency = currentStore.currency || "NGN";
+  const money = (n: number) => formatCurrency(n, currency);
+  const year = new Date().getFullYear();
+  const split3Total = leadSplit3 + asst1Split3 + asst2Split3;
+  const businessRate: number | null = (business as any)?.commissionSplitStaffShare ?? null;
+  const splitsOk = leadSplit2 + asstSplit2 === 100 && split3Total === 100;
+
+  const lowItems = inventory
+    .filter((i) => i.type !== "service" && i.isActive !== false)
+    .filter((i) => Number(i.quantity) < (i.reorderPoint != null ? Number(i.reorderPoint) : lowStockThreshold))
+    .sort((a, b) => Number(a.quantity) - Number(b.quantity));
+
+  // Worked example shown beside the pay rules. Same arithmetic as before; only the presentation changed.
+  const sampleRevenue = 50000;
+  const activeTransportPay = activeDayTransport;
+  const passiveTransportPay = passiveDayTransport;
+  const totalAttendance = activeTransportPay + passiveTransportPay;
+  let commissionable = sampleRevenue;
+  if (commissionFormula === "formula_b" || commissionFormula === "formula_c") commissionable = Math.max(0, sampleRevenue - totalAttendance);
+  else if (commissionFormula === "formula_a") commissionable = Math.max(0, sampleRevenue - 2 * activeDayTransport);
+  const commissionEarned = commissionFormula === "formula_f"
+    ? commissionFixedAmount * 3
+    : commissionType === "percentage" ? (commissionRate / 100) * commissionable : commissionFixedAmount;
+  const netPay =
+    defaultPaymentMethod === "fixed" ? fixedBaseAmount
+    : defaultPaymentMethod === "commission" ? totalAttendance + commissionEarned
+    : fixedBaseAmount + totalAttendance + commissionEarned;
+
+  const estimate = (
+    <div className="rounded-xl border bg-card p-4 sm:p-5 lg:sticky lg:top-4">
+      <h3 className="font-semibold">What a new staff member earns</h3>
+      <p className="text-sm text-muted-foreground">Example month: 1 active day, 1 passive day, {money(sampleRevenue)} in services</p>
+      <p className="mt-3 text-sm font-medium text-primary">{PAY_MODELS.find((m) => m.value === defaultPaymentMethod)?.label}</p>
+      <dl className="mt-2 space-y-2 text-sm">
+        {defaultPaymentMethod !== "commission" && <Line label="Base salary" value={money(fixedBaseAmount)} strong />}
+        <Line label={`Active day transport, 1 × ${money(activeDayTransport)}`} value={money(activeTransportPay)} strong />
+        <Line label={`Passive day transport, 1 × ${money(passiveDayTransport)}`} value={money(passiveTransportPay)} strong />
+        {defaultPaymentMethod !== "fixed" && (
+          <>
+            <Line label="Service revenue" value={money(sampleRevenue)} muted />
+            {commissionable < sampleRevenue && <Line label="After taking off transport" value={money(commissionable)} muted />}
+            <Line label={`Commission${commissionType === "percentage" ? `, ${commissionRate}%` : ", flat"}`} value={money(commissionEarned)} strong />
+          </>
+        )}
+      </dl>
+      <div className="mt-4 flex items-baseline justify-between border-t pt-3">
+        <span className="font-semibold">Estimated pay</span>
+        <span className="text-lg font-bold" data-testid="text-estimated-pay">{money(netPay)}</span>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">An example only. Real pay uses attendance and sales. These are defaults for new staff; each person can be changed on their profile.</p>
+    </div>
+  );
+
+  const days = [
+    { label: "Approved leave", hint: "Sick and annual leave", on: payLeaveDays, setOn: setPayLeaveDays, rate: leaveDayRate, setRate: setLeaveDayRate },
+    { label: "Public holidays", hint: "National and public holidays", on: payHolidayDays, setOn: setPayHolidayDays, rate: holidayDayRate, setRate: setHolidayDayRate },
+    { label: "Off days", hint: "Rest days. Set which days under Attendance.", on: payOffDays, setOn: setPayOffDays, rate: offDayRate, setRate: setOffDayRate },
+  ];
+
+  const pointPct = loyaltyPointsPerCurrency > 0 ? (loyaltyPointValue / loyaltyPointsPerCurrency) * 100 : 0;
+  const pctLabel = Number.isInteger(pointPct) ? String(pointPct) : pointPct.toFixed(1);
+  const show = (id: TabId) => cn(tab === id ? "block" : "hidden", "space-y-5");
+  const sectionHead = (_title: string, hint: string) => <p className="text-sm text-muted-foreground">{hint}</p>;
 
   return (
     <div className="space-y-6">
-      {/* Receipt Branding Card */}
-      <Card className="border-primary/20 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl font-bold">
-            <Building2 className="h-6 w-6 text-primary" />
-            Store Receipt Branding & Low Stock
-          </CardTitle>
-          <CardDescription>Configure receipt branding and stock alerts for {currentStore.name}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="prefix" className="text-sm font-semibold">Receipt Number Prefix</Label>
-              <Input 
-                id="prefix" 
-                value={receiptPrefix} 
-                onChange={(e) => setReceiptPrefix(e.target.value.toUpperCase())} 
-                className="font-mono"
-              />
-              <p className="text-[10px] text-muted-foreground">E.g. RCP-2024-001</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="lowStock" className="text-sm font-semibold">Low Stock Threshold</Label>
-              <Input 
-                id="lowStock" 
-                type="number"
-                value={lowStockThreshold} 
-                onChange={(e) => setLowStockThreshold(parseInt(e.target.value))} 
-              />
-              <p className="text-[10px] text-muted-foreground">Alert when stock falls below this number</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="thank-you" className="text-sm font-semibold">Receipt Thank You Message</Label>
-            <Textarea 
-              id="thank-you" 
-              placeholder="Thank you for your patronage!" 
-              value={thankYouMessage}
-              onChange={(e) => setThankYouMessage(e.target.value)}
-              className="min-h-[100px]"
-            />
-            <p className="text-[10px] text-muted-foreground">This will appear at the bottom of all printed receipts</p>
-          </div>
-        </CardContent>
-        <Separator />
-        <CardContent className="pt-6 flex justify-end">
-          <Button 
-            onClick={() => updateSettingsMutation.mutate({ receiptPrefix, receiptThankYouMessage: thankYouMessage, lowStockThreshold })}
-            disabled={updateSettingsMutation.isPending}
-            className="gap-2"
+      <nav className="flex gap-1 border-b" aria-label="Store details sections">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={cn("-mb-px border-b-2 px-3 py-2 text-sm font-medium", tab === t.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}
+            data-testid={`tab-${t.id}`}
           >
-            {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
-            Save Branding Settings
-          </Button>
-        </CardContent>
-      </Card>
+            {t.label}
+          </button>
+        ))}
+      </nav>
 
-      {/* Payroll Configuration Defaults Card */}
-      <Card className="border-primary/20 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl font-bold">
-            <Coins className="h-6 w-6 text-primary" />
-            Payroll Configuration & Compensation Defaults
-          </CardTitle>
-          <CardDescription>Configure store-wide default base salaries, commission formulas, transport rates, and multi-staff split settings.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* ─── STEP 1: PAYMENT MODEL ─── */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">1</span>
-              <h3 className="text-sm font-bold">Choose the Default Payment Model</h3>
-            </div>
-            <p className="text-xs text-muted-foreground ml-8">
-              This is the pay structure applied to newly created staff members. Each model determines which fields below are relevant.
-            </p>
-            <div className="ml-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {[
-                {
-                  value: "fixed",
-                  label: "Fixed Salary",
-                  icon: "🏦",
-                  desc: "A flat monthly amount regardless of services worked. Commission fields are ignored.",
-                  color: "border-blue-400 bg-blue-50 dark:bg-blue-950/30",
-                  active: "ring-2 ring-blue-500",
-                },
-                {
-                  value: "commission",
-                  label: "Commission Only",
-                  icon: "💰",
-                  desc: "Earnings come purely from service commission splits. No fixed base salary.",
-                  color: "border-amber-400 bg-amber-50 dark:bg-amber-950/30",
-                  active: "ring-2 ring-amber-500",
-                },
-                {
-                  value: "hybrid",
-                  label: "Hybrid",
-                  icon: "⚡",
-                  desc: "Fixed base salary + daily transport/attendance pay + commission on services.",
-                  color: "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30",
-                  active: "ring-2 ring-emerald-500",
-                },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setDefaultPaymentMethod(opt.value)}
-                  className={`rounded-xl border-2 p-4 text-left transition-all duration-200 ${opt.color} ${defaultPaymentMethod === opt.value ? opt.active : "opacity-70 hover:opacity-100"}`}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">{opt.icon}</span>
-                    <span className="text-sm font-bold">{opt.label}</span>
-                    {defaultPaymentMethod === opt.value && (
-                      <span className="ml-auto text-[10px] font-bold uppercase tracking-wide text-primary">Selected</span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-snug">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* ─── STEP 2: BASE SALARY ─── */}
-          <div className={`space-y-3 transition-opacity duration-300 ${defaultPaymentMethod === "commission" ? "opacity-40 pointer-events-none" : ""}`}>
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">2</span>
-              <h3 className="text-sm font-bold">Default Base Salary</h3>
-              {defaultPaymentMethod === "commission" && (
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Not used for Commission Only</span>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground ml-8">
-              The guaranteed monthly base paid to staff <strong>before</strong> attendance transport or commission is added.
-            </p>
-            <div className="ml-8 flex items-center gap-3 max-w-xs">
-              <span className="text-lg font-bold text-muted-foreground">₦</span>
-              <Input
-                id="fixedBaseAmount"
-                type="number"
-                value={fixedBaseAmount}
-                onChange={(e) => setFixedBaseAmount(parseFloat(e.target.value) || 0)}
-                className="font-mono text-lg h-12"
-                placeholder="e.g. 40000"
-              />
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* ─── STEP 3: COMMISSION SETUP ─── */}
-          <div className={`space-y-4 transition-opacity duration-300 ${defaultPaymentMethod === "fixed" ? "opacity-40 pointer-events-none" : ""}`}>
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">3</span>
-              <h3 className="text-sm font-bold">Commission Setup</h3>
-              {defaultPaymentMethod === "fixed" && (
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Not used for Fixed Salary</span>
-              )}
-            </div>
-            <div className="ml-8 grid grid-cols-1 gap-3 sm:grid-cols-2 max-w-2xl">
-              {[
-                { value: "percentage", label: "Percentage of Service Value", icon: "%", desc: "Staff earns a % of the service sale price." },
-                { value: "fixed_per_service", label: "Flat Amount per Service", icon: "₦", desc: "Staff earns a fixed naira amount for each service worked — regardless of price." },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setCommissionType(opt.value)}
-                  className={`rounded-lg border-2 p-3 text-left transition-all duration-200 ${commissionType === opt.value ? "border-primary bg-primary/5 ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">{opt.icon}</span>
-                    <span className="text-xs font-bold">{opt.label}</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-            <div className="ml-8 max-w-2xl">
-              {commissionType === "percentage" ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="commissionRate" className="text-xs font-semibold">Default Commission Rate</Label>
-                  <div className="flex items-center gap-2">
-                    <Input id="commissionRate" type="number" min={0} max={100} value={commissionRate} onChange={(e) => setCommissionRate(parseFloat(e.target.value) || 0)} className="font-mono h-10 max-w-[100px]" />
-                    <span className="text-sm font-bold text-muted-foreground">% of service value</span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">e.g. enter 30 for 30% commission on each service.</p>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label htmlFor="commissionFixedAmount" className="text-xs font-semibold">Flat Amount Per Service (₦)</Label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-muted-foreground">₦</span>
-                    <Input id="commissionFixedAmount" type="number" value={commissionFixedAmount} onChange={(e) => setCommissionFixedAmount(parseFloat(e.target.value) || 0)} className="font-mono h-10 max-w-[150px]" />
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Staff earns this fixed amount for each completed service.</p>
-                </div>
-              )}
-            </div>
-            {commissionType === "percentage" && (
-              <div className="ml-8 space-y-3 max-w-2xl">
-                <div>
-                  <Label className="text-xs font-semibold">Commission Formula</Label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Determines how attendance transport costs interact with the commissionable service revenue pool before your commission rate is applied.</p>
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {[
-                    { value: "formula_d", label: "Formula D — Pure Commission", badge: "Simplest", eq: "Commission = Rate% × Total Service Revenue", desc: "No transport costs are deducted. Staff earns their full percentage of every service they worked on.", badgeColor: "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300" },
-                    { value: "formula_b", label: "Formula B — Active & Passive Split Deduction", badge: "Recommended", eq: "Commission = Rate% × (Revenue − Active Transport − Passive Transport)", desc: "Active and passive day transport pay is subtracted from the pool before commission is calculated. Most balanced for salons.", badgeColor: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" },
-                    { value: "formula_a", label: "Formula A — Single Rate Present Day Deduction", badge: "Most conservative", eq: "Commission = Rate% × (Revenue − (Active+Passive days × Active rate))", desc: "All present days (active and passive) are charged at the active day rate and deducted before commission is calculated.", badgeColor: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
-                    { value: "formula_c", label: "Formula C — Full Split + Leave & Holiday Deduction", badge: "Focused", eq: "Commission = Rate% × (Revenue − Active − Passive − Leave − Holiday)", desc: "Active, passive, leave, and holiday pay are all deducted from the revenue pool before commission.", badgeColor: "bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300" },
-                    { value: "formula_f", label: "Formula F — Fixed Amount Per Service", badge: "Flat rate", eq: "Commission = Fixed Amount × Services Worked", desc: "Staff earns a fixed naira amount for every service they work, regardless of service price or attendance. Set Commission Type to 'Flat Amount per Service' above.", badgeColor: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300" },
-                  ].map((formula) => (
-                    <button key={formula.value} type="button" onClick={() => setCommissionFormula(formula.value)}
-                      className={`rounded-lg border-2 p-3 text-left transition-all duration-200 ${commissionFormula === formula.value ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-border hover:border-primary/40"}`}>
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="text-xs font-bold">{formula.label}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${formula.badgeColor}`}>{formula.badge}</span>
-                        {commissionFormula === formula.value && <span className="ml-auto text-[10px] font-bold text-primary uppercase">Active</span>}
-                      </div>
-                      <code className="block text-[10px] font-mono bg-muted/50 rounded px-2 py-1 mb-1.5 text-muted-foreground">{formula.eq}</code>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">{formula.desc}</p>
-                    </button>
-                  ))}
-                </div>
+      {/* RECEIPTS AND STOCK */}
+      <div id="sd-receipts" className={show("receipts")}>
+        {sectionHead("Receipts and stock alerts", `What goes on ${currentStore.name} receipts, and when to warn you about stock.`)}
+        <Card title="Receipt">
+          <div className="grid gap-5 md:grid-cols-[1fr_16rem]">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="prefix">Receipt number prefix</Label>
+                <Input id="prefix" value={receiptPrefix} maxLength={6} onChange={(e) => setReceiptPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
+                <p className="text-xs text-muted-foreground">Up to 6 letters or numbers. Starts every receipt number from this store.</p>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="thank-you">Closing note</Label>
+                <Textarea id="thank-you" placeholder="Thank you for your patronage!" value={thankYouMessage} maxLength={CLOSING_NOTE_MAX} onChange={(e) => setThankYouMessage(e.target.value)} className="min-h-[100px]" />
+                <p className="text-xs text-muted-foreground">Printed at the bottom of every receipt. {Math.max(0, CLOSING_NOTE_MAX - thankYouMessage.length)} characters left.</p>
+              </div>
+            </div>
+            <div className="self-start rounded-lg border bg-background p-4 text-center text-xs shadow-sm" aria-label="Receipt preview">
+              <p className="text-sm font-semibold">{business?.name}</p>
+              <p className="text-muted-foreground">{currentStore.name}</p>
+              <p className="mt-2 font-semibold">Receipt {receiptPrefix || "RCP"}-{year}-001</p>
+              <div className="my-2 space-y-1 border-y border-dashed py-2 text-left">
+                <div className="flex justify-between text-muted-foreground"><span>Hair wash × 1</span><span>{money(5000)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Total</span><span>{money(5000)}</span></div>
+              </div>
+              {thankYouMessage && <p className="italic">{thankYouMessage}</p>}
+              <p className="mt-2 text-[11px] text-muted-foreground">Preview. Number format shown as an example.</p>
+            </div>
+          </div>
+        </Card>
+        <Card title="Low stock alert" hint="Applies to every item unless the item has its own reorder point.">
+          <div className="flex max-w-xs items-center gap-3">
+            <Label htmlFor="lowStock" className="shrink-0">Alert me when an item falls below</Label>
+          </div>
+          <div className="max-w-[12rem]">
+            <Money id="lowStock" prefix="" value={lowStockThreshold} onChange={(n) => setLowStockThreshold(Math.floor(n))} suffix="units" />
+          </div>
+          <div className="rounded-lg bg-muted/60 p-3 text-sm">
+            {lowItems.length === 0 ? (
+              <p className="text-muted-foreground">Nothing is below {lowStockThreshold} right now.</p>
+            ) : (
+              <>
+                <p className="font-medium">{lowItems.length} {lowItems.length === 1 ? "item is" : "items are"} below {lowStockThreshold} right now</p>
+                <ul className="mt-1 space-y-0.5">
+                  {lowItems.slice(0, 4).map((i) => (
+                    <li key={i.id} className="flex justify-between gap-2">
+                      <span className="truncate">{i.name}</span>
+                      <span className={Number(i.quantity) <= 0 ? "font-medium text-red-700 dark:text-red-400" : "font-medium text-amber-700 dark:text-amber-400"}>
+                        {Number(i.quantity) <= 0 ? "Out of stock" : `${Number(i.quantity)} left`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {lowItems.length > 4 && <p className="mt-1 text-xs text-muted-foreground">and {lowItems.length - 4} more</p>}
+              </>
             )}
           </div>
+        </Card>
+        <SaveBar
+          label="Save receipt and stock settings"
+          pending={updateSettingsMutation.isPending}
+          onSave={() => updateSettingsMutation.mutate({ receiptPrefix, receiptThankYouMessage: thankYouMessage, lowStockThreshold })}
+        />
+      </div>
 
-          <Separator />
-
-          {/* ─── STEP 4: ATTENDANCE TRANSPORT RATES ─── */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">4</span>
-              <h3 className="text-sm font-bold">Daily Attendance Transport Rates</h3>
-            </div>
-            <p className="text-xs text-muted-foreground ml-8">
-              Transport is paid every day a staff member shows up — regardless of commission. An <strong>Active day</strong> means they worked at least one service. A <strong>Passive day</strong> means they were present but no services were assigned to them.
-            </p>
-            <div className="ml-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl">
-              <div className="rounded-lg border bg-card p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <Label htmlFor="activeDayTransport" className="text-xs font-bold">Active Day Rate (₦)</Label>
-                </div>
-                <p className="text-[10px] text-muted-foreground">Paid when staff works at least 1 service</p>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm text-muted-foreground font-mono">₦</span>
-                  <Input id="activeDayTransport" type="number" value={activeDayTransport} onChange={(e) => setActiveDayTransport(parseFloat(e.target.value) || 0)} className="font-mono h-10" />
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">/ day</span>
-                </div>
+      {/* PAY RULES */}
+      <div id="sd-pay" className={show("pay")}>
+        {sectionHead("Pay rules", `Defaults for working out staff pay at ${currentStore.name}.`)}
+        <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
+          <div className="min-w-0 space-y-4">
+            <Card title="How new staff are paid" hint="The default for staff added from now on. Existing staff keep their own setup.">
+              <div className="grid gap-3 md:grid-cols-3">
+                {PAY_MODELS.map((m) => (
+                  <button key={m.value} type="button" onClick={() => setDefaultPaymentMethod(m.value)} aria-pressed={defaultPaymentMethod === m.value}
+                    className={cn("rounded-xl border-2 p-4 text-left", defaultPaymentMethod === m.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/40")}>
+                    <p className="font-semibold">{m.label}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{m.desc}</p>
+                    <p className="mt-2 text-xs font-medium text-primary">Pays: {m.pays}</p>
+                  </button>
+                ))}
               </div>
-              <div className="rounded-lg border bg-card p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-amber-400" />
-                  <Label htmlFor="passiveDayTransport" className="text-xs font-bold">Passive Day Rate (₦)</Label>
-                </div>
-                <p className="text-[10px] text-muted-foreground">Paid when present but no service assigned</p>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm text-muted-foreground font-mono">₦</span>
-                  <Input id="passiveDayTransport" type="number" value={passiveDayTransport} onChange={(e) => setPassiveDayTransport(parseFloat(e.target.value) || 0)} className="font-mono h-10" />
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">/ day</span>
-                </div>
-              </div>
-            </div>
-          </div>
+            </Card>
 
-          <Separator />
+            {defaultPaymentMethod !== "commission" && (
+              <Card title="Base salary" hint="Paid every month before transport or commission.">
+                <div className="max-w-sm"><Money id="fixedBaseAmount" value={fixedBaseAmount} onChange={setFixedBaseAmount} suffix="a month" /></div>
+              </Card>
+            )}
 
-          {/* ─── STEP 5: LEAVES & SPECIAL DAYS ─── */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">5</span>
-              <h3 className="text-sm font-bold">Leaves & Special Day Pay Policy</h3>
-            </div>
-            <p className="text-xs text-muted-foreground ml-8">
-              Toggle whether these day categories earn pay. When enabled, set the daily rate. When disabled, staff receive ₦0 for those days.
-            </p>
-            <div className="ml-8 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
-              <div className={`rounded-xl border-2 p-4 space-y-3 transition-all ${payLeaveDays ? "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20" : "border-border bg-muted/20 opacity-70"}`}>
-                <div className="flex items-center justify-between">
-                  <div><p className="text-xs font-bold">📋 Approved Leaves</p><p className="text-[10px] text-muted-foreground">Sick, annual leave</p></div>
-                  <Switch id="payLeaveDays" checked={payLeaveDays} onCheckedChange={setPayLeaveDays} />
+            {defaultPaymentMethod !== "fixed" && (
+              <Card title="Commission" hint="What staff earn from the services they do.">
+                <div className="flex flex-wrap gap-2">
+                  {[{ v: "percentage", l: "Percentage of the service price" }, { v: "fixed_per_service", l: "Fixed amount per service" }].map((o) => (
+                    <Button key={o.v} type="button" size="sm" variant={commissionType === o.v ? "default" : "outline"} onClick={() => setCommissionType(o.v)}>{o.l}</Button>
+                  ))}
                 </div>
-                <div className={`space-y-1 transition-opacity ${payLeaveDays ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
-                  <Label htmlFor="leaveDayRate" className="text-[10px] font-semibold text-muted-foreground">Daily Rate (₦)</Label>
-                  <div className="flex items-center gap-1"><span className="text-xs text-muted-foreground">₦</span><Input id="leaveDayRate" type="number" disabled={!payLeaveDays} value={leaveDayRate} onChange={(e) => setLeaveDayRate(parseFloat(e.target.value) || 0)} className="h-8 text-xs font-mono" /></div>
-                  {payLeaveDays && <p className="text-[10px] text-blue-600 dark:text-blue-400">✓ Paid at ₦{leaveDayRate.toLocaleString()}/day</p>}
-                </div>
-                {!payLeaveDays && <p className="text-[10px] text-muted-foreground">Leaves are currently <strong>unpaid</strong></p>}
-              </div>
-              <div className={`rounded-xl border-2 p-4 space-y-3 transition-all ${payHolidayDays ? "border-violet-400 bg-violet-50/50 dark:bg-violet-950/20" : "border-border bg-muted/20 opacity-70"}`}>
-                <div className="flex items-center justify-between">
-                  <div><p className="text-xs font-bold">🎉 Public Holidays</p><p className="text-[10px] text-muted-foreground">National & public holidays</p></div>
-                  <Switch id="payHolidayDays" checked={payHolidayDays} onCheckedChange={setPayHolidayDays} />
-                </div>
-                <div className={`space-y-1 transition-opacity ${payHolidayDays ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
-                  <Label htmlFor="holidayDayRate" className="text-[10px] font-semibold text-muted-foreground">Daily Rate (₦)</Label>
-                  <div className="flex items-center gap-1"><span className="text-xs text-muted-foreground">₦</span><Input id="holidayDayRate" type="number" disabled={!payHolidayDays} value={holidayDayRate} onChange={(e) => setHolidayDayRate(parseFloat(e.target.value) || 0)} className="h-8 text-xs font-mono" /></div>
-                  {payHolidayDays && <p className="text-[10px] text-violet-600 dark:text-violet-400">✓ Paid at ₦{holidayDayRate.toLocaleString()}/day</p>}
-                </div>
-                {!payHolidayDays && <p className="text-[10px] text-muted-foreground">Holidays are currently <strong>unpaid</strong></p>}
-              </div>
-              <div className={`rounded-xl border-2 p-4 space-y-3 transition-all ${payOffDays ? "border-rose-400 bg-rose-50/50 dark:bg-rose-950/20" : "border-border bg-muted/20 opacity-70"}`}>
-                <div className="flex items-center justify-between">
-                  <div><p className="text-xs font-bold">🌙 Sundays / Off Days</p><p className="text-[10px] text-muted-foreground">Rest days & scheduled off</p></div>
-                  <Switch id="payOffDays" checked={payOffDays} onCheckedChange={setPayOffDays} />
-                </div>
-                <div className={`space-y-1 transition-opacity ${payOffDays ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
-                  <Label htmlFor="offDayRate" className="text-[10px] font-semibold text-muted-foreground">Daily Rate (₦)</Label>
-                  <div className="flex items-center gap-1"><span className="text-xs text-muted-foreground">₦</span><Input id="offDayRate" type="number" disabled={!payOffDays} value={offDayRate} onChange={(e) => setOffDayRate(parseFloat(e.target.value) || 0)} className="h-8 text-xs font-mono" /></div>
-                  {payOffDays && <p className="text-[10px] text-rose-600 dark:text-rose-400">✓ Paid at ₦{offDayRate.toLocaleString()}/day</p>}
-                </div>
-                {!payOffDays && <p className="text-[10px] text-muted-foreground">Off days are currently <strong>unpaid</strong></p>}
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* ─── STEP 6: MULTI-STAFF SPLITS ─── */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">6</span>
-              <h3 className="text-sm font-bold">Multi-Staff Service Revenue Splits</h3>
-            </div>
-            <p className="text-xs text-muted-foreground ml-8">
-              When two or three staff members collaborate on a single service, the service revenue pool is split between them before commission rates are applied. <strong>Splits must add up to exactly 100%.</strong>
-            </p>
-            <div className="ml-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
-              <div className="rounded-xl border-2 border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/20 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-xs font-bold text-indigo-700 dark:text-indigo-300">👥 2-Staff Session</p><p className="text-[10px] text-muted-foreground">Lead + 1 assistant</p></div>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${leadSplit2 + asstSplit2 === 100 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" : "bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300"}`}>{leadSplit2 + asstSplit2}% total</span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label htmlFor="leadSplit2" className="text-[10px] font-semibold">Lead Staff %</Label>
-                    <Input id="leadSplit2" type="number" min={0} max={100} value={leadSplit2} onChange={(e) => { const v = parseInt(e.target.value) || 0; setLeadSplit2(v); setAsstSplit2(Math.max(0, 100 - v)); }} className="h-8 text-sm font-mono" />
+                {commissionType === "percentage" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="commissionRate">Rate</Label>
+                    <div className="max-w-xs"><Money id="commissionRate" prefix="" value={commissionRate} onChange={(n) => setCommissionRate(Math.min(100, n))} suffix="% of service price" /></div>
+                    <p className="text-sm text-muted-foreground">On a {money(10000)} service, staff earn {money(10000 * commissionRate / 100)} before any deductions.</p>
+                    {businessRate !== null && businessRate !== commissionRate && (
+                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                        The business default is {businessRate}% (set in <Link href="/settings/business" className="underline">Business profile</Link>). {currentStore.name} overrides it.
+                      </p>
+                    )}
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="asstSplit2" className="text-[10px] font-semibold">Assistant %</Label>
-                    <Input id="asstSplit2" type="number" min={0} max={100} value={asstSplit2} onChange={(e) => { const v = parseInt(e.target.value) || 0; setAsstSplit2(v); setLeadSplit2(Math.max(0, 100 - v)); }} className="h-8 text-sm font-mono" />
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="commissionFixedAmount">Amount per service</Label>
+                    <div className="max-w-xs"><Money id="commissionFixedAmount" value={commissionFixedAmount} onChange={setCommissionFixedAmount} suffix="a service" /></div>
+                    <p className="text-sm text-muted-foreground">Staff earn this for each completed service, whatever the price.</p>
                   </div>
-                </div>
-                <div className="h-2 rounded-full bg-muted overflow-hidden flex">
-                  <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${leadSplit2}%` }} />
-                  <div className="bg-indigo-200 dark:bg-indigo-700 h-full transition-all duration-300" style={{ width: `${asstSplit2}%` }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground"><span>Lead: {leadSplit2}%</span><span>Asst: {asstSplit2}%</span></div>
-              </div>
-              <div className="rounded-xl border-2 border-purple-200 dark:border-purple-800 bg-purple-50/40 dark:bg-purple-950/20 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-xs font-bold text-purple-700 dark:text-purple-300">👥👥 3-Staff Session</p><p className="text-[10px] text-muted-foreground">Lead + 2 assistants</p></div>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${leadSplit3 + asst1Split3 + asst2Split3 === 100 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" : "bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300"}`}>{leadSplit3 + asst1Split3 + asst2Split3}% total</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="leadSplit3" className="text-[10px] font-semibold">Lead %</Label>
-                    <Input id="leadSplit3" type="number" min={0} max={100} value={leadSplit3} onChange={(e) => setLeadSplit3(parseInt(e.target.value) || 0)} className="h-8 text-sm font-mono" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="asst1Split3" className="text-[10px] font-semibold">Asst #1 %</Label>
-                    <Input id="asst1Split3" type="number" min={0} max={100} value={asst1Split3} onChange={(e) => setAsst1Split3(parseInt(e.target.value) || 0)} className="h-8 text-sm font-mono" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="asst2Split3" className="text-[10px] font-semibold">Asst #2 %</Label>
-                    <Input id="asst2Split3" type="number" min={0} max={100} value={asst2Split3} onChange={(e) => setAsst2Split3(parseInt(e.target.value) || 0)} className="h-8 text-sm font-mono" />
-                  </div>
-                </div>
-                {/* Visual split bar */}
-                <div className="h-2 rounded-full bg-muted overflow-hidden flex">
-                  <div className="bg-purple-500 h-full transition-all duration-300" style={{ width: `${leadSplit3}%` }} />
-                  <div className="bg-purple-300 dark:bg-purple-600 h-full transition-all duration-300" style={{ width: `${asst1Split3}%` }} />
-                  <div className="bg-purple-200 dark:bg-purple-800 h-full transition-all duration-300" style={{ width: `${asst2Split3}%` }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Lead: {leadSplit3}%</span>
-                  <span>A1: {asst1Split3}%</span>
-                  <span>A2: {asst2Split3}%</span>
-                </div>
-                {leadSplit3 + asst1Split3 + asst2Split3 !== 100 && (
-                  <p className="text-[10px] text-red-500 font-medium">
-                    ⚠ Total is {leadSplit3 + asst1Split3 + asst2Split3}% — must be exactly 100%
-                  </p>
                 )}
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* ─────────────────────────────────────────────────────────
-              LIVE PAY PREVIEW
-          ───────────────────────────────────────────────────────── */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-bold text-white">✓</span>
-              <h3 className="text-sm font-bold">Live Pay Preview</h3>
-              <span className="text-[10px] text-muted-foreground">(sample: 1 active day + 1 passive day + ₦50,000 service revenue)</span>
-            </div>
-            <div className="ml-8 max-w-2xl">
-              {(() => {
-                const sampleRevenue = 50000;
-                const sampleActiveDays = 1;
-                const samplePassiveDays = 1;
-                const activeTransportPay = sampleActiveDays * activeDayTransport;
-                const passiveTransportPay = samplePassiveDays * passiveDayTransport;
-                const totalAttendance = activeTransportPay + passiveTransportPay;
-
-                const sampleServicesWorked = 3; // sample for formula_f preview
-                let commissionable = sampleRevenue;
-                if (commissionFormula === "formula_b") commissionable = Math.max(0, sampleRevenue - activeTransportPay - passiveTransportPay);
-                else if (commissionFormula === "formula_a") commissionable = Math.max(0, sampleRevenue - (sampleActiveDays + samplePassiveDays) * activeDayTransport);
-                else if (commissionFormula === "formula_c") commissionable = Math.max(0, sampleRevenue - activeTransportPay - passiveTransportPay);
-
-                const commissionEarned = commissionFormula === "formula_f"
-                  ? commissionFixedAmount * sampleServicesWorked
-                  : commissionType === "percentage"
-                    ? (commissionRate / 100) * commissionable
-                    : commissionFixedAmount;
-
-                let netPay = 0;
-                if (defaultPaymentMethod === "fixed") {
-                  netPay = fixedBaseAmount;
-                } else if (defaultPaymentMethod === "commission") {
-                  netPay = totalAttendance + commissionEarned;
-                } else {
-                  netPay = fixedBaseAmount + totalAttendance + commissionEarned;
-                }
-
-                const fmt = (n: number) => `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-
-                return (
-                  <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 p-4 space-y-3">
-                    <div className="space-y-1.5 text-xs">
-                      {defaultPaymentMethod !== "commission" && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Base Salary</span>
-                          <span className="font-mono font-semibold">{fmt(fixedBaseAmount)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Active Day Transport ({sampleActiveDays} day × {fmt(activeDayTransport)})</span>
-                        <span className="font-mono font-semibold">{fmt(activeTransportPay)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Passive Day Transport ({samplePassiveDays} day × {fmt(passiveDayTransport)})</span>
-                        <span className="font-mono font-semibold">{fmt(passiveTransportPay)}</span>
-                      </div>
-                      {defaultPaymentMethod !== "fixed" && (
-                        <>
-                          <div className="flex justify-between text-muted-foreground/70 text-[10px]">
-                            <span>Service Revenue Pool</span>
-                            <span className="font-mono">{fmt(sampleRevenue)}</span>
-                          </div>
-                          {commissionable < sampleRevenue && (
-                            <div className="flex justify-between text-muted-foreground/70 text-[10px]">
-                              <span>After Formula Deductions</span>
-                              <span className="font-mono">{fmt(commissionable)}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">
-                              Commission{commissionType === "percentage" ? ` (${commissionRate}%)` : " (flat)"}
-                            </span>
-                            <span className="font-mono font-semibold">{fmt(commissionEarned)}</span>
-                          </div>
-                        </>
-                      )}
+                {commissionType === "percentage" && (
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-sm font-medium">Before working out commission</p>
+                      <p className="text-sm text-muted-foreground">Daily pay can be taken off service revenue first, so it isn't paid twice.</p>
                     </div>
-                    <Separator className="my-1" />
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold">Estimated Net Pay</span>
-                      <span className="text-xl font-bold text-emerald-700 dark:text-emerald-400 font-mono">{fmt(netPay)}</span>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {FORMULAS.map((f) => (
+                        <button key={f.value} type="button" onClick={() => setCommissionFormula(f.value)} aria-pressed={commissionFormula === f.value}
+                          className={cn("rounded-lg border p-3 text-left", commissionFormula === f.value ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/40")}>
+                          <p className="text-sm font-semibold">{f.label}</p>
+                          {f.recommended && <span className="mt-1 inline-block rounded bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800 dark:bg-green-500/20 dark:text-green-300">Recommended for salons</span>}
+                          <p className="mt-1 text-sm text-muted-foreground">{f.desc}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{f.eq}</p>
+                        </button>
+                      ))}
                     </div>
-                    <p className="text-[10px] text-muted-foreground">This is a sample calculation based on your current settings. Actual payroll reflects real attendance logs and service transactions.</p>
                   </div>
-                );
-              })()}
+                )}
+              </Card>
+            )}
+
+            <Card title="Daily transport" hint="Paid for each day a staff member shows up.">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="activeDayTransport">Active day</Label>
+                  <Money id="activeDayTransport" value={activeDayTransport} onChange={setActiveDayTransport} suffix="a day" />
+                  <p className="text-xs text-muted-foreground">Did at least one service.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="passiveDayTransport">Passive day</Label>
+                  <Money id="passiveDayTransport" value={passiveDayTransport} onChange={setPassiveDayTransport} suffix="a day" />
+                  <p className="text-xs text-muted-foreground">Present, but no services.</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Days not worked" hint="Turn on any you pay for, and set the daily amount.">
+              <div className="divide-y">
+                {days.map((d) => (
+                  <div key={d.label} className="space-y-2 py-3 first:pt-0 last:pb-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">{d.label}</p>
+                        <p className="text-xs text-muted-foreground">{d.hint}</p>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                        {d.on ? "Paid" : "Unpaid"}
+                        <Switch checked={d.on} onCheckedChange={d.setOn} aria-label={`Pay for ${d.label.toLowerCase()}`} />
+                      </label>
+                    </div>
+                    {d.on && <div className="max-w-xs"><Money id={`rate-${d.label}`} value={d.rate} onChange={d.setRate} suffix="a day" /></div>}
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card title="Shared services" hint="When 2 or 3 people work on one service, its value is split between them before commission.">
+              <div className="space-y-3">
+                <SplitRow title="2 people" hint="Lead and 1 assistant" labels={["Lead", "Assistant"]} values={[leadSplit2, asstSplit2]}
+                  onChange={(i, v) => { if (i === 0) { setLeadSplit2(v); setAsstSplit2(Math.max(0, 100 - v)); } else { setAsstSplit2(v); setLeadSplit2(Math.max(0, 100 - v)); } }} />
+                <SplitRow title="3 people" hint="Lead and 2 assistants" labels={["Lead", "Assistant 1", "Assistant 2"]} values={[leadSplit3, asst1Split3, asst2Split3]}
+                  onChange={(i, v) => [setLeadSplit3, setAsst1Split3, setAsst2Split3][i](v)} />
+              </div>
+            </Card>
+
+            <SaveBar
+              label="Save pay rules"
+              pending={updateSettingsMutation.isPending}
+              disabled={!splitsOk}
+              note={splitsOk ? undefined : "Shared service splits must add up to 100%."}
+              onSave={() => updateSettingsMutation.mutate({
+                defaultPaymentMethod, commissionType, commissionFixedAmount, commissionFormula,
+                activeDayTransport, passiveDayTransport, commissionRate: commissionRate / 100, fixedBaseAmount,
+                leaveDayRate, payLeaveDays, holidayDayRate, payHolidayDays, offDayRate, payOffDays,
+                leadSplit2, asstSplit2, leadSplit3, asst1Split3, asst2Split3,
+              })}
+            />
+          </div>
+          <aside>{estimate}</aside>
+        </div>
+      </div>
+
+      {/* LOYALTY */}
+      <div id="sd-loyalty" className={show("loyalty")}>
+        {sectionHead("Loyalty points", `How ${currentStore.name} customers earn and spend points.`)}
+        <Card>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="loyaltyPointsPerCurrency">Customers earn 1 point for every</Label>
+              <Money id="loyaltyPointsPerCurrency" value={loyaltyPointsPerCurrency} onChange={(n) => setLoyaltyPointsPerCurrency(Math.max(1, Math.floor(n) || 1))} suffix="spent" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="loyaltyPointValue">Each point is worth</Label>
+              <Money id="loyaltyPointValue" value={loyaltyPointValue} onChange={(n) => setLoyaltyPointValue(Math.max(0, n))} suffix="off" />
             </div>
           </div>
-        </CardContent>
-        <Separator />
-        <CardContent className="pt-6 flex justify-end">
-          <Button 
-            onClick={() => updateSettingsMutation.mutate({
-              defaultPaymentMethod,
-              commissionType,
-              commissionFixedAmount,
-              commissionFormula,
-              activeDayTransport,
-              passiveDayTransport,
-              commissionRate: commissionRate / 100,
-              fixedBaseAmount,
-              leaveDayRate,
-              payLeaveDays,
-              holidayDayRate,
-              payHolidayDays,
-              offDayRate,
-              payOffDays,
-              leadSplit2,
-              asstSplit2,
-              leadSplit3,
-              asst1Split3,
-              asst2Split3,
-            })}
-            disabled={updateSettingsMutation.isPending}
-            className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
-          >
-            {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
-            Save Payroll Configuration
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Loyalty Points Program Card */}
-      <Card className="border-primary/20 shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl font-bold">
-            <Gift className="h-6 w-6 text-primary" />
-            Loyalty Points Program
-          </CardTitle>
-          <CardDescription>Configure how customers earn and redeem loyalty points at {currentStore.name}.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="loyaltyPointsPerCurrency" className="text-sm font-semibold">Earn Rate</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground whitespace-nowrap">1 point per</span>
-                <Input
-                  id="loyaltyPointsPerCurrency"
-                  type="number"
-                  min={1}
-                  value={loyaltyPointsPerCurrency}
-                  onChange={(e) => setLoyaltyPointsPerCurrency(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="font-mono max-w-[120px]"
-                />
-                <span className="text-sm text-muted-foreground whitespace-nowrap">spent</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground">E.g. 100 means a customer earns 1 point for every ₦100 spent.</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="loyaltyPointValue" className="text-sm font-semibold">Redemption Value</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground whitespace-nowrap">1 point =</span>
-                <span className="text-sm font-bold text-muted-foreground">₦</span>
-                <Input
-                  id="loyaltyPointValue"
-                  type="number"
-                  min={0}
-                  value={loyaltyPointValue}
-                  onChange={(e) => setLoyaltyPointValue(Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="font-mono max-w-[120px]"
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground">Naira value applied as a discount when a customer redeems 1 point at checkout.</p>
-            </div>
+          <div className="rounded-lg bg-muted/60 p-4">
+            <p className="text-2xl font-bold">{pctLabel}% <span className="text-base font-semibold">back on everything customers buy</span></p>
+            <p className="text-sm text-muted-foreground">Customers get back {money(loyaltyPointValue)} for every {money(loyaltyPointsPerCurrency)} they spend.</p>
+            <p className="text-sm text-muted-foreground">A {money(3500)} sale earns {Math.floor(3500 / loyaltyPointsPerCurrency)} points, worth {money(Math.floor(3500 / loyaltyPointsPerCurrency) * loyaltyPointValue)} off a later visit.</p>
           </div>
-        </CardContent>
-        <Separator />
-        <CardContent className="pt-6 flex justify-end">
-          <Button
-            onClick={() => updateSettingsMutation.mutate({ loyaltyPointsPerCurrency, loyaltyPointValue })}
-            disabled={updateSettingsMutation.isPending}
-            className="gap-2"
-          >
-            {updateSettingsMutation.isPending && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />}
-            Save Loyalty Settings
-          </Button>
-        </CardContent>
-      </Card>
+          {pointPct > 5 && (
+            <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              That is a generous rate. If you meant 1 point per {money(loyaltyPointsPerCurrency)} worth {money(1)}, set the value to {money(1)} ({(100 / loyaltyPointsPerCurrency).toFixed(0)}% back).
+            </p>
+          )}
+        </Card>
+        <SaveBar
+          label="Save loyalty settings"
+          pending={updateSettingsMutation.isPending}
+          onSave={() => updateSettingsMutation.mutate({ loyaltyPointsPerCurrency, loyaltyPointValue })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Line({ label, value, strong, muted }: { label: string; value: string; strong?: boolean; muted?: boolean }) {
+  return (
+    <div className={cn("flex justify-between gap-3", muted && "text-muted-foreground")}>
+      <dt className={muted ? "" : "text-muted-foreground"}>{label}</dt>
+      <dd className={cn("shrink-0", strong && "font-semibold")}>{value}</dd>
     </div>
   );
 }

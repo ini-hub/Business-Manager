@@ -220,7 +220,7 @@ export function TimeSeriesChart({
       {measures.length > 1 && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 px-1">
           {measures.map((measure) => (
-            <span key={measure.id} className="flex items-center gap-1.5 text-xs">
+            <span key={measure.id} className="flex items-center gap-2 text-xs">
               <span
                 className="h-2 w-2 rounded-[2px]"
                 style={{ background: colorOf(measure.id) }}

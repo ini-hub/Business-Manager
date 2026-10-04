@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import type { Product, Settings, Inventory } from "@shared/schema";
@@ -610,7 +611,7 @@ export default function InventoryPage() {
       key: "storeName",
       header: "Store",
       render: (item: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {item.storeName || "Global"}
         </Badge>
       ),
@@ -628,7 +629,7 @@ export default function InventoryPage() {
           <div className="flex flex-col">
             <span className="font-medium">{item.name}</span>
             {item.type === "product" && item.variants && (
-              <span className="text-[10px] text-muted-foreground font-mono">
+              <span className="text-[11px] text-muted-foreground font-mono">
                 {item.variants.length} variant{item.variants.length !== 1 ? "s" : ""}
               </span>
             )}
@@ -671,7 +672,7 @@ export default function InventoryPage() {
         const min = Math.min(...prices);
         const max = Math.max(...prices);
         return (
-          <span className="font-mono text-sm font-medium font-outfit">
+          <span className="font-mono text-sm font-medium">
             {min === max ? formatCurrency(min) : `${formatCurrency(min)} - ${formatCurrency(max)}`}
           </span>
         );
@@ -867,10 +868,7 @@ export default function InventoryPage() {
               storeLabel={currentStore.name}
               businessName={business?.name ?? currentStore.name}
             />
-            <Button onClick={openCreateForm} aria-label="Add Item" data-testid="button-add-item">
-              <Plus className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">Add Item</span>
-            </Button>
+            <AddButton label="Add Item" onClick={openCreateForm} data-testid="button-add-item" />
           </div>
         }
       />
@@ -969,7 +967,7 @@ export default function InventoryPage() {
                   key: "storeName",
                   header: "Store",
                   render: (item: any) => (
-                    <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+                    <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
                       {item.storeName || "Global"}
                     </Badge>
                   ),
@@ -1011,7 +1009,7 @@ export default function InventoryPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                      className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
                       disabled={restoreMutation.isPending}
                       onClick={() => restoreMutation.mutate(item.id)}
                     >
@@ -1282,7 +1280,7 @@ export default function InventoryPage() {
                     {ineligible} item{ineligible === 1 ? "" : "s"} with multiple variants will be skipped — adjust those from their own page.
                   </p>
                 )}
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="bulk-adjust-qty">Quantity to add</Label>
                   <Input
                     id="bulk-adjust-qty"
@@ -1323,7 +1321,7 @@ export default function InventoryPage() {
                 Only applies to the {bulkSelection.items.length} loaded item{bulkSelection.items.length === 1 ? "" : "s"} on this page, not the full "select all" set.
               </p>
             )}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="bulk-category">Category</Label>
               <Input
                 id="bulk-category"
@@ -1396,7 +1394,7 @@ export default function InventoryPage() {
                     </label>
                   ))}
                 </RadioGroup>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="bulk-price-value">
                     {bulkPriceMode === "set" ? "New price" : bulkPriceMode.includes("pct") ? "Percent" : "Amount"}
                   </Label>
@@ -1412,7 +1410,7 @@ export default function InventoryPage() {
                 {preview.length > 0 && (
                   <div className="max-h-40 overflow-y-auto rounded-md border text-xs divide-y">
                     {preview.map(({ item, current, next, belowCost }) => (
-                      <div key={item.id} className="flex items-center justify-between px-2.5 py-1.5">
+                      <div key={item.id} className="flex items-center justify-between px-3 py-2">
                         <span className="truncate mr-2">{item.name}</span>
                         <span className={cn("font-mono shrink-0", belowCost && "text-destructive font-semibold")}>
                           {formatCurrency(current)} → {formatCurrency(next)}
@@ -1464,7 +1462,7 @@ export default function InventoryPage() {
                     {ineligible} service{ineligible === 1 ? "" : "s"}/multi-variant item{ineligible === 1 ? "" : "s"} will be skipped.
                   </p>
                 )}
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="bulk-po-vendor">Vendor</Label>
                   <Select value={bulkPOVendorId} onValueChange={setBulkPOVendorId}>
                     <SelectTrigger id="bulk-po-vendor">
@@ -1482,7 +1480,7 @@ export default function InventoryPage() {
                     {eligible.map((item) => {
                       const variant = bulkEligibleVariant(item)!;
                       return (
-                        <div key={item.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                        <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
                           <span className="truncate flex-1">{item.name}</span>
                           <span className="text-muted-foreground shrink-0">{formatCurrency(variant.costPrice ?? 0)} ea</span>
                           <Input

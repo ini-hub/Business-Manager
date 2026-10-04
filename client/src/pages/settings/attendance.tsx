@@ -1,6 +1,5 @@
 import { Clock } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
 import { AttendanceSettingsSection } from "./components/attendance-settings";
 import { NoStoreSelected } from "./components/no-store-selected";
@@ -19,11 +18,7 @@ export default function SettingsAttendancePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Attendance & Clock-In"
-        description="Configure clock-in, geofencing, and late-deduction rules."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="Attendance and clock-in" description="How this store records who came in, and when." scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={Clock} action="configure clock-in and geofencing" />
       ) : (

@@ -9,6 +9,8 @@ interface Column<T> {
   header: string;
   render?: (item: T) => React.ReactNode;
   className?: string;
+  /** Right-align numeric columns (header and cells). */
+  align?: "left" | "right";
   /** See ColumnConfig.priority — responsive display tier for the mobile/tablet card view. */
   priority?: 1 | 2 | 3;
   /** See ColumnConfig.cardRender — overrides `render` in the compact-grid card cell only. */

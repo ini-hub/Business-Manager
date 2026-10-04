@@ -108,7 +108,7 @@ export function LogSupplyUsageDialog({ open, onOpenChange, orderId, storeId, ser
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-sm">Supply</Label>
             <Select value={supplyId} onValueChange={setSupplyId}>
               <SelectTrigger>
@@ -129,7 +129,7 @@ export function LogSupplyUsageDialog({ open, onOpenChange, orderId, storeId, ser
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="supply-usage-qty" className="text-sm">Quantity used</Label>
             <Input
               id="supply-usage-qty"

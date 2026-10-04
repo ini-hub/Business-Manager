@@ -144,7 +144,7 @@ export default function ExpenseCategoriesPage() {
           ) : (
             <div className="divide-y">
               {userCategories.map((cat) => (
-                <div key={cat.id} className="flex items-center gap-2 py-2.5">
+                <div key={cat.id} className="flex items-center gap-2 py-3">
                   {editingId === cat.id ? (
                     <>
                       <Input

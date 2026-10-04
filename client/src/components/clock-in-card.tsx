@@ -371,7 +371,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
             </AlertDescription>
           </Alert>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="retro-reason">What happened?</Label>
             <Textarea
               id="retro-reason"
@@ -445,7 +445,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
       <>
         <Card className="overflow-hidden" data-testid="card-clock-in">
           <div className="grid md:grid-cols-2">
-            <div className="space-y-4 p-5 sm:p-7">
+            <div className="space-y-4 p-5 sm:p-8">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold sm:text-base">Today's attendance</h2>
                 {statusBadge}
@@ -476,7 +476,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
               {today.scheduledOff && <p className="text-xs text-muted-foreground">Today is your day off.</p>}
             </div>
 
-            <div className="space-y-3 border-t bg-muted/20 p-5 sm:p-7 md:border-l md:border-t-0">
+            <div className="space-y-3 border-t bg-muted/20 p-5 sm:p-8 md:border-l md:border-t-0">
               {deniedBanner ?? (
                 <div
                   className={

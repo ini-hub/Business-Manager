@@ -163,7 +163,7 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto font-outfit">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="pb-3 border-b border-muted/30">
           <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
             <Undo2 className="h-5 w-5 text-indigo-500" />
@@ -192,9 +192,9 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-foreground truncate">{item.name}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                          <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                             <span className="font-mono">{formatCurrency(item.unitPrice)}</span>
-                            <Badge variant="outline" className="text-[10px] py-0 px-1.5 capitalize font-medium">
+                            <Badge variant="outline" className="text-[11px] py-0 px-2 capitalize font-medium">
                               {item.type}
                             </Badge>
                           </p>
@@ -234,10 +234,10 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
 
             {/* Refund Configs */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Refund Method</Label>
                 <Select value={refundMethod} onValueChange={(val: any) => setRefundMethod(val)}>
-                  <SelectTrigger className="h-9 text-xs">
+                  <SelectTrigger className="h-10 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -250,19 +250,19 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reason for Return</Label>
                 <Input
                   placeholder="e.g. Damaged, Dissatisfied, Size exchange"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-10 text-xs"
                 />
               </div>
             </div>
 
             {/* Calculations Summary Panel */}
-            <div className="border border-indigo-500/10 rounded-xl p-4 bg-indigo-500/5 space-y-2.5">
+            <div className="border border-indigo-500/10 rounded-xl p-4 bg-indigo-500/5 space-y-3">
               <div className="flex justify-between items-center text-xs">
                 <span className="text-muted-foreground">Total items selected:</span>
                 <span className="font-bold text-foreground font-mono">{activeReturnsCount} items</span>

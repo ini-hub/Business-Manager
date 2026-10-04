@@ -67,7 +67,7 @@ export default function BillingCallback() {
           {state === "verifying" && (
             <>
               <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
-              <h1 className="text-lg font-semibold">Confirming your payment…</h1>
+              <h1 className="text-lg font-bold">Confirming your payment…</h1>
               <p className="text-sm text-muted-foreground">This only takes a moment.</p>
             </>
           )}
@@ -76,7 +76,7 @@ export default function BillingCallback() {
               <div className="rounded-full bg-emerald-500/10 p-3">
                 <CheckCircle2 className="h-6 w-6 text-emerald-500" />
               </div>
-              <h1 className="text-lg font-semibold">Payment confirmed</h1>
+              <h1 className="text-lg font-bold">Payment confirmed</h1>
               <p className="text-sm text-muted-foreground">Your subscription is now active.</p>
               <Button onClick={goToApp} className="mt-2">Continue to app</Button>
             </>
@@ -86,7 +86,7 @@ export default function BillingCallback() {
               <div className="rounded-full bg-destructive/10 p-3">
                 <XCircle className="h-6 w-6 text-destructive" />
               </div>
-              <h1 className="text-lg font-semibold">We couldn't confirm this payment</h1>
+              <h1 className="text-lg font-bold">We couldn't confirm this payment</h1>
               <p className="text-sm text-muted-foreground">{message}</p>
               <Button onClick={goToApp} variant="outline" className="mt-2">Back to app</Button>
             </>

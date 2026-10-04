@@ -132,7 +132,7 @@ export function SupplyCostingCard({
               >
                 <div className="flex items-center justify-between">
                   <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
-                  {active && <Badge variant="secondary" className="text-[10px]">current</Badge>}
+                  {active && <Badge variant="secondary" className="text-[11px]">current</Badge>}
                 </div>
                 <div className="font-semibold text-sm">{m.title}</div>
                 <div className="text-xs text-muted-foreground leading-snug">{m.blurb}</div>

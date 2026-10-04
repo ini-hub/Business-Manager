@@ -85,7 +85,7 @@ export default function AnalyticsDashboardsPage() {
                 <DialogTitle>New dashboard</DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="name" className="text-xs">
                     Name
                   </Label>
@@ -157,7 +157,7 @@ export default function AnalyticsDashboardsPage() {
                   </p>
                 )}
                 {dashboard.visibility === "business" && (
-                  <p className="text-[10px] text-muted-foreground mt-1">Shared with the team</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">Shared with the team</p>
                 )}
               </Link>
               <button

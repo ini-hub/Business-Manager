@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AddButton } from "@/components/add-button";
 import { useLocation } from "wouter";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -268,11 +269,11 @@ export default function StockTransfersPage() {
       render: (t: TransferWithStores) => {
         const isOutgoing = t.fromStoreId === currentStore!.id;
         return isOutgoing ? (
-          <span className="flex items-center gap-1.5 text-blue-500 font-semibold text-sm">
+          <span className="flex items-center gap-2 text-blue-500 font-semibold text-sm">
             <ArrowUpRight className="h-4 w-4" /> Outgoing
           </span>
         ) : (
-          <span className="flex items-center gap-1.5 text-purple-500 font-semibold text-sm">
+          <span className="flex items-center gap-2 text-purple-500 font-semibold text-sm">
             <ArrowDownLeft className="h-4 w-4" /> Incoming
           </span>
         );
@@ -414,10 +415,7 @@ export default function StockTransfersPage() {
         description="Shift inventory dynamically across different branch stores, balancing regional demand with atomic logs."
         actions={
           <>
-            <Button onClick={() => setLocation("/stock-transfers/new")} aria-label="Create request" data-testid="button-create-transfer">
-              <Plus className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">Create request</span>
-            </Button>
+            <AddButton label="Create request" onClick={() => setLocation("/stock-transfers/new")} data-testid="button-create-transfer" />
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={STOCK_TRANSFER_BULK_CONFIG}
@@ -455,7 +453,7 @@ export default function StockTransfersPage() {
 
       {draftsList.length > 0 && (
         <div className="rounded-lg border" data-testid="transfer-drafts">
-          <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2.5 text-sm font-medium">
+          <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-3 text-sm font-medium">
             <FileText className="h-4 w-4 text-muted-foreground" />
             Drafts ({draftsList.length})
             <span className="hidden text-xs font-normal text-muted-foreground sm:inline">

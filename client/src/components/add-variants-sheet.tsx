@@ -468,7 +468,7 @@ export function AddVariantsSheet({
             <Layers className="h-4 w-4 text-primary" />
             <SheetTitle className="text-base">Add Variants</SheetTitle>
           </div>
-          <SheetDescription className="flex items-center gap-1.5">
+          <SheetDescription className="flex items-center gap-2">
             <Icon className="h-3.5 w-3.5 shrink-0" />
             <span>
               Adding variants to{" "}
@@ -478,10 +478,10 @@ export function AddVariantsSheet({
           {/* Step pills */}
           <div className="flex items-center gap-2 pt-1">
             {["Define", "Prices"].map((label, i) => (
-              <div key={i} className="flex items-center gap-1.5">
+              <div key={i} className="flex items-center gap-2">
                 <div
                   className={cn(
-                    "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold",
+                    "w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold",
                     i < step
                       ? "bg-primary text-primary-foreground"
                       : i === step
@@ -525,7 +525,7 @@ export function AddVariantsSheet({
               {/* ── Existing variants summary (step 0 only) ───────────── */}
               {step === 0 && existingVariants.length > 0 && (
                 <div className="rounded-lg border bg-muted/10 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/20">
+                  <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                       Existing variants ({existingVariants.length})
                     </span>
@@ -552,7 +552,7 @@ export function AddVariantsSheet({
                             {isBase && (
                               <Badge
                                 variant="outline"
-                                className="text-[10px] py-0 h-4 shrink-0 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/20"
+                                className="text-[11px] py-0 h-4 shrink-0 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/20"
                               >
                                 base
                               </Badge>
@@ -563,7 +563,7 @@ export function AddVariantsSheet({
                                   <Badge
                                     key={k}
                                     variant="secondary"
-                                    className="text-[10px] py-0 h-4 font-normal"
+                                    className="text-[11px] py-0 h-4 font-normal"
                                   >
                                     {k}: {val}
                                   </Badge>
@@ -631,7 +631,7 @@ export function AddVariantsSheet({
                         Archive them to keep your inventory clean.
                       </p>
                     )}
-                    <label className="flex items-start gap-2.5 cursor-pointer">
+                    <label className="flex items-start gap-3 cursor-pointer">
                       <Checkbox
                         checked={archiveBaseItem}
                         onCheckedChange={(v) => setArchiveBaseItem(!!v)}
@@ -694,7 +694,7 @@ export function AddVariantsSheet({
                               <Badge
                                 key={k}
                                 variant="outline"
-                                className="text-[10px] h-4 py-0 border-orange-300 text-orange-700"
+                                className="text-[11px] h-4 py-0 border-orange-300 text-orange-700"
                               >
                                 {k}: {val}
                               </Badge>
@@ -702,7 +702,7 @@ export function AddVariantsSheet({
                         </li>
                       ))}
                     </ul>
-                    <label className="flex items-start gap-2.5 cursor-pointer">
+                    <label className="flex items-start gap-3 cursor-pointer">
                       <Checkbox
                         checked={archiveIncomplete}
                         onCheckedChange={(v) => setArchiveIncomplete(!!v)}
@@ -743,7 +743,7 @@ export function AddVariantsSheet({
                   )}
 
                   {/* Add attribute input */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <Label>Add Attribute Axis</Label>
                     <div className="flex gap-2">
                       <Input
@@ -803,7 +803,7 @@ export function AddVariantsSheet({
                               {attr.fromDB && (
                                 <Badge
                                   variant="outline"
-                                  className="text-[10px] h-4 py-0 gap-1 text-primary border-primary/30 bg-primary/5"
+                                  className="text-[11px] h-4 py-0 gap-1 text-primary border-primary/30 bg-primary/5"
                                 >
                                   <Lock className="h-2.5 w-2.5" />
                                   existing
@@ -829,10 +829,10 @@ export function AddVariantsSheet({
                                   key={vi}
                                   variant={isDBVal ? "secondary" : "outline"}
                                   className={cn(
-                                    "gap-1.5 text-xs font-medium",
+                                    "gap-2 text-xs font-medium",
                                     isDBVal
                                       ? "opacity-70 pr-2"
-                                      : "pr-1.5"
+                                      : "pr-2"
                                   )}
                                 >
                                   {isDBVal && (
@@ -935,7 +935,7 @@ export function AddVariantsSheet({
                             <div
                               key={key}
                               className={cn(
-                                "flex items-center gap-3 px-4 py-2.5 text-sm transition-colors select-none",
+                                "flex items-center gap-3 px-4 py-3 text-sm transition-colors select-none",
                                 alreadyExists
                                   ? "opacity-50 cursor-not-allowed bg-muted/20"
                                   : "cursor-pointer hover:bg-muted/30",
@@ -954,18 +954,18 @@ export function AddVariantsSheet({
                               <span className="font-medium flex-1">
                                 {parentName} — {comboLabel(combo)}
                               </span>
-                              <div className="flex gap-1.5 shrink-0 items-center">
+                              <div className="flex gap-2 shrink-0 items-center">
                                 {alreadyExists ? (
                                   <Badge
                                     variant="secondary"
-                                    className="text-[10px] h-4 px-1.5 py-0 text-muted-foreground"
+                                    className="text-[11px] h-4 px-2 py-0 text-muted-foreground"
                                   >
                                     exists
                                   </Badge>
                                 ) : (
                                   <Badge
                                     variant="outline"
-                                    className="text-[10px] h-4 px-1.5 py-0 text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20"
+                                    className="text-[11px] h-4 px-2 py-0 text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20"
                                   >
                                     new
                                   </Badge>
@@ -974,7 +974,7 @@ export function AddVariantsSheet({
                                   <Badge
                                     key={k}
                                     variant="outline"
-                                    className="text-xs px-1.5 py-0 font-normal"
+                                    className="text-xs px-2 py-0 font-normal"
                                   >
                                     {k}: {v}
                                   </Badge>
@@ -1016,7 +1016,7 @@ export function AddVariantsSheet({
                       </span>
                     </p>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label>
                           Cost ({sym}){" "}
                           <span className="text-destructive">*</span>
@@ -1047,7 +1047,7 @@ export function AddVariantsSheet({
                           </p>
                         )}
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label>
                           Selling ({sym}){" "}
                           <span className="text-destructive">*</span>
@@ -1105,7 +1105,7 @@ export function AddVariantsSheet({
                       </div>
                       {commissionOverride && (
                         <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
+                          <div className="space-y-2">
                             <Label>Business Share (%)</Label>
                             <Input
                               type="number"
@@ -1115,7 +1115,7 @@ export function AddVariantsSheet({
                               }
                             />
                           </div>
-                          <div className="space-y-1.5">
+                          <div className="space-y-2">
                             <Label>Staff Share (%)</Label>
                             <Input
                               type="number"
@@ -1336,7 +1336,7 @@ export function AddVariantsSheet({
                     </div>
                   </div>
 
-                  <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <p className="text-xs text-muted-foreground flex items-start gap-2">
                     <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                     {newCombos.length} new variant
                     {newCombos.length !== 1 ? "s" : ""} will be created.

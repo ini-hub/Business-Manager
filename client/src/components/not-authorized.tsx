@@ -16,7 +16,7 @@ export default function NotAuthorized() {
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-6">
             <ShieldAlert className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-semibold mb-2">You don't have access to this page</h1>
+          <h1 className="text-[26px] font-bold mb-2">You don't have access to this page</h1>
           <p className="text-muted-foreground mb-6">
             This page is for managers and owners. If you think you should be able to see it, ask your manager.
           </p>

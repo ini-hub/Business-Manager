@@ -395,7 +395,7 @@ export default function TransactionDetailsPage() {
           <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center">
             <AlertCircle className="h-8 w-8 text-destructive" />
           </div>
-          <h2 className="text-2xl font-bold">Transaction Not Found</h2>
+          <h2 className="text-lg font-bold">Transaction Not Found</h2>
           <p className="text-muted-foreground max-w-md">
             The transaction you're looking for doesn't exist or you don't have access to view it.
           </p>
@@ -411,13 +411,13 @@ export default function TransactionDetailsPage() {
   const tx = transaction;
 
   const statusBadge = isVoided ? (
-    <Badge variant="destructive" className="text-xs px-2.5 py-1">Voided</Badge>
+    <Badge variant="destructive" className="text-xs px-3 py-1">Voided</Badge>
   ) : isFullyReturned ? (
-    <Badge variant="outline" className="text-xs px-2.5 py-1 text-red-600 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold">
+    <Badge variant="outline" className="text-xs px-3 py-1 text-red-600 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold">
       Returned
     </Badge>
   ) : receiptDetails?.checkout?.isPartiallyReturned ? (
-    <Badge variant="outline" className="text-xs px-2.5 py-1 text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold">
+    <Badge variant="outline" className="text-xs px-3 py-1 text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold">
       Part returned
     </Badge>
   ) : null;
@@ -741,7 +741,7 @@ export default function TransactionDetailsPage() {
               {receiptDetails && (
                 <>
                   <Separator />
-                  <div className="space-y-1.5 text-sm">
+                  <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between text-muted-foreground">
                       <span>Subtotal</span>
                       <span className="font-mono">{formatCurrency(grossChargedExclTax)}</span>
@@ -773,9 +773,9 @@ export default function TransactionDetailsPage() {
                   <Separator />
                   <div className="space-y-2">
                     <h3 className="text-sm font-semibold text-foreground">Payments</h3>
-                    <div className="space-y-1.5 text-sm">
+                    <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-muted-foreground capitalize">
+                        <span className="flex items-center gap-2 text-muted-foreground capitalize">
                           <span className="text-emerald-600">↙</span>
                           {tx.checkout?.paymentMethod ?? "cash"} · {new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" }).format(new Date(tx.transactionDate))}
                         </span>
@@ -783,15 +783,15 @@ export default function TransactionDetailsPage() {
                       </div>
                       {(receiptDetails.returnLogs ?? []).map((log: any) => (
                         <div key={log.id} className="flex items-center justify-between">
-                          <span className="flex items-center gap-1.5 text-muted-foreground capitalize">
+                          <span className="flex items-center gap-2 text-muted-foreground capitalize">
                             <span className="text-red-500">↗</span>
                             Refund to {(log.refundMethod ?? "").replace("_", " ")} · {new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(log.createdAt))}
                           </span>
                           <span className="font-mono text-red-600 dark:text-red-400">-{formatCurrency(log.refundAmount)}</span>
                         </div>
                       ))}
-                      <div className="flex items-center justify-between pt-1.5 border-t">
-                        <span className={`flex items-center gap-1.5 font-medium ${isSettled ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <span className={`flex items-center gap-2 font-medium ${isSettled ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
                           {isSettled ? "✓ Fully settled" : "Balance due"}
                         </span>
                         <span className={`font-mono font-medium ${isSettled ? "" : "text-amber-600 dark:text-amber-400"}`}>
@@ -875,11 +875,11 @@ export default function TransactionDetailsPage() {
                         )}
                       </p>
                       {log.reason && (
-                        <p className="text-muted-foreground italic bg-muted/40 p-1.5 rounded mt-1.5 border-l-2 border-orange-400">
+                        <p className="text-muted-foreground italic bg-muted/40 p-2 rounded mt-1.5 border-l-2 border-orange-400">
                           "{log.reason}"
                         </p>
                       )}
-                      <p className="text-[10px] text-muted-foreground/80 font-mono mt-1">
+                      <p className="text-[11px] text-muted-foreground/80 font-mono mt-1">
                         {formatDate(log.createdAt)}
                       </p>
                     </div>
@@ -938,7 +938,7 @@ export default function TransactionDetailsPage() {
                           {log.errorMessage && (
                             <p className="text-red-600 dark:text-red-400 italic">{log.errorMessage}</p>
                           )}
-                          <p className="text-[10px] text-muted-foreground/80 font-mono mt-1">
+                          <p className="text-[11px] text-muted-foreground/80 font-mono mt-1">
                             {formatDate(log.timestamp)}
                           </p>
                         </div>
@@ -1007,7 +1007,7 @@ export default function TransactionDetailsPage() {
                       <AlertCircle className="h-3.5 w-3.5" />
                       Void Log
                     </h4>
-                    <div className="text-sm space-y-1.5 text-red-700 dark:text-red-300">
+                    <div className="text-sm space-y-2 text-red-700 dark:text-red-300">
                       <p>
                         <span className="font-medium">Date:</span>{" "}
                         {tx.checkout?.voidedAt

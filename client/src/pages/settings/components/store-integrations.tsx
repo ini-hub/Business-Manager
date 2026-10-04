@@ -99,7 +99,7 @@ export function StoreIntegrationsSection() {
       <CardHeader className="bg-muted/30">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <CardTitle className="flex items-center gap-2 text-xl font-bold">
+            <CardTitle className="flex items-center gap-2 text-lg font-bold">
               <CreditCard className="h-6 w-6 text-primary" />
               Dynamic Payment Integrations
             </CardTitle>
@@ -112,7 +112,7 @@ export function StoreIntegrationsSection() {
               <button
                 key={p.id}
                 onClick={() => setActiveTab(p.id as any)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                className={`px-3 py-2 text-xs font-semibold rounded-md transition-all ${
                   activeTab === p.id
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -130,7 +130,7 @@ export function StoreIntegrationsSection() {
           <div className="space-y-1">
             <h4 className="font-semibold text-sm flex items-center gap-2">
               {providers.find(p => p.id === activeTab)?.name} Integration
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
                 isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
               }`}>
                 {isActive ? "Active" : "Inactive"}
@@ -210,7 +210,7 @@ export function StoreIntegrationsSection() {
         </div>
 
         <div className="p-4 bg-muted/30 rounded-lg border text-xs space-y-2">
-          <h5 className="font-semibold flex items-center gap-1 text-muted-foreground uppercase tracking-wider text-[10px]">
+          <h5 className="font-semibold flex items-center gap-1 text-muted-foreground uppercase tracking-wider text-[11px]">
             <Lock className="h-3 w-3" /> Webhook Endpoint Url Configuration
           </h5>
           <p className="text-muted-foreground leading-relaxed">

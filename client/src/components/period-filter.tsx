@@ -82,7 +82,7 @@ export function PeriodFilter({ filter }: { filter: PeriodFilterState }) {
     <div className="flex flex-wrap items-center gap-2" data-testid="period-filter">
       <CalendarRange className="h-4 w-4 shrink-0 text-muted-foreground" />
       <Select value={key} onValueChange={filter.setKey}>
-        <SelectTrigger className="h-9 w-full sm:w-[230px]" data-testid="select-period">
+        <SelectTrigger className="h-10 w-full sm:w-[230px]" data-testid="select-period">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -106,13 +106,13 @@ export function PeriodFilter({ filter }: { filter: PeriodFilterState }) {
       {key === "custom" && (
         <div className="flex items-center gap-2">
           <Input
-            type="date" className="h-9 w-[150px]" aria-label="From date"
+            type="date" className="h-10 w-[150px]" aria-label="From date"
             value={from ?? range.from} max={to ?? undefined}
             onChange={(e) => filter.setCustom({ from: e.target.value, to: to ?? range.to })}
           />
           <span className="text-xs text-muted-foreground">to</span>
           <Input
-            type="date" className="h-9 w-[150px]" aria-label="To date"
+            type="date" className="h-10 w-[150px]" aria-label="To date"
             value={to ?? range.to} min={from ?? undefined}
             onChange={(e) => filter.setCustom({ to: e.target.value, from: from ?? range.from })}
           />

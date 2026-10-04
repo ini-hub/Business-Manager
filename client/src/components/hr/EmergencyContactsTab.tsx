@@ -134,7 +134,7 @@ export function EmergencyContactsTab({ staffId, basePath }: { staffId: string; b
 
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
       <Input value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
@@ -148,7 +148,7 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 function PhoneField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const split = splitNormalizedPhone(value) ?? { countryCode: "+234", localNumber: value };
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
       <PhoneInput
         countryCode={split.countryCode}

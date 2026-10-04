@@ -32,7 +32,7 @@ export function DashboardViewSwitch({ children }: { children: ReactNode }) {
               aria-selected={active}
               data-testid={v.testId}
               className={cn(
-                "rounded-xl px-3 py-2.5 text-center text-sm font-semibold transition-colors",
+                "rounded-xl px-3 py-3 text-center text-sm font-semibold transition-colors",
                 active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
               )}
             >

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AddButton } from "@/components/add-button";
 import { useLocation, Link } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -220,7 +221,7 @@ export default function PurchaseOrdersPage() {
       key: "storeName",
       header: "Store",
       render: (q: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {q.storeName || "Global"}
         </Badge>
       ),
@@ -389,11 +390,7 @@ export default function PurchaseOrdersPage() {
           activeTab === "list" && (
             <>
               {isManagerOrOwner && (
-                <Button size="sm" className="gap-1" onClick={() => setLocation("/purchase-orders/new")} data-testid="button-new-po">
-                  <Plus className="h-4 w-4" />
-                  <span className="hidden sm:inline">New purchase order</span>
-                  <span className="sm:hidden">New</span>
-                </Button>
+                <AddButton label="New purchase order" onClick={() => setLocation("/purchase-orders/new")} data-testid="button-new-po" />
               )}
               <div className="lg:hidden">
                 <BulkOperations
@@ -568,7 +565,7 @@ export default function PurchaseOrdersPage() {
                     key: "storeName",
                     header: "Store",
                     render: (b: any) => (
-                      <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+                      <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
                         {b.storeName || "Global"}
                       </Badge>
                     ),

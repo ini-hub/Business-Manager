@@ -178,13 +178,13 @@ export default function RoleFormPage() {
               <div className="space-y-3">
                 <Label className="text-sm font-semibold text-foreground uppercase tracking-wider block">Modular Permissions</Label>
                 <p className="text-xs text-muted-foreground">A role can only use a paid feature if your business has it in its plan and the role includes the module it sits under.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 border p-4 rounded-lg bg-muted/10">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border p-4 rounded-lg bg-muted/10">
                   {permissionsList.map((perm) => {
                     const isChecked = selectedPermissions.includes(perm);
                     return (
                       <label 
                         key={perm} 
-                        className={`flex items-center gap-2.5 text-xs font-semibold cursor-pointer p-2.5 rounded-lg border transition-all duration-150 ${
+                        className={`flex items-center gap-3 text-xs font-semibold cursor-pointer p-3 rounded-lg border transition-all duration-150 ${
                           isChecked 
                             ? "bg-primary/5 border-primary/30 text-primary shadow-xs" 
                             : "bg-background border-muted/50 text-muted-foreground hover:bg-muted/10 hover:border-muted"
@@ -201,7 +201,7 @@ export default function RoleFormPage() {
                           {(featuresByModule.get(perm) ?? []).map((f) => (
                             <span
                               key={f.key}
-                              className={`flex items-center gap-1 text-[10px] font-normal ${f.granted ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}
+                              className={`flex items-center gap-1 text-[11px] font-normal ${f.granted ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}
                               title={f.granted ? "Included in your plan" : "Not in your plan yet - add it from Settings > Billing"}
                             >
                               {f.granted ? <Check className="h-3 w-3" /> : <Lock className="h-3 w-3" />}

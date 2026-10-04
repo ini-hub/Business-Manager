@@ -214,7 +214,7 @@ export function AddendumDialog({
 
           {/* Staged items */}
           {cartItems.length > 0 && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-sm font-medium">Items to add ({cartItems.length})</Label>
               <div className="rounded-md border divide-y">
                 {cartItems.map((c) => (
@@ -243,7 +243,7 @@ export function AddendumDialog({
           )}
 
           {/* Item search */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-sm font-medium">Item / Service</Label>
             <div className="border rounded-md overflow-hidden">
               <Command className="rounded-none border-none">
@@ -285,7 +285,7 @@ export function AddendumDialog({
                           <span className="flex-1 truncate">{item.name}</span>
                           <Badge
                             variant="secondary"
-                            className="text-[10px] py-0 ml-2 shrink-0"
+                            className="text-[11px] py-0 ml-2 shrink-0"
                           >
                             {item.type}
                           </Badge>
@@ -315,7 +315,7 @@ export function AddendumDialog({
 
               {/* Quantity + Price */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="addendum-qty" className="text-sm">Quantity</Label>
                   <Input
                     id="addendum-qty"
@@ -326,7 +326,7 @@ export function AddendumDialog({
                     onChange={(e) => setQuantity(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="addendum-price" className="text-sm">Price</Label>
                   <Input
                     id="addendum-price"
@@ -349,7 +349,7 @@ export function AddendumDialog({
 
               {/* Lead staff — required for services */}
               {isService && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label className="text-sm">
                     Lead / Service Staff{" "}
                     <span className="text-destructive">*</span>
@@ -393,7 +393,7 @@ export function AddendumDialog({
           {(cartItems.length > 0 || selectedItem) && <Separator />}
 
           {/* Processed by */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-sm">Processed by</Label>
             <Select value={staffId} onValueChange={setStaffId}>
               <SelectTrigger>
@@ -458,7 +458,7 @@ export function AddendumDialog({
           </div>
 
           {/* Reason */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="addendum-reason" className="text-sm">Reason *</Label>
             <Input
               id="addendum-reason"

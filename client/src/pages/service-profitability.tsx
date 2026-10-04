@@ -147,7 +147,7 @@ export default function ServiceProfitabilityPage() {
         <div>
           <span className="font-semibold">{item.name}</span>
           <div className="mt-0.5">
-            <Badge variant="outline" className={`capitalize text-[10px] h-4 ${
+            <Badge variant="outline" className={`capitalize text-[11px] h-4 ${
               item.type === "service" ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-900/30"
               : "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/30"}`}>
               {item.type}
@@ -188,7 +188,7 @@ export default function ServiceProfitabilityPage() {
                   <Info className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[220px] p-3 space-y-1.5">
+                <TooltipContent side="right" className="max-w-[220px] p-3 space-y-2">
                   <p className="text-xs font-semibold mb-1">Sustaining Cost Breakdown</p>
                   {item.sustainingBreakdown.map((b, i) => (
                     <div key={i} className="flex justify-between gap-3 text-xs">
@@ -212,7 +212,7 @@ export default function ServiceProfitabilityPage() {
           <span className={`font-mono font-bold ${item.netProfit > 0 ? "text-green-600 dark:text-green-400" : item.netProfit < 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
             {formatCurrency(item.netProfit)}
           </span>
-          <span className="text-[10px] text-muted-foreground mt-0.5">
+          <span className="text-[11px] text-muted-foreground mt-0.5">
             Margin: {item.netProfitMargin.toFixed(1)}%
           </span>
         </div>

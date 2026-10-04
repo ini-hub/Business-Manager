@@ -51,7 +51,7 @@ export function LocationSelect({
 
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label>{countryLabel}</Label>
         <SearchableSelect
           options={countryOptions}
@@ -68,7 +68,7 @@ export function LocationSelect({
         />
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label>{stateLabel}</Label>
         <SearchableSelect
           options={stateOptions}
@@ -85,7 +85,7 @@ export function LocationSelect({
       </div>
 
       {includeCity && (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label>{resolvedCityLabel}</Label>
           <SearchableSelect
             options={cityOptions}
@@ -107,7 +107,7 @@ export function NationalitySelect({
   value, onChange, label = "Nationality", disabled = false,
 }: { value?: string; onChange: (isoCode: string) => void; label?: string; disabled?: boolean }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
       <SearchableSelect
         options={nationalityOptions}

@@ -188,7 +188,7 @@ export default function SuperAdminAccounts() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Super Admin Accounts</h1>
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Super Admin Accounts</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage internal operations clearance levels, resets, and MFA configuration keys.</p>
         </div>
         {isSuperAdmin && (
@@ -221,48 +221,48 @@ export default function SuperAdminAccounts() {
             const isActive = adm.status === "active";
 
             return (
-              <Card key={adm.id} className="bg-card/40 border-border/80 rounded-3xl overflow-hidden hover:border-border/80 transition-all duration-300 flex flex-col justify-between shadow-xl">
+              <Card key={adm.id} className="bg-card/40 border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 flex flex-col justify-between shadow-xl">
                 <CardHeader className="bg-background/20 p-5 border-b border-border/40 flex flex-row items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
-                    <CardTitle className="text-sm font-extrabold text-foreground truncate font-outfit flex items-center gap-2">
+                    <CardTitle className="text-sm font-bold text-foreground truncate flex items-center gap-2">
                       <Shield className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
                       {adm.name}
                     </CardTitle>
                     <span className="block text-[11px] text-muted-foreground truncate">{adm.email}</span>
                   </div>
                   {isSelf && (
-                    <Badge variant="outline" className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-none font-bold text-[8px] uppercase">
+                    <Badge variant="outline" className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-none font-bold text-[11px] uppercase">
                       YOU
                     </Badge>
                   )}
                 </CardHeader>
                 <CardContent className="p-5 space-y-4 text-xs font-semibold text-muted-foreground flex-1 flex flex-col justify-between">
                   <div className="space-y-3">
-                    <div className="flex justify-between items-center py-1.5 border-b border-border">
+                    <div className="flex justify-between items-center py-2 border-b border-border">
                       <span className="text-muted-foreground">Access Role</span>
-                      <Badge variant="outline" className={`border ${getRoleBadgeColor(adm.role)} text-[9px] font-bold uppercase`}>
+                      <Badge variant="outline" className={`border ${getRoleBadgeColor(adm.role)} text-[11px] font-bold uppercase`}>
                         {adm.role.replace("_", " ")}
                       </Badge>
                     </div>
 
-                    <div className="flex justify-between items-center py-1.5 border-b border-border">
+                    <div className="flex justify-between items-center py-2 border-b border-border">
                       <span className="text-muted-foreground">MFA Configured</span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         {adm.mfaEnabled ? (
-                          <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none text-[9px] font-bold">
+                          <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none text-[11px] font-bold">
                             Active
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-none text-[9px] font-bold">
+                          <Badge variant="outline" className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-none text-[11px] font-bold">
                             Pending pairing
                           </Badge>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center py-1.5">
+                    <div className="flex justify-between items-center py-2">
                       <span className="text-muted-foreground">Account Status</span>
-                      <Badge variant="outline" className={`border-none ${isActive ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"} text-[9px] font-bold uppercase`}>
+                      <Badge variant="outline" className={`border-none ${isActive ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400" : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"} text-[11px] font-bold uppercase`}>
                         {adm.status}
                       </Badge>
                     </div>
@@ -273,7 +273,7 @@ export default function SuperAdminAccounts() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="border-border text-muted-foreground hover:text-foreground rounded-lg px-2 text-[10px] font-bold"
+                        className="border-border text-muted-foreground hover:text-foreground rounded-lg px-2 text-[11px] font-bold"
                         onClick={() => resetMfaMutation.mutate(adm.id)}
                         disabled={resetMfaMutation.isPending}
                       >
@@ -284,7 +284,7 @@ export default function SuperAdminAccounts() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className={`border-border rounded-lg px-2 text-[10px] font-bold ${
+                          className={`border-border rounded-lg px-2 text-[11px] font-bold ${
                             isActive ? "text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40" : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
                           }`}
                           onClick={() => toggleStatusMutation.mutate(adm.id)}
@@ -314,17 +314,17 @@ export default function SuperAdminAccounts() {
 
       {/* Account Creation Modal */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-2xl p-6">
           <DialogHeader className="space-y-3">
-            <DialogTitle className="text-lg font-bold text-foreground font-outfit">Provision Internal Admin</DialogTitle>
+            <DialogTitle className="text-lg font-bold text-foreground">Provision Internal Admin</DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
               Register a new corporate user within internal company operations databases.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 my-4">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Full Name</Label>
+            <div className="space-y-2">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Full Name</Label>
               <Input
                 placeholder="e.g. John Doe"
                 className="bg-background border-border text-foreground rounded-xl text-xs"
@@ -333,8 +333,8 @@ export default function SuperAdminAccounts() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Administrative Email Address</Label>
+            <div className="space-y-2">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Administrative Email Address</Label>
               <Input
                 type="email"
                 placeholder="e.g. jdoe@company.com"
@@ -344,8 +344,8 @@ export default function SuperAdminAccounts() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Temporary Password</Label>
+            <div className="space-y-2">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Temporary Password</Label>
               <Input
                 type="password"
                 placeholder="Make it extremely secure..."
@@ -355,8 +355,8 @@ export default function SuperAdminAccounts() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Clearance Role</Label>
+            <div className="space-y-2">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Clearance Role</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
                   <SelectValue />
@@ -392,9 +392,9 @@ export default function SuperAdminAccounts() {
 
       {/* MFA Security Credentials Pairing Details Modal */}
       <Dialog open={showMfaDetailsDialog} onOpenChange={setShowMfaDetailsDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6 font-sans">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-2xl p-6 font-sans">
           <DialogHeader className="space-y-2">
-            <DialogTitle className="text-lg font-bold text-foreground font-outfit flex items-center gap-2">
+            <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-primary" />
               MFA Configuration Credentials
             </DialogTitle>
@@ -409,18 +409,18 @@ export default function SuperAdminAccounts() {
                 {/* Dynamically render QR Code payload or fallback visually */}
                 <div className="flex flex-col items-center justify-center text-foreground font-bold space-y-2">
                   <QrCode className="h-28 w-28 text-foreground" />
-                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-bold">Pairing QR Code</span>
+                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-bold">Pairing QR Code</span>
                 </div>
               </div>
 
-              <div className="space-y-1.5 text-left bg-background/60 border border-border p-4 rounded-2xl">
-                <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Verification Secret Code</span>
+              <div className="space-y-2 text-left bg-background/60 border border-border p-4 rounded-2xl">
+                <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Verification Secret Code</span>
                 <div className="flex items-center justify-between gap-3">
                   <code className="text-indigo-600 dark:text-indigo-400 font-mono text-[11px] select-all truncate">{mfaDetails.mfaSecret}</code>
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="hover:bg-muted text-muted-foreground p-1.5 h-8 rounded-lg shrink-0"
+                    className="hover:bg-muted text-muted-foreground p-2 h-8 rounded-lg shrink-0"
                     onClick={handleCopySecret}
                   >
                     <Copy className="h-4 w-4" />

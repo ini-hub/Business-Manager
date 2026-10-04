@@ -269,7 +269,7 @@ const PAGE_GUIDES: Record<string, GuideContent> = {
 };
 
 interface PageHeaderProps {
-  title: string;
+  title: React.ReactNode;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   isLoading?: boolean;
@@ -278,9 +278,13 @@ interface PageHeaderProps {
   // are already compact enough (icon-only/chevron below `lg`) to sit beside
   // a short title, saving a full row of vertical space on mobile/tablet.
   compact?: boolean;
+  /** Keep the actions on the title row at every width instead of dropping them below it on phones. Only for actions that are icon-sized on a phone. */
+  inlineActions?: boolean;
+  /** Drop the Home > ... trail. Settings pages navigate with a back button instead. */
+  hideBreadcrumb?: boolean;
 }
 
-export function PageHeader({ title, description, actions, isLoading = false, compact = false }: PageHeaderProps) {
+export function PageHeader({ title, description, actions, isLoading = false, compact = false, inlineActions = false, hideBreadcrumb = false }: PageHeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [location] = useLocation();
 
@@ -291,7 +295,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <Skeleton className="h-9 w-32" />
+        <Skeleton className="h-10 w-32" />
       </div>
     );
   }
@@ -337,11 +341,11 @@ export function PageHeader({ title, description, actions, isLoading = false, com
       <div
         className={cn(
           "flex gap-3",
-          compact ? "flex-row items-center justify-between" : "flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+          compact ? "flex-row items-center justify-between" : inlineActions ? "flex-row items-start justify-between gap-4" : "flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
         )}
       >
         <div className={cn("min-w-0", compact ? "space-y-0" : "space-y-1")}>
-          {segments.length > 0 && !compact && (
+          {segments.length > 0 && !compact && !hideBreadcrumb && (
             <div className="flex items-center text-xs text-muted-foreground mb-2">
               <Link href="/" className="hover:text-foreground transition-colors">Home</Link>
               {segments.map((seg, i) => {
@@ -362,7 +366,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
             </div>
           )}
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className={cn("font-semibold tracking-tight truncate", compact ? "text-lg sm:text-2xl" : "text-2xl")}>
+            <h1 className={cn("font-bold tracking-[-0.01em] truncate", compact ? "text-lg sm:text-[26px]" : "text-[26px]")}>
               {title}
             </h1>
             {guide && !compact && (
@@ -383,7 +387,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
           )}
         </div>
         {actions && (
-          <div className={cn("flex items-center gap-2 sm:gap-4 shrink-0", compact ? "" : "flex-wrap w-full sm:w-auto")}>
+          <div className={cn("flex items-center gap-2 sm:gap-4 shrink-0", compact || inlineActions ? "" : "flex-wrap w-full sm:w-auto")}>
             {actions}
           </div>
         )}
@@ -393,13 +397,13 @@ export function PageHeader({ title, description, actions, isLoading = false, com
         <div className="border border-primary/20 bg-background/50 backdrop-blur-md rounded-xl p-5 shadow-xl glassmorphism animate-in slide-in-from-top-3 duration-300">
           <div className="flex items-center justify-between border-b pb-3 mb-4">
             <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
+              <div className="p-2 bg-primary/10 rounded-lg text-primary">
                 <BookOpen className="h-4.5 w-4.5" />
               </div>
               <div>
                 <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
                   {guide.title}
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium tracking-wide uppercase">
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium tracking-wide uppercase">
                     {guide.badge}
                   </span>
                 </h3>
@@ -417,14 +421,14 @@ export function PageHeader({ title, description, actions, isLoading = false, com
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                 <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
                 Operational Workflow Steps
               </h4>
-              <ul className="space-y-2.5">
+              <ul className="space-y-3">
                 {guide.steps.map((step, idx) => (
-                  <li key={idx} className="text-xs text-foreground/90 leading-relaxed flex items-start gap-2.5">
-                    <span className="flex items-center justify-center h-4.5 w-4.5 rounded-full bg-primary/10 text-[10px] font-bold text-primary shrink-0 border border-primary/25">
+                  <li key={idx} className="text-xs text-foreground/90 leading-relaxed flex items-start gap-3">
+                    <span className="flex items-center justify-center h-4.5 w-4.5 rounded-full bg-primary/10 text-[11px] font-bold text-primary shrink-0 border border-primary/25">
                       {idx + 1}
                     </span>
                     <span>{step}</span>
@@ -434,11 +438,11 @@ export function PageHeader({ title, description, actions, isLoading = false, com
             </div>
 
             <div className="space-y-3 md:border-l md:pl-6">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                 <Lightbulb className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
                 Developer & Admin Pro-Tips
               </h4>
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {guide.tips.map((tip, idx) => (
                   <div key={idx} className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-lg text-xs leading-relaxed text-foreground/90">
                     {tip}

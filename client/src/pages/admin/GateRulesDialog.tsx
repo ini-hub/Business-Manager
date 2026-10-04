@@ -127,7 +127,7 @@ export function GateRulesDialog({ feature, onClose }: { feature: any; onClose: (
                     <div className="font-mono text-xs truncate">{r.kind === "route" ? `${r.methods} ` : ""}{r.pattern}</div>
                     {r.note && <div className="text-[11px] text-muted-foreground truncate">{r.note}</div>}
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
                     <Badge variant={r.status === "active" ? "default" : "outline"}>{r.status === "active" ? "live" : "draft"}</Badge>
                     {r.status === "draft" ? (
                       <>

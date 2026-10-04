@@ -175,24 +175,24 @@ function ThreadDetail({ threadId }: { threadId: string }) {
 
   return (
     <>
-    <Card className="bg-card/40 border-border/80 rounded-3xl overflow-hidden shadow-xl flex flex-col h-full">
+    <Card className="bg-card/40 border-border/80 rounded-2xl overflow-hidden shadow-xl flex flex-col h-full">
       <div className="p-4 border-b border-border/60 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md">
+          <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[11px] font-bold uppercase py-0.5 px-2 rounded-md">
             {REASON_LABELS[thread.reason] || thread.reason}
           </Badge>
           {stillSuspended && (
-            <Badge variant="outline" className="border-none bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md">
+            <Badge variant="outline" className="border-none bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 text-[11px] font-bold uppercase py-0.5 px-2 rounded-md">
               Still suspended
             </Badge>
           )}
           {thread.resolutionOutcome === "reactivated" && (
-            <Badge variant="outline" className="border-none bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md">
+            <Badge variant="outline" className="border-none bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 text-[11px] font-bold uppercase py-0.5 px-2 rounded-md">
               Reactivated
             </Badge>
           )}
           {thread.resolutionOutcome === "suspension_upheld" && (
-            <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md">
+            <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[11px] font-bold uppercase py-0.5 px-2 rounded-md">
               Suspension upheld
             </Badge>
           )}
@@ -258,7 +258,7 @@ function ThreadDetail({ threadId }: { threadId: string }) {
               >
                 {m.body}
               </div>
-              <span className="text-[10px] text-muted-foreground mt-0.5 px-1">{new Date(m.createdAt).toLocaleString()}</span>
+              <span className="text-[11px] text-muted-foreground mt-0.5 px-1">{new Date(m.createdAt).toLocaleString()}</span>
             </div>
           );
         })}
@@ -282,7 +282,7 @@ function ThreadDetail({ threadId }: { threadId: string }) {
     </Card>
 
     <Dialog open={showReactivateDialog} onOpenChange={setShowReactivateDialog}>
-      <DialogContent className="max-w-md rounded-3xl p-6">
+      <DialogContent className="max-w-md rounded-2xl p-6">
         <DialogHeader>
           <DialogTitle>Reactivate business &amp; resolve thread</DialogTitle>
           <DialogDescription>
@@ -303,7 +303,7 @@ function ThreadDetail({ threadId }: { threadId: string }) {
     </Dialog>
 
     <Dialog open={showCloseUpheldDialog} onOpenChange={setShowCloseUpheldDialog}>
-      <DialogContent className="max-w-md rounded-3xl p-6">
+      <DialogContent className="max-w-md rounded-2xl p-6">
         <DialogHeader>
           <DialogTitle>Close thread — keep business suspended</DialogTitle>
           <DialogDescription>
@@ -343,7 +343,7 @@ export default function SupportInbox() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Support Inbox</h1>
+        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Support Inbox</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Conversations from locked-out owners with no pay-to-unlock path, and general Help & Support requests.
         </p>
@@ -351,11 +351,11 @@ export default function SupportInbox() {
 
       <Tabs value={tab} onValueChange={(v) => { setTab(v as "open" | "resolved"); setSelectedId(null); }} className="w-full">
         <TabsList className="bg-background/60 border border-border/80 rounded-2xl p-1 mb-6">
-          <TabsTrigger value="open" className="rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="open" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
             <MessageSquareWarning className="h-4 w-4 mr-2" />
             Open
           </TabsTrigger>
-          <TabsTrigger value="resolved" className="rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="resolved" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
             <CheckCircle2 className="h-4 w-4 mr-2" />
             Resolved
           </TabsTrigger>
@@ -374,7 +374,7 @@ export default function SupportInbox() {
               <span>Failed to load support threads.</span>
             </div>
           ) : !threads || threads.length === 0 ? (
-            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <MessageSquareWarning className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">
                 {tab === "open" ? "No open conversations" : "No resolved conversations yet"}
@@ -391,27 +391,27 @@ export default function SupportInbox() {
               >
                 <div className="p-4 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[11px] font-bold uppercase py-0.5 px-2 rounded-md">
                         {REASON_LABELS[t.reason] || t.reason}
                       </Badge>
                       {isGenuineSuspensionReason(t.reason) && t.organisationStatus === "suspended" && (
-                        <Badge variant="outline" className="border-none bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 text-[9px] font-extrabold uppercase py-0.5 px-2 rounded-md">
+                        <Badge variant="outline" className="border-none bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 text-[11px] font-bold uppercase py-0.5 px-2 rounded-md">
                           Still suspended
                         </Badge>
                       )}
                     </div>
                     {t.unreadForAdmin && <span className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />}
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
                     <Building2 className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">{t.organisationName}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Mail className="h-3 w-3 shrink-0" />
                     <span className="truncate">{t.userName || t.userEmail || "Unknown user"}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Clock className="h-3 w-3 shrink-0" />
                     <span>{new Date(t.lastMessageAt).toLocaleString()}</span>
                   </div>
@@ -425,7 +425,7 @@ export default function SupportInbox() {
           {selectedId ? (
             <ThreadDetail key={selectedId} threadId={selectedId} />
           ) : (
-            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl h-full flex flex-col items-center justify-center">
+            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl h-full flex flex-col items-center justify-center">
               <MessageSquareWarning className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">Select a conversation</h3>
             </div>

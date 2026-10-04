@@ -22,7 +22,7 @@ export function ListFilterChips({
       {chips.map((chip) => (
         <span
           key={chip.key}
-          className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium"
+          className="inline-flex items-center gap-1 h-7 pl-3 pr-2 rounded-full border border-input bg-muted/40 text-xs font-medium"
         >
           {chip.label}
           <button

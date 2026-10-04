@@ -213,7 +213,7 @@ export function BulkActionsBar<T>({
         role="region"
         aria-label="Bulk actions"
       >
-        <div className="flex items-center gap-2 px-4 py-2.5 max-w-full overflow-x-auto">
+        <div className="flex items-center gap-2 px-4 py-3 max-w-full overflow-x-auto">
           <IconButton
             variant="ghost"
             className="h-8 w-8 shrink-0"
@@ -305,7 +305,7 @@ export function BulkActionsBar<T>({
               </DialogHeader>
 
               {requiresTypedCount && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <label htmlFor="bulk-confirm-count" className="text-xs text-muted-foreground">
                     Type {selection.count} to confirm
                   </label>

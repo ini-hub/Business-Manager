@@ -217,7 +217,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           {!collapsed && (
             <div className="animate-in fade-in duration-300">
               <span className="font-bold text-sidebar-foreground text-sm tracking-wide block">Admin Console</span>
-              <span className="text-[10px] text-primary font-medium uppercase tracking-widest">
+              <span className="text-[11px] text-primary font-medium uppercase tracking-widest">
                 {admin.role.replace("_", " ")}
               </span>
             </div>
@@ -225,7 +225,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         </div>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden md:flex p-1.5 rounded-lg bg-background border border-border hover:border-primary/40 transition-colors"
+          className="hidden md:flex p-2 rounded-lg bg-background border border-border hover:border-primary/40 transition-colors"
         >
           {collapsed ? <ChevronRight className="h-4 w-4 text-muted-foreground" /> : <ChevronLeft className="h-4 w-4 text-muted-foreground" />}
         </button>
@@ -241,7 +241,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           return (
             <div key={group.category} className="space-y-2">
               {!collapsed && (
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-3">
                   {group.category}
                 </h4>
               )}
@@ -254,7 +254,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     <button
                       key={item.name}
                       onClick={() => handleNavClick(item.path)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group ${
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition-all group ${
                         isActive
                           ? "bg-primary/10 border border-primary/30 text-foreground"
                           : "hover:bg-muted/50 hover:text-foreground border border-transparent"
@@ -278,13 +278,13 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       {/* User Session profile / footer */}
       <div className="p-4 border-t border-sidebar-border bg-background/40">
         <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
-          <div className="w-9 h-9 rounded-xl bg-muted border border-border flex items-center justify-center font-bold text-primary shrink-0">
+          <div className="w-9 h-10 rounded-xl bg-muted border border-border flex items-center justify-center font-bold text-primary shrink-0">
             {admin.name[0]}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <span className="block text-xs font-bold text-foreground truncate">{admin.name}</span>
-              <span className="block text-[10px] text-muted-foreground truncate">{admin.email}</span>
+              <span className="block text-[11px] text-muted-foreground truncate">{admin.email}</span>
             </div>
           )}
           {!collapsed && (
@@ -357,7 +357,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Inactivity Session Expiry Modal Warning */}
       <Dialog open={showTimeoutWarning} onOpenChange={() => {}}>
-        <DialogContent className="bg-card border border-border text-foreground max-w-sm rounded-3xl p-6">
+        <DialogContent className="bg-card border border-border text-foreground max-w-sm rounded-2xl p-6">
           <DialogHeader className="space-y-3">
             <div className="mx-auto w-12 h-12 bg-amber-100 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-2xl flex items-center justify-center">
               <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400 animate-bounce" />

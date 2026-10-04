@@ -234,7 +234,7 @@ export default function PayrollReportPage() {
             <Separator />
             <CardFooter className="justify-between pt-4">
               <span className="font-semibold text-sm">Total Disbursed (Paid Periods)</span>
-              <span className="text-xl font-bold font-mono text-primary">{fmt(totalPaid)}</span>
+              <span className="text-lg font-bold font-mono text-primary">{fmt(totalPaid)}</span>
             </CardFooter>
           </>
         )}

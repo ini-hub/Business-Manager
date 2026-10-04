@@ -51,7 +51,7 @@ export function CorrelationHeatmap({ data }: { data: CorrelateResponse }) {
               {data.labels.map((label) => (
                 <th
                   key={label}
-                  className="p-1 text-[10px] font-medium text-muted-foreground align-bottom"
+                  className="p-1 text-[11px] font-medium text-muted-foreground align-bottom"
                 >
                   {/* Rotated so long measure names do not force a very wide table. */}
                   <div className="h-24 w-12 flex items-end justify-center">

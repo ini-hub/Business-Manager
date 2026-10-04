@@ -76,7 +76,7 @@ export default function VendorBillNewPage() {
       />
       <Card>
         <CardContent className="pt-6 space-y-4">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="bill-amount">
               Amount <span className="text-destructive">*</span>
             </Label>
@@ -93,7 +93,7 @@ export default function VendorBillNewPage() {
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="bill-due">Due Date</Label>
             <Input
               id="bill-due"
@@ -103,7 +103,7 @@ export default function VendorBillNewPage() {
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="bill-notes">Notes</Label>
             <Textarea
               id="bill-notes"

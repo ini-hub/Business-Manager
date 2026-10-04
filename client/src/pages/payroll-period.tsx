@@ -388,8 +388,8 @@ export default function PayrollPeriodPage() {
               <div className="rounded-xl border bg-card p-4 md:p-5 space-y-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="hidden md:block">
-                    <div className="flex items-center gap-2.5">
-                      <h2 className="text-xl font-bold">{periodLabel(selectedPeriod)} payroll</h2>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-bold">{periodLabel(selectedPeriod)} payroll</h2>
                       <Badge variant="outline" className={`${STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].color} ${STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].bg} border`}>
                         {STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].label}
                       </Badge>
@@ -415,7 +415,7 @@ export default function PayrollPeriodPage() {
 
                 <ol className="hidden md:flex items-center gap-3" aria-label="Payroll status">
                   {STEPS.map((s, i) => (
-                    <li key={s.title} className="flex flex-1 items-center gap-2.5 last:flex-none">
+                    <li key={s.title} className="flex flex-1 items-center gap-3 last:flex-none">
                       <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${i <= stepIndex ? "bg-primary text-primary-foreground" : "border text-muted-foreground"}`}>
                         {i < stepIndex ? <Check className="h-3.5 w-3.5" /> : i + 1}
                       </span>
@@ -510,7 +510,7 @@ export default function PayrollPeriodPage() {
                     {shownEntries.length === 0 && <p className="p-6 text-center text-sm text-muted-foreground">No staff match "{staffSearch}".</p>}
                     {shownEntries.map(entry => (
                       <Link key={entry.staffId} href={detailHref(entry.staffId)} className="flex items-center gap-3 p-4 hover:bg-muted/40">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{entry.staff.name.charAt(0)}</span>
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{entry.staff.name.charAt(0)}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-semibold">{entry.staff.name}</span>
                           <span className="block text-xs text-muted-foreground">
@@ -532,7 +532,7 @@ export default function PayrollPeriodPage() {
 
                   {/* md and up: staff breakdown table */}
                   <div className="hidden md:block rounded-xl border bg-card overflow-hidden">
-                    <div className="border-b px-5 py-3.5">
+                    <div className="border-b px-5 py-4">
                       <h3 className="font-semibold">Staff breakdown</h3>
                       <p className="text-xs text-muted-foreground">{shownEntries.length} of {entries.length} staff</p>
                     </div>
@@ -540,15 +540,15 @@ export default function PayrollPeriodPage() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-muted/50 text-xs font-semibold text-muted-foreground">
-                            <th className="px-5 py-2.5 text-left">Staff</th>
-                            <th className="px-3 py-2.5 text-left">Attendance</th>
-                            <th className="px-3 py-2.5 text-right">Base salary</th>
-                            <th className="px-3 py-2.5 text-right">Transport</th>
-                            <th className="px-3 py-2.5 text-right">Commission</th>
-                            <th className="px-3 py-2.5 text-right">Gross</th>
-                            <th className="px-3 py-2.5 text-right">Deductions</th>
-                            <th className="px-3 py-2.5 text-right">Net pay</th>
-                            <th className="w-10 px-3 py-2.5"><span className="sr-only">Details</span></th>
+                            <th className="px-5 py-3 text-left">Staff</th>
+                            <th className="px-3 py-3 text-left">Attendance</th>
+                            <th className="px-3 py-3 text-right">Base salary</th>
+                            <th className="px-3 py-3 text-right">Transport</th>
+                            <th className="px-3 py-3 text-right">Commission</th>
+                            <th className="px-3 py-3 text-right">Gross</th>
+                            <th className="px-3 py-3 text-right">Deductions</th>
+                            <th className="px-3 py-3 text-right">Net pay</th>
+                            <th className="w-10 px-3 py-3"><span className="sr-only">Details</span></th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -558,7 +558,7 @@ export default function PayrollPeriodPage() {
                           {shownEntries.map(entry => (
                             <tr key={entry.staffId} className="cursor-pointer hover:bg-muted/40" onClick={() => setLocation(detailHref(entry.staffId))}>
                               <td className="px-5 py-3">
-                                <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="flex items-center gap-3 min-w-0">
                                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{entry.staff.name.charAt(0)}</span>
                                   <div className="min-w-0">
                                     <p className="truncate font-medium">{entry.staff.name}</p>

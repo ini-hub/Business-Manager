@@ -170,7 +170,7 @@ export function ResolvePendingDialog({
                 <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                   Customer has paid in full. Select the payment method and close this transaction immediately.
                 </p>
-                <Badge variant="outline" className="text-[10px] mt-2 text-emerald-600 border-emerald-300">Closes the debt now</Badge>
+                <Badge variant="outline" className="text-[11px] mt-2 text-emerald-600 border-emerald-300">Closes the debt now</Badge>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 self-center" />
             </button>
@@ -187,7 +187,7 @@ export function ResolvePendingDialog({
                 <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                   Customer owes the money. Move it to the credit ledger with a due date, reminders, and partial repayment tracking.
                 </p>
-                <Badge variant="outline" className="text-[10px] mt-2 text-blue-600 border-blue-300">Full repayment tracking</Badge>
+                <Badge variant="outline" className="text-[11px] mt-2 text-blue-600 border-blue-300">Full repayment tracking</Badge>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 self-center" />
             </button>
@@ -207,7 +207,7 @@ export function ResolvePendingDialog({
             </div>
 
             <div className="space-y-2">
-              <Label className="flex items-center gap-1.5"><CreditCard className="h-3.5 w-3.5" />Payment Method</Label>
+              <Label className="flex items-center gap-2"><CreditCard className="h-3.5 w-3.5" />Payment Method</Label>
               <Select value={payMethod} onValueChange={setPayMethod}>
                 <SelectTrigger className="h-11">
                   <SelectValue />
@@ -247,8 +247,8 @@ export function ResolvePendingDialog({
             </div>
 
             <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5 text-xs font-semibold">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-xs font-semibold">
                   Paid Upfront Today
                   <span className="font-normal text-muted-foreground">(optional)</span>
                 </Label>
@@ -274,8 +274,8 @@ export function ResolvePendingDialog({
                 )}
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5 text-xs font-semibold">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-xs font-semibold">
                   <Calendar className="h-3 w-3" />Due Date
                   <span className="font-normal text-muted-foreground">(optional)</span>
                 </Label>
@@ -288,8 +288,8 @@ export function ResolvePendingDialog({
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5 text-xs font-semibold">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-xs font-semibold">
                   <StickyNote className="h-3 w-3" />Notes
                   <span className="font-normal text-muted-foreground">(optional)</span>
                 </Label>

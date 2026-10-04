@@ -238,7 +238,7 @@ export default function CreditSalesPage() {
           <div className="flex flex-col">
             <span>{new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</span>
             {entry.status === "overdue" && (
-              <span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider animate-pulse">Overdue</span>
+              <span className="text-[11px] text-rose-500 font-bold uppercase tracking-wider animate-pulse">Overdue</span>
             )}
           </div>
         ) : (
@@ -603,7 +603,7 @@ export default function CreditSalesPage() {
         description="Digital ledger for tracking customer credits, partial repayments, and pidgin notifications"
         actions={
           <>
-            <IconButton variant="ghost" onClick={() => refetchLedger()} label="Refresh list" className="h-9 w-9">
+            <IconButton variant="ghost" onClick={() => refetchLedger()} label="Refresh list" className="h-10 w-10">
               <RefreshCw className="h-4 w-4" />
             </IconButton>
             <div className="lg:hidden">
@@ -766,7 +766,7 @@ export default function CreditSalesPage() {
               <span className="font-bold text-amber-500">{formatCurrency(selectedEntry?.outstandingBalance ?? 0)}</span>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="repay-amount">Repayment Amount</Label>
               <Input
                 id="repay-amount"
@@ -797,7 +797,7 @@ export default function CreditSalesPage() {
               )}
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="repay-method">Payment Channel</Label>
               <Select value={repaymentMethod} onValueChange={setRepaymentMethod}>
                 <SelectTrigger className="w-full">
@@ -811,7 +811,7 @@ export default function CreditSalesPage() {
               </Select>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="repay-notes">Repayment Notes (Optional)</Label>
               <Input
                 id="repay-notes"
@@ -853,7 +853,7 @@ export default function CreditSalesPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-3">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Delivery Channel</Label>
               <Select
                 value={reminderChannel}
@@ -872,7 +872,7 @@ export default function CreditSalesPage() {
               </Select>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold text-muted-foreground uppercase">Message Preview</Label>
               <div className="p-3 bg-muted rounded-lg text-xs font-mono whitespace-pre-wrap leading-relaxed border border-border/80">
                 {previewMessage}
@@ -916,7 +916,7 @@ export default function CreditSalesPage() {
               </span>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="writeoff-reason">Reason for Write-Off (Mandatory)</Label>
               <Select value={writeOffReason} onValueChange={setWriteOffReason}>
                 <SelectTrigger id="writeoff-reason">
@@ -959,7 +959,7 @@ export default function CreditSalesPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="p-3 bg-muted/40 border rounded-lg text-xs leading-relaxed space-y-1.5">
+          <div className="p-3 bg-muted/40 border rounded-lg text-xs leading-relaxed space-y-2">
             <p>
               The bad debt expense of{" "}
               <span className="font-semibold">
@@ -1004,7 +1004,7 @@ export default function CreditSalesPage() {
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Repayments History</h4>
               {repaymentsList.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic bg-muted/40 p-2.5 rounded border border-dashed">No repayments recorded yet.</p>
+                <p className="text-xs text-muted-foreground italic bg-muted/40 p-3 rounded border border-dashed">No repayments recorded yet.</p>
               ) : (
                 <div className="space-y-2">
                   {repaymentsList.map((rep: any) => {
@@ -1017,14 +1017,14 @@ export default function CreditSalesPage() {
                         <span className={`font-semibold ${isPayroll ? "text-sky-600 dark:text-sky-400" : "text-emerald-500"}`}>
                           +₦{rep.amountReceived.toLocaleString()} ({isPayroll ? "salary deduction — no cash" : rep.paymentMethod})
                         </span>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[11px] text-muted-foreground">
                           {isPayroll ? (rep.notes || "Recovered from payroll") : `Recorded by ${rep.recordedBy}`}
                         </span>
                         {/* Back to the payslip this came off — the reverse of
                             the receipt link the payslip shows on its deduction. */}
                         {isPayroll && rep.payrollPeriodId && rep.payrollStaffId && (
                           <Link href={`/payroll/${rep.payrollPeriodId}/staff/${rep.payrollStaffId}`}>
-                            <span className="text-[10px] font-semibold text-primary cursor-pointer hover:underline">
+                            <span className="text-[11px] font-semibold text-primary cursor-pointer hover:underline">
                               View payslip
                             </span>
                           </Link>
@@ -1045,20 +1045,20 @@ export default function CreditSalesPage() {
             <div className="space-y-3">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Overdue Reminder Logs</h4>
               {reminderLogs.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic bg-muted/40 p-2.5 rounded border border-dashed">No reminders sent yet.</p>
+                <p className="text-xs text-muted-foreground italic bg-muted/40 p-3 rounded border border-dashed">No reminders sent yet.</p>
               ) : (
                 <div className="space-y-2">
                   {reminderLogs.map((log: any) => (
                     <div key={log.id} className="p-3 bg-background border rounded-lg flex justify-between items-start gap-3 text-xs">
                       <div className="flex flex-col flex-1 min-w-0">
                         <span className="font-semibold capitalize text-primary">{log.channel} Reminder ({log.type})</span>
-                        <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 italic" title={log.messageContent}>
+                        <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 italic" title={log.messageContent}>
                           "{log.messageContent}"
                         </p>
                       </div>
                       <div className="flex flex-col items-end shrink-0">
-                        <Badge variant="outline" className="border-emerald-500 text-emerald-500 bg-emerald-500/5 mb-1 py-0 px-1 text-[9px] capitalize">{log.status}</Badge>
-                        <span className="text-muted-foreground text-[10px]">
+                        <Badge variant="outline" className="border-emerald-500 text-emerald-500 bg-emerald-500/5 mb-1 py-0 px-1 text-[11px] capitalize">{log.status}</Badge>
+                        <span className="text-muted-foreground text-[11px]">
                           {new Date(log.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
                         </span>
                       </div>

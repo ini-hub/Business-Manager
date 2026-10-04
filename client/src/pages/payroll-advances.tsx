@@ -319,12 +319,12 @@ export default function PayrollAdvancesPage() {
           <div className="space-y-1">
             {statusBadge}
             {reserved && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <p className="text-[11px] text-muted-foreground">
                   Reserved — {format(parseISO(a.reservedPeriod.startDate), "MMM d")}–{format(parseISO(a.reservedPeriod.endDate), "MMM d, yyyy")} payroll ({a.reservedPeriod.status === "paid" ? "paid" : "not yet paid"})
                 </p>
                 {isOwner && a.reservedPeriod.status !== "paid" && (
-                  <Button variant="ghost" size="sm" className="h-4 px-1 text-[10px] text-muted-foreground hover:text-foreground"
+                  <Button variant="ghost" size="sm" className="h-4 px-1 text-[11px] text-muted-foreground hover:text-foreground"
                     disabled={releaseMutation.isPending}
                     onClick={() => releaseMutation.mutate(a.id)}>
                     Release
@@ -498,7 +498,7 @@ export default function PayrollAdvancesPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Record Salary Advance</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Staff Member</Label>
               <Select value={staffId} onValueChange={setStaffId}>
                 <SelectTrigger><SelectValue placeholder="Select staff…" /></SelectTrigger>
@@ -512,16 +512,16 @@ export default function PayrollAdvancesPage() {
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Amount</Label>
                 <Input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Date</Label>
                 <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
               </div>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Reason or reference…" />
             </div>
@@ -539,7 +539,7 @@ export default function PayrollAdvancesPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Reject Salary Advance</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Reason (optional)</Label>
               <Input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Why is this being rejected?" />
             </div>
@@ -564,7 +564,7 @@ export default function PayrollAdvancesPage() {
             <p className="text-sm text-muted-foreground">
               Only for an advance repaid in cash or written off entirely outside payroll — an advance still open in payroll is recovered automatically when that period is marked paid, and this is refused while that's still pending.
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Reason</Label>
               <Input value={recoverReason} onChange={e => setRecoverReason(e.target.value)} placeholder="e.g. Repaid in cash at the counter" />
             </div>

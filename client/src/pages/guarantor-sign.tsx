@@ -150,7 +150,7 @@ export default function GuarantorSignPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               {GUARANTOR_FIELDS.map(([key, label]) => (
-                <div key={key} className="space-y-1.5">
+                <div key={key} className="space-y-2">
                   <Label>{label}</Label>
                   <Input
                     type={key === "dob" ? "date" : "text"}
@@ -176,7 +176,7 @@ export default function GuarantorSignPage() {
           <CardHeader><CardTitle className="text-base">Business/Employment Details</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {BUSINESS_FIELDS.map(([key, label]) => (
-              <div key={key} className="space-y-1.5">
+              <div key={key} className="space-y-2">
                 <Label>{label}</Label>
                 <Input value={(guarantor as any)[key]} onChange={(e) => setGuarantor({ ...guarantor, [key]: e.target.value })} />
               </div>
@@ -216,22 +216,22 @@ export default function GuarantorSignPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Your printed full name *</Label>
               <Input value={printedFullName} onChange={(e) => setPrintedFullName(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Years known *</Label>
                 <Input type="number" value={yearsKnownEmployee} onChange={(e) => setYearsKnownEmployee(e.target.value)} />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Relationship *</Label>
                 <Input value={relationshipToEmployee} onChange={(e) => setRelationshipToEmployee(e.target.value)} />
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Signature *</Label>
               <p className="text-xs text-muted-foreground">Snap a photo of your handwritten signature, or upload one - this is your actual signature, not a typed name.</p>
               {signaturePreviewUrl && <img src={signaturePreviewUrl} alt="Your signature" className="h-20 border rounded-md bg-white object-contain px-2" />}
@@ -264,7 +264,7 @@ export default function GuarantorSignPage() {
 
 function UploadTile({ label, onSelect, busy, capture, icon }: { label: string; onSelect: (f: File) => void; busy?: boolean; capture?: boolean; icon?: React.ReactNode }) {
   return (
-    <label className="inline-flex items-center gap-1.5 text-sm border rounded-md px-3 py-1.5 cursor-pointer hover:bg-accent">
+    <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (icon ?? <Upload className="h-3.5 w-3.5" />)} {label}
       <input
         type="file"
@@ -283,7 +283,7 @@ function CenteredMessage({ icon, title, description }: { icon?: React.ReactNode;
     <div className="flex items-center justify-center min-h-screen px-4">
       <div className="text-center space-y-2 max-w-sm">
         {icon && <div className="flex justify-center">{icon}</div>}
-        <h1 className="text-lg font-semibold">{title}</h1>
+        <h1 className="text-lg font-bold">{title}</h1>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
     </div>

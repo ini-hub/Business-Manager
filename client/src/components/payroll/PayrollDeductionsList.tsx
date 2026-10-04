@@ -136,7 +136,7 @@ export function PayrollDeductionsList({
             <span className={`font-medium ${d.isWaived ? "line-through" : ""}`}>{d.label}</span>
           );
           return (
-            <div key={d.id} className={`flex items-center justify-between gap-3 text-sm border rounded-lg px-3 py-2.5 ${d.isWaived ? "bg-muted/30 opacity-60" : "bg-background"}`}>
+            <div key={d.id} className={`flex items-center justify-between gap-3 text-sm border rounded-lg px-3 py-3 ${d.isWaived ? "bg-muted/30 opacity-60" : "bg-background"}`}>
               <div className="min-w-0">
                 {/* The label already reads "Staff credit — Checkout Receipt
                     #1042", so it IS the receipt reference: make it the link
@@ -153,10 +153,10 @@ export function PayrollDeductionsList({
                     badge would only say it twice. Other types carry free
                     text and still need it. */}
                 {!isStaffCredit && !isAdvanceRecovery && (
-                  <Badge variant="outline" className="ml-2 text-[10px] h-4">{d.type.replace(/_/g, " ")}</Badge>
+                  <Badge variant="outline" className="ml-2 text-[11px] h-4">{d.type.replace(/_/g, " ")}</Badge>
                 )}
                 {d.isWaived && (
-                  <Badge variant="outline" className="ml-1 text-[10px] h-4 text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300">waived</Badge>
+                  <Badge variant="outline" className="ml-1 text-[11px] h-4 text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300">waived</Badge>
                 )}
                 {isStaffCredit && !d.isWaived && remainder > 0 && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -276,7 +276,7 @@ export function PayrollDeductionsList({
             const lateTotal = lateActive.reduce((s: number, r: any) => s + Number(r.amount), 0);
             const perDay = lateActive.length > 0 ? lateTotal / lateActive.length : 0;
             out.push(
-              <div key="late-group" className="rounded-lg border bg-background px-3 py-2.5 text-sm">
+              <div key="late-group" className="rounded-lg border bg-background px-3 py-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-semibold">Late arrival</span>
                   <span className="font-semibold tabular-nums text-destructive">−{fmtCur(lateTotal)}</span>

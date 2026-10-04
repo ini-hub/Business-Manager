@@ -37,11 +37,11 @@ const NEXT_STEPS = (mode: Mode, from: string, to: string) =>
 
 function NextSteps({ mode, from, to }: { mode: Mode; from: string; to: string }) {
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">What happens next</h3>
-      <ol className="space-y-2.5">
+      <ol className="space-y-3">
         {NEXT_STEPS(mode, from, to).map((text, i) => (
-          <li key={i} className="flex items-start gap-2.5 text-sm">
+          <li key={i} className="flex items-start gap-3 text-sm">
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">{i + 1}</span>
             <span>{text}</span>
           </li>
@@ -273,9 +273,9 @@ export default function StockTransferNewPage() {
     : `Nothing moves until ${fromName} approves. You confirm when the stock arrives.`;
 
   const currentBranchField = (label: string) => (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
-      <div className="flex h-11 items-center gap-2.5 rounded-lg bg-muted/60 px-3">
+      <div className="flex h-11 items-center gap-3 rounded-lg bg-muted/60 px-3">
         <StoreIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate font-semibold">{currentStore.name}</span>
         <span className="shrink-0 text-xs text-muted-foreground">Current branch</span>
@@ -283,7 +283,7 @@ export default function StockTransferNewPage() {
     </div>
   );
   const branchSelect = (label: string, placeholder: string) => (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label htmlFor="otherStore">{label}</Label>
       <Select value={otherId} onValueChange={changeOther}>
         <SelectTrigger id="otherStore" className="h-11">
@@ -291,7 +291,7 @@ export default function StockTransferNewPage() {
         </SelectTrigger>
         <SelectContent>
           {otherStores.length === 0 ? (
-            <div className="px-2 py-1.5 text-center text-sm text-muted-foreground">No other branches</div>
+            <div className="px-2 py-2 text-center text-sm text-muted-foreground">No other branches</div>
           ) : (
             otherStores.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)
           )}
@@ -481,7 +481,7 @@ export default function StockTransferNewPage() {
               <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="truncate">{toName}</span>
             </div>
-            <dl className="space-y-1.5 border-b pb-4 text-sm">
+            <dl className="space-y-2 border-b pb-4 text-sm">
               <div className="flex justify-between"><dt className="text-muted-foreground">Sending</dt><dd className="font-semibold tabular-nums">{itemsLabel}</dd></div>
               <div className="flex justify-between"><dt className="text-muted-foreground">Value at cost</dt><dd className="font-semibold tabular-nums">{fmt(totalCost)}</dd></div>
             </dl>
@@ -495,7 +495,7 @@ export default function StockTransferNewPage() {
       {/* Phones: sticky send bar */}
       <div className="fixed inset-x-0 bottom-0 z-30 space-y-2 border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
         <div className="flex items-center justify-between text-sm">
-          <span className="flex min-w-0 items-center gap-1.5 font-semibold">
+          <span className="flex min-w-0 items-center gap-2 font-semibold">
             <span className="truncate">{fromName}</span>
             <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{toName}</span>

@@ -1,10 +1,8 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, Building2, Coins, Check, Globe } from "lucide-react";
+import { ArrowLeft, Check, Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/icon-button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -12,10 +10,8 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -25,11 +21,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import SettingsStoresPage from "@/pages/settings/stores";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useStore } from "@/lib/store-context";
+import { getFeatureDef } from "@shared/features";
+import { formatCurrency } from "@/lib/currency-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { countries, currencies } from "@/lib/currency-utils";
 import { TIMEZONES, TIMEZONE_REGIONS, getTimezoneLabel } from "@/lib/timezones";
@@ -73,6 +74,8 @@ export default function StoreFormPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isOwner = user?.role === "owner";
+  const { business, stores } = useStore();
+  const codeTouched = useRef(false);
 
   // If ID is literal "new", treat as undefined
   const storeId = id === "new" ? undefined : id;
@@ -164,6 +167,21 @@ export default function StoreFormPage() {
     mutation.mutate(data);
   };
 
+  // Suggest a code from the name until the owner types their own: "G.R.A Branch" -> "GRAB".
+  const suggestCode = (name: string) =>
+    name.split(/\s+/).filter(Boolean).map((w) => w.replace(/[^A-Za-z0-9]/g, "")).join("").toUpperCase().slice(0, 4);
+
+  const addon = getFeatureDef("store_addon");
+  const trialEnds = (business as any)?.trialEndsAt ? new Date((business as any).trialEndsAt) : null;
+  const inTrial = !!trialEnds && trialEnds.getTime() > Date.now();
+  const isExtraStore = !storeId && stores.filter((s) => s.isActive !== false).length >= (addon?.freeLimit ?? 1);
+  const price = addon?.price?.monthly;
+  const priceNote = isExtraStore && price != null
+    ? inTrial
+      ? `Free during your trial. After ${trialEnds!.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, each store after the first costs ${formatCurrency(price, "NGN")} a month.`
+      : `Each store after the first costs ${formatCurrency(price, "NGN")} a month.`
+    : null;
+
   if (storeId && isLoadingStore) {
     return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
   }
@@ -179,347 +197,216 @@ export default function StoreFormPage() {
     );
   }
 
+  const field = "space-y-2";
+  const hint = "text-xs text-muted-foreground";
+  const splitOn = form.watch("commissionSplitOverride");
+
+  const closeDrawer = () => setLocation("/settings/stores");
+
   return (
-    <div className="space-y-6 pb-20">
-      <div className="flex items-center gap-4">
-        <IconButton label="Back to stores" variant="ghost" onClick={() => setLocation("/settings/stores")}>
-          <ArrowLeft className="h-4 w-4" />
-        </IconButton>
-        <PageHeader
-          title={storeId ? "Edit Store Location" : "Add Store Location"}
-          description={storeId ? `Updating parameters for ${store?.name}` : "Establish a new localized franchise branch"}
-          compact
-        />
-      </div>
+    <>
+    <SettingsStoresPage />
+    <Sheet open onOpenChange={(open) => { if (!open) closeDrawer(); }}>
+      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
+        <SheetHeader className="border-b px-6 py-4 text-left">
+          <SheetTitle>{storeId ? `Edit ${store?.name ?? "store"}` : "Add a store"}</SheetTitle>
+          <SheetDescription className="sr-only">Store name, code, contact details, region and manager.</SheetDescription>
+        </SheetHeader>
 
-      <div className="max-w-3xl mx-auto">
-        <Card className="border border-muted/80 shadow-md">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-primary" />
-              Store Parameters
-            </CardTitle>
-            <CardDescription>
-              Each store manages its own secure customers, employees, and stock profiles.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Store Name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Downtown Outlet" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="code"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Store Code</FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="DT01" 
-                            {...field} 
-                            onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                            disabled={!!storeId}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Short ID prefix (e.g. DT01) used to sequence custom labels.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Physical Address (Optional)</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="123 Luxury Boulevard, Lagos, Nigeria" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <div className="space-y-5">
+            <FormField control={form.control} name="name" render={({ field: f }) => (
+              <FormItem className={field}>
+                <FormLabel>Store name</FormLabel>
+                <FormControl>
+                  <Input placeholder="Downtown Outlet" {...f} data-testid="input-store-name"
+                    onChange={(e) => { f.onChange(e); if (!storeId && !codeTouched.current) form.setValue("code", suggestCode(e.target.value), { shouldValidate: true }); }} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="code" render={({ field: f }) => (
+              <FormItem className={field}>
+                <FormLabel>Store code</FormLabel>
+                <FormControl>
+                  {storeId ? (
+                    <div className="flex h-10 items-center gap-2 rounded-md border bg-muted px-3 text-sm font-semibold"><Lock className="h-3.5 w-3.5 text-muted-foreground" />{f.value}</div>
+                  ) : (
+                    <Input placeholder="DT01" {...f} maxLength={10} data-testid="input-store-code"
+                      onChange={(e) => { codeTouched.current = true; f.onChange(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); }} />
                   )}
-                />
+                </FormControl>
+                <p className={hint}>
+                  {storeId ? "Codes can't change once a store exists, so old receipts keep matching." : "Starts every receipt and label number from this store. You can't change it later."}
+                </p>
+                <FormMessage />
+              </FormItem>
+            )} />
+          </div>
 
-                <div className="grid gap-6 md:grid-cols-3">
-                  <FormField
-                    control={form.control}
-                    name="phoneCountryCode"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Country Code</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="+234" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className="max-h-[300px]">
-                            {deduplicatedCountryCodes.map((cc) => (
-                              <SelectItem key={cc.dialCode} value={cc.dialCode}>
-                                {cc.dialCode} ({cc.name})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <FormItem className="md:col-span-2">
-                        <FormLabel>Phone Number (Optional)</FormLabel>
-                        <FormControl>
-                          <Input placeholder="8012345678" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+          <FormField control={form.control} name="address" render={({ field: f }) => (
+            <FormItem className={field}>
+              <FormLabel>Address</FormLabel>
+              <FormControl><Input placeholder="Street, area, city" {...f} /></FormControl>
+              <p className={hint}>Optional. Printed on this store's receipts.</p>
+              <FormMessage />
+            </FormItem>
+          )} />
+
+          <FormItem className={field}>
+            <FormLabel>Phone</FormLabel>
+            <div className="flex gap-2">
+              <FormField control={form.control} name="phoneCountryCode" render={({ field: f }) => (
+                <Select onValueChange={f.onChange} value={f.value}>
+                  <SelectTrigger className="w-28" aria-label="Country code"><SelectValue placeholder="+234" /></SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {deduplicatedCountryCodes.map((cc) => (
+                      <SelectItem key={cc.dialCode} value={cc.dialCode}>{cc.dialCode} ({cc.name})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )} />
+              <FormField control={form.control} name="phone" render={({ field: f }) => (
+                <FormControl><Input className="flex-1" inputMode="tel" placeholder="801 234 5678" {...f} /></FormControl>
+              )} />
+            </div>
+            <p className={hint}>Optional</p>
+            <FormMessage>{form.formState.errors.phone?.message}</FormMessage>
+          </FormItem>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <FormField control={form.control} name="country" render={({ field: f }) => (
+              <FormItem className={field}>
+                <FormLabel>Country</FormLabel>
+                <Select onValueChange={f.onChange} value={f.value}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select country" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {countries.map((c) => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="currency" render={({ field: f }) => (
+              <FormItem className={field}>
+                <FormLabel>Currency</FormLabel>
+                <Select onValueChange={f.onChange} value={f.value}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select currency" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    {currencies.map((c) => <SelectItem key={c.code} value={c.code}>{c.symbol} {c.code}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+          </div>
+
+          <FormField control={form.control} name="timezone" render={({ field: f }) => (
+            <FormItem className={field}>
+              <FormLabel>Time zone</FormLabel>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <FormControl>
+                    <Button type="button" variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !f.value && "text-muted-foreground")}>
+                      {f.value ? getTimezoneLabel(f.value) : "Select time zone"}
+                      <Check className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </FormControl>
+                </PopoverTrigger>
+                <PopoverContent className="w-[min(400px,calc(100vw-2rem))] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search city or time zone" />
+                    <CommandList className="max-h-[300px]">
+                      <CommandEmpty>No time zone found.</CommandEmpty>
+                      {TIMEZONE_REGIONS.map((region) => (
+                        <CommandGroup key={region} heading={region}>
+                          {TIMEZONES.filter((t) => t.region === region).map((tz) => (
+                            <CommandItem key={tz.value} value={`${tz.label} ${tz.value}`} onSelect={() => f.onChange(tz.value)}>
+                              <Check className={cn("mr-2 h-4 w-4", f.value === tz.value ? "opacity-100" : "opacity-0")} />
+                              <span className="flex-1">{tz.label}</span>
+                              <span className="ml-2 text-xs text-muted-foreground">UTC{tz.offset}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p className={hint}>Reports and date filters for this store use this time, wherever staff are.</p>
+              <FormMessage />
+            </FormItem>
+          )} />
+
+          <FormField control={form.control} name="managerStaffId" render={({ field: f }) => (
+            <FormItem className={field}>
+              <FormLabel>Store manager</FormLabel>
+              {storeId ? (
+                <Select onValueChange={(v) => f.onChange(v === "none" ? null : v)} value={f.value || "none"}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Assign a manager" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">No manager yet</SelectItem>
+                    {activeStaff.map((st) => <SelectItem key={st.id} value={st.id}>{st.name} ({st.staffNumber})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="rounded-lg border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+                  Staff belong to a store, so you can pick a manager once the store exists.
+                </p>
+              )}
+              {storeId && <p className={hint}>Gets the Store Manager role for this store.</p>}
+              <FormMessage />
+            </FormItem>
+          )} />
+
+          <div className="space-y-3 rounded-lg border p-4">
+            <FormField control={form.control} name="commissionSplitOverride" render={({ field: f }) => (
+              <FormItem className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <FormLabel>Use a different commission split here</FormLabel>
+                  <p className={hint}>Otherwise this store follows the business default in Business profile.</p>
                 </div>
+                <FormControl><Switch checked={f.value} onCheckedChange={f.onChange} /></FormControl>
+              </FormItem>
+            )} />
+            {splitOn && (
+              <div className="grid grid-cols-2 gap-4">
+                <FormField control={form.control} name="commissionSplitStaffShare" render={({ field: f }) => (
+                  <FormItem className={field}>
+                    <FormLabel>Staff earn (%)</FormLabel>
+                    <FormControl>
+                      <Input type="number" {...f} onChange={(e) => { const v = Math.min(100, Math.max(0, Number(e.target.value))); f.onChange(v); form.setValue("commissionSplitBusinessShare", 100 - v); }} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="commissionSplitBusinessShare" render={({ field: f }) => (
+                  <FormItem className={field}>
+                    <FormLabel>Business keeps (%)</FormLabel>
+                    <FormControl><Input type="number" {...f} onChange={(e) => f.onChange(Number(e.target.value))} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+            )}
+          </div>
 
-                <div className="grid gap-6 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="country"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Country</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select country" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {countries.map((country) => (
-                              <SelectItem key={country.code} value={country.code}>
-                                {country.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="currency"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Currency</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select currency" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {currencies.map((currency) => (
-                              <SelectItem key={currency.code} value={currency.code}>
-                                {currency.symbol} {currency.code} - {currency.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Amounts will show in this currency.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+          {priceNote && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">{priceNote}</p>}
 
-                <FormField
-                  control={form.control}
-                  name="timezone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2">
-                        <Globe className="h-4 w-4" />
-                        Business Timezone
-                      </FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              className={cn("w-full justify-between font-normal", !field.value && "text-muted-foreground")}
-                            >
-                              {field.value ? getTimezoneLabel(field.value) : "Select timezone"}
-                              <Check className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[400px] p-0" align="start">
-                          <Command>
-                            <CommandInput placeholder="Search city or timezone..." />
-                            <CommandList className="max-h-[300px]">
-                              <CommandEmpty>No timezone found.</CommandEmpty>
-                              {TIMEZONE_REGIONS.map((region) => (
-                                <CommandGroup key={region} heading={region}>
-                                  {TIMEZONES.filter(t => t.region === region).map((tz) => (
-                                    <CommandItem
-                                      key={tz.value}
-                                      value={`${tz.label} ${tz.value}`}
-                                      onSelect={() => field.onChange(tz.value)}
-                                    >
-                                      <Check className={cn("mr-2 h-4 w-4", field.value === tz.value ? "opacity-100" : "opacity-0")} />
-                                      <span className="flex-1">{tz.label}</span>
-                                      <span className="text-xs text-muted-foreground ml-2">UTC{tz.offset}</span>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              ))}
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                      <FormDescription>
-                        All reports and date filters for this store will use this timezone, regardless of where staff are located.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          </div>
 
-                <FormField
-                  control={form.control}
-                  name="managerStaffId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Store Manager (Optional)</FormLabel>
-                      {storeId ? (
-                        <Select 
-                          onValueChange={(value) => field.onChange(value === "none" ? null : value)} 
-                          value={field.value || "none"}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Assign a manager" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="none">No manager assigned</SelectItem>
-                            {activeStaff.map((staff) => (
-                              <SelectItem key={staff.id} value={staff.id}>
-                                {staff.name} ({staff.staffNumber})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="text-sm text-muted-foreground bg-muted/40 p-3 rounded-lg border border-dashed">
-                          Manager assignment becomes available after the store is successfully created.
-                        </p>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="border border-muted/80 p-4 rounded-lg bg-muted/10 space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="commissionSplitOverride"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 bg-background shadow-xs">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-sm font-semibold flex items-center gap-1.5">
-                            <Coins className="h-4 w-4 text-primary" />
-                            Override Business split
-                          </FormLabel>
-                          <FormDescription className="text-xs">
-                            Enable to define a custom percentage split for this store location.
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  {form.watch("commissionSplitOverride") && (
-                    <div className="grid grid-cols-2 gap-4 pt-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitBusinessShare"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Business Share (%)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                {...field}
-                                onChange={(e) => field.onChange(Number(e.target.value))}
-                                placeholder="80"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="commissionSplitStaffShare"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Staff Share (%)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                {...field}
-                                onChange={(e) => field.onChange(Number(e.target.value))}
-                                placeholder="20"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setLocation("/settings/stores")}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={mutation.isPending} className="min-w-[120px]">
-                    {mutation.isPending ? "Saving..." : storeId ? "Save Changes" : "Create Store"}
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+          <SheetFooter className="flex-row justify-end gap-3 border-t px-6 py-4 sm:space-x-0">
+            <Button type="button" variant="outline" onClick={closeDrawer}>Cancel</Button>
+            <Button type="submit" disabled={mutation.isPending} data-testid="button-save-store">
+              {mutation.isPending ? "Saving..." : storeId ? "Save changes" : "Add store"}
+            </Button>
+          </SheetFooter>
+        </form>
+      </Form>
+      </SheetContent>
+    </Sheet>
+    </>
   );
 }

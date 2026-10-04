@@ -140,7 +140,7 @@ export default function BusinessDetails() {
 
   if (error || !data) {
     return (
-      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-3xl text-rose-700 dark:text-rose-300 max-w-xl mx-auto flex gap-4">
+      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 max-w-xl mx-auto flex gap-4">
         <AlertCircle className="h-8 w-8 shrink-0" />
         <div>
           <h3 className="font-bold text-foreground">Business Audit Failed</h3>
@@ -224,15 +224,15 @@ export default function BusinessDetails() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Info Card Left */}
         <div className="space-y-6">
-          <Card className="bg-card backdrop-blur border-card-border rounded-3xl overflow-hidden shadow-xl">
+          <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden shadow-xl">
             <CardHeader className="bg-muted/40 px-6 py-5 border-b border-border">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-muted border border-border rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
                   <Building className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <CardTitle className="text-lg font-black text-foreground truncate">{profile.name}</CardTitle>
-                  <span className="text-[10px] text-muted-foreground font-mono">ID: {profile.id.substring(0, 8)}...</span>
+                  <CardTitle className="text-lg font-bold text-foreground truncate">{profile.name}</CardTitle>
+                  <span className="text-[11px] text-muted-foreground font-mono">ID: {profile.id.substring(0, 8)}...</span>
                 </div>
               </div>
             </CardHeader>
@@ -241,7 +241,7 @@ export default function BusinessDetails() {
                 <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Status</span>
                 <Badge
                   variant="outline"
-                  className={`border-none font-bold uppercase tracking-wider text-[10px] ${
+                  className={`border-none font-bold uppercase tracking-wider text-[11px] ${
                     profile.status === "active"
                       ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
                       : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"
@@ -252,30 +252,30 @@ export default function BusinessDetails() {
               </div>
 
               {profile.status === "suspended" && (
-                <div className="p-4 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl space-y-1.5 text-xs text-rose-700 dark:text-rose-300">
+                <div className="p-4 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl space-y-2 text-xs text-rose-700 dark:text-rose-300">
                   <span className="block font-bold">Suspension Log:</span>
                   <span className="block font-medium">Reason: {profile.suspensionReason}</span>
-                  {profile.suspensionNote && <span className="block text-[10px] leading-relaxed italic">"{profile.suspensionNote}"</span>}
-                  <span className="block text-[10px] text-muted-foreground font-mono">At: {formatDate(profile.suspendedAt)}</span>
+                  {profile.suspensionNote && <span className="block text-[11px] leading-relaxed italic">"{profile.suspensionNote}"</span>}
+                  <span className="block text-[11px] text-muted-foreground font-mono">At: {formatDate(profile.suspendedAt)}</span>
                 </div>
               )}
 
               <div className="space-y-4 pt-1">
-                <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Account Owner</h4>
+                <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Account Owner</h4>
                 {profile.owner ? (
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2.5 text-xs">
+                    <div className="flex items-center gap-3 text-xs">
                       <User className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="font-semibold text-muted-foreground truncate">{profile.owner.name}</span>
                     </div>
                     {profile.owner.email && (
-                      <div className="flex items-center gap-2.5 text-xs">
+                      <div className="flex items-center gap-3 text-xs">
                         <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="text-muted-foreground truncate select-all">{profile.owner.email}</span>
                       </div>
                     )}
                     {profile.owner.phone && (
-                      <div className="flex items-center gap-2.5 text-xs">
+                      <div className="flex items-center gap-3 text-xs">
                         <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="text-muted-foreground truncate font-mono">{profile.owner.phone}</span>
                       </div>
@@ -301,7 +301,7 @@ export default function BusinessDetails() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Registered</span>
-                  <span className="font-mono text-muted-foreground text-[10px]">{formatDate(profile.createdAt).substring(0, 12)}</span>
+                  <span className="font-mono text-muted-foreground text-[11px]">{formatDate(profile.createdAt).substring(0, 12)}</span>
                 </div>
               </div>
             </CardContent>
@@ -328,8 +328,8 @@ export default function BusinessDetails() {
                     <CreditCard className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent className="space-y-1">
-                    <span className="text-2xl font-black text-foreground font-mono">{formatCurrency(usageSummary.allTime.gmv)}</span>
-                    <p className="text-[10px] text-muted-foreground">All-time sales GMV</p>
+                    <span className="text-2xl font-bold text-foreground font-mono">{formatCurrency(usageSummary.allTime.gmv)}</span>
+                    <p className="text-[11px] text-muted-foreground">All-time sales GMV</p>
                   </CardContent>
                 </Card>
 
@@ -339,8 +339,8 @@ export default function BusinessDetails() {
                     <Clock className="h-4 w-4 text-amber-500" />
                   </CardHeader>
                   <CardContent className="space-y-1">
-                    <span className="text-2xl font-black text-foreground font-mono">{formatCurrency(usageSummary.allTime.outstandingCredit)}</span>
-                    <p className="text-[10px] text-muted-foreground">Outstanding ledger balance</p>
+                    <span className="text-2xl font-bold text-foreground font-mono">{formatCurrency(usageSummary.allTime.outstandingCredit)}</span>
+                    <p className="text-[11px] text-muted-foreground">Outstanding ledger balance</p>
                   </CardContent>
                 </Card>
 
@@ -350,15 +350,15 @@ export default function BusinessDetails() {
                     <Receipt className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   </CardHeader>
                   <CardContent className="space-y-1">
-                    <span className="text-2xl font-black text-foreground font-mono">{usageSummary.allTime.transactions}</span>
-                    <p className="text-[10px] text-muted-foreground">Total checkout receipts</p>
+                    <span className="text-2xl font-bold text-foreground font-mono">{usageSummary.allTime.transactions}</span>
+                    <p className="text-[11px] text-muted-foreground">Total checkout receipts</p>
                   </CardContent>
                 </Card>
               </div>
 
               {/* Metrics Detail Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="bg-card border-card-border rounded-3xl overflow-hidden">
+                <Card className="bg-card border-card-border rounded-2xl overflow-hidden">
                   <CardHeader className="border-b border-border bg-muted/40 px-6 py-4">
                     <CardTitle className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
                       <Briefcase className="h-4 w-4 text-primary" />
@@ -385,7 +385,7 @@ export default function BusinessDetails() {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-card border-card-border rounded-3xl overflow-hidden">
+                <Card className="bg-card border-card-border rounded-2xl overflow-hidden">
                   <CardHeader className="border-b border-border bg-muted/40 px-6 py-4">
                     <CardTitle className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
                       <Activity className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
@@ -411,11 +411,11 @@ export default function BusinessDetails() {
             </TabsContent>
 
             {/* Roster Tab Content */}
-            <TabsContent value="users" className="bg-card border border-card-border rounded-3xl overflow-hidden animate-in fade-in duration-300">
+            <TabsContent value="users" className="bg-card border border-card-border rounded-2xl overflow-hidden animate-in fade-in duration-300">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-border bg-muted/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                       <th className="px-6 py-4">User Details</th>
                       <th className="px-6 py-4">Security Role</th>
                       <th className="px-6 py-4">Account Status</th>
@@ -427,17 +427,17 @@ export default function BusinessDetails() {
                       <tr key={user.id} className="hover:bg-muted/30">
                         <td className="px-6 py-4">
                           <span className="block font-bold text-foreground text-sm">{user.name}</span>
-                          <span className="block text-[10px] text-muted-foreground font-mono select-all">{user.email}</span>
+                          <span className="block text-[11px] text-muted-foreground font-mono select-all">{user.email}</span>
                         </td>
                         <td className="px-6 py-4">
-                          <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-muted text-muted-foreground">
+                          <Badge variant="outline" className="border-none font-bold uppercase text-[11px] bg-muted text-muted-foreground">
                             {user.role}
                           </Badge>
                         </td>
                         <td className="px-6 py-4">
                           <Badge
                             variant="outline"
-                            className={`border-none font-bold uppercase text-[9px] ${
+                            className={`border-none font-bold uppercase text-[11px] ${
                               user.status === "active"
                                 ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
                                 : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"
@@ -446,7 +446,7 @@ export default function BusinessDetails() {
                             {user.status || "active"}
                           </Badge>
                         </td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
+                        <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">
                           {formatDate(user.lastLogin)}
                         </td>
                       </tr>
@@ -457,11 +457,11 @@ export default function BusinessDetails() {
             </TabsContent>
 
             {/* Transactions Tab Content */}
-            <TabsContent value="transactions" className="bg-card border border-card-border rounded-3xl overflow-hidden animate-in fade-in duration-300">
+            <TabsContent value="transactions" className="bg-card border border-card-border rounded-2xl overflow-hidden animate-in fade-in duration-300">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-border bg-muted/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                       <th className="px-6 py-4">Receipt ID</th>
                       <th className="px-6 py-4">Checkout Timing</th>
                       <th className="px-6 py-4 text-right">Receipt Total</th>
@@ -479,14 +479,14 @@ export default function BusinessDetails() {
                           <td className="px-6 py-4 font-mono font-bold text-foreground">
                             {tx.receiptNumber}
                           </td>
-                          <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
+                          <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">
                             {formatDate(tx.createdAt)}
                           </td>
                           <td className="px-6 py-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                             {formatCurrency(tx.totalCharged || tx.totalPrice)}
                           </td>
                           <td className="px-6 py-4">
-                            <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-muted text-muted-foreground">
+                            <Badge variant="outline" className="border-none font-bold uppercase text-[11px] bg-muted text-muted-foreground">
                               {tx.paymentMethod}
                             </Badge>
                           </td>
@@ -499,7 +499,7 @@ export default function BusinessDetails() {
             </TabsContent>
 
             {/* Operations Audit Logs Tab Content */}
-            <TabsContent value="logs" className="bg-card border border-card-border rounded-3xl overflow-hidden animate-in fade-in duration-300">
+            <TabsContent value="logs" className="bg-card border border-card-border rounded-2xl overflow-hidden animate-in fade-in duration-300">
               <div className="divide-y divide-border">
                 {activityLogs.length === 0 ? (
                   <div className="p-8 text-center text-muted-foreground italic text-sm">No administrative audit trails synced to this business.</div>
@@ -507,17 +507,17 @@ export default function BusinessDetails() {
                   activityLogs.map((log: any) => (
                     <div key={log.id} className="px-6 py-4 space-y-1 hover:bg-muted/30">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-foreground flex items-center gap-1.5">
+                        <span className="font-bold text-foreground flex items-center gap-2">
                           <FileCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                           {log.action.replace("_", " ")}
                         </span>
-                        <span className="text-[10px] font-mono text-muted-foreground">{formatDate(log.createdAt)}</span>
+                        <span className="text-[11px] font-mono text-muted-foreground">{formatDate(log.createdAt)}</span>
                       </div>
                       <p className="text-[11px] text-muted-foreground">
                         Executed by: <span className="font-bold text-muted-foreground">{log.adminEmail}</span> ({log.adminRole})
                       </p>
                       {log.details && (
-                        <code className="block p-2 bg-muted border border-border rounded-lg text-[10px] font-mono text-muted-foreground overflow-x-auto whitespace-pre">
+                        <code className="block p-2 bg-muted border border-border rounded-lg text-[11px] font-mono text-muted-foreground overflow-x-auto whitespace-pre">
                           {JSON.stringify(log.details)}
                         </code>
                       )}
@@ -536,7 +536,7 @@ export default function BusinessDetails() {
 
       {/* Suspension Reasons Dialog */}
       <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
-        <DialogContent className="max-w-md rounded-3xl p-6">
+        <DialogContent className="max-w-md rounded-2xl p-6">
           <DialogHeader className="space-y-3">
             <div className="mx-auto w-12 h-12 bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 rounded-2xl flex items-center justify-center">
               <Ban className="h-6 w-6 text-rose-500 dark:text-rose-400 animate-pulse" />
@@ -551,7 +551,7 @@ export default function BusinessDetails() {
 
           <div className="space-y-4 my-4">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suspension Reason Code</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Suspension Reason Code</Label>
               <Select value={suspensionReason} onValueChange={setSuspensionReason}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue />
@@ -568,7 +568,7 @@ export default function BusinessDetails() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Compliance & Audit Notes</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Compliance & Audit Notes</Label>
               <Textarea
                 placeholder="Provide detailed compliance context for this administrative override..."
                 className="rounded-xl min-h-[90px] focus:border-rose-500/80 focus:ring-rose-500/20"
@@ -600,7 +600,7 @@ export default function BusinessDetails() {
 
       {/* Destruction Confirmation Dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="max-w-md rounded-3xl p-6">
+        <DialogContent className="max-w-md rounded-2xl p-6">
           <DialogHeader className="space-y-3">
             <div className="mx-auto w-12 h-12 bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 rounded-2xl flex items-center justify-center">
               <AlertTriangle className="h-6 w-6 text-rose-500 dark:text-rose-400 animate-bounce" />
@@ -615,7 +615,7 @@ export default function BusinessDetails() {
           </DialogHeader>
 
           <div className="space-y-1 my-4">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Reason for Account Purge</Label>
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Reason for Account Purge</Label>
             <Textarea
               placeholder="Provide exact reasons for platform exclusion..."
               className="rounded-xl min-h-[90px]"

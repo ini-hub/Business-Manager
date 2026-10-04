@@ -108,11 +108,11 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
         </div>
 
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-5 px-6 py-5 border-b">
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <dt className="flex justify-between text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Customer <button type="button" onClick={onBack} className="normal-case font-normal text-primary hover:underline">Edit</button>
             </dt>
-            <dd className="flex items-center gap-2.5">
+            <dd className="flex items-center gap-3">
               <span className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0">
                 {selectedCustomer?.name?.charAt(0).toUpperCase() ?? "?"}
               </span>
@@ -125,13 +125,13 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
               </span>
             </dd>
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <dt className="flex justify-between text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               Type <button type="button" onClick={onBack} className="normal-case font-normal text-primary hover:underline">Edit</button>
             </dt>
             <dd><Badge variant="secondary">{typeLabel}</Badge></dd>
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <dt className="flex justify-between text-xs font-semibold tracking-wide text-muted-foreground uppercase">
               {values.type === "appointment" ? "Date & time" : "Order date"} <button type="button" onClick={onBack} className="normal-case font-normal text-primary hover:underline">Edit</button>
             </dt>
@@ -141,7 +141,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
             </dd>
           </div>
           {values.type === "appointment" && (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
               <dt className="flex justify-between text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Staff & reminder <button type="button" onClick={onBack} className="normal-case font-normal text-primary hover:underline">Edit</button>
               </dt>
@@ -163,7 +163,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
           {(values.bookingItems || []).map((item, i) => {
             const inv = inventory.find((x) => x.id === item.inventoryId);
             return (
-              <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-4 py-3.5 items-center border-t">
+              <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-4 py-4 items-center border-t">
                 <span className="text-sm font-semibold truncate">{inv?.name ?? "Item"}</span>
                 <span className="text-sm text-muted-foreground tabular-nums">
                   {item.quantity} × ₦{Number(item.unitPrice).toLocaleString()}
@@ -217,7 +217,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
           )}
         </div>
 
-        <dl className="flex flex-col gap-2.5">
+        <dl className="flex flex-col gap-3">
           <div className="flex justify-between text-sm">
             <dt className="text-muted-foreground">Subtotal</dt>
             <dd className="tabular-nums">₦{subtotal.toLocaleString()}</dd>
@@ -228,17 +228,17 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
               <dd className="text-emerald-600 tabular-nums">−₦{discountAmt.toLocaleString()}</dd>
             </div>
           )}
-          <div className="flex items-baseline justify-between pt-2.5 border-t border-dashed">
+          <div className="flex items-baseline justify-between pt-3 border-t border-dashed">
             <dt className="text-sm font-bold">Total</dt>
             <dd className="text-2xl font-bold tracking-tight tabular-nums">₦{finalTotal.toLocaleString()}</dd>
           </div>
         </dl>
 
         {applyDiscount && (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="discount-reason" className="text-xs text-muted-foreground">Reason for discount</Label>
             <Select value={discountReason} onValueChange={setDiscountReason}>
-              <SelectTrigger id="discount-reason" className="h-9">
+              <SelectTrigger id="discount-reason" className="h-10">
                 <SelectValue placeholder="Select reason" />
               </SelectTrigger>
               <SelectContent>
@@ -256,9 +256,9 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
           control={form.control}
           name="depositAmount"
           render={({ field }) => (
-            <FormItem className="flex flex-col gap-1.5">
+            <FormItem className="flex flex-col gap-2">
               <Label htmlFor="booking-deposit-amount" className="text-sm font-semibold">Deposit paid now</Label>
-              <div className="flex items-center h-12 border rounded-lg px-3 gap-1.5">
+              <div className="flex items-center h-12 border rounded-lg px-3 gap-2">
                 <span className="text-sm text-muted-foreground">₦</span>
                 <FormControl>
                   <input
@@ -275,7 +275,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
                   />
                 </FormControl>
               </div>
-              <div className="flex gap-1.5">
+              <div className="flex gap-2">
                 {quickDeposits.map((q) => {
                   const isOn = depositAmount === q.val;
                   return (
@@ -284,7 +284,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
                       type="button"
                       onClick={() => field.onChange(q.val)}
                       className={cn(
-                        "flex-grow h-9 rounded-md text-xs font-semibold border transition-colors",
+                        "flex-grow h-10 rounded-md text-xs font-semibold border transition-colors",
                         isOn ? "border-primary bg-primary/5 text-primary" : "border-border text-foreground hover:border-primary/40"
                       )}
                     >
@@ -302,7 +302,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
           control={form.control}
           name="depositPaymentMethod"
           render={({ field }) => (
-            <FormItem className="flex flex-col gap-1.5">
+            <FormItem className="flex flex-col gap-2">
               <Label className="text-sm font-semibold">Deposit method</Label>
               <FormControl>
                 <SegmentedControl
@@ -325,7 +325,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
         <div
           role="status"
           className={cn(
-            "flex items-center justify-between rounded-lg px-4 py-3.5 border",
+            "flex items-center justify-between rounded-lg px-4 py-4 border",
             paidInFull
               ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900"
               : "bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-900"

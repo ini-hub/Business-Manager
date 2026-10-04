@@ -1,6 +1,5 @@
 import { Wallet } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
 import { CapitalAssetsSettings } from "./components/capital-assets-settings";
 import { NoStoreSelected } from "./components/no-store-selected";
@@ -19,11 +18,7 @@ export default function SettingsCapitalAssetsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Capital & Assets"
-        description="Record what's been invested, what the business owns, and what it owes — powers the Balance Sheet report."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="Capital and assets" description="What's been invested, what the business owns and what it owes. Feeds the balance sheet report." scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={Wallet} action="manage capital and assets" />
       ) : (

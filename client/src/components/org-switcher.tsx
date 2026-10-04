@@ -97,7 +97,7 @@ export function OrgSwitcher() {
 
   if (isLoading || !orgs || orgs.length === 0) {
     return (
-      <Button variant="outline" className="w-full justify-start h-9 border-slate-200 dark:border-slate-800" disabled>
+      <Button variant="outline" className="w-full justify-start h-10 border-slate-200 dark:border-slate-800" disabled>
         <Building2 className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate">Loading Organisation...</span>
       </Button>
@@ -114,7 +114,7 @@ export function OrgSwitcher() {
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="w-full justify-between h-9 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="w-full justify-between h-10 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
             data-testid="button-org-switcher"
           >
             <span className="flex items-center gap-2 truncate">
@@ -180,7 +180,7 @@ export function OrgSwitcher() {
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-w-md border-emerald-500/20 shadow-lg">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+            <DialogTitle className="text-lg font-bold flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
               <Building2 className="h-5 w-5 shrink-0 text-emerald-500" />
               Create Business Workspace
             </DialogTitle>

@@ -104,7 +104,7 @@ export default function RegisterShifts() {
       key: "storeName",
       header: "Store",
       render: (session: any) => (
-        <Badge variant="outline" className="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 font-medium uppercase shrink-0">
           {session.storeName || "Global"}
         </Badge>
       ),
@@ -114,12 +114,12 @@ export default function RegisterShifts() {
       header: "Shift Timing",
       render: (session: any) => (
         <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5 text-sm">
+          <div className="flex items-center gap-2 text-sm">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-semibold text-foreground">Opened: {formatDate(session.openedAt)}</span>
           </div>
           {session.status === "closed" && (
-            <span className="text-[10px] text-muted-foreground pl-5 italic font-medium">
+            <span className="text-[11px] text-muted-foreground pl-5 italic font-medium">
               Closed: {formatDate(session.closedAt)}
             </span>
           )}
@@ -146,7 +146,7 @@ export default function RegisterShifts() {
       render: (session: any) => (
         <span className="font-mono text-xs font-bold text-foreground">
           {session.status === "open" ? (
-            <Badge variant="outline" className="text-[8px] font-bold border-none bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider px-2 py-0.5">
+            <Badge variant="outline" className="text-[11px] font-bold border-none bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider px-2 py-0.5">
               ACTIVE
             </Badge>
           ) : (
@@ -161,7 +161,7 @@ export default function RegisterShifts() {
       render: (session: any) => {
         if (session.status === "open") {
           return (
-            <Badge variant="outline" className="border-none font-bold text-[8px] uppercase bg-muted text-muted-foreground tracking-wider px-2 py-0.5">
+            <Badge variant="outline" className="border-none font-bold text-[11px] uppercase bg-muted text-muted-foreground tracking-wider px-2 py-0.5">
               DRAWER OPEN
             </Badge>
           );
@@ -170,7 +170,7 @@ export default function RegisterShifts() {
         return (
           <Badge
             variant="outline"
-            className={`border-none font-bold text-[9px] uppercase tracking-wider px-2.5 py-0.5 ${
+            className={`border-none font-bold text-[11px] uppercase tracking-wider px-3 py-0.5 ${
               diff === 0
                 ? "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
                 : diff > 0

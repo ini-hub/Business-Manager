@@ -23,7 +23,7 @@ export function StoreRequiredAlert({ title = "Store Setup Required" }: StoreRequ
           <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
             <Store className="h-6 w-6 text-primary animate-pulse" />
           </div>
-          <CardTitle className="text-xl font-bold tracking-tight">{title}</CardTitle>
+          <CardTitle className="text-lg font-bold tracking-tight">{title}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col items-center text-center pb-6">
           {isStaff ? (
@@ -31,7 +31,7 @@ export function StoreRequiredAlert({ title = "Store Setup Required" }: StoreRequ
               <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
                 A store has to be created for you to proceed. Please contact your manager or store owner.
               </p>
-              <div className="mt-6 flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/60 text-xs text-muted-foreground font-medium">
+              <div className="mt-6 flex items-center gap-2 px-3 py-2 rounded-full bg-muted/60 text-xs text-muted-foreground font-medium">
                 <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
                 Staff Account
               </div>

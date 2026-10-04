@@ -69,7 +69,7 @@ function StatusBadge({ status, isActive, isLate, lateMinutes }: { status: Attend
   if (status === "present") {
     if (isActive) {
       return (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 border">
             <CheckCircle2 className="h-3 w-3" />
             Present (Active)
@@ -79,7 +79,7 @@ function StatusBadge({ status, isActive, isLate, lateMinutes }: { status: Attend
       );
     } else {
       return (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="gap-1 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950 border-violet-200 dark:border-violet-800 border">
             <CheckCircle2 className="h-3 w-3" />
             Present (Passive)
@@ -92,7 +92,7 @@ function StatusBadge({ status, isActive, isLate, lateMinutes }: { status: Attend
   const cfg = STATUS_CONFIG[status];
   const Icon = cfg.icon;
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <Badge variant="outline" className={`gap-1 ${cfg.color} ${cfg.bg} border`}>
         <Icon className="h-3 w-3" />
         {cfg.label}
@@ -143,7 +143,7 @@ function LateMarker({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-56 space-y-3" align="end">
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="late-minutes" className="text-xs">Minutes late</Label>
           <Input
             id="late-minutes"
@@ -476,7 +476,7 @@ export default function AttendancePage() {
                       </div>
                       <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t sm:border-0 pt-2 sm:pt-0">
                         {displayStatus ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge status={displayStatus} isActive={isActive} isLate={rec?.isLate} lateMinutes={rec?.lateMinutes} />
                             {isScheduledOff && <span className="text-xs text-muted-foreground italic">(scheduled)</span>}
                           </div>
@@ -542,7 +542,7 @@ export default function AttendancePage() {
                     <EntityLink href={`/staffs/${s.id}/edit`}>{s.name}</EntityLink>
                     <span className="font-mono text-xs text-muted-foreground">{s.staffNumber}</span>
                   </CardTitle>
-                  <div className="flex flex-wrap gap-2.5 text-xs font-medium">
+                  <div className="flex flex-wrap gap-3 text-xs font-medium">
                     <span className="text-emerald-600 dark:text-emerald-400">Active: {summary.active}</span>
                     <span className="text-violet-600 dark:text-violet-400">Passive: {summary.passive}</span>
                     <span className="text-red-600 dark:text-red-400">Absent: {summary.absent}</span>
@@ -654,7 +654,7 @@ export default function AttendancePage() {
                   const { active, passive, absent, offDay, holiday, leave } = getSummary(s.id);
                   return (
                     <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="py-2.5 pr-4 whitespace-nowrap">
+                      <td className="py-3 pr-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
                             {s.name.charAt(0)}
@@ -667,13 +667,13 @@ export default function AttendancePage() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-center py-2.5 px-3 font-mono text-emerald-700 dark:text-emerald-400 font-semibold">{active}</td>
-                      <td className="text-center py-2.5 px-3 font-mono text-violet-700 dark:text-violet-400 font-semibold">{passive}</td>
-                      <td className="text-center py-2.5 px-3 font-mono text-red-700 dark:text-red-400 font-semibold">{absent}</td>
-                      <td className="text-center py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400">{offDay}</td>
-                      <td className="text-center py-2.5 px-3 font-mono text-amber-700 dark:text-amber-400">{holiday}</td>
-                      <td className="text-center py-2.5 px-3 font-mono text-blue-700 dark:text-blue-400">{leave}</td>
-                      <td className="py-2.5 pl-4 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                      <td className="text-center py-3 px-3 font-mono text-emerald-700 dark:text-emerald-400 font-semibold">{active}</td>
+                      <td className="text-center py-3 px-3 font-mono text-violet-700 dark:text-violet-400 font-semibold">{passive}</td>
+                      <td className="text-center py-3 px-3 font-mono text-red-700 dark:text-red-400 font-semibold">{absent}</td>
+                      <td className="text-center py-3 px-3 font-mono text-slate-600 dark:text-slate-400">{offDay}</td>
+                      <td className="text-center py-3 px-3 font-mono text-amber-700 dark:text-amber-400">{holiday}</td>
+                      <td className="text-center py-3 px-3 font-mono text-blue-700 dark:text-blue-400">{leave}</td>
+                      <td className="py-3 pl-4 font-mono text-xs text-muted-foreground whitespace-nowrap">
                         Active: {active} | Passive: {passive} | Absent: {absent} | Off: {offDay} | Holiday: {holiday} | Leave: {leave}
                       </td>
                     </tr>
@@ -708,27 +708,27 @@ export default function AttendancePage() {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3">
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
+        <div className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800">
           <CheckCircle2 className="h-3 w-3" />
           Present (Active)
         </div>
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800">
+        <div className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800">
           <CheckCircle2 className="h-3 w-3" />
           Present (Passive)
         </div>
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800">
+        <div className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800">
           <XCircle className="h-3 w-3" />
           Absent
         </div>
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700">
           <Coffee className="h-3 w-3" />
           Off Day
         </div>
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+        <div className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
           <Umbrella className="h-3 w-3" />
           Holiday
         </div>
-        <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
+        <div className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
           <BookOpen className="h-3 w-3" />
           Leave
         </div>

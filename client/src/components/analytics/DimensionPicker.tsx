@@ -68,7 +68,7 @@ export function DimensionPicker({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">Break by</span>
 
       {selectedDefs.map((dim) => (
@@ -93,7 +93,7 @@ export function DimensionPicker({
         </PopoverTrigger>
         <PopoverContent className="w-72 p-1" align="start">
           {atLimit && (
-            <p className="text-[11px] text-muted-foreground px-2 py-1.5">
+            <p className="text-[11px] text-muted-foreground px-2 py-2">
               Limit of {ANALYTICS_LIMITS.maxDimensions} breakdowns reached.
             </p>
           )}
@@ -109,7 +109,7 @@ export function DimensionPicker({
                 onClick={() => toggle(dim.id)}
                 disabled={disabled}
                 className={cn(
-                  "w-full text-left rounded-sm px-2 py-1.5 text-xs hover:bg-accent",
+                  "w-full text-left rounded-sm px-2 py-2 text-xs hover:bg-accent",
                   "disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2",
                 )}
               >

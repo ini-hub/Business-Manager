@@ -1,5 +1,6 @@
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { AddButton } from "@/components/add-button";
+import { useLocation } from "wouter";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { RolesPermissionsSection } from "./components/roles-permissions";
 
 /**
@@ -8,12 +9,16 @@ import { RolesPermissionsSection } from "./components/roles-permissions";
  * settings/stores.tsx for the same split and why.
  */
 export default function SettingsRolesPage() {
+  const [, setLocation] = useLocation();
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Roles & Permissions"
-        description="Create custom staff roles with specific module access."
-        actions={<BackToSettingsButton />}
+      <SettingsPageHeader
+        title="Roles and permissions"
+        description="What each role can open. Give someone a role from their staff profile."
+        scope="business"
+        actions={
+          <AddButton label="Create custom role" onClick={() => setLocation("/settings/roles/new")} data-testid="button-create-role" />
+        }
       />
       <RolesPermissionsSection />
     </div>

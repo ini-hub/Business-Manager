@@ -307,7 +307,7 @@ export function StepCustomer({ form }: StepCustomerProps) {
                                           <Check className="mr-2 h-4 w-4 opacity-0" />
                                           <EntityDisplay presenter={presenter} />
                                         </div>
-                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0 ml-2">
+                                        <span className="text-[11px] bg-primary/10 text-primary px-2 py-0.5 rounded font-medium shrink-0 ml-2">
                                           {customer.storeName}
                                         </span>
                                       </CommandItem>
@@ -338,7 +338,7 @@ export function StepCustomer({ form }: StepCustomerProps) {
 
           {selectedCustomer && (
             <div className="rounded-lg border bg-muted/30 px-4 py-3 flex items-center gap-3 animate-in fade-in duration-200">
-              <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm flex-shrink-0">
+              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm flex-shrink-0">
                 {selectedCustomer.name.charAt(0).toUpperCase()}
               </div>
               <div>

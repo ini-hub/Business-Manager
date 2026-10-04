@@ -319,7 +319,7 @@ export default function PurchaseOrderFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-semibold text-sm truncate">{isEdit ? `Edit ${editPO?.poNumber ?? "order"}` : "New purchase order"}</h1>
+          <h1 className="font-bold text-sm truncate">{isEdit ? `Edit ${editPO?.poNumber ?? "order"}` : "New purchase order"}</h1>
           <p className="text-xs text-muted-foreground truncate">{storeLabel}</p>
         </div>
         <button
@@ -534,7 +534,7 @@ export default function PurchaseOrderFormPage() {
                         type="button"
                         aria-pressed={active}
                         onClick={() => setExpectedDelivery(value)}
-                        className={`rounded-full border px-4 py-1.5 text-sm font-medium ${active ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted"}`}
+                        className={`rounded-full border px-4 py-2 text-sm font-medium ${active ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted"}`}
                       >
                         {label}
                       </button>
@@ -642,7 +642,7 @@ export default function PurchaseOrderFormPage() {
       <Dialog open={isQuickVendorOpen} onOpenChange={setIsQuickVendorOpen}>
         <DialogContent className="max-w-md border border-border bg-background/95 backdrop-blur-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
               <Plus className="h-5 w-5 text-primary" /> Quick Add Supplier
             </DialogTitle>
             <DialogDescription>
@@ -652,7 +652,7 @@ export default function PurchaseOrderFormPage() {
 
           <div className="space-y-4 pt-2">
             {currentStore?.id === "all" && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="vendor-store">Target Store Location</Label>
                 <Select value={newVendorStoreId} onValueChange={setNewVendorStoreId}>
                   <SelectTrigger id="vendor-store">
@@ -667,7 +667,7 @@ export default function PurchaseOrderFormPage() {
               </div>
             )}
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="vendor-name">Supplier Name</Label>
               <Input
                 id="vendor-name"
@@ -677,7 +677,7 @@ export default function PurchaseOrderFormPage() {
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="vendor-contact">Contact Person / Organization / Company (Optional)</Label>
               <Input
                 id="vendor-contact"
@@ -688,7 +688,7 @@ export default function PurchaseOrderFormPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="vendor-email">Email (Optional)</Label>
                 <Input
                   id="vendor-email"
@@ -698,7 +698,7 @@ export default function PurchaseOrderFormPage() {
                   onChange={(e) => setNewVendorEmail(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="vendor-phone">Phone (Optional)</Label>
                 <Input
                   id="vendor-phone"
@@ -709,7 +709,7 @@ export default function PurchaseOrderFormPage() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="vendor-address">Address (Optional)</Label>
               <Input
                 id="vendor-address"
@@ -719,7 +719,7 @@ export default function PurchaseOrderFormPage() {
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="vendor-notes">Notes (Optional)</Label>
               <Input
                 id="vendor-notes"

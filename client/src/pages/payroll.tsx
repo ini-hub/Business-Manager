@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AddButton } from "@/components/add-button";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
@@ -6,7 +7,6 @@ import { appendReturnTo } from "@/lib/return-to";
 import { format, parseISO } from "date-fns";
 import {
   Calendar,
-  Plus,
   ChevronLeft,
   ChevronRight,
   Banknote,
@@ -102,18 +102,15 @@ export default function PayrollPage() {
         compact
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/advances")}>
+            <Button variant="outline" onClick={() => setLocation("/payroll/advances")}>
               <Banknote className="h-4 w-4 lg:mr-2" />
               <span className="hidden lg:inline">Advances</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setLocation("/payroll/report")}>
+            <Button variant="outline" onClick={() => setLocation("/payroll/report")}>
               <BarChart3 className="h-4 w-4 lg:mr-2" />
               <span className="hidden lg:inline">Report</span>
             </Button>
-            <Button size="sm" onClick={() => setLocation("/payroll/new")}>
-              <Plus className="h-4 w-4 lg:mr-2" />
-              <span className="hidden lg:inline">New pay period</span>
-            </Button>
+            <AddButton label="New pay period" onClick={() => setLocation("/payroll/new")} />
           </div>
         }
       />

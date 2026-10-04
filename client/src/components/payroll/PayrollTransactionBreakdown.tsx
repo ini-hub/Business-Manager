@@ -78,7 +78,7 @@ export function PayrollTransactionBreakdown({
                     return (
                       <div
                         key={`${b.checkoutId}-${i}`}
-                        className="grid grid-cols-12 gap-2 py-2.5 border-b last:border-0 text-sm hover:bg-muted/20 rounded-md px-1 transition-colors"
+                        className="grid grid-cols-12 gap-2 py-3 border-b last:border-0 text-sm hover:bg-muted/20 rounded-md px-1 transition-colors"
                       >
                         <div className="col-span-2 text-xs text-muted-foreground self-center">
                           {format(parseISO(b.transactionDate), "MMM d")}
@@ -108,7 +108,7 @@ export function PayrollTransactionBreakdown({
             <>
               <Separator />
               {/* How these rows become the commission that was actually paid. */}
-              <CardFooter className="flex-col items-stretch gap-1.5 pt-4 text-sm">
+              <CardFooter className="flex-col items-stretch gap-2 pt-4 text-sm">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Total revenue share ({breakdown.length} service{breakdown.length === 1 ? "" : "s"})</span>
                   <span className="font-mono">{fmtCur(totalRevenueShare)}</span>
@@ -121,14 +121,14 @@ export function PayrollTransactionBreakdown({
                         <span className="font-mono">-{fmtCur(reconciliation.attendanceDeduction)}</span>
                       </div>
                     )}
-                    <div className="flex justify-between border-t pt-1.5">
+                    <div className="flex justify-between border-t pt-2">
                       <span>
                         Commissionable revenue
                         {reconciliation.commissionableRevenue < 0 && " (floored at zero)"}
                       </span>
                       <span className="font-mono">{fmtCur(Math.max(0, reconciliation.commissionableRevenue))}</span>
                     </div>
-                    <div className="flex justify-between border-t pt-1.5 font-semibold">
+                    <div className="flex justify-between border-t pt-2 font-semibold">
                       <span>Gross commission @ {+(reconciliation.commissionRate * 100).toFixed(2)}% · {reconciliation.formulaName}</span>
                       <span className="text-lg font-bold font-mono text-primary">{fmtCur(reconciliation.grossCommission)}</span>
                     </div>

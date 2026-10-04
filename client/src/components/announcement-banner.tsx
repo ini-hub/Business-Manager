@@ -65,7 +65,7 @@ export function AnnouncementBanner() {
           <div
             key={ann.id}
             data-testid={`banner-announcement-${ann.id}`}
-            className={cn("flex items-start gap-3 border-b px-4 py-2.5 text-sm", TYPE_STYLES[ann.type] || TYPE_STYLES.info)}
+            className={cn("flex items-start gap-3 border-b px-4 py-3 text-sm", TYPE_STYLES[ann.type] || TYPE_STYLES.info)}
           >
             <Icon className="h-4 w-4 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0 space-y-0.5">

@@ -113,7 +113,7 @@ export function SaveViewDialog({ spec, onLoad }: SaveViewDialogProps) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="h-8 text-xs">
@@ -153,7 +153,7 @@ export function SaveViewDialog({ spec, onLoad }: SaveViewDialogProps) {
                   </span>
                 )}
                 {view.visibility === "business" && (
-                  <span className="text-muted-foreground text-[10px]">Shared</span>
+                  <span className="text-muted-foreground text-[11px]">Shared</span>
                 )}
               </span>
               <button
@@ -188,7 +188,7 @@ export function SaveViewDialog({ spec, onLoad }: SaveViewDialogProps) {
           </DialogHeader>
 
           <div className="space-y-3">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="view-name" className="text-xs">
                 Name
               </Label>
@@ -200,7 +200,7 @@ export function SaveViewDialog({ spec, onLoad }: SaveViewDialogProps) {
                 maxLength={120}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="view-description" className="text-xs">
                 Description (optional)
               </Label>

@@ -92,7 +92,7 @@ export default function VendorBillPayPage() {
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="pay-amount">
               Amount Paid <span className="text-destructive">*</span>
             </Label>

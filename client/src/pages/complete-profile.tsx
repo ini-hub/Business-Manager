@@ -64,7 +64,7 @@ export default function CompleteProfilePage() {
     <div className="min-h-screen bg-muted/30 py-8 px-4">
       <div className="max-w-3xl mx-auto space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold">Complete your profile</h1>
+          <h1 className="text-[26px] font-bold">Complete your profile</h1>
           <p className="text-muted-foreground text-sm mt-1">Please finish the sections below before continuing to your dashboard.</p>
         </div>
 

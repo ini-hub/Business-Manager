@@ -318,7 +318,7 @@ function PartySection({ title, party, values, onChange, onUpload, documents, ext
 
 function UploadButton({ label, onSelect }: { label: string; onSelect: (f: File) => void }) {
   return (
-    <label className="inline-flex items-center gap-1.5 text-sm border rounded-md px-3 py-1.5 cursor-pointer hover:bg-accent">
+    <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
       <Upload className="h-3.5 w-3.5" /> {label}
       <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && onSelect(e.target.files[0])} />
     </label>
@@ -327,7 +327,7 @@ function UploadButton({ label, onSelect }: { label: string; onSelect: (f: File) 
 
 function Field({ label, value, onChange, error }: { label: string; value: string; onChange: (v: string) => void; error?: string }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
       <Input value={value} onChange={(e) => onChange(e.target.value)} className={error ? "border-destructive focus-visible:ring-destructive" : undefined} />
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -337,7 +337,7 @@ function Field({ label, value, onChange, error }: { label: string; value: string
 
 function DateField({ label, value, onChange, error }: { label: string; value: string; onChange: (v: string) => void; error?: string }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
       <Input type="date" value={value} onChange={(e) => onChange(e.target.value)} max={new Date().toISOString().slice(0, 10)} className={error ? "border-destructive focus-visible:ring-destructive" : undefined} />
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -352,7 +352,7 @@ function DateField({ label, value, onChange, error }: { label: string; value: st
 function PhoneField({ label, value, onChange, error }: { label: string; value: string; onChange: (v: string) => void; error?: string }) {
   const split = splitNormalizedPhone(value) ?? { countryCode: "+234", localNumber: value };
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{label}</Label>
       <PhoneInput
         countryCode={split.countryCode}

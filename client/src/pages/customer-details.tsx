@@ -281,7 +281,7 @@ export default function CustomerDetails() {
         <button
           type="button"
           onClick={() => setLocation(backHref)}
-          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
           data-testid="button-back"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -328,7 +328,7 @@ export default function CustomerDetails() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold tracking-tight truncate">{customer.name}</h1>
+            <h1 className="text-lg font-bold tracking-tight truncate">{customer.name}</h1>
             <p className="text-xs text-muted-foreground truncate">
               {customer.customerNumber} · Customer since{" "}
               {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(new Date(customer.createdAt))}
@@ -380,13 +380,13 @@ export default function CustomerDetails() {
       {(customer.mobileNumber || customer.address) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {customer.mobileNumber && (
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-2">
               <Phone className="h-3.5 w-3.5" />
               {formatPhoneDisplay(customer.mobileNumber, customer.countryCode || "")}
             </span>
           )}
           {customer.address && (
-            <span className="flex items-center gap-1.5 min-w-0">
+            <span className="flex items-center gap-2 min-w-0">
               <MapPin className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{customer.address}</span>
             </span>
@@ -495,7 +495,7 @@ export default function CustomerDetails() {
                               return (
                                 <div
                                   key={tx.id}
-                                  className="flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer hover-elevate"
+                                  className="flex items-center justify-between gap-3 px-3 py-3 cursor-pointer hover-elevate"
                                   onClick={() => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
                                   data-testid={`row-transaction-${tx.id}`}
                                 >
@@ -520,7 +520,7 @@ export default function CustomerDetails() {
                                     <Badge
                                       variant="outline"
                                       className={cn(
-                                        "text-[10px] px-1.5 py-0 h-4 mt-0.5",
+                                        "text-[11px] px-2 py-0 h-4 mt-0.5",
                                         status.tone === "success" && "border-emerald-500 text-emerald-600 bg-emerald-500/5 dark:text-emerald-400",
                                         status.tone === "warning" && "border-amber-500 text-amber-600 bg-amber-500/5 dark:text-amber-400",
                                         status.tone === "destructive" && "border-rose-500 text-rose-600 bg-rose-500/5 dark:text-rose-400",
@@ -542,7 +542,7 @@ export default function CustomerDetails() {
 
                 <TabsContent value="credit" className="space-y-4">
                   {customer?.staffId && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-3 py-2.5">
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-3 py-3">
                       <p className="text-xs text-amber-900 dark:text-amber-200">
                         <span className="font-semibold">Staff account.</span>{" "}
                         Outstanding balances here are proposed automatically as salary deductions on
@@ -592,7 +592,7 @@ export default function CustomerDetails() {
                                     >
                                       {entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone"}
                                     </span>
-                                    <span className="text-[10px] text-muted-foreground">
+                                    <span className="text-[11px] text-muted-foreground">
                                       {new Date(entry.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
                                     </span>
                                   </div>
@@ -620,7 +620,7 @@ export default function CustomerDetails() {
                                       entry.status === "overdue" ? "destructive" :
                                       entry.status === "written_off" ? "secondary" : "default"
                                     }
-                                    className={`text-[10px] py-0 px-1.5 font-semibold ${
+                                    className={`text-[11px] py-0 px-2 font-semibold ${
                                       entry.status === "settled" ? "border-emerald-500 text-emerald-500 bg-emerald-500/5" :
                                       entry.status === "owing" ? "border-amber-500 text-amber-500 bg-amber-500/5" :
                                       entry.status === "partial" ? "border-blue-500 text-blue-500 bg-blue-500/5" :
@@ -719,9 +719,9 @@ export default function CustomerDetails() {
       />
 
       <Dialog open={isMergeWizardOpen} onOpenChange={setIsMergeWizardOpen}>
-        <DialogContent className="max-w-2xl bg-slate-900 border border-slate-800 text-white rounded-3xl p-6">
+        <DialogContent className="max-w-2xl bg-slate-900 border border-slate-800 text-white rounded-2xl p-6">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-white">
+            <DialogTitle className="text-lg font-bold flex items-center gap-2 text-white">
               Merge Customer Profiles
             </DialogTitle>
             <DialogDescription className="text-slate-400 text-xs">
@@ -734,7 +734,7 @@ export default function CustomerDetails() {
               <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                 <table className="w-full text-xs text-slate-300">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                    <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase tracking-widest text-[11px]">
                       <th className="text-left pb-2 w-1/3">Field</th>
                       <th className="text-left pb-2 w-1/3">Surviving Profile (Target)</th>
                       <th className="text-left pb-2 w-1/3">Duplicate Profile (Retired)</th>

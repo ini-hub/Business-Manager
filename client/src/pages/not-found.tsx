@@ -11,7 +11,7 @@ export default function NotFound() {
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-6">
             <AlertCircle className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-semibold mb-2">Page Not Found</h1>
+          <h1 className="text-[26px] font-bold mb-2">Page Not Found</h1>
           <p className="text-muted-foreground mb-6">
             The page you're looking for doesn't exist or has been moved.
           </p>

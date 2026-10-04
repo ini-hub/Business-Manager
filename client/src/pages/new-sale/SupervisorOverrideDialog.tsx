@@ -85,22 +85,22 @@ export function SupervisorOverrideDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-xs font-semibold">Supervisor Email</Label>
             <Input
               type="email"
               placeholder="supervisor@business.com"
-              className="text-xs h-9"
+              className="text-xs h-10"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-xs font-semibold">Supervisor Password</Label>
             <Input
               type="password"
               placeholder="••••••••"
-              className="text-xs h-9"
+              className="text-xs h-10"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -108,12 +108,12 @@ export function SupervisorOverrideDialog({
         </div>
 
         <div className="flex justify-end gap-2 pt-3 border-t">
-          <Button type="button" variant="outline" className="text-xs h-9" onClick={handleClose}>
+          <Button type="button" variant="outline" className="text-xs h-10" onClick={handleClose}>
             Cancel
           </Button>
           <Button
             type="button"
-            className="text-xs h-9"
+            className="text-xs h-10"
             disabled={isPending || !email || !password}
             onClick={handleAuthorize}
           >

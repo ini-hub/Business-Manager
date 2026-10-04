@@ -109,7 +109,7 @@ export function MetricCard({
           {trend && (
             <span
               className={cn(
-                "flex items-center text-[10px] sm:text-xs font-medium",
+                "flex items-center text-[11px] sm:text-xs font-medium",
                 trend === "up" && "text-green-600 dark:text-green-400",
                 trend === "down" && "text-red-600 dark:text-red-400",
                 trend === "neutral" && "text-muted-foreground",
@@ -123,7 +123,7 @@ export function MetricCard({
           )}
           {description && (
             <p
-              className="text-[10px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2"
+              className="text-[11px] sm:text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2"
               title={description}
             >
               {description}

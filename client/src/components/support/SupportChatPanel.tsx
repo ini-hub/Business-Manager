@@ -79,7 +79,7 @@ export function SupportChatPanel() {
               const isUser = m.senderType === "user";
               return (
                 <div key={m.id} className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
-                  {!isUser && <span className="text-[10px] font-medium text-muted-foreground mb-0.5 px-1">Support</span>}
+                  {!isUser && <span className="text-[11px] font-medium text-muted-foreground mb-0.5 px-1">Support</span>}
                   <div
                     className={`rounded-2xl px-3 py-2 text-sm max-w-[85%] whitespace-pre-wrap break-words ${
                       isUser ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted rounded-bl-sm"
@@ -87,7 +87,7 @@ export function SupportChatPanel() {
                   >
                     {m.body}
                   </div>
-                  <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
+                  <span className="text-[11px] text-muted-foreground mt-0.5 px-1">
                     {new Date(m.createdAt).toLocaleString()}
                   </span>
                 </div>

@@ -366,7 +366,7 @@ function AuthenticatedLayout() {
   useRealtimeSync();
   const [location, setLocation] = useLocation();
   const sidebarStyle = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "15.5rem",
     "--sidebar-width-icon": "3rem",
   };
 
@@ -494,7 +494,7 @@ function AuthenticatedLayout() {
           <SidebarInset className="flex flex-col flex-1 min-w-0">
             <LegalConsentBanner />
             <AnnouncementBanner />
-            <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background px-4">
+            <header className="sticky top-0 z-50 flex h-16 items-center justify-between gap-4 border-b bg-background px-4 sm:px-8">
               <div className="flex items-center gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <Separator orientation="vertical" className="hidden lg:block h-6" />
@@ -515,7 +515,7 @@ function AuthenticatedLayout() {
                 <ThemeToggle />
               </div>
             </header>
-            <main className="flex-1 overflow-auto w-full min-w-0 p-3 sm:p-6">
+            <main className="flex-1 overflow-auto w-full min-w-0 p-4 sm:p-8 lg:p-8">
               <div className="mx-auto max-w-7xl w-full min-w-0">
                 <Suspense fallback={<PageLoader />}>
                 <ScreenGate>
@@ -647,7 +647,7 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <Redirect to="/" /> : <BusinessFormPage />}
                   </Route>
                   <Route path="/settings/business/edit">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <BusinessFormPage />}
+                    <Redirect to="/settings/business" />
                   </Route>
                   <Route path="/settings/roles/new">
                     {user?.role === "staff" ? <Redirect to="/" /> : <GatedRoleForm />}

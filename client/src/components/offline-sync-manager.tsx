@@ -351,12 +351,12 @@ export function OfflineSyncManager() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <StatusBadge status={item.status} />
                         {item.attempts > 0 && item.status !== "failed" && (
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             attempt {item.attempts + 1}
                           </span>
                         )}
                         {item.status === "failed" && item.attempts > 0 && (
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[11px] text-muted-foreground">
                             failed after {item.attempts} attempt{item.attempts !== 1 ? "s" : ""}
                           </span>
                         )}
@@ -365,7 +365,7 @@ export function OfflineSyncManager() {
                         {formatItemSummary(item.payload)}
                       </p>
                       {item.createdAt && (
-                        <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
                           <Clock className="h-2.5 w-2.5" />
                           Captured {timeAgo(item.createdAt)}
                         </p>
@@ -411,7 +411,7 @@ export function OfflineSyncManager() {
 
                   {/* Error message */}
                   {item.lastError && (
-                    <div className="rounded bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-xs text-destructive leading-snug">
+                    <div className="rounded bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive leading-snug">
                       <AlertTriangle className="h-3 w-3 inline mr-1 shrink-0" />
                       {friendlyError(item.lastError)}
                     </div>
@@ -419,7 +419,7 @@ export function OfflineSyncManager() {
 
                   {/* Next retry time */}
                   {item.status === "pending" && item.nextRetryAt && item.nextRetryAt > Date.now() && (
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground">
                       Auto-retry in {Math.ceil((item.nextRetryAt - Date.now()) / 60_000)} min
                     </p>
                   )}
@@ -465,8 +465,8 @@ export function OfflineSyncManager() {
 
 function StatusBadge({ status }: { status: OfflineCheckout["status"] }) {
   if (status === "failed")
-    return <Badge variant="destructive" className="text-[10px] h-4 py-0">Failed</Badge>;
+    return <Badge variant="destructive" className="text-[11px] h-4 py-0">Failed</Badge>;
   if (status === "syncing")
-    return <Badge variant="secondary" className="text-[10px] h-4 py-0 animate-pulse">Syncing…</Badge>;
-  return <Badge variant="outline" className="text-[10px] h-4 py-0 text-amber-600 border-amber-300">Queued</Badge>;
+    return <Badge variant="secondary" className="text-[11px] h-4 py-0 animate-pulse">Syncing…</Badge>;
+  return <Badge variant="outline" className="text-[11px] h-4 py-0 text-amber-600 border-amber-300">Queued</Badge>;
 }

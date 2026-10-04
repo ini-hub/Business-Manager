@@ -127,7 +127,7 @@ export default function CustomerFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-semibold text-sm truncate">
+          <h1 className="font-bold text-sm truncate">
             {isEdit ? "Edit Customer" : "New Customer"}
           </h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>
@@ -153,7 +153,7 @@ export default function CustomerFormPage() {
                 <p className="font-semibold text-sm leading-tight">
                   {form.watch("name") || (isEdit ? "Customer" : "New Customer")}
                 </p>
-                <Badge variant="outline" className="text-[10px] mt-0.5">Customer</Badge>
+                <Badge variant="outline" className="text-[11px] mt-0.5">Customer</Badge>
               </div>
             </div>
           </CardContent>
@@ -220,7 +220,7 @@ export default function CustomerFormPage() {
                   name="customerNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="flex items-center gap-1.5">
+                      <FormLabel className="flex items-center gap-2">
                         <Hash className="h-3 w-3" />Customer ID
                         <span className="font-normal text-muted-foreground">(optional)</span>
                       </FormLabel>
@@ -287,7 +287,7 @@ export default function CustomerFormPage() {
                   name="address"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="flex items-center gap-1.5">
+                      <FormLabel className="flex items-center gap-2">
                         <MapPin className="h-3 w-3" />Address
                         <span className="font-normal text-muted-foreground">(optional)</span>
                       </FormLabel>

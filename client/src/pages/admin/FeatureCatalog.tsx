@@ -152,7 +152,7 @@ export default function FeatureCatalog() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight">Feature Catalog</h1>
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Feature Catalog</h1>
           <p className="text-muted-foreground text-sm mt-1">Price, categorize, and activate every purchasable feature businesses can add to their plan.</p>
         </div>
         {isSuperAdmin && (
@@ -188,7 +188,7 @@ export default function FeatureCatalog() {
                     <CardContent className="space-y-2 text-xs">
                       <p className="font-medium text-sm">{f.name}</p>
                       {f.description && <p className="text-muted-foreground">{f.description}</p>}
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="outline">{f.tierType}</Badge>
                         {f.tierType !== "free" && f.tierType !== "bundle_child" && (
                           <Badge variant="secondary">
@@ -198,7 +198,7 @@ export default function FeatureCatalog() {
                         {f.freeLimit != null && <Badge variant="secondary">{f.freeLimit} free</Badge>}
                       </div>
                       {isSuperAdmin && (
-                        <div className="flex gap-1.5 mt-2">
+                        <div className="flex gap-2 mt-2">
                           <Button size="sm" variant="outline" onClick={() => openEdit(f)}>
                             <Edit2 className="mr-1.5 h-3 w-3" /> Edit
                           </Button>

@@ -78,7 +78,7 @@ export function CashRegisterDialogs({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Opening Float (₦)</Label>
               <Input
                 type="number"
@@ -95,7 +95,7 @@ export function CashRegisterDialogs({
                 }}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notes (Optional)</Label>
               <Textarea
                 placeholder="Initial cash breakdown or details..."
@@ -142,7 +142,7 @@ export function CashRegisterDialogs({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold">Amount to Drop (₦)</Label>
               <Input
                 type="number"
@@ -153,11 +153,11 @@ export function CashRegisterDialogs({
                 value={cashDropAmount}
                 onChange={(e) => setCashDropAmount(e.target.value)}
               />
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 Max drop eligible: ₦{(activeSession?.expectedCash || 0).toLocaleString()}
               </p>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold">Drawer Drop Notes</Label>
               <Textarea
                 placeholder="e.g. ₦50k rush drop to safe by shift supervisor."
@@ -204,18 +204,18 @@ export function CashRegisterDialogs({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="p-3 bg-slate-950/60 border rounded-xl space-y-1.5 text-xs text-slate-300">
-              <div className="flex justify-between items-center text-[10px]">
+            <div className="p-3 bg-slate-950/60 border rounded-xl space-y-2 text-xs text-slate-300">
+              <div className="flex justify-between items-center text-[11px]">
                 <span>Shift Started At:</span>
                 <span className="font-semibold text-white">
                   {activeSession?.openedAt ? new Date(activeSession.openedAt).toLocaleString() : ""}
                 </span>
               </div>
-              <div className="flex justify-between items-center text-[10px]">
+              <div className="flex justify-between items-center text-[11px]">
                 <span>Opening Float:</span>
                 <span className="font-mono text-white">₦{(activeSession?.openingFloat || 0).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between items-center text-[11px] pt-1.5 border-t">
+              <div className="flex justify-between items-center text-[11px] pt-2 border-t">
                 <span className="font-bold">Expected Till Balance:</span>
                 <span className="font-mono font-bold text-emerald-400">
                   ₦{(activeSession?.expectedCash || 0).toLocaleString()}
@@ -223,7 +223,7 @@ export function CashRegisterDialogs({
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold">Counted Drawer Cash (₦) <span className="text-red-500">*</span></Label>
               <Input
                 type="number"
@@ -233,11 +233,11 @@ export function CashRegisterDialogs({
                 value={actualCashCount}
                 onChange={(e) => setActualCashCount(e.target.value)}
               />
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 Count all physical notes/coins in the till. Do not subtract the starting float.
               </p>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label className="text-xs font-semibold">Closing Notes</Label>
               <Textarea
                 placeholder="e.g. End of morning shift. Drawer checks out cleanly."
@@ -275,7 +275,7 @@ export function CashRegisterDialogs({
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 mb-2">
               <CheckCircle2 className="h-6 w-6 text-emerald-400" />
             </div>
-            <DialogTitle className="text-lg font-extrabold text-white font-outfit">
+            <DialogTitle className="text-lg font-bold text-white">
               Shift Reconciled Successfully!
             </DialogTitle>
             <DialogDescription className="text-xs">
@@ -283,16 +283,16 @@ export function CashRegisterDialogs({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="my-4 space-y-3.5 text-xs font-medium">
-            <div className="grid grid-cols-2 gap-2.5 p-3.5 bg-slate-950/60 border rounded-2xl">
+          <div className="my-4 space-y-4 text-xs font-medium">
+            <div className="grid grid-cols-2 gap-3 p-4 bg-slate-950/60 border rounded-2xl">
               <div className="space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold">Expected till count</span>
+                <span className="text-[11px] text-slate-500 uppercase font-semibold">Expected till count</span>
                 <span className="block font-mono text-sm text-slate-300">
                   ₦{(closeSummaryData?.expectedCash || 0).toLocaleString()}
                 </span>
               </div>
               <div className="space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold">Counted till count</span>
+                <span className="text-[11px] text-slate-500 uppercase font-semibold">Counted till count</span>
                 <span className="block font-mono text-sm text-white">
                   ₦{(closeSummaryData?.actualCash || 0).toLocaleString()}
                 </span>
@@ -304,7 +304,7 @@ export function CashRegisterDialogs({
               <Badge
                 variant="outline"
                 className={cn(
-                  "border-none font-bold text-xs uppercase px-2.5 py-1",
+                  "border-none font-bold text-xs uppercase px-3 py-1",
                   (closeSummaryData?.difference || 0) === 0
                     ? "bg-slate-800 text-slate-300"
                     : (closeSummaryData?.difference || 0) > 0
@@ -322,8 +322,8 @@ export function CashRegisterDialogs({
             </div>
 
             <div className="space-y-1 text-[11px] text-slate-400 pt-1">
-              <span className="font-bold text-slate-500 block uppercase text-[10px]">Reconciliation Notes:</span>
-              <span className="italic block p-2.5 bg-slate-950/40 rounded-xl">
+              <span className="font-bold text-slate-500 block uppercase text-[11px]">Reconciliation Notes:</span>
+              <span className="italic block p-3 bg-slate-950/40 rounded-xl">
                 "{closeSummaryData?.notes || "No shift notes provided."}"
               </span>
             </div>

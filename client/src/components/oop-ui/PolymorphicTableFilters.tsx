@@ -193,7 +193,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
               return (
                 <label
                   key={opt}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/60 cursor-pointer text-xs font-medium transition-colors"
+                  className="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-muted/60 cursor-pointer text-xs font-medium transition-colors"
                 >
                   <Checkbox checked={isChecked} onCheckedChange={() => controller.handleSelectOption(opt)} />
                   <span className="truncate">{opt}</span>
@@ -211,7 +211,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px]">Min {config.currencySymbol || ""}</Label>
+            <Label className="text-[11px]">Min {config.currencySymbol || ""}</Label>
             <Input
               type="number"
               min="0"
@@ -228,7 +228,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px]">Max {config.currencySymbol || ""}</Label>
+            <Label className="text-[11px]">Max {config.currencySymbol || ""}</Label>
             <Input
               type="number"
               min="0"
@@ -246,7 +246,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
           </div>
         </div>
         {controller.rangeError && (
-          <p className="text-[10px] font-semibold text-destructive animate-pulse">{controller.rangeError}</p>
+          <p className="text-[11px] font-semibold text-destructive animate-pulse">{controller.rangeError}</p>
         )}
       </div>
     );
@@ -257,7 +257,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
       <div className="space-y-3">
         <div className="grid grid-cols-1 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px]">From Date</Label>
+            <Label className="text-[11px]">From Date</Label>
             <Input
               type="date"
               value={controller.minInput}
@@ -267,7 +267,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px]">To Date</Label>
+            <Label className="text-[11px]">To Date</Label>
             <Input
               type="date"
               value={controller.maxInput}
@@ -278,7 +278,7 @@ function FilterFieldBody({ controller }: { controller: FilterFieldController }) 
           </div>
         </div>
         {controller.rangeError && (
-          <p className="text-[10px] font-semibold text-destructive animate-pulse">{controller.rangeError}</p>
+          <p className="text-[11px] font-semibold text-destructive animate-pulse">{controller.rangeError}</p>
         )}
       </div>
     );
@@ -309,17 +309,17 @@ export function DropdownFilter({ config, data, value, onChange }: FilterFieldPro
           variant={controller.isActive ? "secondary" : "outline"}
           size="sm"
           className={cn(
-            "h-9 px-3 text-xs font-semibold gap-1.5 border transition-all",
+            "h-10 px-3 text-xs font-semibold gap-2 border transition-all",
             controller.isActive && "bg-primary/5 border-primary/30 text-primary shadow-xs"
           )}
         >
           <span>{config.label}</span>
           {controller.badge && (
-            <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded-full text-[10px] font-bold">
+            <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-[11px] font-bold">
               {controller.badge}
             </span>
           )}
-          <span className="text-[10px] opacity-60">▾</span>
+          <span className="text-[11px] opacity-60">▾</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -329,7 +329,7 @@ export function DropdownFilter({ config, data, value, onChange }: FilterFieldPro
         {showsHeader && (
           <div className="space-y-1">
             <h4 className="text-xs font-bold text-foreground">{config.label} Range</h4>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {config.type === "range" ? "Press Enter or click outside to apply" : "Select date bounds to filter"}
             </p>
           </div>

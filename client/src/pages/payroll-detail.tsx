@@ -224,7 +224,7 @@ export default function PayrollDetailPage() {
 
   return (
     <div className="space-y-5">
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <Link href={backHref} className="font-medium text-primary hover:underline">Payroll</Link>
         <span aria-hidden>/</span>
         <Link href={backHref} className="font-medium text-primary hover:underline">{periodMonth}</Link>
@@ -239,7 +239,7 @@ export default function PayrollDetailPage() {
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold truncate">{staffName}</h1>
+              <h1 className="text-[26px] font-bold truncate">{staffName}</h1>
               {period?.status === "paid" && (
                 <Badge variant="outline" className="gap-1 text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200">
                   <Lock className="h-3 w-3" /> Paid and locked
@@ -341,7 +341,7 @@ export default function PayrollDetailPage() {
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="payroll-writeoff-reason" className="text-xs">Reason for Write-Off (Mandatory)</Label>
             <Select value={writeOffReason} onValueChange={setWriteOffReason}>
               <SelectTrigger id="payroll-writeoff-reason" className="h-8 text-xs">

@@ -1254,7 +1254,7 @@ export default function NewSale() {
     <div className="space-y-6 pb-16 lg:pb-0">
       {/* Stale-data warning when offline */}
       {!isOnline && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300">
+        <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>
             <strong>You're offline.</strong> Prices and stock levels shown are
@@ -1273,13 +1273,13 @@ export default function NewSale() {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              className="relative flex items-center gap-2 rounded-xl h-9 px-3 text-xs"
+              className="relative flex items-center gap-2 rounded-xl h-10 px-3 text-xs"
               onClick={() => setDraftsOpen(true)}
             >
               <FileEdit className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Drafts</span>
               {drafts.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+                <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-[11px] font-bold text-primary-foreground flex items-center justify-center">
                   {drafts.length}
                 </span>
               )}
@@ -1287,7 +1287,7 @@ export default function NewSale() {
             {activeSession ? (
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="bg-slate-900/40 border-slate-800 text-slate-200 hover:text-white flex items-center gap-2 rounded-xl h-9 px-3">
+                  <Button variant="outline" className="bg-slate-900/40 border-slate-800 text-slate-200 hover:text-white flex items-center gap-2 rounded-xl h-10 px-3">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                     <span className="font-mono text-xs hidden sm:inline">₦{activeSession.expectedCash.toLocaleString()} expected</span>
                     <span className="font-mono text-xs sm:hidden">₦{(activeSession.expectedCash / 1000).toFixed(0)}k</span>
@@ -1295,22 +1295,22 @@ export default function NewSale() {
                 </PopoverTrigger>
                 <PopoverContent className="w-80 p-4 bg-slate-900 border-slate-800 text-slate-350 rounded-2xl shadow-xl space-y-4 z-50">
                   <div className="space-y-1">
-                    <h4 className="font-bold text-white text-sm flex items-center gap-1.5">
+                    <h4 className="font-bold text-white text-sm flex items-center gap-2">
                       <Banknote className="h-4 w-4 text-emerald-400" />
                       Active Register Session
                     </h4>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-[11px] text-slate-500">
                       Opened {new Date(activeSession.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ₦{activeSession.openingFloat.toLocaleString()} float
                     </p>
                   </div>
                   
-                  <div className="p-3 bg-slate-950/60 border border-slate-850 rounded-xl space-y-1.5 text-xs">
-                    <div className="flex justify-between items-center text-[10px] text-slate-500">
+                  <div className="p-3 bg-slate-950/60 border border-slate-850 rounded-xl space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-[11px] text-slate-500">
                       <span>Expected Drawer Balance</span>
                       <span className="font-bold font-mono text-white">₦{activeSession.expectedCash.toLocaleString()}</span>
                     </div>
                     {activeSession.notes && (
-                      <div className="pt-1.5 border-t border-slate-850 text-[10px] text-slate-450 italic">
+                      <div className="pt-2 border-t border-slate-850 text-[11px] text-slate-450 italic">
                         "{activeSession.notes}"
                       </div>
                     )}
@@ -1338,7 +1338,7 @@ export default function NewSale() {
             ) : (
               <Button
                 variant="outline"
-                className="bg-rose-500/10 border-rose-500/20 text-rose-450 hover:bg-rose-500/20 flex items-center gap-2 rounded-xl h-9 px-3"
+                className="bg-rose-500/10 border-rose-500/20 text-rose-450 hover:bg-rose-500/20 flex items-center gap-2 rounded-xl h-10 px-3"
                 onClick={() => setOpenRegisterDialogOpen(true)}
               >
                 <span className="h-2 w-2 rounded-full bg-rose-500" />
@@ -1432,8 +1432,8 @@ export default function NewSale() {
             <CardFooter className="flex flex-col gap-4 pt-4">
               {/* Applied Promotions Indicator */}
               {appliedPromos.length > 0 && (
-                <div className="w-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-lg p-3 text-xs space-y-1.5">
-                  <p className="font-semibold flex items-center gap-1.5">
+                <div className="w-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 rounded-lg p-3 text-xs space-y-2">
+                  <p className="font-semibold flex items-center gap-2">
                     <Gift className="h-4 w-4 text-emerald-500 animate-bounce" />
                     Applied Promotions ({appliedPromos.length})
                   </p>
@@ -1445,7 +1445,7 @@ export default function NewSale() {
                     ))}
                   </ul>
                   {freeItemsPreview.length > 0 && (
-                    <div className="mt-1 pt-1.5 border-t border-emerald-500/20 font-semibold text-[11px] text-emerald-600 dark:text-emerald-400">
+                    <div className="mt-1 pt-2 border-t border-emerald-500/20 font-semibold text-[11px] text-emerald-600 dark:text-emerald-400">
                       Reward Free Item(s) to hand over: {freeItemsPreview.map(f => `${f.quantity} × ${f.name}`).join(", ")}
                     </div>
                   )}
@@ -1468,9 +1468,9 @@ export default function NewSale() {
               )}
 
               {/* Standalone Option B Discount Panel */}
-              <div className="w-full border border-primary/10 rounded-lg p-3.5 bg-primary/5 space-y-3 animate-fade-in">
+              <div className="w-full border border-primary/10 rounded-lg p-4 bg-primary/5 space-y-3 animate-fade-in">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-2">
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
                     Transaction Discount
                   </p>
@@ -1498,7 +1498,7 @@ export default function NewSale() {
                   <div className="space-y-3 pt-2 border-t border-primary/10">
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground uppercase font-medium">Amount Off</Label>
+                        <Label className="text-[11px] text-muted-foreground uppercase font-medium">Amount Off</Label>
                         <Input
                           type="number"
                           min={0}
@@ -1536,7 +1536,7 @@ export default function NewSale() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground uppercase font-medium">Target Total</Label>
+                        <Label className="text-[11px] text-muted-foreground uppercase font-medium">Target Total</Label>
                         <Input
                           type="number"
                           min={0}
@@ -1579,7 +1579,7 @@ export default function NewSale() {
                     {discountAmount > 0 && (
                       <div className="space-y-2 pt-1 border-t border-primary/10">
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-muted-foreground uppercase font-medium">Reason for Discount <span className="text-red-500">*</span></Label>
+                          <Label className="text-[11px] text-muted-foreground uppercase font-medium">Reason for Discount <span className="text-red-500">*</span></Label>
                           <select
                             className="w-full h-8 px-2 rounded-md border bg-background text-xs"
                             value={discountReason}
@@ -1595,7 +1595,7 @@ export default function NewSale() {
                           </select>
                         </div>
 
-                        <div className="flex justify-between items-center text-[10px] bg-background p-2 rounded border border-primary/10">
+                        <div className="flex justify-between items-center text-[11px] bg-background p-2 rounded border border-primary/10">
                           <span className="text-muted-foreground">Approved By:</span>
                           <span className="font-semibold text-primary font-mono truncate max-w-[150px]" title={discountApprovedBy}>
                             {discountApprovedBy || "Pending Override..."}
@@ -1609,9 +1609,9 @@ export default function NewSale() {
 
               {/* Customer Loyalty Points Panel */}
               {selectedCustomer && customerPoints > 0 && (
-                <div className="w-full border border-primary/10 rounded-lg p-3.5 bg-primary/5 space-y-3 animate-fade-in">
+                <div className="w-full border border-primary/10 rounded-lg p-4 bg-primary/5 space-y-3 animate-fade-in">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-2">
                       <Gift className="h-3.5 w-3.5 text-primary" />
                       Customer Loyalty
                     </p>
@@ -1650,9 +1650,9 @@ export default function NewSale() {
               )}
               {/* Customer Store Credit Panel */}
               {selectedCustomer && customerStoreCredit > 0 && (
-                <div className="w-full border border-indigo-500/10 rounded-lg p-3.5 bg-indigo-500/5 space-y-3 animate-fade-in">
+                <div className="w-full border border-indigo-500/10 rounded-lg p-4 bg-indigo-500/5 space-y-3 animate-fade-in">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-tight text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-tight text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
                       <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                       Customer Store Credit
                     </p>
@@ -1707,7 +1707,7 @@ export default function NewSale() {
                 )}
 
                 {(discountAmount > 0 || loyaltyDiscount > 0) && (
-                  <div className="flex justify-between items-center font-medium text-foreground border-t border-dashed border-primary/10 pt-1.5">
+                  <div className="flex justify-between items-center font-medium text-foreground border-t border-dashed border-primary/10 pt-2">
                     <span>Net Subtotal</span>
                     <span className="font-mono">{formatCurrency(subtotalAfterPoints)}</span>
                   </div>
@@ -1724,7 +1724,7 @@ export default function NewSale() {
 
                 {storeCreditRedeemed > 0 && (
                   <>
-                    <div className="flex justify-between items-center font-medium text-muted-foreground border-t border-dashed border-primary/10 pt-1.5">
+                    <div className="flex justify-between items-center font-medium text-muted-foreground border-t border-dashed border-primary/10 pt-2">
                       <span>Subtotal (incl. Tax)</span>
                       <span className="font-mono">{formatCurrency(totalChargedBeforeCredit)}</span>
                     </div>
@@ -1735,7 +1735,7 @@ export default function NewSale() {
                   </>
                 )}
 
-                <div className="flex justify-between items-center font-bold text-sm text-foreground pt-1.5 border-t">
+                <div className="flex justify-between items-center font-bold text-sm text-foreground pt-2 border-t">
                   <span>Total Charged</span>
                   <span className="font-mono">{formatCurrency(totalCharged)}</span>
                 </div>
@@ -1747,7 +1747,7 @@ export default function NewSale() {
                   </div>
                 )}
                 
-                <div className="flex justify-between items-center pt-2.5 border-t border-primary/20">
+                <div className="flex justify-between items-center pt-3 border-t border-primary/20">
                   <span className="font-bold text-base text-primary uppercase tracking-tight">Total Remaining</span>
                   <span className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
                     {formatCurrency(balanceCollectedToday)}
@@ -1814,7 +1814,7 @@ export default function NewSale() {
                           )
                         )}
                         {!isOnline && customers.length > 0 && (
-                          <div className="px-2 py-1 text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          <div className="px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
                             <WifiOff className="h-2.5 w-2.5" />Showing cached customers
                           </div>
                         )}
@@ -1877,7 +1877,7 @@ export default function NewSale() {
                                         <Check className="mr-2 h-4 w-4 opacity-0" />
                                         <EntityDisplay presenter={presenter} />
                                       </div>
-                                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0 ml-2">
+                                      <span className="text-[11px] bg-primary/10 text-primary px-2 py-0.5 rounded font-medium shrink-0 ml-2">
                                         {customer.storeName}
                                       </span>
                                     </CommandItem>
@@ -1909,7 +1909,7 @@ export default function NewSale() {
                 </Label>
                 {staffLocked ? (
                   <div
-                    className="flex h-9 w-full items-center gap-2 rounded-md border bg-muted px-3 text-sm text-muted-foreground"
+                    className="flex h-10 w-full items-center gap-2 rounded-md border bg-muted px-3 text-sm text-muted-foreground"
                     data-testid="select-staff"
                   >
                     {staffList.find((s) => s.id === selectedStaff)?.name || "You"}
@@ -2061,7 +2061,7 @@ export default function NewSale() {
               {paymentMethod === "split" && balanceCollectedToday > 0 && (
                 <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-4 animate-in fade-in-50 duration-200">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                    <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-2">
                       <ChevronsUpDown className="h-3.5 w-3.5" />
                       Split Configuration
                     </h4>
@@ -2079,7 +2079,7 @@ export default function NewSale() {
                     {splitPayments.map((split, index) => (
                       <div key={index} className="flex gap-2 items-start relative group">
                         <div className="flex-1 space-y-1">
-                          <Label className="text-[10px] text-muted-foreground uppercase font-medium">Method</Label>
+                          <Label className="text-[11px] text-muted-foreground uppercase font-medium">Method</Label>
                           <Select 
                             value={split.method} 
                             onValueChange={(v: any) => updateSplitPayment(index, "method", v)}
@@ -2097,7 +2097,7 @@ export default function NewSale() {
                           </Select>
                         </div>
                         <div className="flex-1 space-y-1">
-                          <Label className="text-[10px] text-muted-foreground uppercase font-medium">Amount</Label>
+                          <Label className="text-[11px] text-muted-foreground uppercase font-medium">Amount</Label>
                           <div className="relative">
                             <span className="absolute left-2.5 top-1.5 text-xs text-muted-foreground">₦</span>
                             <Input 
@@ -2131,7 +2131,7 @@ export default function NewSale() {
                   <div className="pt-3 border-t border-border space-y-1">
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-medium text-muted-foreground">Total Split:</span>
-                      <div className="text-right flex items-center gap-1.5">
+                      <div className="text-right flex items-center gap-2">
                         <span className={cn(
                           "text-sm font-bold font-mono",
                           splitIsValid
@@ -2165,7 +2165,7 @@ export default function NewSale() {
 
               {paymentMethod === "credit" && balanceCollectedToday > 0 && (
                 <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-3 animate-in fade-in-50 duration-200">
-                  <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                  <h4 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-2">
                     <BookOpen className="h-3.5 w-3.5" />
                     Credit Sales Details
                   </h4>
@@ -2176,7 +2176,7 @@ export default function NewSale() {
                     </p>
                   ) : (
                     <>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label htmlFor="credit-upfront" className="text-xs font-medium text-muted-foreground">Amount Paid Upfront (₦)</Label>
                         <Input
                           id="credit-upfront"
@@ -2192,13 +2192,13 @@ export default function NewSale() {
                           }}
                           className="bg-background"
                         />
-                        <div className="flex justify-between items-center text-[10px] text-muted-foreground px-0.5">
+                        <div className="flex justify-between items-center text-[11px] text-muted-foreground px-0.5">
                           <span>Total Cart: ₦{finalCartTotal.toLocaleString()}</span>
                           <span className="font-semibold text-primary">Outstanding Debt: ₦{(finalCartTotal - creditUpfrontPaid).toLocaleString()}</span>
                         </div>
                       </div>
 
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label htmlFor="credit-due" className="text-xs font-medium text-muted-foreground">Due Date (Expected Repayment)</Label>
                         <Input
                           id="credit-due"
@@ -2218,7 +2218,7 @@ export default function NewSale() {
                 <>
                   <Separator className="my-4" />
                   <div className="space-y-2">
-                    <Label htmlFor="effective-date" className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
+                    <Label htmlFor="effective-date" className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2">
                       Effective Transaction Date
                     </Label>
                     <Input
@@ -2232,7 +2232,7 @@ export default function NewSale() {
                       max={new Date().toISOString().split("T")[0]}
                       className="bg-background text-sm cursor-pointer hover:border-primary/50 transition-colors"
                     />
-                    <p className="text-[10px] text-muted-foreground leading-tight">
+                    <p className="text-[11px] text-muted-foreground leading-tight">
                       Backdate this transaction to record a past sale. Future dates are blocked.
                     </p>
                   </div>
@@ -2246,13 +2246,13 @@ export default function NewSale() {
           <div className="shrink-0 border-t bg-card px-4 py-3 space-y-2">
             <div className="flex justify-between items-center px-0.5">
               <span className="text-sm font-semibold text-muted-foreground">Total Remaining</span>
-              <span className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+              <span className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400">
                 {formatCurrency(balanceCollectedToday)}
               </span>
             </div>
             {serviceItemsMissingLead.length > 0 && (
               <Alert variant="destructive" className="py-2 text-xs">
-                <AlertDescription className="flex items-center gap-1.5 font-medium">
+                <AlertDescription className="flex items-center gap-2 font-medium">
                   <span className="h-2 w-2 rounded-full bg-destructive animate-pulse shrink-0" />
                   Please assign a Lead staff to all service items.
                 </AlertDescription>
@@ -2262,7 +2262,7 @@ export default function NewSale() {
               <div className="flex gap-px">
                 <Button
                   variant="outline"
-                  className="flex-1 text-xs h-9 rounded-r-none"
+                  className="flex-1 text-xs h-10 rounded-r-none"
                   disabled={saveDraftMutation.isPending}
                   onClick={() => saveDraftMutation.mutate(!!activeDraftId)}
                 >
@@ -2275,7 +2275,7 @@ export default function NewSale() {
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="outline"
-                        className="h-9 w-9 px-0 rounded-l-none border-l-0 shrink-0"
+                        className="h-10 w-10 px-0 rounded-l-none border-l-0 shrink-0"
                         disabled={saveDraftMutation.isPending}
                       >
                         <ChevronDown className="h-3.5 w-3.5" />
@@ -2366,7 +2366,7 @@ export default function NewSale() {
           type="button"
           onClick={() => setActiveTab("products")}
           className={cn(
-            "flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors",
+            "flex-1 flex flex-col items-center gap-0.5 py-3 text-[11px] font-medium transition-colors",
             activeTab === "products" ? "text-primary" : "text-muted-foreground"
           )}
         >
@@ -2377,14 +2377,14 @@ export default function NewSale() {
           type="button"
           onClick={() => setActiveTab("cart")}
           className={cn(
-            "flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors relative",
+            "flex-1 flex flex-col items-center gap-0.5 py-3 text-[11px] font-medium transition-colors relative",
             activeTab === "cart" ? "text-primary" : "text-muted-foreground"
           )}
         >
           <ShoppingCart className="h-5 w-5" />
           <span>Cart</span>
           {cart.length > 0 && (
-            <span className="absolute top-1.5 left-[calc(50%+6px)] h-4 w-4 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+            <span className="absolute top-1.5 left-[calc(50%+6px)] h-4 w-4 rounded-full bg-primary text-[11px] font-bold text-primary-foreground flex items-center justify-center">
               {cart.length}
             </span>
           )}

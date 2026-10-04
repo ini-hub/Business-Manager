@@ -35,7 +35,7 @@ export function PayrollFormulaBreakdown({
             const value = s.format === "count" ? String(s.value) : fmtCur(s.value);
             const strong = s.kind === "result" || s.kind === "subtotal";
             return (
-              <li key={i} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <li key={i} className="flex items-center justify-between gap-3 py-3 text-sm">
                 <span className={strong ? "font-semibold" : ""}>{s.label}</span>
                 <span className={`tabular-nums ${strong ? "font-bold" : "font-medium"}`}>{s.kind === "less" ? "−" : ""}{value}</span>
               </li>
@@ -54,7 +54,7 @@ export function PayrollFormulaBreakdown({
             {showLog ? "Hide calculation log" : "Show calculation log"}
           </button>
           {showLog && (
-            <ol className="mt-3 space-y-2.5">
+            <ol className="mt-3 space-y-3">
               {logSteps.map((step, idx) => (
                 <li key={idx} className="flex items-start gap-3 text-xs leading-relaxed">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[11px] font-bold">{idx + 1}</span>

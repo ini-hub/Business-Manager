@@ -106,9 +106,9 @@ export function MonthGridView({ anchorDate, bookings, currency, onDayClick }: Mo
         })}
       </div>
       <div className="mt-3 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-primary" />Upcoming</span>
-        <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />Past</span>
-        <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full border-2 border-primary" />Today</span>
+        <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-primary" />Upcoming</span>
+        <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />Past</span>
+        <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full border-2 border-primary" />Today</span>
       </div>
     </div>
     </>

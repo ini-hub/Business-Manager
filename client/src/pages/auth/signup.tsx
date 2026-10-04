@@ -247,7 +247,7 @@ export default function Signup() {
             Back
           </Button>
           <CardHeader className="text-center pt-12">
-            <CardTitle className="text-2xl">Verify your email</CardTitle>
+            <CardTitle className="text-lg">Verify your email</CardTitle>
             <CardDescription>
               We've sent a 6-digit OTP code to <strong className="text-foreground">{verifyEmail}</strong>
             </CardDescription>
@@ -319,19 +319,19 @@ export default function Signup() {
             Back
           </Button>
         </Link>
-        <CardHeader className="text-center pt-8 pb-2 space-y-1.5">
+        <CardHeader className="text-center pt-8 pb-2 space-y-2">
           <div className="flex justify-center">
             <KowopeBrand />
           </div>
-          <CardTitle className="text-xl">Create your account</CardTitle>
+          <CardTitle className="text-lg">Create your account</CardTitle>
           <CardDescription className="text-xs">
             Kowope Business Management System — set up your business and start managing everything in one place
           </CardDescription>
         </CardHeader>
         <CardContent className="pb-2">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2.5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <FormField
                   control={form.control}
                   name="ownerName"
@@ -370,7 +370,7 @@ export default function Signup() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <FormField
                   control={form.control}
                   name="email"
@@ -410,7 +410,7 @@ export default function Signup() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-3 gap-3">
                 <FormField
                   control={form.control}
                   name="phoneCountryCode"
@@ -456,7 +456,7 @@ export default function Signup() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <FormField
                   control={form.control}
                   name="password"
@@ -500,7 +500,7 @@ export default function Signup() {
                 <PasswordChecklist
                   password={password}
                   confirmPassword={form.watch("confirmPassword")}
-                  className="p-2.5 text-xs space-y-1"
+                  className="p-3 text-xs space-y-1"
                 />
               )}
 
@@ -509,7 +509,7 @@ export default function Signup() {
                 name="acceptedLegalTerms"
                 render={() => (
                   <FormItem>
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       {legalDocsQuery.isLoading && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />

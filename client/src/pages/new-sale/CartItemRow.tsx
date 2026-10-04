@@ -80,7 +80,7 @@ export function CartItemRow({
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <p className="font-medium text-sm leading-snug">{item.inventory.name}</p>
             {item.customPrice !== item.inventory.sellingPrice && (
-              <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
+              <Badge variant="secondary" className="text-[11px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
                 Custom
               </Badge>
             )}
@@ -143,7 +143,7 @@ export function CartItemRow({
             variant="ghost"
             size="sm"
             className={cn(
-              "h-7 px-1.5 shrink-0 gap-0.5 text-xs whitespace-nowrap",
+              "h-7 px-2 shrink-0 gap-0.5 text-xs whitespace-nowrap",
               missingLead
                 ? "text-destructive hover:text-destructive"
                 : "text-muted-foreground hover:text-foreground"
@@ -159,8 +159,8 @@ export function CartItemRow({
       </div>
 
       {/* Row 2c: unit price input */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[10px] text-muted-foreground shrink-0">Unit price</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-muted-foreground shrink-0">Unit price</span>
         <Input
           type="number"
           step="0.01"
@@ -176,7 +176,7 @@ export function CartItemRow({
           data-testid={`input-price-${item.inventory.id}`}
           onKeyDown={advanceFocus}
         />
-        <span className="text-[10px] text-muted-foreground shrink-0">
+        <span className="text-[11px] text-muted-foreground shrink-0">
           List: {formatCurrency(item.inventory.sellingPrice)}
         </span>
       </div>
@@ -185,7 +185,7 @@ export function CartItemRow({
       {item.inventory.allowFractional && (
         <div className="flex items-center gap-1 flex-wrap -mt-1">
           {item.inventory.unit && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               {formatQuantity(item.quantity, item.inventory.unit)} selected ·
             </span>
           )}
@@ -194,7 +194,7 @@ export function CartItemRow({
               key={preset}
               type="button"
               onClick={() => onSetExactQuantity(item.inventory.id, preset)}
-              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+              className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
                 item.quantity === preset
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-muted/50 text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
@@ -278,7 +278,7 @@ export function CartItemRow({
           {/* Commission Split */}
           {(item.assistingStaff1Id || item.assistingStaff2Id) && (
             <div className="pt-1 flex flex-col gap-1">
-              <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">Commission Split</p>
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-tight">Commission Split</p>
               <RadioGroup
                 value={item.commissionSplit}
                 onValueChange={(v) => onUpdateStaff(item.inventory.id, "commissionSplit", v)}
@@ -286,11 +286,11 @@ export function CartItemRow({
               >
                 <div className="flex items-center space-x-1">
                   <RadioGroupItem value="standard" id={`split-std-${item.inventory.id}`} className="h-3 w-3" />
-                  <Label htmlFor={`split-std-${item.inventory.id}`} className="text-[10px] font-normal cursor-pointer">Standard (80/20)</Label>
+                  <Label htmlFor={`split-std-${item.inventory.id}`} className="text-[11px] font-normal cursor-pointer">Standard (80/20)</Label>
                 </div>
                 <div className="flex items-center space-x-1">
                   <RadioGroupItem value="equal" id={`split-eq-${item.inventory.id}`} className="h-3 w-3" />
-                  <Label htmlFor={`split-eq-${item.inventory.id}`} className="text-[10px] font-normal cursor-pointer">Equal (50/50)</Label>
+                  <Label htmlFor={`split-eq-${item.inventory.id}`} className="text-[11px] font-normal cursor-pointer">Equal (50/50)</Label>
                 </div>
               </RadioGroup>
             </div>

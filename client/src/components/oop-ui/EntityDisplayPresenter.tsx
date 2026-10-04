@@ -74,10 +74,10 @@ export class CustomerPresenter extends BaseEntityPresenter {
     const sec = this.getSecondaryNumber();
     return (
       <div className="flex flex-col text-left">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <span className="font-semibold text-sm text-foreground">{this.getName()}</span>
           {this.isStaff && (
-            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 leading-none">
+            <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 leading-none">
               Staff
             </span>
           )}

@@ -141,7 +141,7 @@ export default function AuditLogsPage() {
       header: "Action",
       priority: 1 as const,
       render: (log: any) => (
-        <Badge variant="outline" className={`text-[10px] font-bold uppercase tracking-wide ${actionBadgeStyle(log.action)}`}>
+        <Badge variant="outline" className={`text-[11px] font-bold uppercase tracking-wide ${actionBadgeStyle(log.action)}`}>
           {formatAction(log.action)}
         </Badge>
       ),
@@ -181,7 +181,7 @@ export default function AuditLogsPage() {
         <div className="text-xs text-muted-foreground">
           <span className="capitalize">{formatResource(log.resource)}</span>
           {log.resourceId && (
-            <span className="block font-mono text-[10px] opacity-60 truncate max-w-[120px]">{log.resourceId}</span>
+            <span className="block font-mono text-[11px] opacity-60 truncate max-w-[120px]">{log.resourceId}</span>
           )}
         </div>
       ),
@@ -335,73 +335,73 @@ export default function AuditLogsPage() {
             <div className="space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-3 p-3 bg-muted/40 rounded-lg border text-xs">
                 <div>
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">User</p>
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">User</p>
                   <p className="font-medium">{selectedLog.userName || "—"}</p>
                   {selectedLog.userEmail && <p className="text-muted-foreground">{selectedLog.userEmail}</p>}
                 </div>
                 <div>
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Action</p>
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">Action</p>
                   <p className="font-medium uppercase">{formatAction(selectedLog.action)}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Resource</p>
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">Resource</p>
                   <p className="font-medium capitalize">{formatResource(selectedLog.resource)}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">IP Address</p>
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">IP Address</p>
                   <p className="font-mono">{selectedLog.ip || "—"}</p>
                 </div>
                 {selectedLog.channel && (
                   <div>
-                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Origin</p>
+                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">Origin</p>
                     <p className="font-medium capitalize">
                       {selectedLog.channel}
-                      {selectedLog.userAgent && <span className="block text-muted-foreground text-[10px] font-normal truncate">{selectedLog.userAgent}</span>}
+                      {selectedLog.userAgent && <span className="block text-muted-foreground text-[11px] font-normal truncate">{selectedLog.userAgent}</span>}
                     </p>
                   </div>
                 )}
                 {selectedLog.batchId && (
                   <div>
-                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Batch</p>
-                    <p className="font-mono text-[10px] break-all">{selectedLog.batchId}</p>
+                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">Batch</p>
+                    <p className="font-mono text-[11px] break-all">{selectedLog.batchId}</p>
                   </div>
                 )}
                 {selectedLog.resourceId && (
                   <div className="col-span-2">
-                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Resource ID</p>
+                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">Resource ID</p>
                     <p className="font-mono break-all">{selectedLog.resourceId}</p>
                   </div>
                 )}
                 {selectedLog.errorMessage && (
                   <div className="col-span-2">
-                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px] mb-0.5">Error</p>
+                    <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px] mb-0.5">Error</p>
                     <p className="text-red-600 dark:text-red-400">{selectedLog.errorMessage}</p>
                   </div>
                 )}
               </div>
 
               {Array.isArray(selectedLog.changedFields) && selectedLog.changedFields.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">
+                <div className="space-y-2">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px]">
                     What changed ({selectedLog.changedFields.length} field{selectedLog.changedFields.length !== 1 ? "s" : ""})
                   </p>
                   <div className="rounded-lg border overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/60">
                         <tr>
-                          <th className="text-left font-semibold px-2 py-1.5">Field</th>
-                          <th className="text-left font-semibold px-2 py-1.5">Before</th>
-                          <th className="text-left font-semibold px-2 py-1.5">After</th>
+                          <th className="text-left font-semibold px-2 py-2">Field</th>
+                          <th className="text-left font-semibold px-2 py-2">Before</th>
+                          <th className="text-left font-semibold px-2 py-2">After</th>
                         </tr>
                       </thead>
                       <tbody>
                         {selectedLog.changedFields.map((field: string) => (
                           <tr key={field} className="border-t">
-                            <td className="px-2 py-1.5 font-mono text-muted-foreground">{field}</td>
-                            <td className="px-2 py-1.5 font-mono text-red-600 dark:text-red-400 break-all">
+                            <td className="px-2 py-2 font-mono text-muted-foreground">{field}</td>
+                            <td className="px-2 py-2 font-mono text-red-600 dark:text-red-400 break-all">
                               {JSON.stringify(selectedLog.previousValues?.[field] ?? null)}
                             </td>
-                            <td className="px-2 py-1.5 font-mono text-emerald-600 dark:text-emerald-400 break-all">
+                            <td className="px-2 py-2 font-mono text-emerald-600 dark:text-emerald-400 break-all">
                               {JSON.stringify(selectedLog.newValues?.[field] ?? null)}
                             </td>
                           </tr>
@@ -413,8 +413,8 @@ export default function AuditLogsPage() {
               )}
 
               {!selectedLog.changedFields?.length && selectedLog.newValues && !selectedLog.previousValues && (
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">Created with</p>
+                <div className="space-y-2">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px]">Created with</p>
                   <pre className="bg-muted p-3 rounded-lg overflow-auto max-h-56 font-mono text-xs leading-relaxed">
                     {JSON.stringify(selectedLog.newValues, null, 2)}
                   </pre>
@@ -422,8 +422,8 @@ export default function AuditLogsPage() {
               )}
 
               {!selectedLog.changedFields?.length && selectedLog.previousValues && !selectedLog.newValues && (
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">Record at time of removal</p>
+                <div className="space-y-2">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px]">Record at time of removal</p>
                   <pre className="bg-muted p-3 rounded-lg overflow-auto max-h-56 font-mono text-xs leading-relaxed">
                     {JSON.stringify(selectedLog.previousValues, null, 2)}
                   </pre>
@@ -431,8 +431,8 @@ export default function AuditLogsPage() {
               )}
 
               {selectedLog.details && (
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">Payload</p>
+                <div className="space-y-2">
+                  <p className="text-muted-foreground uppercase tracking-wider font-semibold text-[11px]">Payload</p>
                   <pre className="bg-muted p-3 rounded-lg overflow-auto max-h-56 font-mono text-xs leading-relaxed">
                     {JSON.stringify(
                       typeof selectedLog.details === "string"

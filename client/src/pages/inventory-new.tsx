@@ -509,7 +509,7 @@ export default function InventoryNewPage() {
   ];
 
   const unitSelect = (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>Sold and counted in</Label>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Select
@@ -561,7 +561,7 @@ export default function InventoryNewPage() {
           {/* ── 1. What are you adding ─────────────────────────────── */}
           <SectionCard n={1} title="What are you adding?" description="Name and type decide which fields you need below.">
             {isMultiStore && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label>Store</Label>
                 <Select value={storeId} onValueChange={setStoreId}>
                   <SelectTrigger className={invalid(!storeId) ? errInput : ""} data-testid="wiz-select-store">
@@ -578,7 +578,7 @@ export default function InventoryNewPage() {
               </div>
             )}
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="inv-name">Item name</Label>
               <Input
                 id="inv-name"
@@ -594,7 +594,7 @@ export default function InventoryNewPage() {
               {duplicate && (
                 <div
                   role="alert"
-                  className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2.5"
+                  className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-3"
                 >
                   <div>
                     <p className="text-sm font-semibold text-destructive">
@@ -635,7 +635,7 @@ export default function InventoryNewPage() {
                   aria-checked={type === value}
                   onClick={() => chooseType(value)}
                   className={cn(
-                    "flex sm:flex-col items-center sm:items-start gap-3 sm:gap-1.5 rounded-lg border p-3.5 text-left transition-all",
+                    "flex sm:flex-col items-center sm:items-start gap-3 sm:gap-2 rounded-lg border p-4 text-left transition-all",
                     type === value
                       ? "border-primary bg-primary/5 ring-1 ring-primary/30"
                       : "hover:border-muted-foreground/40 hover:bg-muted/20"
@@ -697,7 +697,7 @@ export default function InventoryNewPage() {
                           {attr.values.map((val, vi) => (
                             <span
                               key={vi}
-                              className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium pl-3 pr-2 py-1"
+                              className="inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary text-xs font-medium pl-3 pr-2 py-1"
                             >
                               {val}
                               <button
@@ -790,7 +790,7 @@ export default function InventoryNewPage() {
             }
           >
             <div className={cn("grid gap-4", sellsItem ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1")}>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="inv-cost">{usesVariants ? "Default cost price" : "Cost price"}</Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">{sym}</span>
@@ -815,7 +815,7 @@ export default function InventoryNewPage() {
                 )}
               </div>
               {sellsItem && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="inv-selling">{usesVariants ? "Default selling price" : "Selling price"}</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">{sym}</span>
@@ -844,7 +844,7 @@ export default function InventoryNewPage() {
 
             {sellsItem && costOk && sellOk && (
               inverted ? (
-                <p className="text-sm font-medium text-destructive flex items-center gap-1.5">
+                <p className="text-sm font-medium text-destructive flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4" />
                   Selling price is lower than cost. You would lose {money(Number(costPrice) - Number(sellingPrice))} per sale.
                 </p>
@@ -869,7 +869,7 @@ export default function InventoryNewPage() {
             {tracksStock && unitSelect}
 
             {tracksStock && !usesVariants && (
-              <div className="space-y-1.5 sm:max-w-[calc(50%-0.5rem)]">
+              <div className="space-y-2 sm:max-w-[calc(50%-0.5rem)]">
                 <Label htmlFor="inv-qty">Opening stock{allowFractional && unit.trim() ? ` (${unit.trim()})` : ""}</Label>
                 <Input
                   id="inv-qty"
@@ -906,11 +906,11 @@ export default function InventoryNewPage() {
                 </div>
                 {commissionOverride && (
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       <Label>Business share (%)</Label>
                       <Input type="number" value={bizShare} onChange={(e) => setBizShare(Number(e.target.value))} />
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       <Label>Staff share (%)</Label>
                       <Input type="number" value={staffShare} onChange={(e) => setStaffShare(Number(e.target.value))} />
                     </div>
@@ -1029,7 +1029,7 @@ export default function InventoryNewPage() {
                                     placeholder={costPrice !== "" ? String(costPrice) : "0"}
                                     value={d?.costPrice ?? ""}
                                     onChange={(ev) => updateVariantDetail(key, "costPrice", numberOrBlank(ev.target.value))}
-                                    className="h-9 text-sm"
+                                    className="h-10 text-sm"
                                   />
                                 </div>
                                 {sellsItem && (
@@ -1043,7 +1043,7 @@ export default function InventoryNewPage() {
                                       placeholder={sellingPrice !== "" ? String(sellingPrice) : "0"}
                                       value={d?.sellingPrice ?? ""}
                                       onChange={(ev) => updateVariantDetail(key, "sellingPrice", numberOrBlank(ev.target.value))}
-                                      className={cn("h-9 text-sm", bad && errInput)}
+                                      className={cn("h-10 text-sm", bad && errInput)}
                                     />
                                   </div>
                                 )}
@@ -1064,7 +1064,7 @@ export default function InventoryNewPage() {
                                           allowFractional ? parseFloat(ev.target.value) || 0 : parseInt(ev.target.value) || 0
                                         )
                                       }
-                                      className="h-9 text-sm"
+                                      className="h-10 text-sm"
                                     />
                                   </div>
                                 )}
@@ -1097,7 +1097,7 @@ export default function InventoryNewPage() {
                   </Alert>
                 )}
                 {variantInverted && !inverted && (
-                  <p className="text-sm font-medium text-destructive flex items-center gap-1.5">
+                  <p className="text-sm font-medium text-destructive flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
                     A variant sells for less than it costs. Check the rows marked in red.
                   </p>
@@ -1112,7 +1112,7 @@ export default function InventoryNewPage() {
           <Card>
             <CardContent className="pt-6 space-y-5">
               <h2 className="text-base font-semibold">Summary</h2>
-              <dl className="space-y-2.5 text-sm">
+              <dl className="space-y-3 text-sm">
                 {summaryRows.map(([label, value]) => (
                   <div key={label} className="flex items-baseline justify-between gap-4">
                     <dt className="text-muted-foreground">{label}</dt>

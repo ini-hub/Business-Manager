@@ -106,7 +106,7 @@ export default function InventoryRestockPage() {
       />
       <Card>
         <CardContent className="pt-6 space-y-5">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="rs-qty">
               Quantity to Add{item.unit ? ` (${item.unit})` : ""} <span className="text-destructive">*</span>
             </Label>
@@ -125,7 +125,7 @@ export default function InventoryRestockPage() {
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="rs-reason">Reason</Label>
             <Select value={data.reason} onValueChange={(v) => set("reason", v)}>
               <SelectTrigger id="rs-reason">
@@ -139,7 +139,7 @@ export default function InventoryRestockPage() {
             </Select>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="rs-unit-cost">Unit Cost for This Restock ({fmt(0, currency).replace("0", "").trim()})</Label>
             <Input
               id="rs-unit-cost"
@@ -209,7 +209,7 @@ export default function InventoryRestockPage() {
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="rs-receipt">Receipt / Invoice URL (optional)</Label>
             <Input
               id="rs-receipt"
@@ -220,7 +220,7 @@ export default function InventoryRestockPage() {
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="rs-notes">Notes (optional)</Label>
             <Input
               id="rs-notes"

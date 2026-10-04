@@ -259,7 +259,7 @@ export function BulkOperationsSection() {
                 <div className="border border-dashed border-muted/60 p-4 rounded-lg flex flex-col items-center justify-center gap-2 text-center bg-muted/10 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => triggerUpload("staff")}>
                   <Upload className="h-6 w-6 text-muted-foreground/60" />
                   <span className="text-xs font-semibold">Upload Staff CSV</span>
-                  <span className="text-[10px] text-muted-foreground">Standardized template match required</span>
+                  <span className="text-[11px] text-muted-foreground">Standardized template match required</span>
                 </div>
               </CardContent>
             </Card>
@@ -287,7 +287,7 @@ export function BulkOperationsSection() {
                 <div className="border border-dashed border-muted/60 p-4 rounded-lg flex flex-col items-center justify-center gap-2 text-center bg-muted/10 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => triggerUpload("expenses")}>
                   <Upload className="h-6 w-6 text-muted-foreground/60" />
                   <span className="text-xs font-semibold">Upload Expenses CSV</span>
-                  <span className="text-[10px] text-muted-foreground">Categories resolved by name</span>
+                  <span className="text-[11px] text-muted-foreground">Categories resolved by name</span>
                 </div>
               </CardContent>
             </Card>
@@ -315,7 +315,7 @@ export function BulkOperationsSection() {
                 <div className="border border-dashed border-muted/60 p-4 rounded-lg flex flex-col items-center justify-center gap-2 text-center bg-muted/10 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => triggerUpload("inventory")}>
                   <Upload className="h-6 w-6 text-muted-foreground/60" />
                   <span className="text-xs font-semibold">Upload Inventory CSV</span>
-                  <span className="text-[10px] text-muted-foreground">Standard template fields supported</span>
+                  <span className="text-[11px] text-muted-foreground">Standard template fields supported</span>
                 </div>
               </CardContent>
             </Card>
@@ -343,7 +343,7 @@ export function BulkOperationsSection() {
                 <div className="border border-dashed border-muted/60 p-4 rounded-lg flex flex-col items-center justify-center gap-2 text-center bg-muted/10 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => triggerUpload("customers")}>
                   <Upload className="h-6 w-6 text-muted-foreground/60" />
                   <span className="text-xs font-semibold">Upload Customers CSV</span>
-                  <span className="text-[10px] text-muted-foreground">Up to 5MB file size</span>
+                  <span className="text-[11px] text-muted-foreground">Up to 5MB file size</span>
                 </div>
               </CardContent>
             </Card>
@@ -384,7 +384,7 @@ export function BulkOperationsSection() {
                   <p className="text-xs font-semibold">Errors list:</p>
                   <ScrollArea className="h-32 border p-2 rounded bg-muted/10">
                     {bulkImportResult.errors.map((err: any, idx: number) => (
-                      <p key={idx} className="text-[10px] text-red-600 mb-1">
+                      <p key={idx} className="text-[11px] text-red-600 mb-1">
                         Row {err.row || idx + 1}: {err.message || String(err)}
                       </p>
                     ))}

@@ -82,10 +82,10 @@ export function GettingStartedChecklist() {
           />
         </div>
 
-        <ul className="space-y-1.5">
+        <ul className="space-y-2">
           {steps.map((step) => {
             const row = (
-              <span className={cn("flex items-center gap-1.5 text-xs", step.done ? "text-muted-foreground line-through" : "text-foreground")}>
+              <span className={cn("flex items-center gap-2 text-xs", step.done ? "text-muted-foreground line-through" : "text-foreground")}>
                 {step.done ? (
                   <Check className="h-3.5 w-3.5 text-primary shrink-0" />
                 ) : (

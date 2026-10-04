@@ -292,7 +292,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
       {locationBlocked && <LocationHelp />}
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="geofence-lat">Latitude</Label>
           <Input
             id="geofence-lat"
@@ -304,7 +304,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
             disabled={disabled}
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <Label htmlFor="geofence-lng">Longitude</Label>
           <Input
             id="geofence-lng"

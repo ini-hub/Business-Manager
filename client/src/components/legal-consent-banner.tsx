@@ -89,7 +89,7 @@ export function LegalConsentBanner() {
     <>
       <div
         data-testid="banner-legal-consent"
-        className="flex items-center gap-3 border-b px-4 py-2.5 text-sm bg-sky-50 text-sky-900 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-900"
+        className="flex items-center gap-3 border-b px-4 py-3 text-sm bg-sky-50 text-sky-900 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-900"
       >
         <ScrollText className="h-4 w-4 shrink-0" />
         <p className="flex-1 min-w-0 leading-snug">
@@ -120,9 +120,9 @@ export function LegalConsentBanner() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {legalDocs.map((doc) => (
-                <div key={doc.documentType} className="flex items-start gap-2.5">
+                <div key={doc.documentType} className="flex items-start gap-3">
                   <Checkbox
                     checked={!!acceptedDocs[doc.documentType]}
                     onCheckedChange={(checked) =>

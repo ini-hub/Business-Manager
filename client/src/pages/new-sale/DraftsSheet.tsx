@@ -64,7 +64,7 @@ export function DraftsSheet({
                 <div
                   key={draft.id}
                   className={cn(
-                    "rounded-xl border p-3.5 space-y-2 transition-colors",
+                    "rounded-xl border p-4 space-y-2 transition-colors",
                     isActive ? "border-primary/50 bg-primary/5" : "hover:border-primary/20"
                   )}
                 >
@@ -74,12 +74,12 @@ export function DraftsSheet({
                       <p className="text-[11px] text-muted-foreground mt-0.5">
                         {itemCount} item{itemCount !== 1 ? "s" : ""} · {formatCurrency(total)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground">
                         {new Date(draft.updatedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
                       </p>
                     </div>
                     {isActive && (
-                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold shrink-0">
+                      <span className="text-[11px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold shrink-0">
                         Active
                       </span>
                     )}

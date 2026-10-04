@@ -190,7 +190,7 @@ export function LocationHelp({
       data-testid="alert-location-help"
     >
       <div className="flex gap-3">
-        <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 sm:flex">
+        <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 sm:flex">
           <MapPinOff className="h-4 w-4 text-amber-800" />
         </span>
         <div className="min-w-0 flex-1">

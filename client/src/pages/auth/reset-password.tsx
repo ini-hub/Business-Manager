@@ -93,7 +93,7 @@ export default function ResetPassword() {
             <div className="mx-auto w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
               <CheckCircle2 className="h-6 w-6 text-blue-500" />
             </div>
-            <CardTitle className="text-2xl font-bold">
+            <CardTitle className="text-lg font-bold">
               Password Reset Successful!
             </CardTitle>
             <CardDescription>
@@ -117,7 +117,7 @@ export default function ResetPassword() {
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] p-4 gap-5">
         <Card className="w-full max-w-md relative">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-bold text-destructive">Invalid Request</CardTitle>
+            <CardTitle className="text-lg font-bold text-destructive">Invalid Request</CardTitle>
             <CardDescription>
               No identifier was provided for password reset.
             </CardDescription>
@@ -148,7 +148,7 @@ export default function ResetPassword() {
           <div className="mx-auto w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
             <KeyRound className="h-6 w-6 text-blue-500" />
           </div>
-          <CardTitle className="text-2xl font-bold">
+          <CardTitle className="text-lg font-bold">
             Reset Password
           </CardTitle>
           <CardDescription>

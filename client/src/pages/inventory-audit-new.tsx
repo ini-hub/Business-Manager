@@ -114,7 +114,7 @@ export default function InventoryAuditNewPage() {
       <Card>
         <CardContent className="pt-6 space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>
                 Conducted By <span className="text-destructive">*</span>
               </Label>
@@ -131,7 +131,7 @@ export default function InventoryAuditNewPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="audit-notes">General Notes</Label>
               <Input
                 id="audit-notes"
@@ -185,7 +185,7 @@ export default function InventoryAuditNewPage() {
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <div>
-                        <span className="text-[10px] text-muted-foreground block mb-1">System Qty</span>
+                        <span className="text-[11px] text-muted-foreground block mb-1">System Qty</span>
                         <Input
                           type="number"
                           readOnly
@@ -194,7 +194,7 @@ export default function InventoryAuditNewPage() {
                         />
                       </div>
                       <div>
-                        <span className="text-[10px] text-muted-foreground block mb-1">Physical Qty</span>
+                        <span className="text-[11px] text-muted-foreground block mb-1">Physical Qty</span>
                         <Input
                           type="number"
                           min="0"
@@ -208,7 +208,7 @@ export default function InventoryAuditNewPage() {
                         />
                       </div>
                       <div>
-                        <span className="text-[10px] text-muted-foreground block mb-1">Variance</span>
+                        <span className="text-[11px] text-muted-foreground block mb-1">Variance</span>
                         <div className={cn(
                           "h-8 flex items-center justify-center rounded-md border text-xs font-mono font-bold",
                           variance > 0 ? "bg-green-500/10 border-green-500/30 text-green-600"
@@ -220,7 +220,7 @@ export default function InventoryAuditNewPage() {
                       </div>
                     </div>
                     <div>
-                      <span className="text-[10px] text-muted-foreground block mb-1">Reason for Drift</span>
+                      <span className="text-[11px] text-muted-foreground block mb-1">Reason for Drift</span>
                       <Select value={ai.reason} onValueChange={(v) => updateItem(index, "reason", v)}>
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue />

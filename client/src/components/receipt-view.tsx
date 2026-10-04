@@ -135,7 +135,7 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
           style={{ zIndex: 10 }}
         >
           <span
-            className="text-red-500 text-6xl font-black opacity-20 rotate-[-30deg] select-none"
+            className="text-red-500 text-6xl font-bold opacity-20 rotate-[-30deg] select-none"
             style={{ letterSpacing: "0.2em" }}
           >
             VOID
@@ -210,22 +210,22 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
               <div className="w-3/12 text-right">{fmt(totalPrice)}</div>
             </div>
             {isPromo && (
-              <div className="text-[10px] text-gray-500 pl-2 italic">
+              <div className="text-[11px] text-gray-500 pl-2 italic">
                 ↳ Promotion Applied: {promoName}
               </div>
             )}
             {item.inventory?.type === "service" && item.leadStaff && (
-              <div className="text-[10px] text-gray-500 pl-2">
+              <div className="text-[11px] text-gray-500 pl-2">
                 ↳ Performed by: {item.leadStaff.name}
               </div>
             )}
             {item.inventory?.type === "service" && item.assistingStaff1 && (
-              <div className="text-[10px] text-gray-500 pl-2">
+              <div className="text-[11px] text-gray-500 pl-2">
                 ↳ Assisted by: {item.assistingStaff1.name}{item.assistingStaff2 ? `, ${item.assistingStaff2.name}` : ""}
               </div>
             )}
             {item.checkout?.isAddendum && (
-              <div className="text-[10px] text-gray-500 pl-2 italic">
+              <div className="text-[11px] text-gray-500 pl-2 italic">
                 ↳ Added after sale{item.checkout.addendumReason ? ` · ${item.checkout.addendumReason}` : ""}
               </div>
             )}
@@ -342,7 +342,7 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
 
       {/* Last updated — surfaces returns/addendums/voids/edits made after the sale */}
       {lastUpdate && (
-        <div className="text-center text-[10px] text-gray-500 mt-2">
+        <div className="text-center text-[11px] text-gray-500 mt-2">
           Last updated: {lastUpdate.action}
           {lastUpdate.actorName ? ` by ${lastUpdate.actorName}` : ""}
           {" · "}{format(new Date(lastUpdate.at), "dd MMM yyyy, h:mm a")}

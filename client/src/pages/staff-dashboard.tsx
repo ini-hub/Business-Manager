@@ -88,7 +88,7 @@ export default function StaffDashboard() {
           <span className="md:hidden">{format(now, "EEEE, d MMMM")}</span>
           <span className="hidden md:inline">{format(now, "EEEE, d MMMM yyyy")}</span>
         </p>
-        <h1 className="text-2xl font-bold tracking-tight md:text-3xl" data-testid="text-greeting">
+        <h1 className="text-[26px] font-bold tracking-tight md:text-[26px]" data-testid="text-greeting">
           {greeting}, {name}
         </h1>
       </div>
@@ -174,7 +174,7 @@ export default function StaffDashboard() {
                           {format(new Date(booking.scheduledAt), "EEE d MMM, h:mm a")}
                         </span>
                       </div>
-                      <Badge variant="secondary" className="shrink-0 capitalize text-[10px]">
+                      <Badge variant="secondary" className="shrink-0 capitalize text-[11px]">
                         {booking.status.replace("_", " ")}
                       </Badge>
                     </div>
@@ -232,9 +232,9 @@ export default function StaffDashboard() {
                 </div>
               )}
               {gamification?.badges?.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {gamification.badges.map((b: any) => (
-                    <Badge key={b.key} variant="secondary" className="text-[10px]" title={b.description}>
+                    <Badge key={b.key} variant="secondary" className="text-[11px]" title={b.description}>
                       {b.label}
                     </Badge>
                   ))}
@@ -248,7 +248,7 @@ export default function StaffDashboard() {
           <Card>
             <CardContent className="space-y-1 pt-4">
               <div className="flex items-center gap-3 pb-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
                   <ShieldCheck className="h-4 w-4 text-green-700" />
                 </span>
                 <p className="text-sm font-semibold">Verified account</p>

@@ -67,13 +67,13 @@ export default function BillingPayments() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Billing Payments</h1>
+        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Billing Payments</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Every subscription payment attempt across all businesses - initial checkouts and automatic renewals.
         </p>
       </div>
 
-      <Card className="bg-card/40 border border-border/80 rounded-3xl p-5 shadow-xl">
+      <Card className="bg-card/40 border border-border/80 rounded-2xl p-5 shadow-xl">
         <div className="flex items-center gap-3">
           <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
           <Select
@@ -107,16 +107,16 @@ export default function BillingPayments() {
           <span>Failed to load billing payments.</span>
         </div>
       ) : payments.length === 0 ? (
-        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <CreditCard className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-bold text-foreground text-base">No payments yet</h3>
           <p className="text-xs text-muted-foreground mt-1">Payments will show up here as businesses check out.</p>
         </div>
       ) : (
-        <Card className="bg-card/40 border border-border/80 rounded-3xl overflow-hidden shadow-2xl">
+        <Card className="bg-card/40 border border-border/80 rounded-2xl overflow-hidden shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-semibold">
-              <thead className="bg-background/40 text-muted-foreground uppercase text-[9px] tracking-wider border-b border-border">
+              <thead className="bg-background/40 text-muted-foreground uppercase text-[11px] tracking-wider border-b border-border">
                 <tr>
                   <th className="px-6 py-4">Date</th>
                   <th className="px-6 py-4">Business</th>
@@ -131,7 +131,7 @@ export default function BillingPayments() {
               <tbody className="divide-y divide-border">
                 {payments.map((payment) => (
                   <tr key={payment.id} className="hover:bg-card/30 transition-colors">
-                    <td className="px-6 py-4 text-muted-foreground font-mono text-[10px] flex items-center gap-2">
+                    <td className="px-6 py-4 text-muted-foreground font-mono text-[11px] flex items-center gap-2">
                       <Clock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       {new Date(payment.createdAt).toLocaleString()}
                     </td>
@@ -140,10 +140,10 @@ export default function BillingPayments() {
                     <td className="px-6 py-4 text-foreground font-mono">
                       {payment.currency} {Number(payment.amount).toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 text-muted-foreground uppercase text-[10px]">{payment.provider}</td>
+                    <td className="px-6 py-4 text-muted-foreground uppercase text-[11px]">{payment.provider}</td>
                     <td className="px-6 py-4 text-muted-foreground capitalize">{payment.kind}</td>
                     <td className="px-6 py-4">
-                      <Badge variant="outline" className={`border ${statusBadgeColor(payment.status)} text-[10px] py-0.5 px-2 rounded-md font-extrabold uppercase`}>
+                      <Badge variant="outline" className={`border ${statusBadgeColor(payment.status)} text-[11px] py-0.5 px-2 rounded-md font-bold uppercase`}>
                         {payment.status}
                       </Badge>
                     </td>
@@ -168,7 +168,7 @@ export default function BillingPayments() {
           </div>
 
           <div className="flex items-center justify-between px-6 py-4 border-t border-border">
-            <span className="text-[10px] text-muted-foreground">Page {page} of {totalPages}</span>
+            <span className="text-[11px] text-muted-foreground">Page {page} of {totalPages}</span>
             <div className="flex gap-2">
               <Button
                 size="sm"
@@ -194,9 +194,9 @@ export default function BillingPayments() {
       )}
 
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-lg rounded-3xl p-6 font-sans">
+        <DialogContent className="bg-card border border-border text-muted-foreground max-w-lg rounded-2xl p-6 font-sans">
           <DialogHeader className="space-y-2">
-            <DialogTitle className="text-lg font-bold text-foreground font-outfit flex items-center gap-2">
+            <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
               <CreditCard className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               Payment Detail
             </DialogTitle>
@@ -209,26 +209,26 @@ export default function BillingPayments() {
             <div className="space-y-4 my-3 text-xs leading-relaxed">
               <div className="grid grid-cols-2 gap-3 p-3 bg-background/60 rounded-2xl border border-border text-muted-foreground">
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Business</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Business</span>
                   <span className="font-semibold text-foreground">{selectedPayment.organisationName || "—"}</span>
                 </div>
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Plan</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Plan</span>
                   <span className="font-semibold text-foreground">{selectedPayment.planName || "—"} · {selectedPayment.billingCycle}</span>
                 </div>
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Amount</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Amount</span>
                   <span>{selectedPayment.currency} {Number(selectedPayment.amount).toLocaleString()}</span>
                 </div>
                 <div>
-                  <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Verified At</span>
+                  <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Verified At</span>
                   <span>{selectedPayment.verifiedAt ? new Date(selectedPayment.verifiedAt).toLocaleString() : "Not yet"}</span>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <span className="block text-[9px] text-muted-foreground uppercase tracking-widest font-bold">Provider Response (JSON)</span>
-                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[280px] font-mono text-[10px] text-indigo-600 dark:text-indigo-400 leading-relaxed shadow-inner">
+              <div className="space-y-2">
+                <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Provider Response (JSON)</span>
+                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[280px] font-mono text-[11px] text-indigo-600 dark:text-indigo-400 leading-relaxed shadow-inner">
                   {JSON.stringify(selectedPayment.providerResponse ?? {}, null, 2)}
                 </pre>
               </div>

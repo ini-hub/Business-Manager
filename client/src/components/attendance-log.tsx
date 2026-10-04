@@ -235,7 +235,7 @@ export function AttendanceLog({ storeId, staff }: { storeId: string; staff: Staf
                     {staff.map((s) => (
                       <label
                         key={s.id}
-                        className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1.5 text-sm hover:bg-muted"
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm hover:bg-muted"
                         data-testid={`option-staff-${s.id}`}
                       >
                         <Checkbox checked={selectedIds.includes(s.id)} onCheckedChange={() => toggleStaff(s.id)} />
@@ -292,7 +292,7 @@ export function AttendanceLog({ storeId, staff }: { storeId: string; staff: Staf
                   data-testid={`log-staff-${member.staffId}`}
                 >
                   <CollapsibleTrigger className="flex w-full items-center gap-3 p-3 text-left hover:bg-muted/40 sm:p-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
                       {initials(member.staffName)}
                     </div>
                     <div className="min-w-0 flex-1">

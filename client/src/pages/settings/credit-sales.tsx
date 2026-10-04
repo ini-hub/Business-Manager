@@ -1,6 +1,5 @@
 import { BookOpen } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
 import { BorrowBookSettingsSection } from "./components/credit-sales-settings";
 import { NoStoreSelected } from "./components/no-store-selected";
@@ -19,11 +18,7 @@ export default function SettingsCreditSalesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Credit Sales Reminders"
-        description="Debt reminder cadence and messaging for credit sales."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="Credit sales reminders" description="Automatic WhatsApp and SMS reminders to customers who owe you." scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={BookOpen} action="configure debt reminder policies" />
       ) : (

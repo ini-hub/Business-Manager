@@ -202,7 +202,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
                     {r.quantityPerUnit}{r.supplyUnit ? ` ${r.supplyUnit}` : ""} per service
                     {" · "}{formatCurrency(r.supplyCostPrice)} per {r.supplyUnit || "unit"}
                     {r.supplyQuantity <= 0 && (
-                      <Badge variant="destructive" className="ml-2 text-[10px]">out of stock</Badge>
+                      <Badge variant="destructive" className="ml-2 text-[11px]">out of stock</Badge>
                     )}
                   </div>
                 </div>
@@ -226,7 +226,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
         {canEdit && (
           <div className="space-y-3 rounded-lg border p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex-1 space-y-1.5">
+              <div className="flex-1 space-y-2">
                 <Label>Supply</Label>
                 <Select value={supplyId} onValueChange={setSupplyId}>
                   <SelectTrigger><SelectValue placeholder="Pick a supply…" /></SelectTrigger>
@@ -245,7 +245,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
                 </Select>
               </div>
 
-              <div className="w-full sm:w-52 space-y-1.5">
+              <div className="w-full sm:w-52 space-y-2">
                 <Label>{mode === "yield" ? "Services per unit" : "Amount per service"}</Label>
                 <Input
                   type="number"
@@ -274,7 +274,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
                   key={k}
                   type="button"
                   onClick={() => { setMode(k); setQty(""); }}
-                  className={`rounded-full border px-2.5 py-1 transition-colors ${
+                  className={`rounded-full border px-3 py-1 transition-colors ${
                     mode === k
                       ? "border-primary bg-primary/10 text-primary font-medium"
                       : "text-muted-foreground hover:bg-muted"

@@ -97,7 +97,7 @@ export default function VerifyOtp() {
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] p-4 gap-5">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Invalid Request</CardTitle>
+            <CardTitle className="text-lg">Invalid Request</CardTitle>
             <CardDescription>
               No email address provided for verification.
             </CardDescription>
@@ -128,7 +128,7 @@ export default function VerifyOtp() {
           <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4">
             <Mail className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Verify Your Email</CardTitle>
+          <CardTitle className="text-lg">Verify Your Email</CardTitle>
           <CardDescription>
             We've sent a 6-digit code to <br />
             <span className="font-medium text-foreground">{maskedEmail}</span>

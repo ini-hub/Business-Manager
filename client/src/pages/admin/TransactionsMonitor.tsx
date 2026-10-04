@@ -74,17 +74,17 @@ export default function TransactionsMonitor() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Transactions Ledger</h1>
+        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Transactions Ledger</h1>
         <p className="text-muted-foreground text-sm mt-1">Audit platform-wide transaction ledger streams and intercept flagged anomaly metrics.</p>
       </div>
 
       <Tabs defaultValue="ledger" className="space-y-6">
         <TabsList className="bg-card border border-border rounded-2xl p-1 gap-1">
           <TabsTrigger value="ledger" className="rounded-xl text-xs font-bold data-[state=active]:bg-muted data-[state=active]:text-foreground">Central Ledger Stream</TabsTrigger>
-          <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-muted data-[state=active]:text-foreground flex items-center gap-1.5">
+          <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-muted data-[state=active]:text-foreground flex items-center gap-2">
             Anomalous Flagged Intercepts
             {flaggedData?.flagged && flaggedData.flagged.length > 0 && (
-              <Badge className="bg-rose-500 text-white border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[9px] font-bold">
+              <Badge className="bg-rose-500 text-white border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[11px] font-bold">
                 {flaggedData.flagged.length}
               </Badge>
             )}
@@ -94,9 +94,9 @@ export default function TransactionsMonitor() {
         {/* Ledger Stream Tab */}
         <TabsContent value="ledger" className="space-y-6 animate-in fade-in duration-300">
           {/* Query Filters */}
-          <div className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl p-6 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl p-6 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Search Receipt / Company</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Search Receipt / Company</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -110,7 +110,7 @@ export default function TransactionsMonitor() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment Gateway</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Payment Gateway</Label>
               <Select value={method} onValueChange={setMethod}>
                 <SelectTrigger className="bg-background/60 border-border text-foreground rounded-xl focus:border-primary/80">
                   <SelectValue placeholder="All Methods" />
@@ -148,17 +148,17 @@ export default function TransactionsMonitor() {
               <span>Error compiling ledger stream. Verify database connection.</span>
             </div>
           ) : filteredLedger.length === 0 ? (
-            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <Receipt className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">No Transaction Ledger Records</h3>
               <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or check administrative sync intervals.</p>
             </div>
           ) : (
-            <div className="bg-card/40 backdrop-blur border border-border/80 rounded-3xl overflow-hidden shadow-xl animate-in fade-in duration-300">
+            <div className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-xl animate-in fade-in duration-300">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-border bg-background/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b border-border bg-background/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                       <th className="px-6 py-4">Receipt Reference</th>
                       <th className="px-6 py-4">Business Store Location</th>
                       <th className="px-6 py-4 font-mono">Checkout Timing</th>
@@ -179,21 +179,21 @@ export default function TransactionsMonitor() {
                             <span className="text-foreground">{tx.business}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
+                        <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">
                           {formatDate(tx.date)}
                         </td>
                         <td className="px-6 py-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                           {formatCurrency(tx.total)}
                         </td>
                         <td className="px-6 py-4">
-                          <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-muted text-muted-foreground">
+                          <Badge variant="outline" className="border-none font-bold uppercase text-[11px] bg-muted text-muted-foreground">
                             {tx.paymentMethod}
                           </Badge>
                         </td>
                         <td className="px-6 py-4">
                           <Badge
                             variant="outline"
-                            className={`border-none font-bold uppercase text-[9px] ${
+                            className={`border-none font-bold uppercase text-[11px] ${
                               tx.status === "Void"
                                 ? "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"
                                 : tx.status === "completed"
@@ -220,7 +220,7 @@ export default function TransactionsMonitor() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : !flaggedData?.flagged || flaggedData.flagged.length === 0 ? (
-            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+            <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <ShieldCheck className="h-10 w-10 text-primary mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">Ledger Shield Active</h3>
               <p className="text-xs text-muted-foreground mt-1">Outstanding! All checkout parameters conform cleanly to platform standards.</p>
@@ -244,13 +244,13 @@ export default function TransactionsMonitor() {
                 const Icon = anomalyIcon;
 
                 return (
-                  <Card key={idx} className={`bg-card/40 border-border/80 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl flex flex-col justify-between ${colorClass}`}>
+                  <Card key={idx} className={`bg-card/40 border-border/80 rounded-2xl overflow-hidden transition-all duration-300 shadow-xl flex flex-col justify-between ${colorClass}`}>
                     <CardHeader className="bg-background/20 p-4 border-b border-border/40 flex flex-row items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
                         <Icon className="h-4 w-4 shrink-0" />
-                        <CardTitle className="text-sm font-extrabold text-foreground truncate font-mono">{f.reference}</CardTitle>
+                        <CardTitle className="text-sm font-bold text-foreground truncate font-mono">{f.reference}</CardTitle>
                       </div>
-                      <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[9px] font-bold uppercase shrink-0">
+                      <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[11px] font-bold uppercase shrink-0">
                         {f.flag}
                       </Badge>
                     </CardHeader>
@@ -261,22 +261,22 @@ export default function TransactionsMonitor() {
                           "{f.trigger}"
                         </div>
 
-                        <div className="space-y-1.5 pt-1">
-                          <div className="flex justify-between items-center text-[10px]">
+                        <div className="space-y-2 pt-1">
+                          <div className="flex justify-between items-center text-[11px]">
                             <span className="text-muted-foreground flex items-center gap-1">
                               <Building className="h-3 w-3" />
                               Store Location
                             </span>
                             <span className="text-muted-foreground truncate max-w-[150px]">{f.business}</span>
                           </div>
-                          <div className="flex justify-between items-center text-[10px]">
+                          <div className="flex justify-between items-center text-[11px]">
                             <span className="text-muted-foreground flex items-center gap-1">
                               <CreditCard className="h-3 w-3" />
                               Receipt Total
                             </span>
                             <span className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">{formatCurrency(f.total)}</span>
                           </div>
-                          <div className="flex justify-between items-center text-[10px]">
+                          <div className="flex justify-between items-center text-[11px]">
                             <span className="text-muted-foreground flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
                               Checkout timing

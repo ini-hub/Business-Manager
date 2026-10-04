@@ -266,7 +266,7 @@ export default function OnboardingWizard() {
       <div className="w-full max-w-2xl space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Welcome to Kowope</h1>
+          <h1 className="text-[26px] font-bold tracking-tight">Welcome to Kowope</h1>
           <p className="text-sm text-primary font-semibold">Business Management System</p>
           <p className="text-muted-foreground text-sm">Let's set up your business in just a few steps</p>
         </div>
@@ -447,19 +447,19 @@ export default function OnboardingWizard() {
                       onValueChange={(v) => setContractType(v as typeof contractType)}
                       className="flex flex-wrap gap-3"
                     >
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="none" id="ob-contract-none" />
                         <label htmlFor="ob-contract-none" className="text-xs cursor-pointer">None for now</label>
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="text" id="ob-contract-text" />
                         <label htmlFor="ob-contract-text" className="text-xs cursor-pointer">Type contract text</label>
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="file" id="ob-contract-file" />
                         <label htmlFor="ob-contract-file" className="text-xs cursor-pointer">Upload file (PDF)</label>
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="image" id="ob-contract-image" />
                         <label htmlFor="ob-contract-image" className="text-xs cursor-pointer">Upload image</label>
                       </div>
@@ -491,7 +491,7 @@ export default function OnboardingWizard() {
                             placeholder="Describe the image for accessibility (required)"
                             value={contractAltText}
                             onChange={(e) => setContractAltText(e.target.value)}
-                            className="text-xs h-9"
+                            className="text-xs h-10"
                           />
                         )}
                       </div>
@@ -630,7 +630,7 @@ export default function OnboardingWizard() {
                 </div>
               </div>
               <div>
-                <h2 className="text-2xl font-bold">You're all set!</h2>
+                <h2 className="text-lg font-bold">You're all set!</h2>
                 <p className="text-muted-foreground mt-2">Your business is ready. Head to the dashboard to start managing operations.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm sm:max-w-none mx-auto justify-center">

@@ -392,12 +392,12 @@ export default function Dashboard() {
             {greeting}, {firstName}
             {currentStore?.id === "all" && ` · All ${stores.length} branches`}
           </p>
-          <h1 className="text-xl font-bold tracking-tight leading-tight">Dashboard</h1>
+          <h1 className="text-lg font-bold tracking-tight leading-tight">Dashboard</h1>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <Select value={datePreset === "custom" ? undefined : datePreset} onValueChange={(v) => applyDatePreset(v as DatePreset)}>
             <SelectTrigger
-              className="h-8 w-auto min-w-0 gap-1 rounded-full border-input px-2.5 text-xs"
+              className="h-8 w-auto min-w-0 gap-1 rounded-full border-input px-3 text-xs"
               data-testid="select-mobile-date-preset"
             >
               <SelectValue placeholder="Date range" />
@@ -443,7 +443,7 @@ export default function Dashboard() {
       {(stats?.outOfStockCount ?? 0) + (stats?.lowStockCount ?? 0) > 0 && (
         <Link
           href="/inventory?view=low-stock"
-          className="sm:hidden flex items-center justify-between gap-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-3 py-2.5"
+          className="sm:hidden flex items-center justify-between gap-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-3 py-3"
           data-testid="banner-stock-alert"
         >
           <span className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-400">
@@ -496,7 +496,7 @@ export default function Dashboard() {
 
       <GettingStartedChecklist />
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">All-time totals</p>
         <Card>
           <CardContent className="p-0">
@@ -505,7 +505,7 @@ export default function Dashboard() {
                 key={row.key}
                 href={row.href}
                 className={cn(
-                  "flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover-elevate",
+                  "flex items-center justify-between gap-3 px-3 py-3 text-sm hover-elevate",
                   i < totalsRows.length - 1 && "border-b",
                 )}
                 data-testid={`row-total-${row.key}`}
@@ -537,7 +537,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="flex flex-wrap items-center gap-2">
               {businessGamification.badges.map((b: any) => (
-                <Badge key={b.key} variant="secondary" className="text-[10px]" title={b.description}>
+                <Badge key={b.key} variant="secondary" className="text-[11px]" title={b.description}>
                   {b.label}
                 </Badge>
               ))}
@@ -590,7 +590,7 @@ export default function Dashboard() {
                 {stockAlertItems.slice(0, 4).map((item) => {
                   const threshold = item.reorderPoint != null ? item.reorderPoint : (stats?.lowStockThreshold ?? 5);
                   return (
-                    <div key={item.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                    <div key={item.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{item.name}</p>
                         <p className="text-xs text-muted-foreground">Reorder {threshold}</p>
@@ -651,7 +651,7 @@ export default function Dashboard() {
                 ) : (
                   <div className="space-y-1">
                     {topItemsSorted.map((pl) => (
-                      <div key={pl.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                      <div key={pl.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0">
                         <span className="text-sm truncate">{pl.inventory?.name ?? "Unknown"}</span>
                         <span className="text-sm font-mono shrink-0">{formatCurrency(pl.totalRevenue)}</span>
                       </div>
@@ -680,7 +680,7 @@ export default function Dashboard() {
                       <Link
                         key={customer.id}
                         href={appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search)}
-                        className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0 hover-elevate -mx-2 px-2 rounded"
+                        className="flex items-center justify-between gap-2 py-2 border-b last:border-0 hover-elevate -mx-2 px-2 rounded"
                       >
                         <span className="text-sm truncate">{customer.name}</span>
                         <span className="text-sm font-mono shrink-0">{formatCurrency(customer.totalSpent)}</span>
@@ -714,10 +714,10 @@ export default function Dashboard() {
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {greeting}, {firstName}
             </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight leading-none">Dashboard</h1>
+            <h1 className="mt-1 text-[26px] font-bold tracking-tight leading-none">Dashboard</h1>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {stores.length > 1 && (
-                <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-foreground">
+                <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 font-medium text-foreground">
                   {currentStore?.id === "all" ? `All ${stores.length} branches` : currentStore?.name}
                 </span>
               )}
@@ -740,7 +740,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => applyDatePreset(preset)}
                   className={cn(
-                    "px-3 py-1.5 text-sm rounded-md font-medium transition-all whitespace-nowrap",
+                    "px-3 py-2 text-sm rounded-md font-medium transition-all whitespace-nowrap",
                     datePreset === preset
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -755,7 +755,7 @@ export default function Dashboard() {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className={cn("gap-1.5", datePreset === "custom" ? "border-primary text-primary" : "text-muted-foreground")}
+                  className={cn("gap-2", datePreset === "custom" ? "border-primary text-primary" : "text-muted-foreground")}
                   data-testid="button-custom-range"
                 >
                   <CalendarIcon className="h-4 w-4" />
@@ -799,7 +799,7 @@ export default function Dashboard() {
                   ) : (
                     <p className="text-2xl font-bold font-mono tabular-nums mt-1">{tile.value}</p>
                   )}
-                  <div className="flex items-center gap-1.5 mt-1.5 text-xs">
+                  <div className="flex items-center gap-2 mt-1.5 text-xs">
                     {tile.change !== undefined && (
                       <span className={cn("flex items-center gap-0.5 font-medium", tile.change >= 0 ? "text-emerald-600" : "text-red-600")}>
                         {tile.change >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
@@ -901,7 +901,7 @@ export default function Dashboard() {
                   {stockAlertItems.slice(0, 4).map((item) => {
                     const threshold = item.reorderPoint != null ? item.reorderPoint : (stats?.lowStockThreshold ?? 5);
                     return (
-                      <div key={item.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                      <div key={item.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0">
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{item.name}</p>
                           <p className="text-xs text-muted-foreground">Reorder {threshold}</p>
@@ -939,12 +939,12 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground py-4 text-center">No sales data yet</p>
               ) : (
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-1.5 border-b">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b">
                     <span>Item</span>
                     <span>Sold · Revenue</span>
                   </div>
                   {topItemsSorted.map((pl) => (
-                    <div key={pl.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0">
+                    <div key={pl.id} className="flex items-center justify-between gap-2 py-2 border-b last:border-0">
                       <span className="text-sm truncate">{pl.inventory?.name ?? "Unknown"}</span>
                       <span className="text-sm font-mono shrink-0">
                         {pl.totalQuantitySold} · {formatCurrency(pl.totalRevenue)}
@@ -974,7 +974,7 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground py-4 text-center">No customer data yet</p>
               ) : (
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-1.5 border-b">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b">
                     <span>Customer</span>
                     <span>Share of revenue</span>
                   </div>
@@ -984,7 +984,7 @@ export default function Dashboard() {
                       <Link
                         key={customer.id}
                         href={appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search)}
-                        className="block py-1.5 border-b last:border-0 hover-elevate -mx-2 px-2 rounded"
+                        className="block py-2 border-b last:border-0 hover-elevate -mx-2 px-2 rounded"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm truncate">

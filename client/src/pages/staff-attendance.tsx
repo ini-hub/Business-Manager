@@ -149,7 +149,7 @@ export default function StaffAttendancePage() {
         ].map((t) => (
           <div key={t.label} className="rounded-xl border bg-card p-3 md:p-4">
             <p className="text-xs text-muted-foreground md:text-sm">{t.label}</p>
-            <p className="mt-1 font-mono text-xl font-bold md:text-2xl">{isLoading ? "–" : t.value}</p>
+            <p className="mt-1 font-mono text-lg font-bold md:text-2xl">{isLoading ? "–" : t.value}</p>
           </div>
         ))}
       </div>
@@ -183,7 +183,7 @@ export default function StaffAttendancePage() {
                   {group.days.map((row) => (
                     <div
                       key={row.date}
-                      className="flex items-center justify-between gap-3 px-3 py-2.5"
+                      className="flex items-center justify-between gap-3 px-3 py-3"
                       data-testid={`row-attendance-${row.date}`}
                     >
                       <div className="min-w-0">
@@ -224,11 +224,11 @@ export default function StaffAttendancePage() {
           </CardHeader>
           <CardContent className="divide-y">
             {requests.map((req) => (
-              <div key={req.id} className="flex items-start justify-between gap-3 py-2.5" data-testid={`row-retro-${req.id}`}>
+              <div key={req.id} className="flex items-start justify-between gap-3 py-3" data-testid={`row-retro-${req.id}`}>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium flex items-center gap-1.5">
+                  <p className="text-sm font-medium flex items-center gap-2">
                     {format(parseISO(req.date), "EEE d MMM")}
-                    <Badge variant="outline" className="text-[10px] font-normal">
+                    <Badge variant="outline" className="text-[11px] font-normal">
                       {req.requestedKind === "clock_out" ? "Clock-out" : "Clock-in"}
                     </Badge>
                   </p>

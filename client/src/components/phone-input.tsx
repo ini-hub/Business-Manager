@@ -52,7 +52,7 @@ const PhoneInput = React.forwardRef<
             </Label>
           )}
           <Select value={countryCode} onValueChange={onCountryCodeChange} disabled={disabled}>
-            <SelectTrigger className="h-9">
+            <SelectTrigger className="h-10">
               <SelectValue placeholder="Select country" />
             </SelectTrigger>
             <SelectContent>
@@ -77,7 +77,7 @@ const PhoneInput = React.forwardRef<
             placeholder={phoneNumberPlaceholder}
             value={phoneNumber}
             onChange={(e) => onPhoneNumberChange?.(e.target.value)}
-            className={cn("h-9", className)}
+            className={cn("h-10", className)}
             disabled={disabled}
           />
         </div>

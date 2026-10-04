@@ -1,6 +1,5 @@
 import { MessageSquare } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
 import { WhatsAppNumberSection } from "./components/whatsapp-number-settings";
 import { NoStoreSelected } from "./components/no-store-selected";
@@ -19,11 +18,7 @@ export default function SettingsWhatsAppNumberPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="WhatsApp Number"
-        description="Connect or change the WhatsApp number this store's customers message."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="WhatsApp number" description="The number this store's customers get messages from." scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={MessageSquare} action="configure a WhatsApp number" />
       ) : (

@@ -96,8 +96,8 @@ function AddSectionDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Title</Label>
+          <div className="space-y-2">
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Title</Label>
             <Input
               value={title}
               onChange={(e) => {
@@ -108,8 +108,8 @@ function AddSectionDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               data-testid="input-new-section-title"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <div className="space-y-2">
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               Identifier (used in the URL — lowercase, underscores only)
             </Label>
             <Input
@@ -123,8 +123,8 @@ function AddSectionDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               data-testid="input-new-section-slug"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Content (Markdown)</Label>
+          <div className="space-y-2">
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Content (Markdown)</Label>
             <Textarea
               value={contentMarkdown}
               onChange={(e) => setContentMarkdown(e.target.value)}
@@ -275,7 +275,7 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px] font-bold">v{document.versionNumber}</Badge>
+          <Badge variant="outline" className="text-[11px] font-bold">v{document.versionNumber}</Badge>
           <span className="text-xs text-muted-foreground">
             Published {new Date(document.publishedAt).toLocaleString()}
           </span>
@@ -314,8 +314,8 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Content (Markdown)</Label>
+      <div className="space-y-2">
+        <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Content (Markdown)</Label>
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -363,11 +363,11 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
                 <div key={v.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
                   <div>
                     <span className="font-semibold">Version {v.versionNumber}</span>
-                    {v.isCurrent && <Badge className="ml-2 text-[9px]">Current</Badge>}
+                    {v.isCurrent && <Badge className="ml-2 text-[11px]">Current</Badge>}
                     <div className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString()}</div>
                   </div>
                   {v.supersededAt && (
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[11px] text-muted-foreground">
                       Superseded {new Date(v.supersededAt).toLocaleDateString()}
                     </span>
                   )}
@@ -482,7 +482,7 @@ export default function LegalDocuments() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit flex items-center gap-2.5">
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight flex items-center gap-3">
             <FileText className="h-7 w-7 text-violet-500" />
             Legal Documents
           </h1>
@@ -512,7 +512,7 @@ export default function LegalDocuments() {
           <span>Failed to load legal documents.</span>
         </div>
       ) : documents.length === 0 ? (
-        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-3xl">
+        <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-bold text-foreground text-base">No legal documents yet</h3>
           <p className="text-xs text-muted-foreground mt-1">Add a section to get started.</p>
@@ -524,7 +524,7 @@ export default function LegalDocuments() {
               <TabsTrigger
                 key={doc.documentType}
                 value={doc.documentType}
-                className="rounded-xl px-4 py-2.5 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white"
+                className="rounded-xl px-4 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white"
               >
                 {doc.title}
                 {doc.archivedAt && <span className="ml-1.5 opacity-60">(deactivated)</span>}
@@ -534,17 +534,17 @@ export default function LegalDocuments() {
 
           {documents.map((doc) => (
             <TabsContent key={doc.documentType} value={doc.documentType}>
-              <Card className="bg-card/40 border border-border/80 rounded-3xl shadow-xl overflow-hidden">
+              <Card className="bg-card/40 border border-border/80 rounded-2xl shadow-xl overflow-hidden">
                 <CardHeader className="bg-background/20 p-6 border-b border-border/40">
-                  <CardTitle className="text-base font-extrabold text-foreground font-outfit flex items-center gap-2">
+                  <CardTitle className="text-base font-bold text-foreground flex items-center gap-2">
                     {doc.title}
                     {doc.archivedAt && (
-                      <Badge variant="outline" className="text-[9px] font-bold uppercase text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800">
+                      <Badge variant="outline" className="text-[11px] font-bold uppercase text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800">
                         Deactivated
                       </Badge>
                     )}
                   </CardTitle>
-                  <CardDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <CardDescription className="text-xs text-muted-foreground flex items-center gap-2">
                     Shown publicly at{" "}
                     <a
                       href={legalDocHref(doc.documentType)}

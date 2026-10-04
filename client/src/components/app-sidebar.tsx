@@ -27,7 +27,9 @@ import {
   Compass,
   MessageSquare,
   Scale,
-  Trophy
+  Trophy,
+  Tag,
+  Percent,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -187,6 +189,18 @@ const salesItems: MenuItem[] = [
     icon: Trophy,
     allowedRoles: ["owner", "manager"],
   },
+  {
+    title: "Promotions",
+    url: "/settings/promotions",
+    icon: Tag,
+    allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Taxes",
+    url: "/settings/taxes",
+    icon: Percent,
+    allowedRoles: ["owner", "manager"],
+  },
 ];
 
 const reportsItems: MenuItem[] = [
@@ -309,25 +323,25 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
             <Coins className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="text-base font-black tracking-tight leading-tight">
+            <span className="text-base font-bold tracking-tight leading-tight">
               Ko<span className="text-primary">wope</span>
             </span>
-            <span className="text-[10px] text-muted-foreground font-medium leading-tight">Business Management System</span>
+            <span className="text-[11px] text-muted-foreground font-medium leading-tight">Business Management System</span>
           </div>
         </div>
         
         {/* Mobile Switchers Panel - Visible only on small devices */}
         <div className="flex flex-col gap-3 mt-4 pt-3 border-t border-sidebar-border lg:hidden animate-fade-in">
           <div className="w-full">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Organization</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Organization</span>
             <OrgSwitcher />
           </div>
           <div className="w-full">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Store Selector</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">Store Selector</span>
             <StoreSelector />
           </div>
         </div>
@@ -338,7 +352,7 @@ export function AppSidebar() {
           { label: "More", items: visibleStaffMoreItems },
         ].map((group, i) => group.items.length > 0 && (
           <SidebarGroup key={group.label} className={i > 0 ? "mt-4" : undefined}>
-            <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <SidebarGroupLabel className="px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {group.label}
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -357,7 +371,7 @@ export function AppSidebar() {
                           <NavLock url={item.url} />
                         </div>
                         {item.shortcut && (
-                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
+                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-2 font-mono text-[11px] font-medium text-muted-foreground opacity-60">
                             {item.shortcut}
                           </kbd>
                         )}
@@ -391,7 +405,7 @@ export function AppSidebar() {
                           <NavLock url={item.url} />
                         </div>
                         {item.shortcut && (
-                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
+                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-2 font-mono text-[11px] font-medium text-muted-foreground opacity-60">
                             {item.shortcut}
                           </kbd>
                         )}
@@ -425,7 +439,7 @@ export function AppSidebar() {
                           <NavLock url={item.url} />
                         </div>
                         {item.shortcut && (
-                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
+                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-2 font-mono text-[11px] font-medium text-muted-foreground opacity-60">
                             {item.shortcut}
                           </kbd>
                         )}
@@ -459,7 +473,7 @@ export function AppSidebar() {
                         <span>{item.title}</span>
                           <NavLock url={item.url} />
                         {item.title === "Payroll" && pendingPayrollCount > 0 && (
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm">
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-white shadow-sm">
                             {pendingPayrollCount}
                           </div>
                         )}
@@ -506,16 +520,16 @@ export function AppSidebar() {
               asChild
               className="gap-3 text-muted-foreground hover:text-foreground hover:bg-muted/50 w-full"
             >
-              <Link href="/help-support" className="flex items-center gap-3 px-2 py-1.5 w-full" onClick={handleLinkClick}>
+              <Link href="/help-support" className="flex items-center gap-3 px-2 py-2 w-full" onClick={handleLinkClick}>
                 <LifeBuoy className="h-4 w-4 text-primary shrink-0 animate-pulse" />
                 <span className="text-xs font-semibold">Help & Support</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem className="mt-1">
-            <div className="flex items-center gap-3 px-2 py-1.5 w-full">
+            <div className="flex items-center gap-3 px-2 py-2 w-full">
               <Link href="/profile" className="flex items-center gap-3 flex-1 min-w-0 group hover:opacity-80 transition-opacity" onClick={handleLinkClick}>
-                <Avatar className="h-9 w-9 border-2 border-primary/10 transition-transform group-hover:scale-105">
+                <Avatar className="h-10 w-10 border-2 border-primary/10 transition-transform group-hover:scale-105">
                   <AvatarImage src={user?.profilePhotoUrl || ""} />
                   <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
                     {user?.name?.charAt(0) || user?.email?.charAt(0)}
@@ -525,7 +539,7 @@ export function AppSidebar() {
                   <span className="text-sm font-semibold truncate text-foreground leading-tight">
                     {user?.name || user?.email?.split('@')[0]}
                   </span>
-                  <span className="text-[10px] text-muted-foreground capitalize font-medium tracking-wide">
+                  <span className="text-[11px] text-muted-foreground capitalize font-medium tracking-wide">
                     {userRole}
                   </span>
                 </div>

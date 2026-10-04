@@ -235,7 +235,7 @@ export default function MyPerformancePage() {
                         <td className="px-3 py-2 text-muted-foreground">{format(new Date(s.date), "dd MMM")}</td>
                         <td className="px-3 py-2 text-right font-mono">{formatCurrency(s.revenue)}</td>
                         <td className="px-3 py-2 text-center">
-                          <Badge variant={s.role === "lead" ? "default" : "secondary"} className="text-[10px] h-4 px-1">
+                          <Badge variant={s.role === "lead" ? "default" : "secondary"} className="text-[11px] h-4 px-1">
                             {s.role === "lead" ? "Lead" : "Assist"}
                           </Badge>
                         </td>

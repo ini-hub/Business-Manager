@@ -738,7 +738,7 @@ export default function Login() {
         )}
 
         <CardHeader className="text-center pt-12">
-          <CardTitle className="text-2xl">
+          <CardTitle className="text-lg">
             {step === "identifier" ? "Sign in to Kowope" : "Welcome back"}
           </CardTitle>
           <CardDescription>
@@ -910,7 +910,7 @@ export default function Login() {
                 </div>
 
                 {lockoutMsg && (
-                  <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-2.5 rounded-md text-xs">
+                  <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-3 rounded-md text-xs">
                     <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>{lockoutMsg}</span>
                   </div>
@@ -938,7 +938,7 @@ export default function Login() {
           {/* Org Select Step */}
           {step === "org_select" && (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground text-center">
+              <p className="text-[13px] text-muted-foreground text-center">
                 Select organisation workspace to log in to:
               </p>
               {orgs.map((org) => (
@@ -951,7 +951,7 @@ export default function Login() {
                   data-testid={`button-org-select-${org.slug}`}
                 >
                   <span className="font-semibold">{org.name}</span>
-                  <span className="text-xs text-muted-foreground capitalize bg-muted px-2.5 py-1 rounded">
+                  <span className="text-xs text-muted-foreground capitalize bg-muted px-3 py-1 rounded">
                     {org.role}
                   </span>
                 </Button>
@@ -1053,7 +1053,7 @@ export default function Login() {
           {step === "almost_there" && (
             <div className="space-y-6 py-4 text-center">
               <div className="space-y-3">
-                <h3 className="text-xl font-semibold text-foreground tracking-tight">Almost there</h3>
+                <h3 className="text-lg font-semibold text-foreground tracking-tight">Almost there</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
                   You have already verified your activation code. You just need to create your password to finish setting up your account.
                 </p>
@@ -1156,7 +1156,7 @@ export default function Login() {
               )}
 
               {pendingContractQuery.isError && (
-                <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-2.5 rounded-md text-xs">
+                <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-3 rounded-md text-xs">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>Could not load your contract. Please try logging in again.</span>
                 </div>
@@ -1301,7 +1301,7 @@ export default function Login() {
               )}
 
               {legalDocsError && (
-                <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-2.5 rounded-md text-xs">
+                <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/20 text-destructive p-3 rounded-md text-xs">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>Could not load these documents. Please try logging in again.</span>
                 </div>
@@ -1309,9 +1309,9 @@ export default function Login() {
 
               {!legalDocsLoading && !legalDocsError && (
                 <>
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     {legalDocs.map((doc) => (
-                      <div key={doc.documentType} className="flex items-start gap-2.5">
+                      <div key={doc.documentType} className="flex items-start gap-3">
                         <Checkbox
                           id={`legal-consent-${doc.documentType}`}
                           checked={!!acceptedLegalDocs[doc.documentType]}

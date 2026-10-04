@@ -108,7 +108,7 @@ export default function ForgotPassword() {
             <div className="mx-auto w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
               <CheckCircle2 className="h-6 w-6 text-blue-500" />
             </div>
-            <CardTitle className="text-2xl font-bold">
+            <CardTitle className="text-lg font-bold">
               Check Your Device
             </CardTitle>
             <CardDescription>
@@ -160,7 +160,7 @@ export default function ForgotPassword() {
           <div className="mx-auto w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
             <Mail className="h-6 w-6 text-blue-500" />
           </div>
-          <CardTitle className="text-2xl font-bold">
+          <CardTitle className="text-lg font-bold">
             Forgot Password?
           </CardTitle>
           <CardDescription>

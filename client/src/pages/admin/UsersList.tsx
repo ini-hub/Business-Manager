@@ -151,17 +151,17 @@ export default function UsersList() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Users Directory</h1>
+        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Users Directory</h1>
         <p className="text-muted-foreground text-sm mt-1">Audit merchant team structures, override forgotten credentials, and check anomalous login indicators.</p>
       </div>
 
       <Tabs defaultValue="directory" className="space-y-6">
         <TabsList className="bg-muted border border-border rounded-2xl p-1 gap-1">
           <TabsTrigger value="directory" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">Active Roster</TabsTrigger>
-          <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground flex items-center gap-1.5">
+          <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground flex items-center gap-2">
             Flagged Inspector
             {flaggedData?.flagged && flaggedData.flagged.length > 0 && (
-              <Badge className="bg-destructive text-destructive-foreground border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[9px] font-bold">
+              <Badge className="bg-destructive text-destructive-foreground border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[11px] font-bold">
                 {flaggedData.flagged.length}
               </Badge>
             )}
@@ -171,9 +171,9 @@ export default function UsersList() {
         {/* Directory Tab */}
         <TabsContent value="directory" className="space-y-6 animate-in fade-in duration-300">
           {/* Query Filters */}
-          <div className="bg-card backdrop-blur border border-card-border rounded-3xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <div className="bg-card backdrop-blur border border-card-border rounded-2xl p-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Search Name/Email/Company</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Search Name/Email/Company</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -187,7 +187,7 @@ export default function UsersList() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Merchant Role</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Merchant Role</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder="All Roles" />
@@ -202,7 +202,7 @@ export default function UsersList() {
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Account Status</Label>
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Account Status</Label>
               <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder="All Statuses" />
@@ -241,17 +241,17 @@ export default function UsersList() {
               <span>Error compiling user roster. Please verify connection.</span>
             </div>
           ) : usersData.users.length === 0 ? (
-            <div className="text-center py-16 bg-muted/40 border border-border rounded-3xl">
+            <div className="text-center py-16 bg-muted/40 border border-border rounded-2xl">
               <User className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">No Users Found</h3>
               <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or check administrative sync filters.</p>
             </div>
           ) : (
-            <div className="bg-card border border-card-border rounded-3xl overflow-hidden">
+            <div className="bg-card border border-card-border rounded-2xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-border bg-muted text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b border-border bg-muted text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                       <th className="px-6 py-4">Full Name / Details</th>
                       <th className="px-6 py-4">Security Role</th>
                       <th className="px-6 py-4">Linked Business</th>
@@ -271,28 +271,28 @@ export default function UsersList() {
                             </div>
                             <div>
                               <span className="block font-bold text-foreground text-sm">{u.name}</span>
-                              <span className="block text-[10px] text-muted-foreground font-mono select-all">{u.email}</span>
+                              <span className="block text-[11px] text-muted-foreground font-mono select-all">{u.email}</span>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <Badge variant="outline" className="border-none font-bold uppercase text-[9px] bg-muted text-muted-foreground">
+                          <Badge variant="outline" className="border-none font-bold uppercase text-[11px] bg-muted text-muted-foreground">
                             {u.role}
                           </Badge>
                         </td>
                         <td className="px-6 py-4">
                           <span className="block text-foreground text-sm truncate max-w-[150px]">{u.business}</span>
                         </td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
+                        <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">
                           {formatDate(u.registered)}
                         </td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">
+                        <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">
                           {formatDate(u.lastLogin)}
                         </td>
                         <td className="px-6 py-4">
                           <Badge
                             variant="outline"
-                            className={`border-none font-bold uppercase text-[9px] ${
+                            className={`border-none font-bold uppercase text-[11px] ${
                               u.status === "active"
                                 ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
                                 : u.status === "locked"
@@ -354,7 +354,7 @@ export default function UsersList() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : !flaggedData?.flagged || flaggedData.flagged.length === 0 ? (
-            <div className="text-center py-16 bg-muted/40 border border-border rounded-3xl">
+            <div className="text-center py-16 bg-muted/40 border border-border rounded-2xl">
               <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <h3 className="font-bold text-foreground text-base">No Flagged Accounts Scanned</h3>
               <p className="text-xs text-muted-foreground mt-1">Excellent! No account logins meet security audit alarm triggers.</p>
@@ -362,13 +362,13 @@ export default function UsersList() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {flaggedData.flagged.map((f: any, idx: number) => (
-                <Card key={idx} className="rounded-3xl overflow-hidden hover:border-rose-500/30 transition-all duration-300 shadow-xl flex flex-col justify-between">
+                <Card key={idx} className="rounded-2xl overflow-hidden hover:border-rose-500/30 transition-all duration-300 shadow-xl flex flex-col justify-between">
                   <CardHeader className="bg-muted/40 p-4 border-b border-border flex flex-row items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0">
                       <AlertTriangle className="h-4 w-4 text-rose-500 dark:text-rose-400 shrink-0" />
-                      <CardTitle className="text-sm font-extrabold text-foreground truncate">{f.name}</CardTitle>
+                      <CardTitle className="text-sm font-bold text-foreground truncate">{f.name}</CardTitle>
                     </div>
-                    <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[9px] font-bold uppercase shrink-0">
+                    <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[11px] font-bold uppercase shrink-0">
                       {f.flag}
                     </Badge>
                   </CardHeader>
@@ -378,7 +378,7 @@ export default function UsersList() {
                         <span className="font-bold text-foreground block mb-0.5">Anomaly Trigger:</span>
                         "{f.trigger}"
                       </div>
-                      <div className="flex items-center gap-2.5 text-[10px]">
+                      <div className="flex items-center gap-3 text-[11px]">
                         <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <span className="text-muted-foreground truncate select-all font-mono">{f.email}</span>
                       </div>
@@ -412,7 +412,7 @@ export default function UsersList() {
 
       {/* Password Reset Override Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
-        <DialogContent className="max-w-sm rounded-3xl p-6">
+        <DialogContent className="max-w-sm rounded-2xl p-6">
           <DialogHeader className="space-y-3">
             <div className="mx-auto w-12 h-12 bg-muted border border-border rounded-2xl flex items-center justify-center">
               <KeyRound className="h-6 w-6 text-primary" />
@@ -426,7 +426,7 @@ export default function UsersList() {
           </DialogHeader>
 
           <div className="my-4 space-y-1">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">New Password (Min 8 characters)</Label>
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">New Password (Min 8 characters)</Label>
             <Input
               type="password"
               placeholder="••••••••"
@@ -457,7 +457,7 @@ export default function UsersList() {
 
       {/* Suspend Specific User Dialog */}
       <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
-        <DialogContent className="max-w-sm rounded-3xl p-6">
+        <DialogContent className="max-w-sm rounded-2xl p-6">
           <DialogHeader className="space-y-3">
             <div className="mx-auto w-12 h-12 bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-500/30 rounded-2xl flex items-center justify-center">
               <Ban className="h-6 w-6 text-rose-500 dark:text-rose-400" />
@@ -471,7 +471,7 @@ export default function UsersList() {
           </DialogHeader>
 
           <div className="my-4 space-y-1">
-            <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Audit Suspension Reason</Label>
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Audit Suspension Reason</Label>
             <Input
               type="text"
               placeholder="e.g. Suspected credential sharing"

@@ -335,7 +335,7 @@ export default function InventoryDetails() {
         const unit = primaryVariant?.unit || inventory?.unit;
         const qty = parseFloat(Number(event.quantityAdded).toFixed(2));
         return (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <TrendingUp className="h-3 w-3 text-green-500" />
             <span className="font-medium text-green-600 dark:text-green-400">
               +{qty}{unit ? ` ${unit}` : ""}
@@ -359,7 +359,7 @@ export default function InventoryDetails() {
           <div className="flex flex-col gap-0.5">
             <span className="font-mono text-sm">{formatCurrency(event.unitCost)}</span>
             {costChanged && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5 font-medium whitespace-nowrap">
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5 font-medium whitespace-nowrap">
                 ⚠️ {formatCurrency(prevEvent.unitCost)} → {formatCurrency(event.unitCost)} ({percentChange > 0 ? "+" : ""}{percentChange.toFixed(0)}%)
               </span>
             )}
@@ -524,14 +524,14 @@ export default function InventoryDetails() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-bold leading-tight" data-testid="text-item-name">
+                <h1 className="text-lg font-bold leading-tight" data-testid="text-item-name">
                   {inventory.name}
                 </h1>
                 {inventory.productId && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-xs text-primary hover:underline h-auto py-0.5 px-1.5"
+                    className="text-xs text-primary hover:underline h-auto py-0.5 px-2"
                     onClick={() => setLocation(`/inventory/${inventory.productId}`)}
                   >
                     View Group
@@ -567,7 +567,7 @@ export default function InventoryDetails() {
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b-0">
             {/* Cost Price */}
             <div className="px-3 py-3 sm:px-5 sm:py-4">
-              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-2 mb-1 sm:mb-1.5">
                 <Tag className="h-3 w-3" />
                 Cost Price
               </p>
@@ -581,7 +581,7 @@ export default function InventoryDetails() {
 
             {/* Selling Price */}
             <div className="px-3 py-3 sm:px-5 sm:py-4">
-              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-2 mb-1 sm:mb-1.5">
                 <ShoppingBag className="h-3 w-3" />
                 Selling Price
               </p>
@@ -595,7 +595,7 @@ export default function InventoryDetails() {
 
             {/* Profit */}
             <div className="px-3 py-3 sm:px-5 sm:py-4">
-              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-2 mb-1 sm:mb-1.5">
                 <TrendingUp className="h-3 w-3" />
                 Profit / Unit
               </p>
@@ -612,7 +612,7 @@ export default function InventoryDetails() {
                       {formatCurrency(profit)}
                     </p>
                     {sellingPrice > 0 && (
-                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{profitMargin.toFixed(1)}% margin</p>
+                      <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">{profitMargin.toFixed(1)}% margin</p>
                     )}
                   </div>
                 )
@@ -621,7 +621,7 @@ export default function InventoryDetails() {
 
             {/* Stock */}
             <div className="px-3 py-3 sm:px-5 sm:py-4">
-              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mb-1 sm:mb-1.5">
+              <p className="text-[11px] sm:text-xs text-muted-foreground flex items-center gap-2 mb-1 sm:mb-1.5">
                 <Package className="h-3 w-3" />
                 Stock
               </p>
@@ -645,7 +645,7 @@ export default function InventoryDetails() {
                     >
                       {parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : ""}
                     </p>
-                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{inventory.unit ? `${inventory.unit} in stock` : "units in stock"}</p>
+                    <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">{inventory.unit ? `${inventory.unit} in stock` : "units in stock"}</p>
                   </div>
                 )
               }
@@ -696,7 +696,7 @@ export default function InventoryDetails() {
                     <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-0.5">Pricing</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
-                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <p className="text-xs text-muted-foreground flex items-center gap-2">
                           <Tag className="h-3 w-3" /> Cost Price
                         </p>
                         <p className="font-mono font-semibold text-lg">
@@ -707,7 +707,7 @@ export default function InventoryDetails() {
                         )}
                       </div>
                       <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
-                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <p className="text-xs text-muted-foreground flex items-center gap-2">
                           <ShoppingBag className="h-3 w-3" /> Selling Price
                         </p>
                         <p className="font-mono font-semibold text-lg">
@@ -718,7 +718,7 @@ export default function InventoryDetails() {
                         )}
                       </div>
                       <div className="p-4 rounded-xl border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800 space-y-1">
-                        <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                        <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-2">
                           <TrendingUp className="h-3 w-3" /> Profit per Sale
                         </p>
                         <p className={cn("font-mono font-semibold text-lg",
@@ -740,21 +740,21 @@ export default function InventoryDetails() {
                 <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-0.5">Stock Value</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <p className="text-xs text-muted-foreground flex items-center gap-2">
                       <Tag className="h-3 w-3" /> At Cost
                     </p>
                     <p className="font-mono font-semibold text-lg">{formatCurrency(totalCostValue)}</p>
                     <p className="text-xs text-muted-foreground">{parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : " units"} × cost</p>
                   </div>
                   <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
-                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <p className="text-xs text-muted-foreground flex items-center gap-2">
                       <ShoppingBag className="h-3 w-3" /> At Selling Price
                     </p>
                     <p className="font-mono font-semibold text-lg">{formatCurrency(totalSellingValue)}</p>
                     <p className="text-xs text-muted-foreground">{parseFloat(Number(totalQuantity).toFixed(4))}{inventory.unit ? ` ${inventory.unit}` : " units"} × price</p>
                   </div>
                   <div className="p-4 rounded-xl border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800 space-y-1">
-                    <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                    <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-2">
                       <TrendingUp className="h-3 w-3" /> Potential Profit
                     </p>
                     <p className={cn("font-mono font-semibold text-lg", totalPotentialProfit >= 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
@@ -887,17 +887,17 @@ export default function InventoryDetails() {
                       { label: "Gross Profit", value: sustainingCostsData?.grossProfit ?? 0, sub: `${(sustainingCostsData?.grossProfitMargin ?? 0).toFixed(1)}% margin`, color: "" },
                       { label: "Sustaining Costs", value: sustainingCostsData?.totalSustainingCosts ?? 0, prefix: "−", color: "text-red-600 dark:text-red-400" },
                     ].map((item) => (
-                      <div key={item.label} className="p-4 bg-muted/30 rounded-lg border space-y-1.5">
+                      <div key={item.label} className="p-4 bg-muted/30 rounded-lg border space-y-2">
                         <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
                         <p className={cn("text-base font-bold font-mono", item.color)}>
                           {item.prefix ?? ""}{formatCurrency(item.value)}
                         </p>
-                        {item.sub && <p className="text-[10px] text-muted-foreground">{item.sub}</p>}
+                        {item.sub && <p className="text-[11px] text-muted-foreground">{item.sub}</p>}
                       </div>
                     ))}
 
                     {/* Net Profit highlighted */}
-                    <div className="p-4 bg-primary/5 rounded-lg border border-primary/20 space-y-1.5">
+                    <div className="p-4 bg-primary/5 rounded-lg border border-primary/20 space-y-2">
                       <p className="text-xs font-medium text-primary">Net Profit</p>
                       <p className={cn(
                         "text-base font-bold font-mono",
@@ -906,22 +906,22 @@ export default function InventoryDetails() {
                       )}>
                         {formatCurrency(sustainingCostsData?.netProfit ?? 0)}
                       </p>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] text-muted-foreground">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground">
                           {(sustainingCostsData?.netProfitMargin ?? 0).toFixed(1)}% margin
                         </span>
                         {sustainingCostsData?.status === "profit" && (
-                          <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[10px] px-1.5 py-0">
+                          <Badge className="bg-green-100 hover:bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 text-[11px] px-2 py-0">
                             In Profit
                           </Badge>
                         )}
                         {sustainingCostsData?.status === "breakeven" && (
-                          <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[10px] px-1.5 py-0">
+                          <Badge className="bg-amber-100 hover:bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-[11px] px-2 py-0">
                             Break Even
                           </Badge>
                         )}
                         {sustainingCostsData?.status === "loss" && (
-                          <Badge className="bg-red-100 hover:bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[10px] px-1.5 py-0">
+                          <Badge className="bg-red-100 hover:bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-[11px] px-2 py-0">
                             In Loss
                           </Badge>
                         )}
@@ -1042,7 +1042,7 @@ export default function InventoryDetails() {
                       <CardDescription className="text-xs">Link a product from stock</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label>Product</Label>
                         <Select onValueChange={(val) => { (window as any).selectedBundleComponentId = val; }}>
                           <SelectTrigger>
@@ -1059,7 +1059,7 @@ export default function InventoryDetails() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label>Qty per Bundle</Label>
                         <Input type="number" min="1" defaultValue="1" id="bundle-qty-input" />
                       </div>
@@ -1201,7 +1201,7 @@ export default function InventoryDetails() {
                       {
                         key: "name", header: "Variant", priority: 1 as const,
                         render: (row: any) => (
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex items-center gap-3 min-w-0">
                             <VariantAvatar variant={row} />
                             <div className="min-w-0">
                               <p className="font-medium truncate">{row.name}</p>
@@ -1221,7 +1221,7 @@ export default function InventoryDetails() {
                           return (
                             <div className="flex gap-1 flex-wrap">
                               {entries.map(([key, value]) => (
-                                <Badge key={key} variant="secondary" className="text-[10px] font-semibold px-2 py-0.5 capitalize">
+                                <Badge key={key} variant="secondary" className="text-[11px] font-semibold px-2 py-0.5 capitalize">
                                   <span className="opacity-60 mr-1">{key}:</span>{String(value)}
                                 </Badge>
                               ))}
@@ -1322,7 +1322,7 @@ export default function InventoryDetails() {
                       <CardDescription className="text-xs">Log a new expiry cohort</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label htmlFor="batch-number">Batch Number</Label>
                         <Input
                           id="batch-number"
@@ -1331,7 +1331,7 @@ export default function InventoryDetails() {
                           onChange={(e) => setNewBatchData(prev => ({ ...prev, batchNumber: e.target.value }))}
                         />
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label htmlFor="batch-expiry">Expiry Date</Label>
                         <Input
                           id="batch-expiry" type="date"
@@ -1339,7 +1339,7 @@ export default function InventoryDetails() {
                           onChange={(e) => setNewBatchData(prev => ({ ...prev, expiryDate: e.target.value }))}
                         />
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <Label htmlFor="batch-qty">
                           Starting Quantity{primaryVariant?.unit ? ` (${primaryVariant.unit})` : ""}
                         </Label>
@@ -1450,7 +1450,7 @@ export default function InventoryDetails() {
                                 <p className="font-medium text-xs leading-tight">{log.actorName || "—"}</p>
                               </td>
                               <td className="px-4 py-3">
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${badgeClass}`}>
                                   {log.label}
                                 </span>
                               </td>

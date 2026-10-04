@@ -63,7 +63,7 @@ export function MeasurePicker({ measures, cubes, selected, onChange }: MeasurePi
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">Measure</span>
 
       {selectedDefs.map((measure) => (
@@ -101,7 +101,7 @@ export function MeasurePicker({ measures, cubes, selected, onChange }: MeasurePi
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search measures"
-                className="h-8 pl-7 text-xs"
+                className="h-8 pl-8 text-xs"
               />
             </div>
             {atLimit && (
@@ -127,7 +127,7 @@ export function MeasurePicker({ measures, cubes, selected, onChange }: MeasurePi
                         onClick={() => toggle(measure.id)}
                         disabled={!isSelected && atLimit}
                         className={cn(
-                          "w-full text-left rounded-sm px-2 py-1.5 text-xs hover:bg-accent",
+                          "w-full text-left rounded-sm px-2 py-2 text-xs hover:bg-accent",
                           "disabled:opacity-40 disabled:cursor-not-allowed flex items-start gap-2",
                         )}
                       >

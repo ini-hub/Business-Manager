@@ -453,7 +453,7 @@ export default function InventoryEditPage() {
                             if (t === "supply") form.setValue("sellingPrice", 0, { shouldDirty: true });
                           }}
                           className={cn(
-                            "flex flex-col gap-1.5 rounded-lg border p-4 text-left transition-all",
+                            "flex flex-col gap-2 rounded-lg border p-4 text-left transition-all",
                             field.value === t
                               ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                               : "hover:border-muted-foreground/40 hover:bg-muted/20"
@@ -493,7 +493,7 @@ export default function InventoryEditPage() {
               type="button"
               key={v.id}
               onClick={() => setLocation(`/inventory/${id}/edit?variant=${v.id}`)}
-              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-sm text-left hover:bg-muted/40"
+              className="flex w-full items-center justify-between gap-3 px-3 py-3 text-sm text-left hover:bg-muted/40"
             >
               <span className="truncate font-medium">{v.name}</span>
               <span className="text-muted-foreground font-mono text-xs shrink-0">
@@ -546,7 +546,7 @@ export default function InventoryEditPage() {
           <div className="border-t pt-4 space-y-2">
             <Label className="text-sm font-medium">Variant name</Label>
             {nameManual ? (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <FormField
                   control={form.control}
                   name="name"
@@ -563,7 +563,7 @@ export default function InventoryEditPage() {
                 </button>
               </div>
             ) : (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{watchName}</p>
                   <p className="text-xs text-muted-foreground">Built from the product name and values</p>
@@ -856,12 +856,12 @@ export default function InventoryEditPage() {
             <span className="font-medium">Low-stock alert</span>
             <span className="text-xs text-muted-foreground">{customAlert ? `Alert at ${watchReorder}${stockUnit}` : "Using the store default"}</span>
           </div>
-          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+          <label className="flex items-center gap-3 text-sm cursor-pointer">
             <input type="radio" name="reorder-mode" className="accent-primary h-4 w-4" checked={!customAlert}
               onChange={() => form.setValue("reorderPoint", null, { shouldDirty: true })} />
             Use the store default
           </label>
-          <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+          <label className="flex items-center gap-3 text-sm cursor-pointer">
             <input type="radio" name="reorder-mode" className="accent-primary h-4 w-4" checked={customAlert}
               onChange={() => form.setValue("reorderPoint", 5, { shouldDirty: true })} />
             Set a level for this variant
@@ -960,7 +960,7 @@ export default function InventoryEditPage() {
         </Breadcrumb>
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-bold leading-tight">{variantMode ? primaryVariant?.name : item?.name}</h1>
+            <h1 className="text-[26px] font-bold leading-tight">{variantMode ? primaryVariant?.name : item?.name}</h1>
             <Badge variant="secondary">{typeLabel}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">

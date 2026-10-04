@@ -102,10 +102,10 @@ export default function LeaderboardPage() {
       ) : (
         <Tabs value={tab} onValueChange={(v) => setTab(v as "staff" | "customer")}>
           <TabsList>
-            <TabsTrigger value="staff" className="gap-1.5">
+            <TabsTrigger value="staff" className="gap-2">
               <UserCog className="h-3.5 w-3.5" /> Staff
             </TabsTrigger>
-            <TabsTrigger value="customer" className="gap-1.5">
+            <TabsTrigger value="customer" className="gap-2">
               <Users className="h-3.5 w-3.5" /> Customers
             </TabsTrigger>
           </TabsList>

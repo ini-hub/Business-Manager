@@ -179,7 +179,7 @@ export function SpeedDialFAB({ actions, className }: SpeedDialFABProps) {
                 )}
                 style={{ transitionDelay: delay }}
               >
-                <span className="bg-white dark:bg-gray-800 text-foreground text-sm font-medium px-3 py-1.5 rounded-full shadow-lg border border-border whitespace-nowrap select-none">
+                <span className="bg-white dark:bg-gray-800 text-foreground text-sm font-medium px-3 py-2 rounded-full shadow-lg border border-border whitespace-nowrap select-none">
                   {action.label}
                 </span>
                 <button

@@ -59,7 +59,7 @@ export function KpiTile({
         {delta && (
           <p
             className={cn(
-              "text-[10px] sm:text-xs mt-1 flex items-center gap-1",
+              "text-[11px] sm:text-xs mt-1 flex items-center gap-1",
               tone === "positive" && "text-emerald-600 dark:text-emerald-500",
               tone === "negative" && "text-red-600 dark:text-red-500",
               tone === "neutral" && "text-muted-foreground",

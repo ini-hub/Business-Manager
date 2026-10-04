@@ -424,20 +424,20 @@ export default function StaffFormPage() {
   const contractBadge = (() => {
     const status = staffMember?.contractStatus;
     if (status === "signed") {
-      return <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>;
+      return <Badge className="text-[11px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>;
     }
     if (status === "pending_signature") {
-      return <Badge variant="secondary" className="text-[10px]"><FileClock className="h-2.5 w-2.5 mr-0.5" />Awaiting Signature</Badge>;
+      return <Badge variant="secondary" className="text-[11px]"><FileClock className="h-2.5 w-2.5 mr-0.5" />Awaiting Signature</Badge>;
     }
     if (status === "declined") {
-      return <Badge variant="destructive" className="text-[10px]"><FileX className="h-2.5 w-2.5 mr-0.5" />Contract Declined</Badge>;
+      return <Badge variant="destructive" className="text-[11px]"><FileX className="h-2.5 w-2.5 mr-0.5" />Contract Declined</Badge>;
     }
     if (status === "not_applicable_existing_account") {
-      return <Badge variant="outline" className="text-[10px]">No Signature Required</Badge>;
+      return <Badge variant="outline" className="text-[11px]">No Signature Required</Badge>;
     }
     return form.watch("signedContract")
-      ? <Badge className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>
-      : <Badge variant="secondary" className="text-[10px]"><FileX className="h-2.5 w-2.5 mr-0.5" />No Contract</Badge>;
+      ? <Badge className="text-[11px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-0"><FileCheck className="h-2.5 w-2.5 mr-0.5" />Contract Signed</Badge>
+      : <Badge variant="secondary" className="text-[11px]"><FileX className="h-2.5 w-2.5 mr-0.5" />No Contract</Badge>;
   })();
 
   return (
@@ -448,7 +448,7 @@ export default function StaffFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-semibold text-sm truncate">{staffId ? "Edit Staff Member" : "New Staff Member"}</h1>
+          <h1 className="font-bold text-sm truncate">{staffId ? "Edit Staff Member" : "New Staff Member"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>
         </div>
         <Button size="sm" onClick={form.handleSubmit(onSubmit)} disabled={mutation.isPending || isPreparingContract} className="shrink-0">
@@ -475,8 +475,8 @@ export default function StaffFormPage() {
                     <p className="font-semibold text-sm leading-tight">
                       {[form.watch("firstName"), form.watch("lastName")].filter(Boolean).join(" ") || (staffId ? "Staff Member" : "New Employee")}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <Badge variant="outline" className="text-[10px]">{roleLabel}</Badge>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-[11px]">{roleLabel}</Badge>
                       {contractBadge}
                     </div>
                   </div>
@@ -531,7 +531,7 @@ export default function StaffFormPage() {
 
                   <FormField control={form.control} name="email" render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="flex items-center gap-1.5"><Mail className="h-3 w-3" />Email <span className="text-destructive">*</span></FormLabel>
+                      <FormLabel className="flex items-center gap-2"><Mail className="h-3 w-3" />Email <span className="text-destructive">*</span></FormLabel>
                       <FormControl><Input type="email" placeholder="jane@example.com" className="h-11" {...field} /></FormControl>
                       <FormDescription className="text-xs">
                         {!staffId
@@ -546,7 +546,7 @@ export default function StaffFormPage() {
 
                   <FormField control={form.control} name="staffNumber" render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="flex items-center gap-1.5"><Hash className="h-3 w-3" />Staff ID <span className="text-muted-foreground font-normal text-xs">(optional)</span></FormLabel>
+                      <FormLabel className="flex items-center gap-2"><Hash className="h-3 w-3" />Staff ID <span className="text-muted-foreground font-normal text-xs">(optional)</span></FormLabel>
                       <FormControl><Input placeholder="e.g. STF-001" className="h-11 font-mono" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
@@ -595,7 +595,7 @@ export default function StaffFormPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <FormField control={form.control} name="role" render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="flex items-center gap-1.5"><Shield className="h-3 w-3" />Access Role</FormLabel>
+                        <FormLabel className="flex items-center gap-2"><Shield className="h-3 w-3" />Access Role</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value || "staff"}>
                           <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
                           <SelectContent>
@@ -657,7 +657,7 @@ export default function StaffFormPage() {
 
                 {staffMember?.contractStatus === "signed" ? (
                   <div className="rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
-                    <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1.5">
+                    <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-2">
                       <FileCheck className="h-3.5 w-3.5" /> Signed by {contractDetail?.signature?.typedFullName}
                     </p>
                     {contractDetail?.signature?.signedAt && (
@@ -700,19 +700,19 @@ export default function StaffFormPage() {
                       onValueChange={(v) => setContractType(v as typeof contractType)}
                       className="flex flex-wrap gap-3"
                     >
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="none" id="contract-none" />
                         <label htmlFor="contract-none" className="text-xs cursor-pointer">None for now</label>
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="text" id="contract-text" />
                         <label htmlFor="contract-text" className="text-xs cursor-pointer">Type contract text</label>
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="file" id="contract-file" />
                         <label htmlFor="contract-file" className="text-xs cursor-pointer">Upload file (PDF)</label>
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                      <div className="flex items-center space-x-2">
                         <RadioGroupItem value="image" id="contract-image" />
                         <label htmlFor="contract-image" className="text-xs cursor-pointer">Upload image</label>
                       </div>
@@ -744,14 +744,14 @@ export default function StaffFormPage() {
                             placeholder="Describe the image for accessibility (required)"
                             value={contractAltText}
                             onChange={(e) => setContractAltText(e.target.value)}
-                            className="text-xs h-9"
+                            className="text-xs h-10"
                           />
                         )}
                       </div>
                     )}
 
                     {staffId && contractType !== "none" && staffMember?.inviteStatus === "active" && (
-                      <div className="flex items-start space-x-2 rounded-lg border p-2.5 bg-muted/20">
+                      <div className="flex items-start space-x-2 rounded-lg border p-3 bg-muted/20">
                         <Checkbox
                           id="require-signature-on-attach"
                           checked={requireSignatureOnAttach}
@@ -795,10 +795,10 @@ export default function StaffFormPage() {
                     {isHistoryOpen && (
                       <div className="mt-2 space-y-2">
                         {contractDetail.history.map((v) => (
-                          <div key={v.id} className="rounded-lg border p-2.5 text-[11px] space-y-1.5">
+                          <div key={v.id} className="rounded-lg border p-3 text-[11px] space-y-2">
                             <div className="flex items-center justify-between">
                               <span className="font-medium capitalize">v{v.versionNumber} · {v.contractType}</span>
-                              <Badge variant={v.isCurrent ? "default" : "secondary"} className="text-[9px]">
+                              <Badge variant={v.isCurrent ? "default" : "secondary"} className="text-[11px]">
                                 {v.isCurrent ? "Current" : "Superseded"}
                               </Badge>
                             </div>
@@ -844,7 +844,7 @@ export default function StaffFormPage() {
                         <FormItem className="flex items-center justify-between rounded-xl border p-3 bg-muted/10 hover:bg-muted/20 transition-colors">
                           <div className="pr-2">
                             <FormLabel className="text-xs font-semibold cursor-pointer">{label}</FormLabel>
-                            <FormDescription className="text-[10px] leading-tight">{desc}</FormDescription>
+                            <FormDescription className="text-[11px] leading-tight">{desc}</FormDescription>
                           </div>
                           <FormControl>
                             <Switch checked={field.value} onCheckedChange={field.onChange} />
@@ -857,12 +857,12 @@ export default function StaffFormPage() {
                   {/* Payment Method Override */}
                   {form.watch("overridePaymentMethod") && (
                     <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
-                      <CardContent className="p-3.5 space-y-3">
+                      <CardContent className="p-4 space-y-3">
                         <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Payment Method &amp; Base Salary</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <FormField control={form.control} name="paymentMethod" render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-[10px] font-semibold">Model Override</FormLabel>
+                              <FormLabel className="text-[11px] font-semibold">Model Override</FormLabel>
                               <Select onValueChange={field.onChange} value={field.value || "hybrid"}>
                                 <FormControl><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger></FormControl>
                                 <SelectContent>
@@ -875,7 +875,7 @@ export default function StaffFormPage() {
                           )} />
                           <FormField control={form.control} name="payPerMonth" render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-[10px] font-semibold">Base Salary Override ({currencyInfo?.symbol || "₦"})</FormLabel>
+                              <FormLabel className="text-[11px] font-semibold">Base Salary Override ({currencyInfo?.symbol || "₦"})</FormLabel>
                               <FormControl>
                                 <Input type="number" className="h-8 text-xs font-mono"
                                   disabled={form.watch("paymentMethod") === "commission"}
@@ -891,7 +891,7 @@ export default function StaffFormPage() {
                   {/* Formula Override */}
                   {form.watch("overrideFormula") && (
                     <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
-                      <CardContent className="p-3.5 space-y-2">
+                      <CardContent className="p-4 space-y-2">
                         <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Commission Formula</p>
                         <FormField control={form.control} name="commissionFormulaOverride" render={({ field }) => (
                           <FormItem>
@@ -914,12 +914,12 @@ export default function StaffFormPage() {
                   {/* Commission Rates Override */}
                   {form.watch("overrideCommission") && (
                     <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
-                      <CardContent className="p-3.5 space-y-3">
+                      <CardContent className="p-4 space-y-3">
                         <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Commission Payout Model</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <FormField control={form.control} name="commissionTypeOverride" render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-[10px] font-semibold">Commission Type</FormLabel>
+                              <FormLabel className="text-[11px] font-semibold">Commission Type</FormLabel>
                               <Select onValueChange={field.onChange} value={field.value || "percentage"}>
                                 <FormControl><SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger></FormControl>
                                 <SelectContent>
@@ -931,8 +931,8 @@ export default function StaffFormPage() {
                           )} />
                           <FormField control={form.control} name="commissionRateOverride" render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-[10px] font-semibold">Rate Override (%)</FormLabel>
-                              <FormDescription className="text-[9px]">Blank = store default ({storeDefaultCommissionRate}%)</FormDescription>
+                              <FormLabel className="text-[11px] font-semibold">Rate Override (%)</FormLabel>
+                              <FormDescription className="text-[11px]">Blank = store default ({storeDefaultCommissionRate}%)</FormDescription>
                               <FormControl>
                                 <Input type="number" min={0} max={100} className="h-8 text-xs font-mono"
                                   placeholder={`${storeDefaultCommissionRate}%`}
@@ -943,7 +943,7 @@ export default function StaffFormPage() {
                           )} />
                           <FormField control={form.control} name="commissionFixedAmountOverride" render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-[10px] font-semibold">Flat Amount ({currencyInfo?.symbol || "₦"})</FormLabel>
+                              <FormLabel className="text-[11px] font-semibold">Flat Amount ({currencyInfo?.symbol || "₦"})</FormLabel>
                               <FormControl>
                                 <Input type="number" className="h-8 text-xs font-mono"
                                   disabled={form.watch("commissionTypeOverride") !== "fixed_per_service" && form.watch("commissionFormulaOverride") !== "formula_f"}
@@ -959,7 +959,7 @@ export default function StaffFormPage() {
                   {/* Attendance Rates Override */}
                   {form.watch("overrideAttendanceRates") && (
                     <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
-                      <CardContent className="p-3.5 space-y-3">
+                      <CardContent className="p-4 space-y-3">
                         <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Roster &amp; Transport Daily Rates</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {[
@@ -968,7 +968,7 @@ export default function StaffFormPage() {
                           ].map(({ name, label }) => (
                             <FormField key={name} control={form.control} name={name} render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-[10px] font-semibold">{label}</FormLabel>
+                                <FormLabel className="text-[11px] font-semibold">{label}</FormLabel>
                                 <FormControl>
                                   <Input type="number" className="h-8 text-xs font-mono" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} />
                                 </FormControl>
@@ -985,7 +985,7 @@ export default function StaffFormPage() {
                             { toggle: "payHolidayDaysOverride", rate: "holidayDayRateOverride", label: "Paid Holidays" },
                             { toggle: "payOffDaysOverride", rate: "offDayRateOverride", label: "Paid Sundays" },
                           ].map(({ toggle, rate, label }) => (
-                            <div key={toggle} className="p-2.5 border rounded-xl bg-background/50 space-y-2">
+                            <div key={toggle} className="p-3 border rounded-xl bg-background/50 space-y-2">
                               <FormField control={form.control} name={toggle} render={({ field }) => (
                                 <FormItem className="flex items-center justify-between space-y-0">
                                   <FormLabel className="text-[11px] font-semibold cursor-pointer">{label}</FormLabel>
@@ -994,7 +994,7 @@ export default function StaffFormPage() {
                               )} />
                               <FormField control={form.control} name={rate} render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel className="text-[9px] text-muted-foreground">Daily Rate (₦)</FormLabel>
+                                  <FormLabel className="text-[11px] text-muted-foreground">Daily Rate (₦)</FormLabel>
                                   <FormControl>
                                     <Input type="number" disabled={!form.watch(toggle)} className="h-7 text-xs font-mono p-1"
                                       {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} />
@@ -1038,7 +1038,7 @@ export default function StaffFormPage() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="text-destructive hover:text-destructive gap-1.5"
+                        className="text-destructive hover:text-destructive gap-2"
                         disabled={unlinkCustomerMutation.isPending}
                         onClick={() => unlinkCustomerMutation.mutate()}
                       >
@@ -1052,7 +1052,7 @@ export default function StaffFormPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="gap-1.5"
+                        className="gap-2"
                         onClick={() => setIsLinkDialogOpen(true)}
                       >
                         <Link2 className="h-3.5 w-3.5" />
@@ -1062,7 +1062,7 @@ export default function StaffFormPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="gap-1.5"
+                        className="gap-2"
                         disabled={linkCustomerMutation.isPending}
                         onClick={() => linkCustomerMutation.mutate({ createNew: true })}
                       >
@@ -1111,7 +1111,7 @@ export default function StaffFormPage() {
                     <button
                       key={c.id}
                       type="button"
-                      className={`w-full text-left px-3 py-2.5 hover:bg-muted transition-colors ${selectedLinkCustomerId === c.id ? "bg-muted" : ""}`}
+                      className={`w-full text-left px-3 py-3 hover:bg-muted transition-colors ${selectedLinkCustomerId === c.id ? "bg-muted" : ""}`}
                       onClick={() => setSelectedLinkCustomerId(c.id)}
                     >
                       <p className="text-sm font-medium">{c.name}</p>

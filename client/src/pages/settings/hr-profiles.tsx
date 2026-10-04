@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { BackToSettingsButton } from "@/components/settings-back-button";
+import { SettingsPageHeader } from "@/components/settings-page-header";
 import { HrProfileSettingsSection } from "./components/hr-profile-settings";
 import { HrSectionFieldsBuilder } from "./components/hr-section-fields-builder";
 
@@ -15,11 +14,7 @@ export default function SettingsHrProfilesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Staff Profile Settings"
-        description="Configure profile sections and manage field requirements during onboarding."
-        actions={<BackToSettingsButton />}
-      />
+      <SettingsPageHeader title="Staff profile settings" description="What new staff fill in when they join." scope="business" />
       <HrProfileSettingsSection onSelectSection={setSelectedSection} />
     </div>
   );

@@ -54,7 +54,7 @@ export function QuoteItemRow({
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <p className="font-medium text-sm leading-snug">{item.inventory.name}</p>
             {item.customPrice !== item.inventory.sellingPrice && (
-              <Badge variant="secondary" className="text-[9px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
+              <Badge variant="secondary" className="text-[11px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
                 Custom
               </Badge>
             )}
@@ -113,8 +113,8 @@ export function QuoteItemRow({
       </div>
 
       {/* Row 3: editable unit price, same as the POS cart */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[10px] text-muted-foreground shrink-0">Unit price</span>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-muted-foreground shrink-0">Unit price</span>
         <Input
           type="number"
           step="0.01"
@@ -130,7 +130,7 @@ export function QuoteItemRow({
           data-testid={`input-price-quote-item-${item.inventory.id}`}
           onKeyDown={advanceFocus}
         />
-        <span className="text-[10px] text-muted-foreground shrink-0">
+        <span className="text-[11px] text-muted-foreground shrink-0">
           List: {formatCurrency(item.inventory.sellingPrice)}
         </span>
       </div>
@@ -139,7 +139,7 @@ export function QuoteItemRow({
       {item.inventory.allowFractional && (
         <div className="flex items-center gap-1 flex-wrap -mt-1">
           {item.inventory.unit && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               {formatQuantity(item.quantity, item.inventory.unit)} selected ·
             </span>
           )}
@@ -148,7 +148,7 @@ export function QuoteItemRow({
               key={preset}
               type="button"
               onClick={() => onSetExactQuantity(item.inventory.id, preset)}
-              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+              className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
                 item.quantity === preset
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-muted/50 text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"

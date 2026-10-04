@@ -104,12 +104,12 @@ export function NotificationSheet() {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative h-9 w-9" title="Notifications" aria-label="Notifications">
+        <Button variant="ghost" size="icon" className="relative h-10 w-10" title="Notifications" aria-label="Notifications">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <Badge 
               variant="destructive" 
-              className="absolute -top-1 -right-1 h-4 w-4 flex items-center justify-center p-0 text-[10px]"
+              className="absolute -top-1 -right-1 h-4 w-4 flex items-center justify-center p-0 text-[11px]"
             >
               {unreadCount}
             </Badge>
@@ -165,10 +165,10 @@ export function NotificationSheet() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                           {n.type.replace('_', ' ')}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[11px] text-muted-foreground">
                           {formatDistanceToNow(parseISO(n.createdAt), { addSuffix: true })}
                         </span>
                       </div>
@@ -178,14 +178,14 @@ export function NotificationSheet() {
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          className="h-7 mt-2 text-[10px] px-2 hover:bg-primary/10 hover:text-primary"
+                          className="h-7 mt-2 text-[11px] px-2 hover:bg-primary/10 hover:text-primary"
                           onClick={() => markReadMutation.mutate(n.id)}
                           disabled={markReadMutation.isPending}
                         >
                           Mark as read
                         </Button>
                       ) : (
-                        <span className="inline-flex items-center gap-1 mt-2 text-[9px] text-muted-foreground font-medium">
+                        <span className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground font-medium">
                           <Check className="h-3 w-3 text-emerald-500" /> Read
                         </span>
                       )}

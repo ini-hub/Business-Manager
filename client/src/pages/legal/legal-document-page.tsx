@@ -39,7 +39,7 @@ function LegalDocumentPage({ documentType }: { documentType: string }) {
 
         {data && (
           <>
-            <h1 className="text-3xl font-bold tracking-tight mb-1">{data.title}</h1>
+            <h1 className="text-[26px] font-bold tracking-tight mb-1">{data.title}</h1>
             <p className="text-xs text-muted-foreground mb-8">
               Version {data.versionNumber} · Last updated {new Date(data.publishedAt).toLocaleDateString()}
             </p>

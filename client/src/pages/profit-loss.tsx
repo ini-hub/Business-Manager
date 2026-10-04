@@ -213,7 +213,7 @@ export default function ProfitLossPage() {
       header: "Item",
       render: (pl: ProfitLossWithInventory) => (
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
             {pl.inventory?.type === "product" ? (
               <Package className="h-4 w-4 text-muted-foreground" />
             ) : (
@@ -241,7 +241,7 @@ export default function ProfitLossPage() {
         const unit = pl.inventory?.unit;
         const qty = parseFloat(Number(pl.totalQuantitySold).toFixed(2));
         return (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <ShoppingBag className="h-3 w-3 text-muted-foreground" />
             <span className="font-mono">{qty}{unit ? ` ${unit}` : ""}</span>
           </div>
@@ -641,7 +641,7 @@ export default function ProfitLossPage() {
                       <div className="border-t border-muted bg-muted/5 divide-y divide-muted/50 max-h-60 overflow-y-auto">
                         {summary?.discountsList?.length > 0 ? (
                           summary.discountsList.map((d: any, idx: number) => (
-                            <div key={idx} className="p-3 text-xs flex flex-col gap-1.5">
+                            <div key={idx} className="p-3 text-xs flex flex-col gap-2">
                               <div className="flex justify-between items-center">
                                 <span
                                   className={`font-mono font-medium text-foreground ${d.transactionId ? "cursor-pointer hover:underline" : ""}`}
@@ -661,7 +661,7 @@ export default function ProfitLossPage() {
                                 <span>{d.createdAt ? format(new Date(d.createdAt), "MMM d, h:mm a") : ""}</span>
                               </div>
                               {d.discountReason && (
-                                <div className="text-[11px] text-muted-foreground bg-muted/20 p-1.5 rounded italic mt-0.5">
+                                <div className="text-[11px] text-muted-foreground bg-muted/20 p-2 rounded italic mt-0.5">
                                   "{d.discountReason}"
                                 </div>
                               )}
@@ -705,7 +705,7 @@ export default function ProfitLossPage() {
                     <span className="font-mono text-red-600">− {formatCurrency(summary?.totalExpenses ?? 0)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center font-bold text-xl pt-4 border-t mt-4 mb-4">
+                  <div className="flex justify-between items-center font-bold text-lg pt-4 border-t mt-4 mb-4">
                     <span>OPERATING PROFIT</span>
                     <span className={`font-mono ${opProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                       {formatCurrency(opProfit)}
@@ -816,7 +816,7 @@ export default function ProfitLossPage() {
 
               <Separator className="my-4" />
 
-              <div className="flex justify-between items-center font-extrabold text-xl pt-2 border-t mt-2">
+              <div className="flex justify-between items-center font-bold text-lg pt-2 border-t mt-2">
                 <span>NET INCREASE IN CASH</span>
                 <span className={`font-mono ${(cashFlowData?.netCashIncrease ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                   {formatCurrency(cashFlowData?.netCashIncrease ?? 0)}

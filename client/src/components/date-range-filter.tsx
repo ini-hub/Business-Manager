@@ -93,13 +93,13 @@ export function DateRangeFilter({
         <SelectTrigger
           className={cn(
             compact
-              ? "h-8 w-auto min-w-0 gap-1.5 rounded-full border-input px-3 text-xs [&>svg]:h-3.5 [&>svg]:w-3.5"
-              : "h-9 min-w-[120px] flex-1 sm:flex-initial",
+              ? "h-8 w-auto min-w-0 gap-2 rounded-full border-input px-3 text-xs [&>svg]:h-3.5 [&>svg]:w-3.5"
+              : "h-10 min-w-[120px] flex-1 sm:flex-initial",
           )}
           data-testid="select-date-preset"
         >
           {compact ? (
-            <span className="!flex items-center gap-1.5 shrink-0">
+            <span className="!flex items-center gap-2 shrink-0">
               <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
               {activePreset?.label ?? "Select range"}
             </span>
@@ -123,7 +123,7 @@ export function DateRangeFilter({
               <Button
                 variant="outline"
                 className={cn(
-                  "h-9 justify-start text-left font-normal min-w-[110px] flex-1 sm:flex-initial",
+                  "h-10 justify-start text-left font-normal min-w-[110px] flex-1 sm:flex-initial",
                   !dateRange.from && "text-muted-foreground"
                 )}
                 data-testid="button-date-from"
@@ -149,7 +149,7 @@ export function DateRangeFilter({
               <Button
                 variant="outline"
                 className={cn(
-                  "h-9 justify-start text-left font-normal min-w-[110px] flex-1 sm:flex-initial",
+                  "h-10 justify-start text-left font-normal min-w-[110px] flex-1 sm:flex-initial",
                   !dateRange.to && "text-muted-foreground"
                 )}
                 data-testid="button-date-to"
@@ -179,7 +179,7 @@ export function DateRangeFilter({
         <IconButton
           variant="ghost"
           label="Clear dates"
-          className={compact ? "h-8 w-8" : "h-9 w-9"}
+          className={compact ? "h-8 w-8" : "h-10 w-10"}
           onClick={() => {
             setSelectedPreset("all");
             onDateRangeChange({ from: undefined, to: undefined });

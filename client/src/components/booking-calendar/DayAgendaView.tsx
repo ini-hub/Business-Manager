@@ -84,9 +84,9 @@ export function DayAgendaView({ day, bookings, currency, staffNames, onBookingCl
         <Link href={`/bookings/new?date=${format(day, "yyyy-MM-dd")}`}>Book this day</Link>
       </Button>
       <div className="hidden items-center gap-4 border-t border-border pt-3 text-xs text-muted-foreground lg:flex">
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border border-primary/30 bg-primary/10" />Upcoming</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border border-border bg-muted" />Past</span>
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm border border-amber-300 bg-amber-100" />No start time</span>
+        <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm border border-primary/30 bg-primary/10" />Upcoming</span>
+        <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm border border-border bg-muted" />Past</span>
+        <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm border border-amber-300 bg-amber-100" />No start time</span>
       </div>
     </section>
   );

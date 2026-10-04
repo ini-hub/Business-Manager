@@ -109,7 +109,7 @@ export function PinToDashboardDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-xs">Dashboard</Label>
             <Select value={target} onValueChange={setTarget}>
               <SelectTrigger>
@@ -122,7 +122,7 @@ export function PinToDashboardDialog({
                   </SelectItem>
                 ))}
                 <SelectItem value={NEW_DASHBOARD}>
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-2">
                     <Plus className="h-3 w-3" /> New dashboard…
                   </span>
                 </SelectItem>
@@ -131,7 +131,7 @@ export function PinToDashboardDialog({
           </div>
 
           {creatingNew && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="dashboard-name" className="text-xs">
                 New dashboard name
               </Label>
@@ -145,7 +145,7 @@ export function PinToDashboardDialog({
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="tile-title" className="text-xs">
               Tile title
             </Label>

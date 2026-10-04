@@ -111,7 +111,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
                   <p className="text-sm font-medium">{member.name}</p>
                   {!own && <p className="text-xs text-muted-foreground">Using branch default</p>}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {WEEKDAYS.map((label, day) => (
                     <Button
                       key={day}
@@ -138,7 +138,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-4">
-            <div className="space-y-1.5 sm:col-span-2">
+            <div className="space-y-2 sm:col-span-2">
               <Label>Staff</Label>
               <Select value={newException.staffId} onValueChange={(v) => setNewException((p) => ({ ...p, staffId: v }))}>
                 <SelectTrigger data-testid="select-exception-staff"><SelectValue placeholder="Choose staff" /></SelectTrigger>
@@ -147,7 +147,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Date</Label>
               <Input
                 type="date"
@@ -156,7 +156,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
                 data-testid="input-exception-date"
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Type</Label>
               <Select value={newException.kind} onValueChange={(v) => setNewException((p) => ({ ...p, kind: v as "off" | "working" }))}>
                 <SelectTrigger data-testid="select-exception-kind"><SelectValue /></SelectTrigger>
@@ -182,7 +182,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
           ) : (
             <div className="divide-y">
               {data!.exceptions.map((ex) => (
-                <div key={ex.id} className="flex items-center justify-between gap-3 py-2.5" data-testid={`row-exception-${ex.id}`}>
+                <div key={ex.id} className="flex items-center justify-between gap-3 py-3" data-testid={`row-exception-${ex.id}`}>
                   <div>
                     <p className="text-sm font-medium">{staffName(ex.staffId)}</p>
                     <p className="text-xs text-muted-foreground">{format(parseISO(ex.date), "EEE d MMM yyyy")}</p>

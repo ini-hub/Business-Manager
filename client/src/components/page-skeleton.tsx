@@ -31,7 +31,7 @@ export function PageSkeleton() {
           <Skeleton className="h-8 w-24 rounded-md" />
         </div>
         <div className="p-4 border-b">
-          <Skeleton className="h-9 w-full max-w-xs rounded-md" />
+          <Skeleton className="h-10 w-full max-w-xs rounded-md" />
         </div>
         <div className="divide-y">
           {[...Array(6)].map((_, i) => (

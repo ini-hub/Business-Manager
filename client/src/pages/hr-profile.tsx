@@ -55,7 +55,7 @@ export default function HrProfilePage() {
         <IconButton label="Back" variant="ghost" className="h-8 w-8" onClick={() => setLocation(backHref)}>
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
-        <h1 className="text-xl font-semibold">{isViewingSelf ? "My HR Profile" : "HR Profile"}</h1>
+        <h1 className="text-lg font-bold">{isViewingSelf ? "My HR Profile" : "HR Profile"}</h1>
       </div>
 
       <Tabs defaultValue="personal">

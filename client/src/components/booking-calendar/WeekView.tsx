@@ -23,7 +23,7 @@ export function WeekView({ anchorDate, bookings, onDayClick }: WeekViewProps) {
             onClick={() => onDayClick(day)}
             data-testid={`calendar-week-day-${format(day, "yyyy-MM-dd")}`}
             className={cn(
-              "flex min-h-[4rem] flex-col gap-1.5 rounded-2xl border bg-card p-3 text-left transition-colors hover:bg-muted/40 lg:min-h-[14rem]",
+              "flex min-h-[4rem] flex-col gap-2 rounded-2xl border bg-card p-3 text-left transition-colors hover:bg-muted/40 lg:min-h-[14rem]",
               selected ? "border-primary ring-1 ring-primary" : "border-border",
             )}
           >

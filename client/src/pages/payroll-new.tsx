@@ -109,7 +109,7 @@ export default function PayrollNewPage() {
       />
       <Card>
         <CardContent className="pt-6 space-y-5">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label>Period Type</Label>
             <Select value={periodType} onValueChange={(v) => handlePeriodTypeChange(v as PayrollPeriodType)}>
               <SelectTrigger>
@@ -125,7 +125,7 @@ export default function PayrollNewPage() {
 
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="start-date">Start Date</Label>
                 <Input
                   id="start-date"
@@ -134,7 +134,7 @@ export default function PayrollNewPage() {
                   onChange={(e) => setStartDate(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label htmlFor="end-date">End Date</Label>
                 <Input
                   id="end-date"

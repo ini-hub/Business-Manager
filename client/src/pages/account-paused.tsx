@@ -18,7 +18,7 @@ export function AccountPaused() {
           <div className="rounded-full bg-muted p-3">
             <PauseCircle className="h-6 w-6 text-muted-foreground" />
           </div>
-          <h1 className="text-xl font-bold">This business account is paused</h1>
+          <h1 className="text-lg font-bold">This business account is paused</h1>
           <p className="text-muted-foreground">
             Please contact your business owner to reactivate the account before you can continue.
           </p>

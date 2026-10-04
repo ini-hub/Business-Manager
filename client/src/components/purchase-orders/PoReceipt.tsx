@@ -78,7 +78,7 @@ export function PoReceipt({ poId, receiptName, hasReceipt, canEdit, deliveryRece
       </div>
 
       {deliveryReceipts.length > 0 && (
-        <div className="border-t pt-3 space-y-1.5">
+        <div className="border-t pt-3 space-y-2">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Delivery receipts</p>
           {deliveryReceipts.map((r) => (
             <a

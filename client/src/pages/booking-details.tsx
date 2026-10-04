@@ -168,7 +168,7 @@ export default function BookingDetailsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center text-center">
         <AlertCircle className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-2xl font-bold mb-2">Booking Not Found</h2>
+        <h2 className="text-lg font-bold mb-2">Booking Not Found</h2>
         <p className="text-muted-foreground mb-6">The booking you're looking for doesn't exist or you don't have access.</p>
         <Button onClick={() => setLocation(backHref)}>Back to Bookings</Button>
       </div>
@@ -411,7 +411,7 @@ export default function BookingDetailsPage() {
                     )}
                     <div className="flex justify-between items-center pt-2 border-t">
                       <p className="font-medium">Total Price:</p>
-                      <p className="text-xl font-bold">
+                      <p className="text-lg font-bold">
                         ₦{(booking.totalPrice || booking.items?.reduce((acc: number, item: any) => acc + item.totalPrice, 0)).toLocaleString()}
                       </p>
                     </div>

@@ -61,7 +61,7 @@ function StatCard({ value, suffix, label, started }: { value: number; suffix: st
   const count = useCounter(value, 1800, started);
   return (
     <div className="text-center">
-      <div className="text-4xl sm:text-5xl font-black text-white tabular-nums">
+      <div className="text-4xl sm:text-5xl font-bold text-white tabular-nums">
         {count.toLocaleString()}{suffix}
       </div>
       <div className="text-sm text-blue-300/70 mt-1 font-medium">{label}</div>
@@ -83,11 +83,11 @@ function FeatureCard({ icon: Icon, title, desc, color }: { icon: any; title: str
 
 function FlowNode({ label, icon: Icon, pos, delay }: { label: string; icon: any; pos: string; delay: string }) {
   return (
-    <div className={`absolute ${pos} flex flex-col items-center gap-1.5`} style={{ animationDelay: delay }}>
+    <div className={`absolute ${pos} flex flex-col items-center gap-2`} style={{ animationDelay: delay }}>
       <div className="h-10 w-10 rounded-full bg-[#0d1f3c] border border-[#1169C7]/40 flex items-center justify-center shadow-lg shadow-blue-900/40 animate-float">
         <Icon className="h-[18px] w-[18px] text-blue-400" />
       </div>
-      <span className="text-[10px] font-semibold text-blue-400/60 whitespace-nowrap">{label}</span>
+      <span className="text-[11px] font-semibold text-blue-400/60 whitespace-nowrap">{label}</span>
     </div>
   );
 }
@@ -120,7 +120,7 @@ function PricingCard({ plan, highlighted }: { plan: Plan; highlighted?: boolean 
       <div>
         <h3 className="font-bold text-white">{plan.name}</h3>
         <div className="mt-2 flex items-baseline gap-1">
-          <span className="text-3xl font-black text-white">
+          <span className="text-3xl font-bold text-white">
             {plan.currency} {Number(plan.priceMonthly).toLocaleString()}
           </span>
           <span className="text-xs text-white/45">/mo</span>
@@ -146,7 +146,7 @@ function PricingCard({ plan, highlighted }: { plan: Plan; highlighted?: boolean 
 function Step({ n, title, desc }: { n: string; title: string; desc: string }) {
   return (
     <div className="flex gap-5 items-start">
-      <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#1169C7] flex items-center justify-center text-white font-black text-base shadow-lg shadow-blue-600/30">
+      <div className="shrink-0 h-11 w-11 rounded-2xl bg-[#1169C7] flex items-center justify-center text-white font-bold text-base shadow-lg shadow-blue-600/30">
         {n}
       </div>
       <div>
@@ -172,11 +172,11 @@ export default function Landing() {
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 border-b border-white/[0.06] bg-[hsl(214,22%,5%)]/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <div className="h-8 w-8 rounded-lg bg-[#1169C7] flex items-center justify-center shadow-md shadow-blue-600/40">
               <Coins className="h-4 w-4 text-white" />
             </div>
-            <span className="text-xl font-black tracking-tight">
+            <span className="text-lg font-bold tracking-tight">
               Ko<span className="text-[#4d9fff]">wope</span>
             </span>
           </div>
@@ -199,7 +199,7 @@ export default function Landing() {
           </div>
 
           <button className="md:hidden text-white/60 hover:text-white p-1" onClick={() => setMenuOpen(v => !v)}>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className={`h-0.5 w-5 bg-current transition-all ${menuOpen ? "rotate-45 translate-y-2" : ""}`} />
               <div className={`h-0.5 w-5 bg-current transition-all ${menuOpen ? "opacity-0" : ""}`} />
               <div className={`h-0.5 w-5 bg-current transition-all ${menuOpen ? "-rotate-45 -translate-y-2" : ""}`} />
@@ -234,13 +234,13 @@ export default function Landing() {
           {/* Left — copy */}
           <div>
             {/* Name meaning badge — cultural flavor, not primary message */}
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/8 px-3.5 py-1.5 text-xs font-semibold text-amber-400/90 mb-6">
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/8 px-4 py-2 text-xs font-semibold text-amber-400/90 mb-6">
               <Coins className="h-3 w-3" />
               Kowope — Yoruba for "gather all the money completely"
             </div>
 
             {/* English-led headline for global clarity */}
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-black leading-[1.05] tracking-tight mb-5">
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold leading-[1.05] tracking-tight mb-5">
               One platform.{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4d9fff] via-[#1169C7] to-[#4d9fff]">
                 Every naira.
@@ -257,23 +257,23 @@ export default function Landing() {
 
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Link href="/auth/signup">
-                <Button size="lg" className="bg-[#1169C7] hover:bg-[#1a7ae0] text-white font-black text-sm px-7 py-5 rounded-xl shadow-xl shadow-blue-700/30 border-0 gap-2 group">
+                <Button size="lg" className="bg-[#1169C7] hover:bg-[#1a7ae0] text-white font-bold text-sm px-8 py-5 rounded-xl shadow-xl shadow-blue-700/30 border-0 gap-2 group">
                   Start for free
                   <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
                 </Button>
               </Link>
               <Link href="/auth/login">
-                <Button size="lg" variant="outline" className="border-white/15 text-white/80 hover:bg-white/8 hover:text-white text-sm px-7 py-5 rounded-xl">
+                <Button size="lg" variant="outline" className="border-white/15 text-white/80 hover:bg-white/8 hover:text-white text-sm px-8 py-5 rounded-xl">
                   Sign in to your account
                 </Button>
               </Link>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-white/40">
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />No credit card</span>
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />Works offline</span>
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />Multi-currency</span>
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />Any device</span>
+              <span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />No credit card</span>
+              <span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />Works offline</span>
+              <span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />Multi-currency</span>
+              <span className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-[#4d9fff]" />Any device</span>
             </div>
           </div>
 
@@ -305,7 +305,7 @@ export default function Landing() {
             <div className="relative z-10 h-28 w-28 rounded-full bg-gradient-to-br from-[#1169C7] to-[#0a4a9e] flex items-center justify-center shadow-2xl shadow-blue-700/50">
               <div className="h-24 w-24 rounded-full bg-gradient-to-br from-[#1a7ae0] to-[#1169C7] flex flex-col items-center justify-center gap-0.5">
                 <Coins className="h-7 w-7 text-white" />
-                <span className="text-[9px] font-black text-white/80 tracking-[0.15em] uppercase">Kowope</span>
+                <span className="text-[11px] font-bold text-white/80 tracking-[0.15em] uppercase">Kowope</span>
               </div>
               <div className="absolute inset-0 rounded-full border-2 border-[#1169C7]/50 animate-ping" style={{ animationDuration: "3s" }} />
               <div className="absolute -inset-4 rounded-full border border-[#1169C7]/15 animate-ping" style={{ animationDuration: "3s", animationDelay: "0.8s" }} />
@@ -344,7 +344,7 @@ export default function Landing() {
               <Globe className="h-3 w-3" />
               Built for business everywhere
             </div>
-            <h2 className="text-4xl sm:text-5xl font-black leading-tight mb-5">
+            <h2 className="text-4xl sm:text-5xl font-bold leading-tight mb-5">
               Scattered data costs you{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4d9fff] to-[#1169C7]">
                 real money.
@@ -377,16 +377,16 @@ export default function Landing() {
             {/* Main card — uses app's card bg to bridge visually */}
             <div className="relative rounded-2xl border border-[#1169C7]/25 bg-[hsl(214,22%,8%)] p-6 shadow-2xl">
               <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <div className="h-8 w-8 rounded-lg bg-[#1169C7]/20 border border-[#1169C7]/30 flex items-center justify-center">
                     <BarChart3 className="h-4 w-4 text-blue-400" />
                   </div>
                   <div>
                     <p className="text-xs font-bold text-white">Today's Summary</p>
-                    <p className="text-[10px] text-white/40">All stores combined</p>
+                    <p className="text-[11px] text-white/40">All stores combined</p>
                   </div>
                 </div>
-                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5 flex items-center gap-1">
+                <span className="text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5 flex items-center gap-1">
                   <span className="h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />Live
                 </span>
               </div>
@@ -399,9 +399,9 @@ export default function Landing() {
                   { label: "Outstanding", value: "₦18,000", trend: "2 overdue", up: false },
                 ].map(s => (
                   <div key={s.label} className="rounded-xl bg-white/[0.04] border border-white/[0.06] p-3">
-                    <p className="text-[9px] text-white/40 mb-1 uppercase tracking-wide">{s.label}</p>
-                    <p className="text-sm font-black text-white">{s.value}</p>
-                    <p className={`text-[9px] font-semibold mt-0.5 flex items-center gap-0.5 ${s.up ? "text-emerald-400" : "text-amber-400"}`}>
+                    <p className="text-[11px] text-white/40 mb-1 uppercase tracking-wide">{s.label}</p>
+                    <p className="text-sm font-bold text-white">{s.value}</p>
+                    <p className={`text-[11px] font-semibold mt-0.5 flex items-center gap-0.5 ${s.up ? "text-emerald-400" : "text-amber-400"}`}>
                       <TrendingUp className="h-2.5 w-2.5" />{s.trend}
                     </p>
                   </div>
@@ -409,8 +409,8 @@ export default function Landing() {
               </div>
 
               {/* Revenue bar */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-[9px] text-white/35">
+              <div className="space-y-2">
+                <div className="flex justify-between text-[11px] text-white/35">
                   <span>Daily target</span>
                   <span>71% reached</span>
                 </div>
@@ -430,7 +430,7 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 rounded-full border border-[#1169C7]/30 bg-[#1169C7]/10 px-3 py-1 text-xs font-semibold text-blue-400 mb-4">
               Everything in one place
             </div>
-            <h2 className="text-4xl sm:text-5xl font-black mb-3">
+            <h2 className="text-4xl sm:text-5xl font-bold mb-3">
               Every tool your{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4d9fff] to-[#1169C7]">
                 business needs.
@@ -464,7 +464,7 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 rounded-full border border-[#1169C7]/30 bg-[#1169C7]/10 px-3 py-1 text-xs font-semibold text-blue-400 mb-5">
               Up and running in minutes
             </div>
-            <h2 className="text-4xl font-black mb-10">
+            <h2 className="text-4xl font-bold mb-10">
               Three steps to{" "}
               <span className="text-[#4d9fff]">gather everything.</span>
             </h2>
@@ -484,7 +484,7 @@ export default function Landing() {
               { icon: CreditCard, title: "Multiple payment methods", desc: "Cash, card, bank transfer, split payments, store credit — all in one checkout." },
             ].map(item => (
               <div key={item.title} className="flex gap-4 items-start rounded-xl border border-white/[0.07] bg-white/[0.03] p-4 hover:border-[#1169C7]/30 transition-colors">
-                <div className="h-9 w-9 rounded-lg bg-[#1169C7]/20 border border-[#1169C7]/25 flex items-center justify-center shrink-0">
+                <div className="h-10 w-10 rounded-lg bg-[#1169C7]/20 border border-[#1169C7]/25 flex items-center justify-center shrink-0">
                   <item.icon className="h-4 w-4 text-blue-400" />
                 </div>
                 <div>
@@ -504,7 +504,7 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 rounded-full border border-[#1169C7]/30 bg-[#1169C7]/10 px-3 py-1 text-xs font-semibold text-blue-400 mb-4">
               From our users
             </div>
-            <h2 className="text-4xl font-black">
+            <h2 className="text-4xl font-bold">
               Real businesses.{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4d9fff] to-[#1169C7]">
                 Real results.
@@ -538,7 +538,7 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 rounded-full border border-[#1169C7]/30 bg-[#1169C7]/10 px-3 py-1 text-xs font-semibold text-blue-400 mb-4">
               Simple pricing
             </div>
-            <h2 className="text-4xl sm:text-5xl font-black mb-3">
+            <h2 className="text-4xl sm:text-5xl font-bold mb-3">
               Start free.{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4d9fff] to-[#1169C7]">
                 Upgrade when ready.
@@ -565,7 +565,7 @@ export default function Landing() {
       {/* ── Final CTA ───────────────────────────────────────────────────── */}
       <section className="py-24 relative z-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
-          <div className="relative rounded-3xl border border-[#1169C7]/25 bg-[hsl(214,22%,8%)] p-12 sm:p-16 overflow-hidden">
+          <div className="relative rounded-2xl border border-[#1169C7]/25 bg-[hsl(214,22%,8%)] p-12 sm:p-16 overflow-hidden">
             {/* Blue glow */}
             <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-64 w-64 rounded-full bg-[#1169C7]/15 blur-[80px]" />
 
@@ -574,7 +574,7 @@ export default function Landing() {
                 <Coins className="h-7 w-7 text-white" />
               </div>
 
-              <h2 className="text-4xl sm:text-5xl font-black mb-3">
+              <h2 className="text-4xl sm:text-5xl font-bold mb-3">
                 Gather every naira.
               </h2>
               {/* Yoruba used as flavor in the CTA — cultural depth, not primary message */}
@@ -586,7 +586,7 @@ export default function Landing() {
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Link href="/auth/signup">
-                  <Button size="lg" className="bg-[#1169C7] hover:bg-[#1a7ae0] text-white font-black text-sm px-10 py-5 rounded-xl shadow-xl shadow-blue-700/30 border-0 gap-2 group">
+                  <Button size="lg" className="bg-[#1169C7] hover:bg-[#1a7ae0] text-white font-bold text-sm px-10 py-5 rounded-xl shadow-xl shadow-blue-700/30 border-0 gap-2 group">
                     Get started — it's free
                     <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
                   </Button>
@@ -606,11 +606,11 @@ export default function Landing() {
       {/* ── Footer ──────────────────────────────────────────────────────── */}
       <footer className="border-t border-white/[0.06] py-10">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <div className="h-7 w-7 rounded-lg bg-[#1169C7] flex items-center justify-center">
               <Coins className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="font-black text-sm">Ko<span className="text-[#4d9fff]">wope</span></span>
+            <span className="font-bold text-sm">Ko<span className="text-[#4d9fff]">wope</span></span>
           </div>
           <p className="text-[11px] text-white/25 text-center">
             Ko gbogbo owo — Gather all the money completely. Built for businesses worldwide.

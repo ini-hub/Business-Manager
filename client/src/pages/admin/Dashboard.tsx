@@ -45,7 +45,7 @@ export default function Dashboard() {
 
   if (error || !data) {
     return (
-      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-3xl flex items-center gap-4 text-rose-700 dark:text-rose-300 max-w-xl mx-auto">
+      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl flex items-center gap-4 text-rose-700 dark:text-rose-300 max-w-xl mx-auto">
         <AlertCircle className="h-8 w-8 shrink-0" />
         <div>
           <h3 className="font-bold text-foreground">Metrics Stream Offline</h3>
@@ -88,10 +88,10 @@ export default function Dashboard() {
       {/* Top Welcome Title Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Platform Overview</h1>
+          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Overview</h1>
           <p className="text-muted-foreground text-sm mt-1">Real-time enterprise metrics and business operations monitoring.</p>
         </div>
-        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 self-start md:self-auto shadow-inner">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground bg-muted border border-border rounded-xl px-3 py-2 self-start md:self-auto shadow-inner">
           <Activity className="h-4 w-4 text-primary animate-pulse" />
           Live Telemetry Active
         </div>
@@ -104,9 +104,9 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Registered</CardTitle>
             <Building className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{summaryCards.totalBusinesses.count}</span>
+              <span className="text-3xl font-bold text-foreground font-mono">{summaryCards.totalBusinesses.count}</span>
               {getDeltaBadge(summaryCards.totalBusinesses.deltaPercent)}
             </div>
             <p className="text-xs text-muted-foreground">Registered business accounts</p>
@@ -118,9 +118,9 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Today</CardTitle>
             <Activity className="h-5 w-5 text-primary" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{summaryCards.activeToday.count}</span>
+              <span className="text-3xl font-bold text-foreground font-mono">{summaryCards.activeToday.count}</span>
               <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-semibold">
                 {summaryCards.activeToday.percent}%
               </Badge>
@@ -134,9 +134,9 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Monthly GMV</CardTitle>
             <CreditCard className="h-5 w-5 text-primary" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-2xl font-black text-foreground font-mono truncate">
+              <span className="text-2xl font-bold text-foreground font-mono truncate">
                 {formatCurrency(summaryCards.gmvMonth.count)}
               </span>
               {getDeltaBadge(summaryCards.gmvMonth.deltaPercent)}
@@ -150,9 +150,9 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Users</CardTitle>
             <Users className="h-5 w-5 text-purple-600 dark:text-purple-400" />
           </CardHeader>
-          <CardContent className="space-y-1.5">
+          <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-black text-foreground font-mono">{summaryCards.totalUsers.count}</span>
+              <span className="text-3xl font-bold text-foreground font-mono">{summaryCards.totalUsers.count}</span>
             </div>
             <p className="text-xs text-muted-foreground">Staff, managers and platform owners</p>
           </CardContent>
@@ -161,8 +161,8 @@ export default function Dashboard() {
 
       {/* Warning/Alerts Section (Requires Attention) */}
       {alerts && alerts.length > 0 && (
-        <div className="bg-card border border-border rounded-3xl p-6">
-          <h3 className="text-sm font-extrabold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+        <div className="bg-card border border-border rounded-2xl p-6">
+          <h3 className="text-sm font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
             <AlertOctagon className="h-5 w-5 text-amber-500" />
             Operational Alerts (Requires Attention)
           </h3>
@@ -190,7 +190,7 @@ export default function Dashboard() {
       {/* Analytics Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Business Growth Chart */}
-        <Card className="bg-card backdrop-blur border-card-border rounded-3xl lg:col-span-2 overflow-hidden">
+        <Card className="bg-card backdrop-blur border-card-border rounded-2xl lg:col-span-2 overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
             <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-primary" />
@@ -227,7 +227,7 @@ export default function Dashboard() {
         </Card>
 
         {/* Daily Checkout Activity */}
-        <Card className="bg-card backdrop-blur border-card-border rounded-3xl overflow-hidden">
+        <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
             <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
@@ -265,7 +265,7 @@ export default function Dashboard() {
       {/* Live Operations Feed & Latency Block */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Live Operations Feed */}
-        <Card className="bg-card backdrop-blur border-card-border rounded-3xl lg:col-span-2 overflow-hidden">
+        <Card className="bg-card backdrop-blur border-card-border rounded-2xl lg:col-span-2 overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
             <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
               <Activity className="h-4 w-4 text-primary" />
@@ -291,12 +291,12 @@ export default function Dashboard() {
                       className="px-6 py-4 flex items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
                     >
                       <div className="flex items-center gap-4 min-w-0">
-                        <Badge variant="outline" className={`border-none shrink-0 text-[10px] font-bold ${badgeColor}`}>
+                        <Badge variant="outline" className={`border-none shrink-0 text-[11px] font-bold ${badgeColor}`}>
                           {activity.type.replace("_", " ")}
                         </Badge>
                         <span className="text-xs font-semibold text-muted-foreground truncate">{activity.message}</span>
                       </div>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">{activity.time}</span>
+                      <span className="text-[11px] font-mono text-muted-foreground shrink-0">{activity.time}</span>
                     </div>
                   );
                 })
@@ -306,7 +306,7 @@ export default function Dashboard() {
         </Card>
 
         {/* Dashboard Side Info Panel */}
-        <Card className="bg-card backdrop-blur border-card-border rounded-3xl overflow-hidden flex flex-col justify-between">
+        <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden flex flex-col justify-between">
           <div>
             <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
               <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
@@ -339,7 +339,7 @@ export default function Dashboard() {
             </CardContent>
           </div>
           <div className="p-6 border-t border-border bg-muted/40 text-center">
-            <span className="text-[10px] font-bold text-muted-foreground tracking-widest uppercase">
+            <span className="text-[11px] font-bold text-muted-foreground tracking-widest uppercase">
               Operations Center v1.0
             </span>
           </div>

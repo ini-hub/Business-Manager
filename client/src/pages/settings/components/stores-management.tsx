@@ -2,17 +2,16 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
 import { IconButton } from "@/components/icon-button";
-import { Badge } from "@/components/ui/badge";
+import { getFeatureDef } from "@shared/features";
+import { formatCurrency } from "@/lib/currency-utils";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Plus, Store, Pencil, Archive, ArchiveRestore, Trash2, MapPin, Phone, Globe, Coins, User, Star } from "lucide-react";
+import { Store, Pencil, Archive, ArchiveRestore, Trash2, Star } from "lucide-react";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store as StoreType, Staff } from "@shared/schema";
-import { getCurrencyByCode, getCountryByCode } from "@/lib/currency-utils";
 import { getTimezoneOffset } from "@/lib/timezones";
-import { Clock } from "lucide-react";
+import { getCountryByCode } from "@/lib/currency-utils";
 import { fetchAllStaff } from "@/lib/staff-api";
 
 export function StoresManagementSection() {
@@ -115,10 +114,6 @@ export function StoresManagementSection() {
     setLocation(`/settings/stores/${store.id}/edit`);
   };
 
-  const openAddStore = () => {
-    setLocation("/settings/stores/new");
-  };
-
   const handleSetMainStore = async (store: StoreType) => {
     try {
       await setMainStore(store.id);
@@ -132,195 +127,145 @@ export function StoresManagementSection() {
     }
   };
 
-  const renderStoreDetails = (store: StoreType) => (
-    <CardContent className="text-sm text-muted-foreground space-y-1">
-      {store.address && (
-        <p className="flex items-center gap-2 truncate">
-          <MapPin className="h-3 w-3 shrink-0" />
-          {store.address}
-        </p>
-      )}
-      {store.phone && (
-        <p className="flex items-center gap-2">
-          <Phone className="h-3 w-3 shrink-0" />
-          {store.phoneCountryCode || "+234"} {store.phone}
-        </p>
-      )}
-      <p className="flex items-center gap-2">
-        <Globe className="h-3 w-3 shrink-0" />
-        {getCountryByCode(store.country || "NG")?.name || "Nigeria"}
-      </p>
-      <p className="flex items-center gap-2">
-        <Coins className="h-3 w-3 shrink-0" />
-        {getCurrencyByCode(store.currency || "NGN")?.symbol || "₦"} {store.currency || "NGN"}
-      </p>
-      <p className="flex items-center gap-2">
-        <Clock className="h-3 w-3 shrink-0" />
-        {(store as any).timezone || "Africa/Lagos"} (UTC{getTimezoneOffset((store as any).timezone || "Africa/Lagos")})
-      </p>
-      {store.managerStaffId && getManagerName(store.managerStaffId, store.id) && (
-        <p className="flex items-center gap-2">
-          <User className="h-3 w-3 shrink-0" />
-          Manager: {getManagerName(store.managerStaffId, store.id)}
-        </p>
-      )}
-      {currentStore?.id === store.id && (
-        <p className="mt-2 text-xs text-primary font-medium">Currently Selected</p>
-      )}
-    </CardContent>
+  const addon = getFeatureDef("store_addon");
+  const extraStorePrice = addon?.price?.monthly;
+
+  const Chip = ({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "blue" | "green" }) => (
+    <span
+      className={
+        "rounded px-2 py-0.5 text-xs font-medium " +
+        (tone === "blue" ? "bg-primary/10 text-primary" : tone === "green" ? "bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300" : "bg-muted text-muted-foreground")
+      }
+    >
+      {children}
+    </span>
   );
 
+  const placeLine = (store: StoreType) => {
+    const tz = (store as any).timezone || "Africa/Lagos";
+    return `${getCountryByCode(store.country || "NG")?.name || "Nigeria"} · ${store.currency || "NGN"} · ${tz} (UTC${getTimezoneOffset(tz)})`;
+  };
+  const contactLine = (store: StoreType) =>
+    [store.address, store.phone ? `${store.phoneCountryCode || "+234"} ${store.phone}` : ""].filter(Boolean).join(" · ");
+
   return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Store className="h-5 w-5" />
-              Your Stores
-            </CardTitle>
-            <CardDescription>
-              Manage individual store locations. Each store has separate customers, staff, and inventory.
-            </CardDescription>
-          </div>
-          <Button onClick={openAddStore} disabled={!business} data-testid="button-add-store">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Store
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {!business ? (
-            <p className="text-muted-foreground">
-              Please set up your business information first before adding stores.
-            </p>
-          ) : activeStores.length === 0 ? (
-            <p className="text-muted-foreground">
-              No stores set up yet. Click "Add Store" to create your first store location.
-            </p>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {activeStores.map((store) => (
-                <Card
+    <div className="space-y-4">
+      <section className="rounded-xl border bg-card p-4 sm:p-5">
+        <h2 className="font-semibold">Your stores</h2>
+        {!business ? (
+          <p className="mt-2 text-sm text-muted-foreground">Set up your business details first, then add stores.</p>
+        ) : activeStores.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No stores yet. Add your first store location.</p>
+        ) : (
+          <ul className="mt-4 grid gap-4 lg:grid-cols-2">
+            {activeStores.map((store) => {
+              const manager = store.managerStaffId ? getManagerName(store.managerStaffId, store.id) : null;
+              const contact = contactLine(store);
+              const rows: { label: string; value: React.ReactNode }[] = [
+                { label: "Location", value: placeLine(store) },
+                { label: "Contact", value: contact ? contact : <span className="text-muted-foreground">No address or phone yet</span> },
+                {
+                  label: "Manager",
+                  value: manager ? <span className="font-medium">{manager}</span> : <span className="font-medium text-amber-800 dark:text-amber-300">No manager</span>,
+                },
+              ];
+              return (
+                <li
                   key={store.id}
-                  className={`relative ${currentStore?.id === store.id ? "ring-2 ring-primary" : ""}`}
+                  className={"flex min-w-0 flex-col rounded-lg border p-4 " + (store.isMain ? "border-primary/40 bg-primary/[0.03]" : "bg-background")}
                   data-testid={`card-store-${store.id}`}
                 >
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <CardTitle className="text-base truncate" data-testid={`text-store-name-${store.id}`}>
-                            {store.name}
-                          </CardTitle>
-                          {store.isMain && (
-                            <Badge variant="default" className="gap-1" data-testid={`badge-main-store-${store.id}`}>
-                              <Star className="h-3 w-3" />
-                              Main
-                            </Badge>
-                          )}
-                        </div>
-                        <CardDescription className="font-mono text-xs" data-testid={`text-store-code-${store.id}`}>
-                          Code: {store.code}
-                        </CardDescription>
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Store className="h-5 w-5" /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-[15px] font-semibold" data-testid={`text-store-name-${store.id}`}>{store.name}</span>
                       </div>
-                      <div className="flex gap-1">
-                        {!store.isMain && (
-                          <IconButton
-                            label="Set as main store"
-                            variant="ghost"
-                            onClick={() => handleSetMainStore(store)}
-                            data-testid={`button-set-main-store-${store.id}`}
-                          >
-                            <Star className="h-4 w-4" />
-                          </IconButton>
-                        )}
-                        <IconButton
-                          label="Edit store"
-                          variant="ghost"
-                          onClick={() => openEditStore(store)}
-                          data-testid={`button-edit-store-${store.id}`}
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span data-testid={`text-store-code-${store.id}`}><Chip>{store.code}</Chip></span>
+                      </div>
+                    </div>
+                    <div className="-mr-2 -mt-1 flex shrink-0">
+                      {store.isMain ? (
+                        <span
+                          className="flex size-10 items-center justify-center"
+                          title="Main store"
+                          role="img"
+                          aria-label="Main store"
+                          data-testid={`badge-main-store-${store.id}`}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-500" />
+                        </span>
+                      ) : (
+                        <IconButton label={`Make ${store.name} the main store`} variant="ghost" onClick={() => handleSetMainStore(store)} data-testid={`button-set-main-store-${store.id}`}>
+                          <Star className="h-4 w-4" />
                         </IconButton>
+                      )}
+                      <IconButton label={`Edit ${store.name}`} variant="ghost" onClick={() => openEditStore(store)} data-testid={`button-edit-store-${store.id}`}>
+                        <Pencil className="h-4 w-4" />
+                      </IconButton>
+                      {!store.isMain && (
                         <IconButton
-                          label={
-                            store.isMain
-                              ? "Set another store as main before archiving this one"
-                              : activeStores.length === 1
-                                ? "You must have at least one active store"
-                                : "Archive store"
-                          }
+                          label={activeStores.length === 1 ? "You must keep at least one active store" : `Archive ${store.name}`}
                           variant="ghost"
                           onClick={() => setArchivingStore(store)}
-                          disabled={activeStores.length === 1 || store.isMain}
+                          disabled={activeStores.length === 1}
                           data-testid={`button-archive-store-${store.id}`}
                         >
                           <Archive className="h-4 w-4" />
                         </IconButton>
-                      </div>
+                      )}
                     </div>
-                  </CardHeader>
-                  {renderStoreDetails(store)}
-                </Card>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  </div>
+                  <dl className="mt-4 divide-y border-t text-[13px]">
+                    {rows.map((r) => (
+                      <div key={r.label} className="grid gap-0.5 py-3 sm:grid-cols-[84px_minmax(0,1fr)] sm:gap-3">
+                        <dt className="text-xs font-medium text-muted-foreground sm:pt-px">{r.label}</dt>
+                        <dd className="min-w-0 break-words">{r.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {store.isMain && <p className="mt-auto border-t pt-3 text-xs text-muted-foreground">Your main store can't be archived.</p>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {extraStorePrice != null && (
+          <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">
+            Your first store is included. After your trial, each extra store is {formatCurrency(extraStorePrice, "NGN")} a month.{" "}
+            <Link href="/settings/billing" className="font-medium text-primary underline">See plan</Link>
+          </p>
+        )}
+      </section>
 
       {archivedStores.length > 0 && (
-        <Card>
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2">
-              <Archive className="h-5 w-5" />
-              Archived Stores
-            </CardTitle>
-            <CardDescription>
-              Hidden from day-to-day use, but their data is untouched. Restore a store to bring it back, or permanently
-              delete it once it has no customers, staff, or inventory.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {archivedStores.map((store) => (
-                <Card key={store.id} className="relative opacity-80" data-testid={`card-archived-store-${store.id}`}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <CardTitle className="text-base truncate" data-testid={`text-archived-store-name-${store.id}`}>
-                            {store.name}
-                          </CardTitle>
-                          <Badge variant="secondary">Archived</Badge>
-                        </div>
-                        <CardDescription className="font-mono text-xs">Code: {store.code}</CardDescription>
-                      </div>
-                      <div className="flex gap-1">
-                        <IconButton
-                          label="Restore store"
-                          variant="ghost"
-                          onClick={() => setRestoringStore(store)}
-                          data-testid={`button-restore-store-${store.id}`}
-                        >
-                          <ArchiveRestore className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          label="Permanently delete store"
-                          variant="ghost"
-                          onClick={() => setDeletingStore(store)}
-                          data-testid={`button-delete-store-${store.id}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </IconButton>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  {renderStoreDetails(store)}
-                </Card>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <section className="rounded-xl border bg-card p-4 sm:p-5">
+          <h2 className="font-semibold">Archived stores</h2>
+          <p className="text-sm text-muted-foreground">
+            Hidden from day-to-day use, with their data untouched. Restore one to bring it back, or delete it for good once it has no customers, staff or stock.
+          </p>
+          <ul className="mt-3 divide-y">
+            {archivedStores.map((store) => (
+              <li key={store.id} className="flex items-center gap-3 py-3" data-testid={`card-archived-store-${store.id}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold" data-testid={`text-archived-store-name-${store.id}`}>{store.name}</span>
+                    <Chip>{store.code}</Chip>
+                    <Chip>Archived</Chip>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{placeLine(store)}</p>
+                </div>
+                <IconButton label={`Restore ${store.name}`} variant="ghost" onClick={() => setRestoringStore(store)} data-testid={`button-restore-store-${store.id}`}>
+                  <ArchiveRestore className="h-4 w-4" />
+                </IconButton>
+                <IconButton label={`Delete ${store.name} for good`} variant="ghost" onClick={() => setDeletingStore(store)} data-testid={`button-delete-store-${store.id}`}>
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </IconButton>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <ConfirmDialog
@@ -350,6 +295,6 @@ export function StoresManagementSection() {
         confirmText="Delete Permanently"
         isDestructive
       />
-    </>
+    </div>
   );
 }

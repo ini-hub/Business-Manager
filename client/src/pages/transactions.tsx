@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { AddButton } from "@/components/add-button";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -204,7 +205,7 @@ export default function Transactions() {
       key: "storeName",
       header: "Store",
       render: (tx: any) => (
-        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
+        <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium uppercase shrink-0">
           {tx.storeName || "Global"}
         </Badge>
       ),
@@ -233,17 +234,17 @@ export default function Transactions() {
           <div className="flex flex-col gap-1 items-start">
             <span className="font-mono text-sm">{tx.checkout?.receiptNumber}</span>
             {itemCount > 1 && (
-              <span className="text-[10px] text-muted-foreground font-medium">
+              <span className="text-[11px] text-muted-foreground font-medium">
                 {itemCount} items in basket
               </span>
             )}
             {isVoided && (
-              <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">VOID</Badge>
+              <Badge variant="destructive" className="text-[11px] px-2 py-0 h-4">VOID</Badge>
             )}
             {isFullyReturned && (
               <Badge
                 variant="outline"
-                className="text-[10px] px-1.5 py-0 h-4 border-red-300 text-red-600 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold animate-pulse"
+                className="text-[11px] px-2 py-0 h-4 border-red-300 text-red-600 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold animate-pulse"
               >
                 RETURNED
               </Badge>
@@ -251,7 +252,7 @@ export default function Transactions() {
             {isPartiallyReturned && (
               <Badge
                 variant="outline"
-                className="text-[10px] px-1.5 py-0 h-4 border-orange-300 text-orange-600 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold"
+                className="text-[11px] px-2 py-0 h-4 border-orange-300 text-orange-600 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold"
               >
                 PARTIAL RETURN
               </Badge>
@@ -280,7 +281,7 @@ export default function Transactions() {
           <div className="flex items-center gap-2">
             <Package className="h-3 w-3 text-muted-foreground" />
             <div>
-              <div className="flex items-baseline gap-1.5">
+              <div className="flex items-baseline gap-2">
                 {tx.inventory?.id ? (
                   <EntityLink href={`/inventory/${buildSlug(tx.inventory.name, tx.inventory.id)}`}>
                     <p className="font-medium text-sm">{tx.inventory.name}</p>
@@ -304,7 +305,7 @@ export default function Transactions() {
       key: "staffName",
       header: "Billed By",
       render: (tx: TransactionWithRelations) => (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <User className="h-3 w-3 text-muted-foreground shrink-0" />
           {tx.checkout?.staff?.id ? (
             <EntityLink href={`/staffs/${tx.checkout.staff.id}/edit`}>
@@ -321,13 +322,13 @@ export default function Transactions() {
       header: "Payment",
       render: (tx: TransactionWithRelations) => (
         <div className="flex flex-col gap-1 items-start">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <CreditCard className="h-3 w-3 text-muted-foreground" />
             <span className="text-sm capitalize">{tx.checkout?.paymentMethod ?? "cash"}</span>
           </div>
           {tx.checkout?.paymentStatus === "pending" && !tx.checkout?.isVoided && (
             <button
-              className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors"
+              className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors"
               onClick={(e) => { e.stopPropagation(); setResolveTx(tx); }}
               title="Resolve pending payment"
             >
@@ -578,12 +579,7 @@ export default function Transactions() {
                 <span className="hidden lg:inline">Register Shifts</span>
               </Link>
             </Button>
-            <Button asChild data-testid="button-new-sale">
-              <Link href="/sales/new">
-                <Receipt className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">New Sale</span>
-              </Link>
-            </Button>
+            <AddButton label="New Sale" href="/sales/new" icon={Receipt} data-testid="button-new-sale" />
           </>
         }
       />
@@ -720,7 +716,7 @@ export default function Transactions() {
                                 <Badge
                                   variant={isVoidedRow ? "destructive" : "outline"}
                                   className={cn(
-                                    "text-[10px] px-1.5 py-0 h-4 mt-1.5",
+                                    "text-[11px] px-2 py-0 h-4 mt-1.5",
                                     isReturnedRow && "border-red-300 text-red-600 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30 font-semibold",
                                     isPartialRow && "border-orange-300 text-orange-600 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-900/30 font-semibold"
                                   )}

@@ -156,7 +156,7 @@ export function DynamicFieldForm({
 
           if (field.fieldKey === "employee_id") {
             return (
-              <div key={field.id} className="space-y-1.5">
+              <div key={field.id} className="space-y-2">
                 <Label htmlFor={field.id}>{field.label}</Label>
                 <Input id={field.id} value={(value as string) ?? ""} disabled readOnly title="Assigned automatically and cannot be edited" />
               </div>
@@ -200,7 +200,7 @@ export function DynamicFieldForm({
           }
 
           return (
-            <div key={field.id} className="space-y-1.5">
+            <div key={field.id} className="space-y-2">
               <Label htmlFor={field.id}>
                 {field.label}{field.isRequired && <span className="text-destructive"> *</span>}
               </Label>
@@ -267,7 +267,7 @@ function FieldInput({ field, value, onChange }: { field: HrField; value: FieldVa
                 type="button"
                 key={opt.value}
                 onClick={() => onChange(active ? selected.filter((v) => v !== opt.value) : [...selected, opt.value])}
-                className={`text-xs px-2.5 py-1 rounded-full border ${active ? "bg-primary text-primary-foreground border-primary" : "border-input"}`}
+                className={`text-xs px-3 py-1 rounded-full border ${active ? "bg-primary text-primary-foreground border-primary" : "border-input"}`}
               >
                 {opt.label}
               </button>

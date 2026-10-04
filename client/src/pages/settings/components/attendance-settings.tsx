@@ -1,18 +1,18 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { Loader2, TriangleAlert } from "lucide-react";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Clock, MapPin, TriangleAlert, CalendarDays, ShieldCheck } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { LocationPicker, type PickedLocation } from "@/components/location-picker";
 import { formatCurrency } from "@/lib/currency-utils";
+import { Card, Money, SaveBar } from "./settings-ui";
 
 const WEEKDAYS = [
   { value: 0, label: "Sun" },
@@ -23,6 +23,14 @@ const WEEKDAYS = [
   { value: 5, label: "Fri" },
   { value: 6, label: "Sat" },
 ];
+
+/** The first minute that counts as late: opening time plus the grace period, plus one. */
+function firstLateTime(opening: string, graceMinutes: number): string | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(opening);
+  if (!m) return null;
+  const total = (Number(m[1]) * 60 + Number(m[2]) + (graceMinutes || 0) + 1) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 
 export function AttendanceSettingsSection() {
   const { currentStore } = useStore();
@@ -41,11 +49,7 @@ export function AttendanceSettingsSection() {
       toast({ title: "Attendance settings updated" });
     },
     onError: (err: any) => {
-      toast({
-        title: "Could not save",
-        description: err?.message || "Check the values and try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Could not save", description: err?.message || "Check the values and try again.", variant: "destructive" });
     },
   });
 
@@ -81,27 +85,20 @@ export function AttendanceSettingsSection() {
   }, [settingsData]);
 
   if (!currentStore) return null;
-  if (isLoading) {
-    return <Card className="p-8 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></Card>;
-  }
+  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   const activeDayTransport = settingsData?.activeDayTransport ?? 0;
-  // Not a validation error — the owner chose an uncapped deduction — but it does
-  // mean a five-minute lateness can cost more than the whole day was worth, so it
-  // is worth seeing at the moment of configuring it.
-  const deductionExceedsTransport =
-    lateDeductionEnabled && activeDayTransport > 0 && lateDeductionAmount > activeDayTransport;
+  // Not a validation error (the owner chose an uncapped deduction), but a five-minute
+  // lateness can then cost more than the day was worth, so it is worth seeing here.
+  const deductionExceedsTransport = lateDeductionEnabled && activeDayTransport > 0 && lateDeductionAmount > activeDayTransport;
+  const fenceIncomplete = clockInEnabled && (location.latitude === null || location.longitude === null);
+  const lateFrom = firstLateTime(openingTime, graceMinutes);
+  const offDaysPaid = !!settingsData?.payOffDays;
 
-  const fenceIncomplete =
-    clockInEnabled && (location.latitude === null || location.longitude === null);
+  const toggleWeekday = (day: number) =>
+    setWeeklyOffDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)));
 
-  const toggleWeekday = (day: number) => {
-    setWeeklyOffDays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
-    );
-  };
-
-  const handleSave = () => {
+  const handleSave = () =>
     updateSettingsMutation.mutate({
       clockInEnabled,
       geofenceLatitude: location.latitude,
@@ -117,256 +114,130 @@ export function AttendanceSettingsSection() {
       retroRequestMaxAgeDays: retroMaxAgeDays,
       defaultWeeklyOffDays: weeklyOffDays,
     });
-  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5" /> Self-Service Clock-In</CardTitle>
-          <CardDescription>
-            Let staff clock themselves in from their own phone, only while they are at the branch.
-            While this is off, attendance stays entirely manager-marked and nothing below applies.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="clock-in-enabled">Enable clock-in for this branch</Label>
-              <p className="text-sm text-muted-foreground">
-                Staff with no clock-in on a working day are recorded as absent.
-              </p>
-            </div>
-            <Switch
-              id="clock-in-enabled"
-              data-testid="switch-clock-in-enabled"
-              checked={clockInEnabled}
-              onCheckedChange={setClockInEnabled}
-            />
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <Label htmlFor="clock-in-enabled" className="text-base font-semibold">Staff clock in from their phones</Label>
+            <p className="text-sm text-muted-foreground">
+              Only while they're at the salon. Anyone with no clock-in on a working day is marked absent.
+            </p>
           </div>
-
-          {fenceIncomplete && (
-            <Alert variant="destructive">
-              <TriangleAlert className="h-4 w-4" />
-              <AlertDescription>
-                Set the branch location below before turning clock-in on, or nobody will be able to punch in.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <Separator />
-
-          <div className="space-y-3">
-            <div className="space-y-0.5">
-              <Label className="flex items-center gap-2"><MapPin className="h-4 w-4" /> Branch location</Label>
-              <p className="text-sm text-muted-foreground">
-                The centre of the clock-in area. Most accurate if you stand in the salon and capture it from your device.
-              </p>
-            </div>
-
-            <LocationPicker
-              value={location}
-              radiusMeters={radiusMeters}
-              onChange={setLocation}
-              disabled={updateSettingsMutation.isPending}
-            />
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="radius">Clock-in radius (metres)</Label>
-                <Input
-                  id="radius"
-                  data-testid="input-geofence-radius"
-                  type="number"
-                  min={10}
-                  max={5000}
-                  value={radiusMeters}
-                  onChange={(e) => setRadiusMeters(Number(e.target.value))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="max-accuracy">Reject GPS worse than (metres)</Label>
-                <Input
-                  id="max-accuracy"
-                  data-testid="input-geofence-max-accuracy"
-                  type="number"
-                  min={10}
-                  max={1000}
-                  value={maxAccuracyMeters}
-                  onChange={(e) => setMaxAccuracyMeters(Number(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  A reading with more error than this cannot prove the radius either way, so staff are
-                  asked to retry rather than being told they are outside.
-                </p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
+          <Switch id="clock-in-enabled" data-testid="switch-clock-in-enabled" checked={clockInEnabled} onCheckedChange={setClockInEnabled} />
+        </div>
+        {fenceIncomplete && (
+          <Alert variant="destructive">
+            <TriangleAlert className="h-4 w-4" />
+            <AlertDescription>Set where staff can clock in below before turning this on, or nobody will be able to clock in.</AlertDescription>
+          </Alert>
+        )}
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5" /> Opening Time & Lateness</CardTitle>
-          <CardDescription>
-            Transport allowance itself is unchanged. A late arrival is charged as a separate line on the payslip.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="opening-time">Opening time</Label>
-              <Input
-                id="opening-time"
-                data-testid="input-opening-time"
-                type="time"
-                value={openingTime}
-                onChange={(e) => setOpeningTime(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="grace">Grace period (minutes)</Label>
-              <Input
-                id="grace"
-                data-testid="input-late-grace"
-                type="number"
-                min={0}
-                max={720}
-                value={graceMinutes}
-                onChange={(e) => setGraceMinutes(Number(e.target.value))}
-              />
-            </div>
+      <Card title="Where staff can clock in" hint="Most accurate if you stand inside the salon and use your phone's location.">
+        <LocationPicker value={location} radiusMeters={radiusMeters} onChange={setLocation} disabled={updateSettingsMutation.isPending} />
+        <p className="text-sm font-medium">Staff must be within {radiusMeters} m of the salon to clock in.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="radius">Clock-in radius</Label>
+            <Money id="radius" prefix="" suffix="metres" value={radiusMeters} onChange={setRadiusMeters} testId="input-geofence-radius" />
           </div>
-
-          <Separator />
-
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="late-deduction-enabled">Charge for late arrival</Label>
-              <p className="text-sm text-muted-foreground">
-                A flat amount per late day, applied as a deduction the staff member can see.
-              </p>
-            </div>
-            <Switch
-              id="late-deduction-enabled"
-              data-testid="switch-late-deduction-enabled"
-              checked={lateDeductionEnabled}
-              onCheckedChange={setLateDeductionEnabled}
-            />
+          <div className="space-y-2">
+            <Label htmlFor="max-accuracy">Reject readings less precise than</Label>
+            <Money id="max-accuracy" prefix="" suffix="metres" value={maxAccuracyMeters} onChange={setMaxAccuracyMeters} testId="input-geofence-max-accuracy" />
+            <p className="text-xs text-muted-foreground">Staff are asked to try again instead of being told they're outside.</p>
           </div>
+        </div>
+      </Card>
 
-          <div className="space-y-1.5">
+      <Card title="Opening time and lateness">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="opening-time">Opens at</Label>
+            <Input id="opening-time" data-testid="input-opening-time" type="time" value={openingTime} onChange={(e) => setOpeningTime(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="grace">Grace period</Label>
+            <Money id="grace" prefix="" suffix="minutes" value={graceMinutes} onChange={setGraceMinutes} testId="input-late-grace" />
+          </div>
+        </div>
+        {lateFrom && <p className="text-sm font-medium">Clocking in at {lateFrom} or later counts as late.</p>}
+
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <Label htmlFor="late-deduction-enabled">Take money off for late days</Label>
+            <p className="text-sm text-muted-foreground">A fixed amount per late day, shown as its own line on the payslip. Transport is unchanged.</p>
+          </div>
+          <Switch id="late-deduction-enabled" data-testid="switch-late-deduction-enabled" checked={lateDeductionEnabled} onCheckedChange={setLateDeductionEnabled} />
+        </div>
+        {lateDeductionEnabled ? (
+          <div className="space-y-2">
             <Label htmlFor="late-amount">Amount per late day</Label>
-            <Input
-              id="late-amount"
-              data-testid="input-late-deduction-amount"
-              type="number"
-              min={0}
-              value={lateDeductionAmount}
-              onChange={(e) => setLateDeductionAmount(Number(e.target.value))}
-              disabled={!lateDeductionEnabled}
-            />
+            <div className="max-w-xs"><Money id="late-amount" suffix="a late day" value={lateDeductionAmount} onChange={setLateDeductionAmount} testId="input-late-deduction-amount" /></div>
           </div>
-
-          {deductionExceedsTransport && (
-            <Alert>
-              <TriangleAlert className="h-4 w-4" />
-              <AlertDescription>
-                This is more than a day's active transport ({formatCurrency(activeDayTransport, currency)}),
-                so arriving a few minutes late will cost more than not coming at all. Where the charge is
-                larger than a period's pay, the balance carries forward to the next payroll period.
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
+        ) : (
+          <p className="text-sm text-muted-foreground">Late days are recorded but nothing comes off pay.</p>
+        )}
+        {deductionExceedsTransport && (
+          <Alert>
+            <TriangleAlert className="h-4 w-4" />
+            <AlertDescription>
+              This is more than a day's active transport ({formatCurrency(activeDayTransport, currency)}), so arriving a few minutes late
+              costs more than not coming at all. Where the charge is larger than a period's pay, the balance carries forward to the next payroll period.
+            </AlertDescription>
+          </Alert>
+        )}
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CalendarDays className="h-5 w-5" /> Default Off-Days</CardTitle>
-          <CardDescription>
-            Applies to any staff member without their own roster. Staff who come in on an off-day can still clock in.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {WEEKDAYS.map((day) => (
-              <Button
-                key={day.value}
-                type="button"
-                size="sm"
-                variant={weeklyOffDays.includes(day.value) ? "default" : "outline"}
-                onClick={() => toggleWeekday(day.value)}
-                data-testid={`button-weekday-${day.value}`}
-              >
-                {day.label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {weeklyOffDays.length === 0
-              ? "No default off-days — every unmarked day counts as a working day."
-              : `Off by default: ${weeklyOffDays.map((d) => WEEKDAYS[d].label).join(", ")}`}
-          </p>
-        </CardContent>
+      <Card title="Closed days" hint="For staff without their own roster. Tap a day to change it.">
+        <div className="flex flex-wrap gap-2">
+          {WEEKDAYS.map((day) => (
+            <Button
+              key={day.value}
+              type="button"
+              size="sm"
+              variant={weeklyOffDays.includes(day.value) ? "default" : "outline"}
+              aria-pressed={weeklyOffDays.includes(day.value)}
+              onClick={() => toggleWeekday(day.value)}
+              data-testid={`button-weekday-${day.value}`}
+            >
+              {day.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-sm">
+          {weeklyOffDays.length === 0
+            ? "No closed days. Every day counts as a working day."
+            : `Closed on ${weeklyOffDays.map((d) => WEEKDAYS[d].label).join(", ")}. Staff who come in anyway can still clock in.`}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Off days are {offDaysPaid ? "paid" : "unpaid"} under Pay rules.{" "}
+          <Link href="/settings/store-details" className="font-medium text-primary underline">Change</Link>
+        </p>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" /> Exceptions & Safeguards</CardTitle>
-          <CardDescription>
-            What happens when a phone dies, the data drops, or one device tries to clock in the whole salon.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* "Require a clock-in PIN" is intentionally not exposed here yet: the
-              setting, punch_pin_hash column and pin_required rejection code exist
-              server-side, but nothing sets or verifies a PIN, so surfacing the
-              toggle would tell a manager it protects clock-in when it does not.
-              Re-add once server/services/AttendanceService.ts actually checks a
-              PIN in recordPunch(). */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="offline-age">Accept offline clock-ins up to (minutes old)</Label>
-              <Input
-                id="offline-age"
-                data-testid="input-max-offline-age"
-                type="number"
-                min={0}
-                max={10080}
-                value={maxOfflineAgeMinutes}
-                onChange={(e) => setMaxOfflineAgeMinutes(Number(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">
-                A punch saved without data keeps the time the phone recorded. Older than this and the
-                server's own clock is used instead, and the punch is flagged for review.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="retro-age">Allow missed clock-in requests for (days back)</Label>
-              <Input
-                id="retro-age"
-                data-testid="input-retro-max-age"
-                type="number"
-                min={0}
-                max={90}
-                value={retroMaxAgeDays}
-                onChange={(e) => setRetroMaxAgeDays(Number(e.target.value))}
-              />
-            </div>
+      <Card title="When something goes wrong" hint="A dead phone, no data, or a missed clock-in.">
+        {/* "Require a clock-in PIN" is deliberately not offered: the setting and column exist
+            server-side but nothing sets or checks a PIN yet, so a toggle would promise protection
+            it doesn't give. Re-add once AttendanceService.recordPunch() verifies one. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="offline-age">Accept offline clock-ins up to</Label>
+            <Money id="offline-age" prefix="" suffix="minutes old" value={maxOfflineAgeMinutes} onChange={setMaxOfflineAgeMinutes} testId="input-max-offline-age" />
+            <p className="text-xs text-muted-foreground">
+              That is {maxOfflineAgeMinutes % 60 === 0 ? `${maxOfflineAgeMinutes / 60} hours` : `${maxOfflineAgeMinutes} minutes`}.
+              Older ones use the server's time and are flagged for review.
+            </p>
           </div>
-        </CardContent>
+          <div className="space-y-2">
+            <Label htmlFor="retro-age">Staff can ask to fix a missed clock-in up to</Label>
+            <Money id="retro-age" prefix="" suffix="days back" value={retroMaxAgeDays} onChange={setRetroMaxAgeDays} testId="input-retro-max-age" />
+          </div>
+        </div>
       </Card>
 
-      <div className="flex justify-end">
-        <Button
-          onClick={handleSave}
-          disabled={updateSettingsMutation.isPending}
-          data-testid="button-save-attendance-settings"
-        >
-          {updateSettingsMutation.isPending ? "Saving..." : "Save Attendance Settings"}
-        </Button>
-      </div>
+      <SaveBar label="Save attendance settings" pending={updateSettingsMutation.isPending} onSave={handleSave} />
     </div>
   );
 }

@@ -36,7 +36,7 @@ export function SocialUrlField({
   const error = externalError ?? formatError;
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <Label>{config.label}</Label>
       <Input
         type="url"

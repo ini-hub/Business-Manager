@@ -44,15 +44,15 @@ export function CustomerGamificationCard({ storeId, customerId }: { storeId: str
           </div>
         )}
         {data.badges.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {data.badges.map((b) => (
-              <Badge key={b.key} variant="secondary" className="text-[10px]" title={b.description}>
+              <Badge key={b.key} variant="secondary" className="text-[11px]" title={b.description}>
                 {b.label}
               </Badge>
             ))}
           </div>
         ) : (
-          <p className="text-[10px] text-muted-foreground">No badges yet — badges unlock as this customer keeps visiting.</p>
+          <p className="text-[11px] text-muted-foreground">No badges yet — badges unlock as this customer keeps visiting.</p>
         )}
       </CardContent>
     </Card>
