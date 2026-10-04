@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
-import { BarChart3, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart, Info } from "lucide-react";
+import { BarChart3, Coins, ArrowRight, Wallet, ShoppingCart, Info, RefreshCw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -73,7 +73,7 @@ export default function ServiceProfitabilityPage() {
   const search = useSearch();
   const { currentStore } = useStore();
   const storeCurrency = currentStore?.currency || "NGN";
-  
+
   const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
     "service_profitability_date_range",
     () =>
@@ -100,19 +100,17 @@ export default function ServiceProfitabilityPage() {
     setDateRange({
       from: next.dateFrom ? startOfDay(new Date(`${next.dateFrom}T00:00:00`)) : undefined,
       to: next.dateTo ? endOfDay(new Date(`${next.dateTo}T00:00:00`)) : undefined,
-    } as DateRange);
+    });
   };
   const endDateStr = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
 
-  const { data: report, isLoading } = useQuery<ServiceProfitabilityReport>({
+  const { data: report, isLoading, isError, refetch } = useQuery<ServiceProfitabilityReport>({
     queryKey: ["service-profitability-report", currentStore?.id, startDateStr, endDateStr],
     queryFn: () => analyticsApi.getServiceProfitability(currentStore!.id, startDateStr, endDateStr),
     enabled: !!currentStore?.id,
   });
 
-  const formatCurrency = (value: number) => {
-    return formatCurrencyUtil(value, storeCurrency);
-  };
+  const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
   const getStatusBadge = (status: "profit" | "breakeven" | "loss") => {
@@ -137,6 +135,9 @@ export default function ServiceProfitabilityPage() {
         );
     }
   };
+
+  const openItem = (item: ServiceProfitabilityItem) =>
+    setLocation(appendReturnTo(`/inventory/${buildSlug(item.name, item.id)}`, location, search));
 
   const columns = [
     {
@@ -176,11 +177,17 @@ export default function ServiceProfitabilityPage() {
         <div className="flex items-center gap-1">
           <span className="font-mono text-red-500 font-medium">{formatCurrency(item.totalSustainingCosts)}</span>
           {item.sustainingBreakdown?.length > 0 && (
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
-                </TooltipTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Sustaining cost breakdown"
+                  onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 rounded text-muted-foreground cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-[220px] p-3 space-y-1.5">
                   <p className="text-xs font-semibold mb-1">Sustaining Cost Breakdown</p>
                   {item.sustainingBreakdown.map((b, i) => (
@@ -192,8 +199,7 @@ export default function ServiceProfitabilityPage() {
                     </div>
                   ))}
                 </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            </Tooltip>
           )}
         </div>
       ),
@@ -224,7 +230,7 @@ export default function ServiceProfitabilityPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setLocation(appendReturnTo(`/inventory/${buildSlug(item.name, item.id)}`, location, search))}
+          onClick={(e) => { e.stopPropagation(); openItem(item); }}
           className="flex items-center gap-1 hover:bg-primary hover:text-primary-foreground transition-all duration-200"
         >
           Details
@@ -263,7 +269,12 @@ export default function ServiceProfitabilityPage() {
     sort,
   );
 
+  const hasActiveView = searchTerm !== "" || countActiveProfitabilityFilters(filters) > 0;
+  const exportRows = visibleItems as unknown as Record<string, unknown>[];
+  const rangeLabel = `${startDateStr ?? "start"}_${endDateStr}`;
+
   return (
+    <TooltipProvider delayDuration={100}>
     <PageContainer
       title="Service & Product Profitability"
       description="Comprehensive analysis of direct margins, COGS, and item-specific sustaining costs"
@@ -272,11 +283,11 @@ export default function ServiceProfitabilityPage() {
       actions={
         <div className="flex items-center gap-2">
           <ExportToolbar
-            data={(report?.items ?? []) as unknown as Record<string, unknown>[]}
+            data={exportRows}
             columns={exportColumns}
-            filename={`service-product-profitability_${startDateStr}_${endDateStr}`}
+            filename={`service-product-profitability_${rangeLabel}`}
             title="Service & Product Profitability Report"
-            disabled={isLoading}
+            disabled={isLoading || isError}
             pdfReport={{
               businessName: currentStore?.name ?? "Business",
               storeName: currentStore?.name ?? "All Stores",
@@ -292,7 +303,7 @@ export default function ServiceProfitabilityPage() {
                 { key: "totalRevenue", header: "Revenue", align: "right" as const, format: (i: Record<string, unknown>) => formatCurrency(i.totalRevenue as number) },
                 { key: "netProfit", header: "Net Profit", align: "right" as const, format: (i: Record<string, unknown>) => formatCurrency(i.netProfit as number) },
               ],
-              rows: (report?.items ?? []) as unknown as Record<string, unknown>[],
+              rows: exportRows,
               amountKey: "netProfit",
               formatAmount: formatCurrency,
               statusKey: "status",
@@ -302,12 +313,23 @@ export default function ServiceProfitabilityPage() {
         </div>
       }
     >
+      {isError && (
+        <Card className="border-red-200 dark:border-red-900/40">
+          <CardContent className="p-4 flex items-center justify-between gap-3">
+            <span className="text-sm text-red-700 dark:text-red-300">Couldn't load the profitability report.</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1">
+              <RefreshCw className="h-3 w-3" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <MetricGrid>
         <PolymorphicMetricCard
-          title="Total Sustained Revenue"
+          title="Total Revenue"
           value={formatCurrency(report?.totalRevenue ?? 0)}
           compactValue={formatCompact(report?.totalRevenue ?? 0)}
-          icon={<Coins className="h-5 w-5 text-green-600 animate-pulse" />}
+          icon={<Coins className="h-5 w-5 text-green-600" />}
           isLoading={isLoading}
         />
         <PolymorphicMetricCard
@@ -337,9 +359,9 @@ export default function ServiceProfitabilityPage() {
 
       <Card className="border border-blue-100 bg-gradient-to-br from-blue-50/20 to-indigo-50/25 dark:border-blue-900/20 dark:from-blue-950/10 dark:to-indigo-950/10 shadow-sm">
         <CardContent className="p-4 flex gap-3 items-center">
-          <AlertTriangle className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
           <div className="text-xs md:text-sm text-blue-800 dark:text-blue-200">
-            <span className="font-semibold">How sustaining costs are counted:</span> these are the same naira the P&amp;L reports on its
+            <span className="font-semibold">How sustaining costs are counted:</span> these are the same money the P&amp;L reports on its
             Direct Supplies &amp; Consumables line — shown here split across the items that incurred them, rather than as one
             total. Attributing a cost to an item changes where it is reported, never whether it is counted, so these figures
             add back up to that line exactly.
@@ -347,45 +369,46 @@ export default function ServiceProfitabilityPage() {
         </CardContent>
       </Card>
 
-          <div className="space-y-3">
-            <ListControls
-              testIdPrefix="profitability"
-              placeholder="Search services or products"
-              search={searchText}
-              onSearchChange={setSearchText}
-              filterCount={countActiveProfitabilityFilters(filters)}
-              filters={(trigger) => (
-                <ProfitabilityFiltersSheet
-                  filters={filters}
-                  onApply={setFilters}
-                  resultCountFor={(draft) => searchedItems.filter((i) => profitabilityMatchesFilters(i, draft)).length}
-                  trigger={trigger}
-                />
-              )}
-              sortLabel={profitabilitySortLabel(sort).replace(/^Sort: /, "")}
-              sort={(trigger) => <ProfitabilitySortSheet sort={sort} onChange={setSort} trigger={trigger} />}
-              chips={buildProfitabilityFilterChips(filters)}
-              onRemoveChip={(key) => setFilters(clearProfitabilityFilterChip(filters, key as Parameters<typeof clearProfitabilityFilterChip>[1]))}
-              hasSort={sort !== null}
-              onClearAll={() => { setFilters(EMPTY_PROFITABILITY_FILTERS); setSort(null); }}
-              visibleCount={visibleItems.length}
-              noun="item"
+      <div className="space-y-3">
+        <ListControls
+          testIdPrefix="profitability"
+          placeholder="Search services or products"
+          search={searchText}
+          onSearchChange={setSearchText}
+          filterCount={countActiveProfitabilityFilters(filters)}
+          filters={(trigger) => (
+            <ProfitabilityFiltersSheet
+              filters={filters}
+              onApply={setFilters}
+              resultCountFor={(draft) => searchedItems.filter((i) => profitabilityMatchesFilters(i, draft)).length}
+              trigger={trigger}
             />
-            <DataTable
-              data={visibleItems}
-              columns={columns}
-              hideToolbar
-              isLoading={isLoading}
-              emptyTitle="No Items Found"
-              emptyMessage="No inventory items found."
-              emptyIcon={<BarChart3 className="h-6 w-6" />}
-              onRowClick={(item) => setLocation(appendReturnTo(`/inventory/${buildSlug(item.name, item.id)}`, location, search))}
-              urlKey="profitability"
-              showCardChevron
-              cardLayout="compact-grid"
-              cardAvatar={itemCardAvatar}
-            />
-          </div>
+          )}
+          sortLabel={profitabilitySortLabel(sort).replace(/^Sort: /, "")}
+          sort={(trigger) => <ProfitabilitySortSheet sort={sort} onChange={setSort} trigger={trigger} />}
+          chips={buildProfitabilityFilterChips(filters)}
+          onRemoveChip={(key) => setFilters(clearProfitabilityFilterChip(filters, key as Parameters<typeof clearProfitabilityFilterChip>[1]))}
+          hasSort={sort !== null}
+          onClearAll={() => { setFilters(EMPTY_PROFITABILITY_FILTERS); setSort(null); }}
+          visibleCount={visibleItems.length}
+          noun="item"
+        />
+        <DataTable
+          data={visibleItems}
+          columns={columns}
+          hideToolbar
+          isLoading={isLoading}
+          emptyTitle="No Items Found"
+          emptyMessage={hasActiveView ? "No items match your search or filters." : "No items sold in this period."}
+          emptyIcon={<BarChart3 className="h-6 w-6" />}
+          onRowClick={openItem}
+          urlKey="profitability"
+          showCardChevron
+          cardLayout="compact-grid"
+          cardAvatar={itemCardAvatar}
+        />
+      </div>
     </PageContainer>
+    </TooltipProvider>
   );
 }
