@@ -1,6 +1,5 @@
 import type { KeyboardEvent } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";

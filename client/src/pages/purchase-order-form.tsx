@@ -16,7 +16,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useStore } from "@/lib/store-context";
-import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { placedOrderMessage, type SupplierEmailOutcome } from "@/lib/poSupplierEmail";
 import { attachPoReceipt, checkPoReceiptFile, PO_RECEIPT_ACCEPT } from "@/lib/poReceiptUpload";

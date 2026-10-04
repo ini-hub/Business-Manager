@@ -2,35 +2,34 @@ import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { 
-  ArrowLeft, 
-  Calendar, 
-  Clock, 
-  CreditCard, 
-  Edit, 
-  FileText, 
-  MessageSquare, 
-  ShoppingBag, 
-  User, 
-  UserCog, 
-  CheckCircle2, 
+import {
+  Calendar,
+  Clock,
+  CreditCard,
+  Edit,
+  FileText,
+  MessageSquare,
+  ShoppingBag,
+  User,
+  UserCog,
+  CheckCircle2,
   XCircle,
   AlertCircle,
   ArrowRightLeft
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BaseCard } from "@/components/oop-ui/BaseCard";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuLabel, 
-  DropdownMenuSeparator, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {

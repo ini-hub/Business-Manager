@@ -6,12 +6,8 @@ import {
   Building,
   User,
   Phone,
-  Mail,
-  Calendar,
-  Activity,
-  CreditCard,
-  Users,
-  Receipt,
+  Mail, Activity,
+  CreditCard, Receipt,
   FileCheck,
   Ban,
   RotateCcw,
@@ -20,7 +16,7 @@ import {
   AlertCircle,
   Clock,
   Briefcase,
-  AlertTriangle,
+  AlertTriangle
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";

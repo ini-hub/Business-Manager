@@ -4,16 +4,12 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Search,
   Building,
-  User,
-  CreditCard,
-  Calendar,
-  Eye,
+  User, Eye,
   Ban,
   RotateCcw,
   SlidersHorizontal,
   Loader2,
-  AlertCircle,
-  HelpCircle,
+  AlertCircle
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";

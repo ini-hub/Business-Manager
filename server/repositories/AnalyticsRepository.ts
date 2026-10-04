@@ -10,7 +10,7 @@ import {
   settings,
   stores,
 } from "@shared/schema";
-import { eq, and, gte, lte, desc, count, countDistinct, sql } from "drizzle-orm";
+import { eq, and, gte, lte, count, countDistinct, sql } from "drizzle-orm";
 import type { SalesRepository } from "./SalesRepository";
 
 export class AnalyticsRepository {

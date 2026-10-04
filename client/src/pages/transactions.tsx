@@ -8,10 +8,9 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck, Search, SlidersHorizontal, ArrowUpDown, X, RotateCcw, Wallet } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, Wallet } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -21,16 +20,12 @@ import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPrese
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
 import { ExportToolbar } from "@/components/export-toolbar";
-import { MetricCard } from "@/components/metric-card";
 import { MetricRow } from "@/components/metric-row";
 import { ListControls } from "@/components/list-controls";
 import { formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { type TransactionWithRelations } from "@shared/schema";
-import { AlertCircle, Clock } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ClearableInput } from "@/components/clearable-input";
 import { cn } from "@/lib/utils";
 import {
   type SaleFilterState,
@@ -40,12 +35,8 @@ import {
   countActiveSaleFilters,
   buildSaleFilterChips,
   clearSaleFilterChip,
-  sortSales,
-  saleSortLabel,
+  sortSales
 } from "@/lib/sale-filters";
-import { ListToolbar } from "@/components/list-toolbar";
-import { useSimpleList } from "@/components/simple-list-controls";
-import type { SimpleListConfig } from "@/lib/simple-list";
 import { SaleFiltersSheet, SaleSortSheet, saleSortButtonLabel } from "@/components/sale-filter-sheet";
 
 const PAGE_LIMIT = 50;

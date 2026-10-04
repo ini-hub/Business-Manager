@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Trash2, ShieldAlert, Sparkles, Percent, Calendar, FileText, CheckCircle, HelpCircle } from "lucide-react";
+import { Loader2, Plus, Trash2, Sparkles, Percent, Calendar, FileText, CheckCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";

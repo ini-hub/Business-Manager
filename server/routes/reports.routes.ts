@@ -1,44 +1,21 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import { getStoreTimezone, toUtcStart, toUtcEnd, storeToday } from "../lib/dateUtils";
 import { formatInTimeZone } from "date-fns-tz";
 import { storage } from "../storage";
 import { attendanceService } from "../services/AttendanceService";
-import { isAuthenticated } from "../auth";
 import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  taxRates,
-  repayments,
+  checkouts, repayments,
   expenses,
   cashDrops,
   creditEntries,
-  cashRegisterSessions,
+  cashRegisterSessions
 } from "@shared/schema";
-import { z } from "zod";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
 import { payrollPostingService } from "../services/PayrollPostingService";
-import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getAuditContext, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;

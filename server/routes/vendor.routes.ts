@@ -1,43 +1,17 @@
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
-import { isAuthenticated } from "../auth";
 import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
+  taxRates
 } from "@shared/schema";
-import { z } from "zod";
 import crypto from "crypto";
 import { sendPurchaseOrderEmail } from "../email";
 import { objectStorage } from "../lib/objectStorage";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode, sanitizeEmail, validateEmailFormat } from "../sanitize";
+import { eq } from "drizzle-orm";
+import { sanitizeEmail, validateEmailFormat } from "../sanitize";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getClientIp, getAuditContext, getUserStores, broadcastChange } from './helpers';
 import { withVendorId, withVendorBillId } from '../utils/slug-resolver';
 
 export type RouteMiddlewares = {

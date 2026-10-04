@@ -3,7 +3,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useStore } from "@/lib/store-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Wallet,
   CalendarCheck,
@@ -16,7 +15,7 @@ import {
 } from "lucide-react";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ClockInCard } from "@/components/clock-in-card";
 import { Link } from "wouter";

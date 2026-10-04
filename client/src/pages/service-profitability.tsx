@@ -3,9 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
-import { BarChart3, RefreshCw, Layers, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart, Info } from "lucide-react";
+import { BarChart3, Coins, AlertTriangle, ArrowRight, Wallet, ShoppingCart, Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
@@ -24,14 +24,10 @@ import {
   type ProfitabilityFilterState,
   type ProfitabilitySortState,
 } from "@/lib/profitability-filters";
-import { PageHeader } from "@/components/page-header";
-import { MetricCard } from "@/components/metric-card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useStore } from "@/lib/store-context";
-import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
-import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { type DateRange } from "@/components/date-range-filter";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { endOfDay, format, startOfDay, startOfMonth } from "date-fns";
 import { PageContainer } from "@/components/oop-ui/PageContainer";

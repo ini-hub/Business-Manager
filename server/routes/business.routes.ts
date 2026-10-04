@@ -1,51 +1,27 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import { requireCustomerSpendAccess } from "../lib/transactionAccess";
 import { invalidateStoreTimezone } from "../lib/dateUtils";
 import { storage } from "../storage";
 import { LOGO_PATH, LogoError, isDataUrl, isS3Ref, s3KeyOf, parseDataUrl, persistableLogo, withPublicLogo } from "../lib/businessLogo";
 import { objectStorage } from "../lib/objectStorage";
-import { isAuthenticated } from "../auth";
 import {
   insertBusinessSchema,
   insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  type UserRole,
-  type Store,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
+  insertCustomerSchema, insertStoreIntegrationSchema, type Store, transactions,
   customers,
-  inventory,
-  staff,
-  customRoles,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
-  subscriptions,
+  inventory, subscriptions,
   announcements,
-  plans,
+  plans
 } from "@shared/schema";
 import { z } from "zod";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { eq, and, gte, lte, count, desc } from "drizzle-orm";
+import { sanitizeString, sanitizePhoneNumber } from "../sanitize";
 import { auditLogger } from "../audit";
-import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
 import { isTrialExpired } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
-import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getUserId, getAuditContext, formatZodErrors, getUserStores, verifyStoreAccess, verifyRecordStoreAccess } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
 import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
 import { splitNormalizedPhone } from "@shared/phone-utils";

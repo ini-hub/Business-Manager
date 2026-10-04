@@ -1,11 +1,11 @@
 import { checkCatalogHealth } from "./lib/entitlements";
 import { checkStoreAccessHelper } from "./routes/helpers";
 import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server } from "http";
+import { type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { enforceFeaturePolicy } from "./lib/featurePolicy";
-import { setupAuth, isAuthenticated, enforceOrgAccess, generateToken, verifyToken, generateOrgSelectToken, verifyOrgSelectToken, generateLegalConsentPendingToken } from "./auth";
+import { setupAuth, isAuthenticated, enforceOrgAccess, generateOrgSelectToken, verifyOrgSelectToken, generateLegalConsentPendingToken } from "./auth";
 import { issueSession, revokeSession, revokeAllUserSessions } from "./lib/authSessions";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { completeLoginForUser, completeStaffActivation } from "./lib/authFlow";
@@ -23,9 +23,7 @@ import { registerWhatsAppTemplateRoutes } from "./routes/whatsapp-template.route
 import { setupAdminAuth } from "./auth-admin";
 import { adminRouter } from "./routes-admin";
 import {
-  sendActivationEmail,
-  sendAddedToOrgEmail,
-  sendOtpEmail,
+  sendActivationEmail, sendOtpEmail,
   sendPasswordChangedEmail,
   sendAccountLockedEmail,
   sendSMS,
@@ -35,41 +33,12 @@ import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
 import { serveOgImage } from "./og-image";
 import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
   signupSchema,
-  loginSchema,
-  verifyOtpSchema,
-  forgotPasswordSchema,
-  resetPasswordSchema,
+  loginSchema, resetPasswordSchema,
   passwordSchema,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
-  insertExpenseSchema,
+  type UserRole
 } from "@shared/schema";
 import { z } from "zod";
-import { db } from "./db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "./sanitize";
 import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
 import { auditLogger } from "./audit";
@@ -79,8 +48,6 @@ import { logFunnelEvent } from "./lib/funnel";
 import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "./lib/otp-cooldown";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
 import { isManagerEmailChangePending } from "./lib/email-change-gate";
-import { bulkUploadService } from "./services/BulkUploadService";
-import { analyticsService } from "./services/AnalyticsService";
 import { initWebSocketServer, broadcastDataChange } from "./websocket";
 import { RouterRegistry } from "./controllers/RouterRegistry";
 import { AuthController } from "./controllers/AuthController";

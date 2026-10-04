@@ -3,13 +3,12 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
-import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, RotateCcw, Archive, Users, BarChart3, UserX, Wallet, UserPlus2, X, Search } from "lucide-react";
+import { Plus, UserPlus, Edit, Trash2, Phone, MapPin, RotateCcw, Archive, Users, BarChart3, UserX, Wallet, UserPlus2 } from "lucide-react";
 import { ListControls } from "@/components/list-controls";
 import { FiltersSheet, SortSheet } from "@/components/customer-filter-sheets";
-import { cn } from "@/lib/utils";
 import { getCustomerInitials, formatRelativeDate } from "@/lib/customer-detail-utils";
 import {
-  type CustomerFilterState ,
+  type CustomerFilterState,
   type CustomerSortState,
   EMPTY_CUSTOMER_FILTERS,
   customerMatchesFilters,
@@ -23,25 +22,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { ClearableInput } from "@/components/clearable-input";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { DataTable, type RowAction } from "@/components/data-table";
@@ -60,19 +40,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useHasPermission } from "@/lib/permissions";
 import { CustomerPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buildSlug } from "@/lib/slug";
-import { Link } from "wouter";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
-import { MetricCard } from "@/components/metric-card";
-import { MetricGrid } from "@/components/metric-grid";
 import { MetricRow } from "@/components/metric-row";
 import { exportReportToPDF } from "@/lib/export-utils";
-import { countryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
+import { validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 
 const customerFormSchema = insertCustomerSchema.extend({
   mobileNumber: z.string().optional().default(""),

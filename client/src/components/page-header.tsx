@@ -1,6 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, Link } from "wouter";
-import { ChevronRight, HelpCircle, Lightbulb, BookOpen, X, ChevronDown, CheckCircle } from "lucide-react";
+import { ChevronRight, HelpCircle, Lightbulb, BookOpen, X, CheckCircle } from "lucide-react";
 import { useState } from "react";
 import { IconButton } from "@/components/icon-button";
 import { cn } from "@/lib/utils";

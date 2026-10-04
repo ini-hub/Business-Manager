@@ -2,12 +2,11 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
-import { Plus, Calendar, List as ListIcon, CalendarDays, CheckCircle, XCircle, CalendarCheck2, CalendarX2 } from "lucide-react";
+import { Plus, Calendar, CalendarDays, CheckCircle, XCircle, CalendarCheck2, CalendarX2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { MetricRow } from "@/components/metric-row";
 import { ListControls } from "@/components/list-controls";
 import { BookingFiltersSheet, BookingSortSheet } from "@/components/booking-filter-sheets";
-import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getCustomerInitials } from "@/lib/customer-detail-utils";
 import {
@@ -23,7 +22,6 @@ import {
   type BookingSortState,
 } from "@/lib/booking-filters";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { useStore } from "@/lib/store-context";

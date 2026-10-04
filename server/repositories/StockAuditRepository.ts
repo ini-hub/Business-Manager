@@ -12,7 +12,7 @@ import {
   type Staff,
   type User,
 } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { settleSupplyVariance, localDateString } from "../services/SupplyCostingService";
 import { getStoreTimezone } from "../lib/dateUtils";
 

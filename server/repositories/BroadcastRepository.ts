@@ -8,7 +8,7 @@ import {
   type InsertWhatsappBroadcast,
   type WhatsappBroadcast,
 } from "@shared/schema";
-import { eq, and, inArray, desc, sql } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { pickOptedInCustomerIds } from "../lib/whatsappOptIn";
 
 export class BroadcastRepository {

@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { trimmedString } from "./_helpers";

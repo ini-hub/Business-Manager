@@ -17,7 +17,6 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { apiRequest } from "@/lib/queryClient";

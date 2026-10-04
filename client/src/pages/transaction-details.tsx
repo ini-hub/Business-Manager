@@ -3,9 +3,7 @@ import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Calendar,
-  User,
-  CreditCard,
+  Calendar, CreditCard,
   AlertCircle,
   Printer,
   Ban,
@@ -17,7 +15,7 @@ import {
   Plus,
   Droplet,
   History,
-  MoreHorizontal,
+  MoreHorizontal
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";

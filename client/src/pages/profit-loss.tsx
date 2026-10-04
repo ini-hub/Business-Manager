@@ -1,17 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet, ChevronDown, Building2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Coins, Package, Wrench, ShoppingBag, BarChart3, AlertCircle, Wallet, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DataTable } from "@/components/data-table";
-import { PageHeader } from "@/components/page-header";
-import { MetricCard } from "@/components/metric-card";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { exportFinancialStatementToPDF, type StatementLine } from "@/lib/export-utils";
 import { useStore } from "@/lib/store-context";
-import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { MetricGrid } from "@/components/metric-grid";
 import { Link, useLocation, useSearch } from "wouter";
@@ -24,10 +20,9 @@ import { PageContainer } from "@/components/oop-ui/PageContainer";
 import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { useAuth } from "@/hooks/useAuth";
 import { analyticsApi } from "@/services/AnalyticsApiService";
-import { endOfDay, startOfDay, startOfMonth, subMonths, format } from "date-fns";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { endOfDay, startOfDay, startOfMonth, format } from "date-fns";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function ProfitLossPage() {
   const { currentStore, business, stores } = useStore();

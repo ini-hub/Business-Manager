@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { exportToCSV, exportToPDF, exportReportToPDF, type ReportColumn } from "@/lib/export-utils";
+import { exportToCSV, exportReportToPDF, type ReportColumn } from "@/lib/export-utils";
 import {
   buildExportColumnConfig,
   buildInventoryExportRows,

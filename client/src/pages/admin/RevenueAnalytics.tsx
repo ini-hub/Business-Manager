@@ -3,14 +3,9 @@ import {
   TrendingUp,
   DollarSign,
   Users,
-  Percent,
-  TrendingDown,
-  Building,
+  Percent, Building,
   Loader2,
-  AlertCircle,
-  HelpCircle,
-  FileCheck,
-  CreditCard,
+  AlertCircle
 } from "lucide-react";
 import {
   BarChart,
@@ -22,8 +17,7 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
-  Cell,
-  Legend,
+  Cell
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";

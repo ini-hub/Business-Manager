@@ -3,9 +3,7 @@ import { eq, and, gte, lte, inArray } from "drizzle-orm";
 import {
   payrollPostings,
   payrollEntries,
-  payrollPeriods,
-  type PayrollPeriod,
-  type SalaryAdvance,
+  payrollPeriods, type SalaryAdvance
 } from "@shared/schema";
 import { storage } from "../storage";
 import { round2, splitPay, deductionsByStaff } from "@shared/payroll-take-home";

@@ -16,9 +16,7 @@ import {
   LifeBuoy,
   CalendarDays,
   DollarSign,
-  Wallet,
-  Wallet2,
-  BookOpen,
+  Wallet, BookOpen,
   CalendarClock,
   ArrowLeftRight,
   Truck,
@@ -29,7 +27,7 @@ import {
   Compass,
   MessageSquare,
   Scale,
-  Trophy,
+  Trophy
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -47,7 +45,6 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

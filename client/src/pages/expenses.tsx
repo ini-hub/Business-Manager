@@ -4,9 +4,8 @@ import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Plus, Settings2, Trash2, Wallet, Receipt, Filter, Edit, Calendar, Banknote } from "lucide-react";
+import { Plus, Settings2, Trash2, Wallet, Receipt, Edit, Banknote } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
@@ -41,13 +40,6 @@ import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
 import { format } from "date-fns";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,

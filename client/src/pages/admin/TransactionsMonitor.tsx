@@ -6,16 +6,12 @@ import {
   CreditCard,
   Calendar,
   AlertTriangle,
-  Building,
-  Clock,
-  ArrowUpRight,
+  Building, ArrowUpRight,
   TrendingUp,
-  Percent,
-  CheckCircle,
-  Loader2,
+  Percent, Loader2,
   AlertCircle,
   ShieldCheck,
-  Ban,
+  Ban
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

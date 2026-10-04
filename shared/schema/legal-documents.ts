@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, unique, index } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { users } from "./auth";
 import { organisations } from "./organisations";

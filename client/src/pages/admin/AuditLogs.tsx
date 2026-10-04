@@ -6,13 +6,11 @@ import {
   Eye,
   Loader2,
   AlertCircle,
-  Clock,
-  User,
-  Activity,
-  Filter,
+  Clock, Activity,
+  Filter
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";

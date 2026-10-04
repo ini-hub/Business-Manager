@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { ArrowLeft, Building2, MapPin, Phone, Globe, Coins, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Building2, Coins } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -10,8 +10,7 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,
-  FormDescription,
+  FormMessage
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

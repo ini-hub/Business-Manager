@@ -1,13 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { buildSlug } from "@/lib/slug";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useReturnTo } from "@/lib/return-to";
 import {
-  ArrowLeft, Package, RefreshCw, Calendar, User, FileText, Coins, TrendingUp, Clock,
-  Edit, Infinity, Info, AlertTriangle, Archive, Plus, Trash2, Layers, Wrench, BarChart2,
-  ShoppingBag, Tag, DollarSign, Pencil, ShieldCheck, Eye
+  ArrowLeft, Package, RefreshCw, Calendar, User, FileText, TrendingUp, Clock,
+  Edit, Infinity, AlertTriangle, Archive, Plus, Trash2, Layers, Wrench, BarChart2,
+  ShoppingBag, Tag, Pencil, ShieldCheck, Eye
 } from "lucide-react";
 import {
   Dialog,
@@ -16,7 +16,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -27,10 +26,9 @@ import { ListToolbar } from "@/components/list-toolbar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -39,14 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useStore } from "@/lib/store-context";
@@ -54,7 +44,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { inventoryApi } from "@/services/InventoryApiService";
-import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { ConsumablesRecipeCard } from "@/components/consumables-recipe-card";
 import { SupplyCostingCard } from "@/components/supply-costing-card";
 import { format } from "date-fns";

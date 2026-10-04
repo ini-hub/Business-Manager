@@ -7,9 +7,7 @@ import {
   transactions,
   inventory,
   customers,
-  staff,
-  stores,
-  settings,
+  staff, settings,
   taxRates,
   promotions,
   profitLoss,
@@ -26,7 +24,7 @@ import {
   saleDrafts,
   checkoutIdempotencyKeys,
   type ProfitLossWithInventory,
-  type SaleDraft,
+  type SaleDraft
 } from "@shared/schema";
 import { eq, and, or, gt, gte, lte, sql, desc, asc, inArray } from "drizzle-orm";
 import { InventoryRepository } from "./InventoryRepository";

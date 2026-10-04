@@ -1,40 +1,19 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { isAuthenticated } from "../auth";
 import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
   insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  featureCatalog,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
+  insertCustomRoleSchema, promotions, customRoles,
+  featureCatalog
 } from "@shared/schema";
 import { z } from "zod";
 import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc, inArray, asc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
+import { eq, and, desc, inArray } from "drizzle-orm";
+import { sanitizeString, sanitizeNumber, sanitizeBoolean } from "../sanitize";
 import { isValidLatitude, isValidLongitude } from "@shared/geo";
 import { getOrgEntitlements, getFeatureByKey } from "../lib/entitlements";
+import { auditLogger } from "../audit";
+import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, triggerAutoRecalculate } from './helpers';
 
 // Settings fields gated behind a purchasable feature (§1 of the pay-per-
 // feature plan) - everything else in PUT /api/settings' payload (attendance,
@@ -80,10 +59,6 @@ const validateAttendanceSettings = (body: any): string | null => {
   }
   return null;
 };
-import { auditLogger } from "../audit";
-import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;

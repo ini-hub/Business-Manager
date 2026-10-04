@@ -2,8 +2,6 @@ import { Router, Request, Response } from "express";
 import { BaseController } from "./BaseController";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
-import { creditEntries } from "@shared/schema";
-import { eq } from "drizzle-orm";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { staffCreditDeductionService } from "../services/StaffCreditDeductionService";
 import { staffCreditPeriodStatusFor } from "../repositories/CreditRepository";

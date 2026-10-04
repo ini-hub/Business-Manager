@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireContractPendingToken, generateToken } from "../auth";
+import { requireContractPendingToken } from "../auth";
 import { issueSession } from "../lib/authSessions";
 import { staffContractService } from "../services/StaffContractService";
 import { signContractSchema, declineContractSchema } from "@shared/schema";

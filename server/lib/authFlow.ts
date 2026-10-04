@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
-import { generateToken, generateOrgSelectToken, generateContractPendingToken, generateProfilePendingToken } from "../auth";
+import { generateOrgSelectToken, generateContractPendingToken, generateProfilePendingToken } from "../auth";
 import { issueSession } from "./authSessions";
 import { staffContractService } from "../services/StaffContractService";
 import { isHrProfileComplete } from "./hrProfileGate";

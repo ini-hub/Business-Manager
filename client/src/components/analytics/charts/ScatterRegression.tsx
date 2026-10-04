@@ -11,13 +11,11 @@ import {
   CartesianGrid,
   Line,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
+  Scatter, Tooltip,
   XAxis,
   YAxis,
   ZAxis,
-  ComposedChart,
+  ComposedChart
 } from "recharts";
 import type { ValueFormat } from "@shared/analytics/model";
 import { useStore } from "@/lib/store-context";

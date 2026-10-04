@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { Bell, Package, Receipt, AlertCircle, Check, Trash2 } from "lucide-react";
+import { Bell, Package, Receipt, AlertCircle, Check } from "lucide-react";
 import {
   Sheet,
   SheetContent,

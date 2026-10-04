@@ -1,41 +1,9 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
-import { isAuthenticated } from "../auth";
-import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
-} from "@shared/schema";
 import { z } from "zod";
-import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
 import { auditLogger } from "../audit";
-import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate } from './helpers';
+import { getClientIp, formatZodErrors } from './helpers';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;

@@ -2,19 +2,14 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Search,
-  User,
-  Building,
-  KeyRound,
+  User, KeyRound,
   Ban,
   RotateCcw,
   AlertTriangle,
   Mail,
   Shield,
   Loader2,
-  AlertCircle,
-  Clock,
-  Eye,
-  SlidersHorizontal,
+  AlertCircle, SlidersHorizontal
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
-import { organisations, stores, staff, products, inventory, orders, checkouts, payrollEntries } from "@shared/schema";
+import { organisations, stores, staff, products, inventory, orders, checkouts } from "@shared/schema";
 import { payrollService } from "./PayrollService";
 import {
   assertTestDatabase,

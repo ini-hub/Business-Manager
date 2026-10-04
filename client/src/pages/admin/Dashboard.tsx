@@ -7,12 +7,10 @@ import {
   AlertOctagon,
   Activity,
   ArrowUpRight,
-  ArrowDownRight,
-  TrendingDown,
-  Loader2,
+  ArrowDownRight, Loader2,
   AlertCircle,
   HelpCircle,
-  FileCheck,
+  FileCheck
 } from "lucide-react";
 import {
   AreaChart,
@@ -23,9 +21,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
+  ResponsiveContainer
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";

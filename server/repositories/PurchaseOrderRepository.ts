@@ -13,11 +13,8 @@ import {
   vendorBills,
   type PurchaseOrder,
   type InsertPurchaseOrder,
-  type PurchaseOrderItem,
-  type InsertPurchaseOrderItem,
-  type Vendor,
-  type Inventory,
-  type RestockEvent,
+  type PurchaseOrderItem, type Vendor,
+  type Inventory
 } from "@shared/schema";
 import { eq, and, desc, like, sql } from "drizzle-orm";
 import { postSupplyPurchaseExpense, localDateString } from "../services/SupplyCostingService";

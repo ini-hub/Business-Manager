@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, CheckSquare, AlertTriangle, Trash, Coins, Plus, Search, SlidersHorizontal, ArrowUpDown, X } from "lucide-react";
+import { FileText, CheckSquare, AlertTriangle, Trash, Coins, Plus } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { PoFilterSheet, PoSortSheet } from "@/components/po-filter-sheet";
-import { ClearableInput } from "@/components/clearable-input";
 import {
   EMPTY_PO_FILTERS, buildPoFilterChips, clearPoFilterChip, countActivePoFilters, daysLate, dueDay, isAwaiting,
   poMatchesFilters, poMatchesSearch, sortPos, PO_SORT_LABELS, type PoFilterState, type PoSort,

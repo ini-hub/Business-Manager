@@ -2,15 +2,12 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import type { Product, Settings, Inventory } from "@shared/schema";
-
-type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
-import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Boxes, AlertTriangle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, FileText, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MetricCard } from "@/components/metric-card";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +16,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -29,8 +25,8 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
+import { Tabs } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { DataTable, type RowAction, type BulkAction, type BulkActionSelection } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -44,7 +40,6 @@ import {
   INVENTORY_EXPORT_COLUMNS,
 } from "@/lib/inventory-export";
 import { exportReportToPDF, type ReportStatusTone } from "@/lib/export-utils";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useMultiStoreQuery } from "@/hooks/useMultiStoreQuery";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -52,7 +47,7 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
-import { Link, useLocation, useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
 import { MetricRow } from "@/components/metric-row";
 import { ListControls } from "@/components/list-controls";
@@ -82,6 +77,8 @@ import {
   isAtOrBelowReorderPoint,
   formatStockAlertCopy,
 } from "@/lib/inventory-metrics";
+
+type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
 
 // Type and low-stock used to be tabs; they are filters now. Old ?view= values still resolve (see filtersFromLegacyView).
 type FilterType = "items" | "archived" | "drafts";

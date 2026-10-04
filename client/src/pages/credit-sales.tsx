@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -38,18 +38,13 @@ import {
   BookOpen,
   DollarSign,
   AlertTriangle,
-  Calendar,
-  CheckCircle,
-  MoreVertical,
+  Calendar, MoreVertical,
   Send,
   MessageSquare,
   History,
-  TrendingDown,
-  User,
-  Plus,
-  RefreshCw,
+  TrendingDown, RefreshCw,
   XCircle,
-  RotateCcw,
+  RotateCcw
 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
 import { MetricRow } from "@/components/metric-row";

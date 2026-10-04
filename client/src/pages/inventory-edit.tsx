@@ -3,7 +3,7 @@ import { useLocation, useParams, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronLeft, AlertCircle, AlertTriangle, Package, Wrench, Droplets, Tag, BarChart2, Layers, Plus, X, ScanLine } from "lucide-react";
+import { AlertCircle, AlertTriangle, Package, Wrench, Droplets, Plus, X, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";

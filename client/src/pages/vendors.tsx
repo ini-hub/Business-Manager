@@ -5,23 +5,13 @@ import { useUrlState } from "@/hooks/use-url-state";
 import { buildSlug } from "@/lib/slug";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Plus, Edit, Trash2, Phone, Mail, MapPin, FileText, Building2, Archive, RotateCcw } from "lucide-react";
+import { Plus, Edit, Trash2, Phone, Mail, FileText, Building2, Archive, RotateCcw } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getCustomerInitials } from "@/lib/customer-detail-utils";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { DataTable, type BulkAction, type RowAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent } from "@/components/ui/tabs";

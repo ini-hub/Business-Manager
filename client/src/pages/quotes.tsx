@@ -6,7 +6,6 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { printWithFormat } from "@/lib/print-utils";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
@@ -35,10 +34,8 @@ import {
 } from "@/lib/quote-filters";
 import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  DialogContent, DialogHeader,
+  DialogTitle
 } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";

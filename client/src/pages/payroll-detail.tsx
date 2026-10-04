@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency as fmt, formatCurrencyCompact } from "@/lib/currency-utils";
 import { splitPay } from "@shared/payroll-take-home";
 import { WRITE_OFF_REASONS } from "@shared/schema";
@@ -27,7 +27,7 @@ import { PayrollFormulaBreakdown } from "@/components/payroll/PayrollFormulaBrea
 import { PayrollDailySummaryTable } from "@/components/payroll/PayrollDailySummaryTable";
 import { PayrollTransactionBreakdown } from "@/components/payroll/PayrollTransactionBreakdown";
 import { generatePayslipPdf } from "@/lib/generatePayslipPdf";
-import type { PayrollPeriod, PayrollEntry, PayrollDrilldown } from "@shared/schema";
+import type { PayrollPeriod, PayrollDrilldown } from "@shared/schema";
 
 export default function PayrollDetailPage() {
   const [, params] = useRoute("/payroll/:periodId/staff/:staffId");

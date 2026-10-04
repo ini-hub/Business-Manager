@@ -6,11 +6,9 @@ import {
   Mail,
   Calendar,
   Building,
-  TrendingUp,
-  MapPin,
-  ChevronRight,
+  TrendingUp, ChevronRight,
   Loader2,
-  AlertCircle,
+  AlertCircle
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

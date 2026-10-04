@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
 import { ClearableInput } from "@/components/clearable-input";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";

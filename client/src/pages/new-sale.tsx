@@ -3,17 +3,11 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import {
-  ShoppingCart,
-  Minus,
-  Plus,
+  ShoppingCart, Plus,
   Trash2,
-  Package,
-  Wrench,
-  Users,
+  Package, Users,
   UserCog,
-  CheckCircle,
-  Search,
-  AlertCircle,
+  CheckCircle, AlertCircle,
   ChevronsUpDown,
   Check,
   Banknote,
@@ -25,12 +19,11 @@ import {
   CheckCircle2,
   WifiOff,
   FileEdit,
-  ChevronDown,
+  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,7 +48,6 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/hooks/use-toast";
@@ -67,7 +59,6 @@ import { isOrgTrialing } from "@/lib/trial";
 import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
-import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { ReceiptModal } from "@/components/receipt-modal";
@@ -75,13 +66,6 @@ import type { Customer, Staff, Inventory } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { saveOfflineCheckout } from "@/lib/offline-db";
 import { fetchAllStaff } from "@/lib/staff-api";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,

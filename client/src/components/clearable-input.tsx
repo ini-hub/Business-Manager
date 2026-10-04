@@ -1,7 +1,7 @@
-import * as React from "react"
-import { X } from "lucide-react"
-import { Input } from "./ui/input"
-import { cn } from "@/lib/utils"
+import * as React from "react";
+import { X } from "lucide-react";
+import { Input } from "./ui/input";
+import { cn } from "@/lib/utils";
 
 interface ClearableInputProps extends React.ComponentProps<"input"> {
   onClear?: () => void;

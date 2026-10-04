@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { db } from "../db";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { customers } from "@shared/schema";
 import { BroadcastRepository } from "../repositories/BroadcastRepository";
 import { sendTemplateMessage } from "../services/WhatsAppService";

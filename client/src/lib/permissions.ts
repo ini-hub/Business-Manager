@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 
-import { PERMISSION_MODULES, roleHasModule, type PermissionModule } from "@shared/permissionModules";
+import { roleHasModule, type PermissionModule } from "@shared/permissionModules";
 
 export {  type PermissionModule };
 

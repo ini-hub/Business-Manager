@@ -1,5 +1,5 @@
 import { KowopeBrand } from "@/components/kowope-brand";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -14,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowLeft, Mail, MessageSquare, CheckCircle2 } from "lucide-react";
-import { validateEmailOrPhone } from "@/lib/validation-utils";
 import { deduplicatedCountryCodes } from "@/lib/phone-utils";
 
 const emailSchema = z.object({

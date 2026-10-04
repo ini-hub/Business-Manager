@@ -14,7 +14,7 @@ import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { type DateRange } from "@/components/date-range-filter";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { startOfMonth, startOfDay, endOfDay, format } from "date-fns";
-import { Link, useLocation, useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
 import { MetricRow } from "@/components/metric-row";
 import { ListControls } from "@/components/list-controls";

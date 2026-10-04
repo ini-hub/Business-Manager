@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { creditEntries, reminderLogs, settings, customers, stores } from "@shared/schema";
-import { eq, and, inArray, isNotNull, gte, lte } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, gte } from "drizzle-orm";
 import { sendSMS } from "../email";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000; // every hour

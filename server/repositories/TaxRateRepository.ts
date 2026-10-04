@@ -1,7 +1,7 @@
 import { BaseRepository } from "./BaseRepository";
 import { db } from "../db";
 import { taxRates, type TaxRate, type InsertTaxRate } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export class TaxRateRepository extends BaseRepository<typeof taxRates> {
   constructor() {

@@ -8,10 +8,7 @@ import {
   AlertCircle,
   Clock,
   User,
-  Layers,
-  CheckCircle,
-  Eye,
-  Trash2,
+  Layers, Trash2
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";

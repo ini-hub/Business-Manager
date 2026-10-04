@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, Building2, MapPin, Phone, User, Coins, CreditCard, ShieldCheck, Check, Globe } from "lucide-react";
+import { ArrowLeft, Building2, Coins, Check, Globe } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -25,7 +25,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";

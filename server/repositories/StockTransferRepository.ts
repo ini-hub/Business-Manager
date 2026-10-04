@@ -11,10 +11,8 @@ import {
   profitLoss,
   type StockTransfer,
   type InsertStockTransfer,
-  type StockTransferItem,
-  type InsertStockTransferItem,
-  type Inventory,
-  type Store,
+  type StockTransferItem, type Inventory,
+  type Store
 } from "@shared/schema";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 

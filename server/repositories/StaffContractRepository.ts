@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import {
   staffContracts,
   staffContractVersions,

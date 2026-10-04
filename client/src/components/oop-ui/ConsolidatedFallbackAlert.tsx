@@ -1,6 +1,5 @@
-import * as React from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Store, ArrowRight, ChevronRight, HelpCircle } from "lucide-react";
+import { Store, HelpCircle } from "lucide-react";
 
 interface ConsolidatedFallbackAlertProps {
   pageTitle: string;

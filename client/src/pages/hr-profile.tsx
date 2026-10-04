@@ -4,7 +4,6 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useHasPermission } from "@/lib/permissions";
-import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PersonalTab } from "@/components/hr/PersonalTab";

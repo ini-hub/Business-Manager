@@ -52,6 +52,7 @@ import { OfflineSyncManager } from "@/components/offline-sync-manager";
 import { GlobalSearch } from "@/components/global-search";
 import { NotificationSheet } from "@/components/notification-sheet";
 import { PageSkeleton } from "@/components/page-skeleton";
+import { DashboardViewSwitch } from "@/components/dashboard-view-switch";
 
 // Lazy — split into per-route chunks by Vite
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -70,7 +71,6 @@ const StaffPerformanceAnalyticsPage = lazy(() => import("@/pages/staff-performan
 const MyPerformancePage = lazy(() => import("@/pages/my-performance"));
 const MyPayrollPage = lazy(() => import("@/pages/my-payroll"));
 const MyPayrollDetailPage = lazy(() => import("@/pages/my-payroll-detail"));
-import { DashboardViewSwitch } from "@/components/dashboard-view-switch";
 const StaffDashboard = lazy(() => import("@/pages/staff-dashboard"));
 const StaffAttendancePage = lazy(() => import("@/pages/staff-attendance"));
 const NotAuthorized = lazy(() => import("@/components/not-authorized"));

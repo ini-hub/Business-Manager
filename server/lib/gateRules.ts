@@ -1,5 +1,5 @@
 import { FEATURES, type FeatureDef } from "@shared/features";
-import { findGatedScreen, routeRuleMatches, type ScreenGateEntry } from "@shared/gateRules";
+import { routeRuleMatches, type ScreenGateEntry } from "@shared/gateRules";
 import type { PermissionModule } from "@shared/permissionModules";
 
 /**

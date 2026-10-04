@@ -1,4 +1,4 @@
-import { Printer, Download, MessageCircle, X, Loader2, AlertCircle } from "lucide-react";
+import { Printer, Download, MessageCircle, Loader2, AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,

@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStaffSchema, type Staff, type Customer, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
+import { type Staff, type Customer, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { uploadContractFileToStaging } from "@/lib/contract-upload";

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
-  ShieldAlert,
   UserPlus,
   Shield,
   Loader2,
@@ -11,13 +10,13 @@ import {
   UserCheck,
   CheckCircle,
   QrCode,
-  Copy,
+  Copy
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { validateEmail } from "@/lib/validation-utils";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";

@@ -23,9 +23,7 @@ import {
   staff,
   inventory,
   bookings,
-  creditEntries,
-  repayments,
-  stores,
+  creditEntries, stores,
   organisationMembers,
   customers,
   subscriptions,
@@ -38,13 +36,11 @@ import {
   featureCatalog,
   featureDependencies,
   orgFeatureEntitlements,
-  insertFeatureCatalogSchema,
-  platformConfig,
-  platformPaymentCredentials,
+  insertFeatureCatalogSchema, platformPaymentCredentials,
   publishLegalDocumentVersionSchema,
-  createLegalDocumentSchema,
+  createLegalDocumentSchema
 } from "@shared/schema";
-import { grantFeatureEntitlement, scheduleFeatureRemoval } from "./lib/entitlements";
+import { grantFeatureEntitlement } from "./lib/entitlements";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
 import { getConfiguredTrialDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";

@@ -5,9 +5,7 @@ import {
   payrollDeductions,
   payrollEntries,
   creditEntries,
-  repayments,
-  expenses,
-  expenseCategories,
+  repayments, expenseCategories
 } from "@shared/schema";
 import { storage } from "../storage";
 import { payrollService } from "./PayrollService";

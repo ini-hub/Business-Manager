@@ -1,9 +1,8 @@
 import { useState, useMemo } from "react";
 import type { TransactionWithRelations } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, parseISO, startOfWeek, getDay, addMonths, subMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, getDay, addMonths, subMonths } from "date-fns";
 import {
-  Calendar,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -14,15 +13,14 @@ import {
   AlertCircle,
   BookOpen,
   Clock,
-  ArrowLeft,
+  ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

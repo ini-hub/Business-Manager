@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import {
   LayoutDashboard,

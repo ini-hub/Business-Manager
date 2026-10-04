@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { storage } from "../storage";
-import { requireProfilePendingToken, generateToken, generateGuarantorSigningToken } from "../auth";
+import { requireProfilePendingToken, generateGuarantorSigningToken } from "../auth";
 import { issueSession } from "../lib/authSessions";
 import { isHrProfileComplete } from "../lib/hrProfileGate";
 import { hrPersonalProfileService } from "../services/HrPersonalProfileService";

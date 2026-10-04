@@ -17,10 +17,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   X,
-  ChevronUp,
-  ChevronDown,
-  Receipt,
-  Clock,
+  ChevronUp, Receipt,
+  Clock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";

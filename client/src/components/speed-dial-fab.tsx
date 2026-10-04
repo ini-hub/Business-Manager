@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Plus, GripVertical } from "lucide-react";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SpeedDialAction {

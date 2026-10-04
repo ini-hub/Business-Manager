@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express";
-import { sql, eq, and, or, isNull, lte, inArray } from "drizzle-orm";
+import { sql, eq, and, or, lte } from "drizzle-orm";
 import { db } from "../db";
 import {
   featureCatalog,

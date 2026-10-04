@@ -1,20 +1,31 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { isAuthenticated } from "../auth";
-import bcrypt from "bcrypt";
 import crypto from "crypto";
 import {
-  sendActivationEmail,
-  sendAddedToOrgEmail,
   sendEmailVerificationOtpEmail,
   sendEmailChangeNoticeToOldAddress,
-  sendContractSignatureRequiredEmail,
+  sendContractSignatureRequiredEmail
 } from "../email";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { staffInviteService, type InviteOutcome, type ExistingLink } from "../services/StaffInviteService";
 import { syncStaffNameToLinkedUser, syncStaffToHrPersonalFields } from "../services/IdentitySync";
 import { staffContractService } from "../services/StaffContractService";
 import { objectStorage } from "../lib/objectStorage";
+import {
+  insertStaffSchema, attachContractSchema,
+  ALLOWED_CONTRACT_MIME_TYPES,
+  MAX_CONTRACT_FILE_SIZE_BYTES, staff
+} from "@shared/schema";
+import { z } from "zod";
+import { db } from "../db";
+import { eq, and } from "drizzle-orm";
+import { sanitizeString, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber } from "../sanitize";
+import { normalizePhoneForStorage } from "@shared/phone-utils";
+import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
+import { auditLogger } from "../audit";
+import { bulkUploadService } from "../services/BulkUploadService";
+import { getUserId, getAuditContext, formatZodErrors, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
+import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
 
 // The invite form is a deliberate enumeration-oracle blind spot (see the
 // "Collapsed deliberately" comment below): a manager must never learn that
@@ -32,46 +43,6 @@ function sameBusinessExistingLinks(
 }
 
 const SALT_ROUNDS = 12;
-import {
-  insertBusinessSchema,
-  insertStoreSchema,
-  insertCustomerSchema,
-  insertStaffSchema,
-  insertInventorySchema,
-  insertPromotionSchema,
-  insertCustomRoleSchema,
-  insertStoreIntegrationSchema,
-  insertExpenseSchema,
-  attachContractSchema,
-  ALLOWED_CONTRACT_MIME_TYPES,
-  MAX_CONTRACT_FILE_SIZE_BYTES,
-  type UserRole,
-  orders,
-  checkouts,
-  promotions,
-  transactions,
-  customers,
-  inventory,
-  staff,
-  customRoles,
-  taxRates,
-  repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions,
-} from "@shared/schema";
-import { z } from "zod";
-import { db } from "../db";
-import { eq, and, gte, lte, gt, count, desc } from "drizzle-orm";
-import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
-import { normalizePhoneForStorage } from "@shared/phone-utils";
-import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
-import { auditLogger } from "../audit";
-import { bulkUploadService } from "../services/BulkUploadService";
-import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
-import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;

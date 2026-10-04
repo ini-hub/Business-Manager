@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from "react";
+import { Component, ErrorInfo, ReactNode } from "react";
 import ServerError from "./server-error";
 
 interface Props {

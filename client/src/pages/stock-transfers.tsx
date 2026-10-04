@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useUrlState } from "@/hooks/use-url-state";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ArrowLeftRight, CheckCircle, XCircle, Clock, Trash2, ArrowUpRight, ArrowDownLeft, RefreshCw, FileText } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Plus, CheckCircle, XCircle, Clock, Trash2, ArrowUpRight, ArrowDownLeft, RefreshCw, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, type BulkAction } from "@/components/data-table";
@@ -23,11 +21,9 @@ import {
   countActiveTransferFilters,
   sortTransfers,
   transferMatchesFilters,
-  transferMatchesSearch,
-  transferStageOf,
-  transferSortLabel,
+  transferMatchesSearch, transferSortLabel,
   type TransferFilterState,
-  type TransferSortState,
+  type TransferSortState
 } from "@/lib/transfer-filters";
 import {
   Dialog,

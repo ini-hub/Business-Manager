@@ -1,7 +1,6 @@
 import { db } from "../db";
 import { bookings, customers, stores } from "@shared/schema";
 import { eq, and, gte, lt, isNull, inArray } from "drizzle-orm";
-import { sendEmail } from "../email";
 import { sendSMS } from "../email";
 import { sendTemplateMessage } from "./WhatsAppService";
 import { getAppUrl } from "../lib/appUrl";

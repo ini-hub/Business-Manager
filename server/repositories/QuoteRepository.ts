@@ -7,10 +7,8 @@ import {
   inventory,
   type Quote,
   type InsertQuote,
-  type QuoteItem,
-  type InsertQuoteItem,
-  type Customer,
-  type Inventory,
+  type QuoteItem, type Customer,
+  type Inventory
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
