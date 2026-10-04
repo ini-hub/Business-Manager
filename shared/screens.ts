@@ -23,4 +23,6 @@ export const APP_SCREEN_PATHS: readonly string[] = [
   "/vendors", "/vendors/new", "/vendors/:id/edit", "/vendors/:vendorId/bills/new", "/vendors/bills/:billId/pay",
   "/quotes", "/leaderboard", "/purchase-orders", "/purchase-orders/new", "/purchase-orders/:id/edit", "/purchase-orders/:id", "/stock-transfers",
   "/analytics", "/analytics/dashboards", "/analytics/dashboards/:id",
+  "/bookings/calendar", "/customers/insights", "/inventory/audits", "/payroll/:periodId", "/quotes/new",
+  "/staffs/performance/analytics", "/stock-transfers/new", "/transactions/register-shifts",
 ];

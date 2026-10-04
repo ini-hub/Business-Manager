@@ -174,7 +174,7 @@ export function AttendanceLog({ storeId, staff }: { storeId: string; staff: Staf
       entry.totals.other += g.summary.leave + g.summary.holiday + g.summary.offDay;
       entry.weeks.push(g);
     }
-    const list = [...byStaff.values()];
+    const list = Array.from(byStaff.values());
     for (const e of list) e.weeks.sort((x, y) => y.weekStart.localeCompare(x.weekStart));
     // Whoever needs attention first: most absences, then most late.
     return list.sort((x, y) => y.totals.absent - x.totals.absent || y.totals.late - x.totals.late || x.staffName.localeCompare(y.staffName));

@@ -331,7 +331,7 @@ export const FEATURES = [
   {
     key: "inventory_management", module: "Inventory & Catalog", name: "Inventory Management", description: "Products, stock, stock transfers, audits and consumables.",
     category: "inventory_mgmt", tier: "free", active: true, sortOrder: 310,
-    domains: ["inventory", "products", "orders", "stock-audits", "stock-transfers"],
+    domains: ["inventory", "products", "orders", "stock-audits", "stock-transfers", "inventory-drafts", "stock-transfer-drafts"],
     screens: ["/inventory", "/stock-transfers"],
   },
   {
