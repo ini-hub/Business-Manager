@@ -14,6 +14,9 @@ export interface SaleFilterState {
   returnsOnly: boolean;
   creditOnly: boolean;
   staffPurchasesOnly: boolean;
+  /** Inclusive local dates as yyyy-MM-dd; sent to the server as the query range. */
+  dateFrom: string | null;
+  dateTo: string | null;
 }
 
 export const EMPTY_SALE_FILTERS: SaleFilterState = {
@@ -25,6 +28,8 @@ export const EMPTY_SALE_FILTERS: SaleFilterState = {
   returnsOnly: false,
   creditOnly: false,
   staffPurchasesOnly: false,
+  dateFrom: null,
+  dateTo: null,
 };
 
 export interface FilterableSale {
@@ -62,11 +67,15 @@ export function countActiveSaleFilters(filters: SaleFilterState): number {
   if (filters.staffId) count++;
   if (filters.itemType) count++;
   if (filters.amountMin != null || filters.amountMax != null) count++;
+  if (filters.dateFrom || filters.dateTo) count++;
+  if (filters.returnsOnly) count++;
+  if (filters.creditOnly) count++;
+  if (filters.staffPurchasesOnly) count++;
   return count;
 }
 
 export interface SaleFilterChip {
-  key: keyof SaleFilterState | "amountRange";
+  key: keyof SaleFilterState | "amountRange" | "dateRange";
   label: string;
 }
 
@@ -75,6 +84,15 @@ const ITEM_TYPE_LABELS: Record<SaleItemType, string> = {
   product: "Product",
   mixed: "Mixed",
 };
+
+const fmtDay = (d: string) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+export function saleDateRangeLabel(from: string | null, to: string | null): string {
+  if (from && to) return from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`;
+  if (from) return `From ${fmtDay(from)}`;
+  return to ? `Until ${fmtDay(to)}` : "";
+}
 
 /** Builds the removable-chip list for filters set inside the sheet — the quick chips
  * (Returns/Credit/Staff purchases) render their own active state directly, not via this list. */
@@ -101,6 +119,12 @@ export function buildSaleFilterChips(
   } else if (filters.amountMin != null) {
     chips.push({ key: "amountRange", label: `From ${currencySymbol}${filters.amountMin.toLocaleString()}` });
   }
+  if (filters.dateFrom || filters.dateTo) {
+    chips.push({ key: "dateRange", label: saleDateRangeLabel(filters.dateFrom, filters.dateTo) });
+  }
+  if (filters.returnsOnly) chips.push({ key: "returnsOnly", label: "Returns" });
+  if (filters.creditOnly) chips.push({ key: "creditOnly", label: "Credit" });
+  if (filters.staffPurchasesOnly) chips.push({ key: "staffPurchasesOnly", label: "Staff purchases" });
 
   return chips;
 }
@@ -111,6 +135,10 @@ export function clearSaleFilterChip(filters: SaleFilterState, key: SaleFilterChi
     case "staffId": return { ...filters, staffId: null };
     case "itemType": return { ...filters, itemType: null };
     case "amountRange": return { ...filters, amountMin: null, amountMax: null };
+    case "dateRange": return { ...filters, dateFrom: null, dateTo: null };
+    case "returnsOnly": return { ...filters, returnsOnly: false };
+    case "creditOnly": return { ...filters, creditOnly: false };
+    case "staffPurchasesOnly": return { ...filters, staffPurchasesOnly: false };
     default: return filters;
   }
 }

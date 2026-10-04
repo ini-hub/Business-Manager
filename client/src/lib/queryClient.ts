@@ -60,6 +60,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
   extraHeaders?: Record<string, string>,
+  rawBody?: BodyInit,
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
@@ -67,7 +68,7 @@ export async function apiRequest(
       ...(data ? { "Content-Type": "application/json" } : {}),
       ...extraHeaders,
     },
-    body: data ? JSON.stringify(data) : undefined,
+    body: rawBody ?? (data ? JSON.stringify(data) : undefined),
     credentials: "include",
   });
 

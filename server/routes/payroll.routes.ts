@@ -49,7 +49,7 @@ import { payrollSettlementService } from "../services/PayrollSettlementService";
 import { payrollService } from "../services/PayrollService";
 import { getUserId, getClientIp, getAuditContext, formatZodErrors, checkBusinessAccess, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
 import { withExpenseId } from '../utils/slug-resolver';
-import { requireFeature, hasFeature } from "../lib/entitlements";
+import { hasFeature } from "../lib/entitlements";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -315,7 +315,8 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
         .limit(1);
       if (nonFixedStaff) {
         const businessId = (req as any).user?.businessId;
-        if (!businessId || !(await hasFeature(businessId, "financial_management"))) {
+        if (!businessId || !(await hasFeature(businessId, "payroll_hybrid_commission"))) {
+          // Child of the Financial Management bundle: the bundle is what the org has to buy.
           return res.status(402).json({
             error: "feature_not_purchased",
             featureKey: "financial_management",
@@ -958,10 +959,10 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  // requireFeature gates the Financial Management bundle (FAC-7) on mutating
-  // expense routes only - GET stays open so already-recorded expenses remain
+  // The Financial Management bundle (FAC-7) is gated centrally on mutating
+  // expense routes only (shared/features.ts) - GET stays open so already-recorded expenses remain
   // readable if the bundle is later removed (FAC-8 soft-lock).
-  app.post("/api/expenses", requireManagerOrOwner, requireFeature("financial_management"), async (req, res) => {
+  app.post("/api/expenses", requireManagerOrOwner, async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -1007,7 +1008,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.patch("/api/expenses/:id", withExpenseId, requireManagerOrOwner, requireFeature("financial_management"), async (req, res) => {
+  app.patch("/api/expenses/:id", withExpenseId, requireManagerOrOwner, async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -1072,7 +1073,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.delete("/api/expenses/:id", withExpenseId, requireRole("owner"), requireFeature("financial_management"), async (req, res) => {
+  app.delete("/api/expenses/:id", withExpenseId, requireRole("owner"), async (req, res) => {
     try {
       const [existing] = await db.select().from(expenses).where(eq(expenses.id, req.params.id));
       await storage.deleteExpense(req.params.id);

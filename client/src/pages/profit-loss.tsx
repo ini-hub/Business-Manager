@@ -568,7 +568,7 @@ export default function ProfitLossPage() {
       </MetricGrid>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <PolymorphicTabsList tabs={plTabItems} variant="default" className="mb-6" />
+        <PolymorphicTabsList tabs={plTabItems} variant="bordered" />
 
         <TabsContent value="income" className="space-y-6 mt-0 border-none p-0">
           <Card className="border-primary/20 shadow-sm max-w-3xl mx-auto">

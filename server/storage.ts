@@ -1036,6 +1036,10 @@ export class DatabaseStorage implements IStorage {
     return this.transactionRepo.getTransactions(storeId, filters);
   }
 
+  async getCustomerSummaries(storeIds: string[]) {
+    return this.transactionRepo.getCustomerSummaries(storeIds);
+  }
+
   async getTransactionById(id: string): Promise<TransactionWithRelations | null> {
     return this.transactionRepo.getTransactionById(id);
   }

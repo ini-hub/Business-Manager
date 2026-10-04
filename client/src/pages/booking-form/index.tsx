@@ -98,6 +98,9 @@ export default function BookingFormPage() {
         const [hours, minutes] = values.time.split(":");
         scheduledAt = new Date(scheduledAt);
         scheduledAt.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+        if (!isEditing && scheduledAt.getTime() < Date.now()) {
+          throw new Error("The appointment time is in the past. Please choose a later time.");
+        }
       }
 
       const bookingItemsPayload = values.bookingItems.map((item) => ({
@@ -243,7 +246,7 @@ export default function BookingFormPage() {
               <div className="flex-grow min-w-0 flex flex-col gap-5">
                 {currentStep === "customer" && <StepCustomer form={form} />}
                 {currentStep === "items" && <StepItems form={form} />}
-                {currentStep === "schedule" && <StepSchedule form={form} />}
+                {currentStep === "schedule" && <StepSchedule form={form} excludeBookingId={id} />}
               </div>
               <BookingSidebar
                 form={form}

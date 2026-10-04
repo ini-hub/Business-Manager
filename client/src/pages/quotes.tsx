@@ -1,7 +1,7 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useUrlState } from "@/hooks/use-url-state";
-import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Printer, Download, MessageCircle, RefreshCw, Package, ShoppingCart } from "lucide-react";
+import { Plus, FileText, CheckCircle, XCircle, Clock, Trash2, Printer, Download, MessageCircle, RefreshCw } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { printWithFormat } from "@/lib/print-utils";
@@ -11,22 +11,35 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
-import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
-import { MetricGrid } from "@/components/metric-grid";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { QuoteFiltersSheet, QuoteSortSheet } from "@/components/quote-filter-sheets";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import { getCurrencyByCode } from "@/lib/currency-utils";
+import {
+  EMPTY_QUOTE_FILTERS,
+  buildQuoteFilterChips,
+  clearQuoteFilterChip,
+  countActiveQuoteFilters,
+  quoteMatchesFilters,
+  quoteMatchesSearch,
+  quoteSortLabel,
+  sortQuotes,
+  type QuoteFilterState,
+  type QuoteSortState,
+} from "@/lib/quote-filters";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { buildSlug } from "@/lib/slug";
@@ -36,11 +49,6 @@ import { QUOTE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
-import { ProductGrid } from "@/pages/new-sale/ProductGrid";
-import { QuoteItemRow } from "@/pages/quotes/QuoteItemRow";
-import type { QuoteCartItem } from "@/pages/quotes/types";
-import { cn } from "@/lib/utils";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Quote, QuoteItem, Customer, Inventory } from "@shared/schema";
 
 type QuoteWithCustomer = Quote & { customer: Customer | null };
@@ -52,22 +60,15 @@ export default function QuotesPage() {
   const { toast } = useToast();
   const storeCurrency = currentStore?.currency || "NGN";
 
-  const [activeTab, setActiveTab] = useUrlState<string>("tab", "list");
+  const [, setLocation] = useLocation();
+  const [quoteSearchTerm, setQuoteSearchTerm] = useState("");
+  const [quoteFilters, setQuoteFilters] = useState<QuoteFilterState>(EMPTY_QUOTE_FILTERS);
+  const [quoteSort, setQuoteSort] = useState<QuoteSortState | null>(null);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
 
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
-
-  // New quote form state
-  const [customerId, setCustomerId] = useState<string>("");
-  const [quoteRef, setQuoteRef] = useState<string>(`QT-${Date.now().toString().slice(-6)}`);
-  const [notes, setNotes] = useState<string>("");
-  const [validUntil, setValidUntil] = useState<string>("");
-  const [quoteCart, setQuoteCart] = useState<QuoteCartItem[]>([]);
-  const [productSearch, setProductSearch] = useState("");
-  // Mobile-only pane switcher — mirrors the POS builder's Products/Cart tab bar.
-  const [builderView, setBuilderView] = useState<"items" | "review">("items");
 
   // Fetch Quotes
   const { data: quotes = [], isLoading: isLoadingQuotes } = useQuery<QuoteWithCustomer[]>({
@@ -122,35 +123,6 @@ export default function QuotesPage() {
       return res.json();
     },
     enabled: !!selectedQuoteId,
-  });
-
-  // Create Quote mutation
-  const createQuoteMutation = useMutation({
-    mutationFn: async () => {
-      if (quoteCart.length === 0) throw new Error("At least one item is required.");
-      const submission = {
-        storeId: currentStore!.id,
-        customerId: customerId || null,
-        quoteRef,
-        notes: notes || null,
-        validUntil: validUntil || null,
-        items: quoteCart.map((c) => ({
-          inventoryId: c.inventory.id,
-          quantity: c.quantity,
-          unitPrice: c.customPrice,
-        })),
-      };
-      await apiRequest("POST", "/api/quotes", submission);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
-      toast({ title: "Success", description: "Quote proposal created successfully." });
-      setActiveTab("list");
-      resetForm();
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: error.message || "Failed to create quote.", variant: "destructive" });
-    },
   });
 
   // Update Quote Status mutation
@@ -219,86 +191,8 @@ export default function QuotesPage() {
     onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
   });
 
-  const resetForm = () => {
-    setCustomerId("");
-    setQuoteRef(`QT-${Date.now().toString().slice(-6)}`);
-    setNotes("");
-    setValidUntil("");
-    setQuoteCart([]);
-    setProductSearch("");
-    setBuilderView("items");
-  };
-
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
-
-  // Cart mechanics mirror the POS builder (new-sale.tsx): tap a tile to add or
-  // bump quantity, then adjust quantity/price freely from the line item — a
-  // quote never touches stock, so there's no ceiling to enforce here.
-  const addToQuoteCart = (item: Inventory) => {
-    setQuoteCart((prev) => {
-      const existing = prev.find((c) => c.inventory.id === item.id);
-      const step = item.allowFractional ? 0.5 : 1;
-      if (existing) {
-        const newQty = Math.round((existing.quantity + step) * 100) / 100;
-        return prev.map((c) =>
-          c.inventory.id === item.id
-            ? { ...c, quantity: newQty, totalPrice: Math.round(newQty * c.customPrice * 100) / 100 }
-            : c
-        );
-      }
-      const initialQty = item.allowFractional ? step : 1;
-      const price = Number(item.sellingPrice || item.costPrice || 0);
-      return [...prev, {
-        inventory: item,
-        quantity: initialQty,
-        customPrice: price,
-        totalPrice: Math.round(initialQty * price * 100) / 100,
-      }];
-    });
-  };
-
-  const updateQuoteQuantity = (itemId: string, delta: number) => {
-    setQuoteCart((prev) =>
-      prev
-        .map((c) => {
-          if (c.inventory.id !== itemId) return c;
-          const newQty = Math.round((c.quantity + delta) * 10000) / 10000;
-          const minQty = c.inventory.allowFractional ? 0.01 : 1;
-          if (newQty < minQty) return null as unknown as QuoteCartItem;
-          return { ...c, quantity: newQty, totalPrice: Math.round(newQty * c.customPrice * 100) / 100 };
-        })
-        .filter(Boolean)
-    );
-  };
-
-  const setQuoteExactQuantity = (itemId: string, newQty: number) => {
-    setQuoteCart((prev) =>
-      prev.map((c) => {
-        if (c.inventory.id !== itemId) return c;
-        const minQty = c.inventory.allowFractional ? 0.01 : 1;
-        const validQty = Math.max(minQty, newQty);
-        return { ...c, quantity: validQty, totalPrice: Math.round(validQty * c.customPrice * 100) / 100 };
-      })
-    );
-  };
-
-  const updateQuoteItemPrice = (itemId: string, newPrice: number) => {
-    if (newPrice < 0) return;
-    setQuoteCart((prev) =>
-      prev.map((c) =>
-        c.inventory.id === itemId
-          ? { ...c, customPrice: newPrice, totalPrice: Math.round(c.quantity * newPrice * 100) / 100 }
-          : c
-      )
-    );
-  };
-
-  const removeFromQuoteCart = (itemId: string) => {
-    setQuoteCart((prev) => prev.filter((c) => c.inventory.id !== itemId));
-  };
-
-  const quoteTotal = quoteCart.reduce((sum, item) => sum + item.totalPrice, 0);
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
@@ -403,6 +297,7 @@ export default function QuotesPage() {
     {
       key: "quoteRef",
       header: "Proposal Ref",
+      priority: 3 as const,
       render: (q: QuoteWithCustomer) => (
         <span className="font-mono text-sm font-semibold text-primary">{q.quoteRef}</span>
       ),
@@ -410,6 +305,8 @@ export default function QuotesPage() {
     {
       key: "customer",
       header: "Customer",
+      priority: 1 as const,
+      cardRender: (q: QuoteWithCustomer) => <span className="truncate">{q.customer?.name || "Walk-in Customer"}</span>,
       render: (q: QuoteWithCustomer) => (
         <CustomerLink customer={q.customer} customerId={q.customerId} fallbackName="Walk-in Customer" />
       ),
@@ -417,6 +314,7 @@ export default function QuotesPage() {
     {
       key: "totalPrice",
       header: "Estimated Value",
+      priority: 1 as const,
       render: (q: QuoteWithCustomer) => (
         <span className="font-mono font-medium">{formatCurrency(q.totalPrice)}</span>
       ),
@@ -424,6 +322,10 @@ export default function QuotesPage() {
     {
       key: "validUntil",
       header: "Expiry Date",
+      priority: 2 as const,
+      cardRender: (q: QuoteWithCustomer) => (
+        <span className="truncate">{q.validUntil ? new Date(q.validUntil).toLocaleDateString() : "No Expiry"}</span>
+      ),
       render: (q: QuoteWithCustomer) => (
         <span className="text-muted-foreground text-sm">
           {q.validUntil ? new Date(q.validUntil).toLocaleDateString() : "No Expiry"}
@@ -433,6 +335,7 @@ export default function QuotesPage() {
     {
       key: "status",
       header: "Status",
+      priority: 2 as const,
       render: (q: QuoteWithCustomer) => getStatusBadge(q.status),
     },
     {
@@ -503,11 +406,16 @@ export default function QuotesPage() {
     });
   };
 
-  const quoteFilterConfigs: TableFilterConfig[] = [
-    { key: "status", label: "Status", type: "select" },
-    { key: "createdAt", label: "Created Date", type: "date-range" },
-    { key: "totalPrice", label: "Estimated Value", type: "range", currencySymbol: storeCurrency === "USD" ? "$" : "₦" },
-  ];
+  const currencySymbol = getCurrencyByCode(storeCurrency)?.symbol ?? "₦";
+  const searchedQuotes = quotes.filter((q) => quoteMatchesSearch(q, quoteSearchTerm));
+  const visibleQuotes = sortQuotes(searchedQuotes.filter((q) => quoteMatchesFilters(q, quoteFilters)), quoteSort);
+  const quoteCardAvatar = (q: QuoteWithCustomer) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(q.customer?.name || "Walk-in")}
+      </AvatarFallback>
+    </Avatar>
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -516,290 +424,119 @@ export default function QuotesPage() {
         title="Quotes & Proposals"
         description="Draft pricing proposals, dispatch proforma receipts, and track pipeline values."
         actions={
-          activeTab === "list" && (
-            <>
-              <div className="lg:hidden">
-                <BulkOperations
-                  entityConfig={QUOTE_BULK_CONFIG}
-                  data={quotes as unknown as Record<string, unknown>[]}
-                  columns={quoteExportColumns}
-                  isLoading={isLoadingQuotes}
-                  storeId={currentStore.id}
-                  pdfTitle="Quotes Report"
-                  onExportPDF={handleQuoteReportExport}
-                  showImportOption={isManagerOrOwner}
-                  compact
-                />
-              </div>
-              <div className="hidden lg:block">
-                <BulkOperations
-                  entityConfig={QUOTE_BULK_CONFIG}
-                  data={quotes as unknown as Record<string, unknown>[]}
-                  columns={quoteExportColumns}
-                  isLoading={isLoadingQuotes}
-                  storeId={currentStore.id}
-                  pdfTitle="Quotes Report"
-                  onExportPDF={handleQuoteReportExport}
-                  showImportOption={isManagerOrOwner}
-                />
-              </div>
-            </>
-          )
+          <>
+            <Button onClick={() => setLocation("/quotes/new")} aria-label="New Quote" data-testid="button-new-quote">
+              <Plus className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">New Quote</span>
+            </Button>
+            <div className="lg:hidden">
+              <BulkOperations
+                entityConfig={QUOTE_BULK_CONFIG}
+                data={quotes as unknown as Record<string, unknown>[]}
+                columns={quoteExportColumns}
+                isLoading={isLoadingQuotes}
+                storeId={currentStore.id}
+                pdfTitle="Quotes Report"
+                onExportPDF={handleQuoteReportExport}
+                showImportOption={isManagerOrOwner}
+                compact
+              />
+            </div>
+            <div className="hidden lg:block">
+              <BulkOperations
+                entityConfig={QUOTE_BULK_CONFIG}
+                data={quotes as unknown as Record<string, unknown>[]}
+                columns={quoteExportColumns}
+                isLoading={isLoadingQuotes}
+                storeId={currentStore.id}
+                pdfTitle="Quotes Report"
+                onExportPDF={handleQuoteReportExport}
+                showImportOption={isManagerOrOwner}
+              />
+            </div>
+          </>
         }
       />
 
-      <MetricGrid>
-        <MetricCard
-          title="Total Proposal Value"
-          value={formatCurrency(totalVal)}
-          compactValue={formatCompact(totalVal)}
-          icon={<FileText className="h-4 w-4 text-indigo-500" />}
-          isLoading={isLoadingQuotes}
-        />
-        <MetricCard
-          title="Draft / Estimates"
-          value={formatCurrency(draftVal)}
-          compactValue={formatCompact(draftVal)}
-          icon={<Clock className="h-4 w-4 text-slate-500" />}
-          isLoading={isLoadingQuotes}
-        />
-        <MetricCard
-          title="Sent (In Pipeline)"
-          value={formatCurrency(sentVal)}
-          compactValue={formatCompact(sentVal)}
-          icon={<RefreshCw className="h-4 w-4 text-blue-500 animate-spin-slow" />}
-          isLoading={isLoadingQuotes}
-        />
-        <MetricCard
-          title="Accepted Proposals"
-          value={formatCurrency(acceptedVal)}
-          compactValue={formatCompact(acceptedVal)}
-          icon={<CheckCircle className="h-4 w-4 text-emerald-500" />}
-          isLoading={isLoadingQuotes}
-        />
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          { title: "Total Proposal Value", value: formatCurrency(totalVal), compactValue: formatCompact(totalVal), icon: <FileText className="h-4 w-4 text-indigo-500" />, isLoading: isLoadingQuotes },
+          { title: "Draft / Estimates", value: formatCurrency(draftVal), compactValue: formatCompact(draftVal), icon: <Clock className="h-4 w-4 text-slate-500" />, isLoading: isLoadingQuotes },
+          { title: "Sent (In Pipeline)", value: formatCurrency(sentVal), compactValue: formatCompact(sentVal), icon: <RefreshCw className="h-4 w-4 text-blue-500 animate-spin-slow" />, isLoading: isLoadingQuotes },
+          { title: "Accepted Proposals", value: formatCurrency(acceptedVal), compactValue: formatCompact(acceptedVal), icon: <CheckCircle className="h-4 w-4 text-emerald-500" />, isLoading: isLoadingQuotes },
+        ]}
+      />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="list" className="gap-2">
-            <FileText className="h-4 w-4" /> Quotes Registry
-          </TabsTrigger>
-          <TabsTrigger value="create" className="gap-2">
-            <Plus className="h-4 w-4" /> Visual Proposal Builder
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="list" className="space-y-6">
-          <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>Quotes Registry</CardTitle>
-              <CardDescription>Track customer estimates, status tags, and expiry dates.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {isManagerOrOwner && (
-                <BulkSelectionActionBar
-                  count={selectedIds.length}
-                  unitLabel="quote"
-                  onClear={() => setSelectedIds([])}
-                  actions={[
-                    {
-                      key: "mark-sent",
-                      label: "Mark as Sent",
-                      pendingLabel: "Updating…",
-                      icon: <RefreshCw className="h-3.5 w-3.5" />,
-                      pending: bulkMarkSentMutation.isPending,
-                      onClick: () => bulkMarkSentMutation.mutate(selectedIds as string[]),
-                    },
-                    {
-                      key: "delete",
-                      label: "Delete Selected",
-                      pendingLabel: "Deleting…",
-                      icon: <Trash2 className="h-3.5 w-3.5" />,
-                      tone: "destructive",
-                      pending: bulkDeleteQuoteMutation.isPending,
-                      onClick: () => bulkDeleteQuoteMutation.mutate(selectedIds as string[]),
-                    },
-                  ]}
-                />
-              )}
-              <DataTable
-                data={quotes}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search quote reference..."
-                searchKeys={["quoteRef", "notes"]}
-                filterConfigs={quoteFilterConfigs}
-                isLoading={isLoadingQuotes}
-                emptyMessage="No quotes found. Open the builder to create one."
-                multiselect={isManagerOrOwner}
-                selectedIds={selectedIds}
-                onSelectedIdsChange={setSelectedIds}
-                urlKey="quotes"
+      <div className="space-y-3">
+            {isManagerOrOwner && (
+              <BulkSelectionActionBar
+                count={selectedIds.length}
+                unitLabel="quote"
+                onClear={() => setSelectedIds([])}
+                actions={[
+                  {
+                    key: "mark-sent",
+                    label: "Mark as Sent",
+                    pendingLabel: "Updating…",
+                    icon: <RefreshCw className="h-3.5 w-3.5" />,
+                    pending: bulkMarkSentMutation.isPending,
+                    onClick: () => bulkMarkSentMutation.mutate(selectedIds as string[]),
+                  },
+                  {
+                    key: "delete",
+                    label: "Delete Selected",
+                    pendingLabel: "Deleting…",
+                    icon: <Trash2 className="h-3.5 w-3.5" />,
+                    tone: "destructive",
+                    pending: bulkDeleteQuoteMutation.isPending,
+                    onClick: () => bulkDeleteQuoteMutation.mutate(selectedIds as string[]),
+                  },
+                ]}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
+            )}
 
-        <TabsContent value="create" className="space-y-6">
-          <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>Visual Proposal Builder</CardTitle>
-              <CardDescription>Assemble pricing lists, adjust unit rates, and configure margins dynamically.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="customer">Customer Link (Optional)</Label>
-                    <Select value={customerId} onValueChange={setCustomerId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Walk-in Customer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Walk-in / General</SelectItem>
-                        {customers.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>{c.name} ({c.mobileNumber || "No Phone"})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+        <ListControls
+          testIdPrefix="quote"
+          placeholder="Search reference, customer or notes"
+          search={quoteSearchTerm}
+          onSearchChange={setQuoteSearchTerm}
+          filterCount={countActiveQuoteFilters(quoteFilters)}
+          filters={(trigger) => (
+            <QuoteFiltersSheet
+              filters={quoteFilters}
+              onApply={(next) => { setQuoteFilters(next); setSelectedIds([]); }}
+              currencySymbol={currencySymbol}
+              resultCountFor={(draft) => searchedQuotes.filter((q) => quoteMatchesFilters(q, draft)).length}
+              trigger={trigger}
+            />
+          )}
+          sortLabel={quoteSortLabel(quoteSort).replace(/^Sort: /, "")}
+          sort={(trigger) => <QuoteSortSheet sort={quoteSort} onChange={setQuoteSort} trigger={trigger} />}
+          chips={buildQuoteFilterChips(quoteFilters, currencySymbol)}
+          onRemoveChip={(key) => setQuoteFilters((f) => clearQuoteFilterChip(f, key as Parameters<typeof clearQuoteFilterChip>[1]))}
+          hasSort={quoteSort !== null}
+          onClearAll={() => { setQuoteFilters(EMPTY_QUOTE_FILTERS); setQuoteSort(null); }}
+          visibleCount={visibleQuotes.length}
+          noun="quote"
+        />
 
-                  <div className="space-y-2">
-                    <Label htmlFor="quoteRef">Quote Reference</Label>
-                    <Input
-                      id="quoteRef"
-                      value={quoteRef}
-                      onChange={(e) => setQuoteRef(e.target.value)}
-                      placeholder="e.g. QT-1002"
-                      className="font-mono"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="validUntil">Proposal Validity Expiry</Label>
-                    <Input
-                      id="validUntil"
-                      type="date"
-                      value={validUntil}
-                      onChange={(e) => setValidUntil(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Proposal Line Items</Label>
-
-                  {/* Mobile pane switcher — same pattern as the POS builder's Products/Cart tab bar */}
-                  <div className="flex lg:hidden rounded-lg border bg-muted/40 p-1 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setBuilderView("items")}
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors",
-                        builderView === "items" ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
-                      )}
-                    >
-                      <Package className="h-3.5 w-3.5" /> Items
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBuilderView("review")}
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors relative",
-                        builderView === "review" ? "bg-background shadow-sm text-primary" : "text-muted-foreground"
-                      )}
-                    >
-                      <ShoppingCart className="h-3.5 w-3.5" /> Review
-                      {quoteCart.length > 0 && (
-                        <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">{quoteCart.length}</Badge>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
-                    <div className={cn(builderView === "items" ? "block" : "hidden lg:block")}>
-                      <ProductGrid
-                        products={productGroups}
-                        isLoading={isLoadingInventory}
-                        cart={quoteCart}
-                        searchTerm={productSearch}
-                        onSearchChange={setProductSearch}
-                        onAddToCart={addToQuoteCart}
-                        formatCurrency={formatCurrency}
-                        allowOutOfStock
-                      />
-                    </div>
-
-                    <div className={cn(builderView === "review" ? "block" : "hidden lg:block")}>
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-base font-medium flex items-center gap-2">
-                            <ShoppingCart className="h-4 w-4" />
-                            Proposal Items ({quoteCart.length})
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {quoteCart.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-8 text-center">
-                              <ShoppingCart className="h-10 w-10 text-muted-foreground/50 mb-3" />
-                              <p className="text-sm text-muted-foreground">
-                                Pick a product or service to add it to the proposal
-                              </p>
-                            </div>
-                          ) : (
-                            <div id="quote-builder-cart" className="space-y-3">
-                              {quoteCart.map((item) => (
-                                <QuoteItemRow
-                                  key={item.inventory.id}
-                                  item={item}
-                                  formatCurrency={formatCurrency}
-                                  onUpdateQuantity={updateQuoteQuantity}
-                                  onSetExactQuantity={setQuoteExactQuantity}
-                                  onUpdatePrice={updateQuoteItemPrice}
-                                  onRemove={removeFromQuoteCart}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Terms & Additional Notes (Optional)</Label>
-                  <Input
-                    id="notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="e.g. Price valid for 14 days. 50% deposit required to confirm transaction."
-                  />
-                </div>
-
-                {/* Sticky on mobile so the total and action buttons stay reachable
-                    without scrolling past the full item grid/review list to find them. */}
-                <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:items-center sm:justify-between lg:static lg:mx-0 lg:mb-0 lg:rounded-lg lg:border lg:bg-muted/20 lg:backdrop-blur-none">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Proposal Total</span>
-                    <h2 className="text-2xl font-bold font-mono text-primary mt-1">{formatCurrency(quoteTotal)}</h2>
-                  </div>
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                    <Button variant="ghost" onClick={resetForm} className="w-full sm:w-auto">Reset Form</Button>
-                    <Button
-                      onClick={() => createQuoteMutation.mutate()}
-                      disabled={createQuoteMutation.isPending || quoteCart.length === 0}
-                      className="w-full px-6 sm:w-auto"
-                    >
-                      Generate Estimate Proposal
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        <DataTable
+          data={visibleQuotes}
+          columns={columns}
+          hideToolbar
+          isLoading={isLoadingQuotes}
+          emptyMessage="No quotes found. Create one to get started."
+          emptyAction={isManagerOrOwner ? <Button size="sm" className="gap-2" onClick={() => setLocation("/quotes/new")}><Plus className="h-4 w-4" />New Quote</Button> : undefined}
+          multiselect={isManagerOrOwner}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+          urlKey="quotes"
+          onRowClick={(q) => { setSelectedQuoteId(q.id); setIsDetailsOpen(true); }}
+          showCardChevron
+          cardLayout="compact-grid"
+          cardAvatar={quoteCardAvatar}
+        />
+      </div>
 
       {/* View Quote Details dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
@@ -1018,13 +755,13 @@ export default function QuotesPage() {
         </DialogContent>
       </Dialog>
 
-      {activeTab === "list" && (
+      {(
         <SpeedDialFAB
           actions={[
             {
               label: "New Quote",
               icon: <FileText className="h-5 w-5" />,
-              onClick: () => setActiveTab("create"),
+              onClick: () => setLocation("/quotes/new"),
               testId: "fab-new-quote",
             },
           ]}

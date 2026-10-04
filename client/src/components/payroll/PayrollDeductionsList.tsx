@@ -1,7 +1,7 @@
+import { useState } from "react";
 import { format } from "date-fns";
 import { Link } from "wouter";
 import { Minus, Plus } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -47,16 +47,19 @@ export function PayrollDeductionsList({
   setDebtToWriteOff?: (d: any) => void;
   setDebtToRestore?: (d: any) => void;
 }) {
-  const activeDeductions = deductions.filter((d: any) => !d.isWaived);
+  const [showLateDates, setShowLateDates] = useState(false);
+  // Several late-arrival lines are one story ("14 days × ₦500"), so they fold
+  // into a single card whose dates open on demand. Waive controls stay per day.
+  const lateRows = deductions.filter((d: any) => d.type === "late_arrival");
+  const lateActive = lateRows.filter((d: any) => !d.isWaived);
+  const groupLate = lateRows.length > 1;
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Minus className="h-4 w-4 text-destructive" />
-            Deductions{activeDeductions.length > 0 ? ` (${activeDeductions.length})` : ""}
-          </CardTitle>
+    <section className="rounded-xl border bg-card p-4 md:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">Deductions</h2>
+        <div className="flex items-center gap-3">
+          {totalDeductions > 0 && <span className="font-bold tabular-nums text-destructive">−{fmtCur(totalDeductions)}</span>}
           {!readOnly && periodStatus !== "paid" && (
             <Button variant="outline" size="sm" onClick={() => setShowAddDeduction?.(v => !v)}>
               <Plus className="h-3 w-3 mr-1" />
@@ -64,10 +67,10 @@ export function PayrollDeductionsList({
             </Button>
           )}
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+      </div>
+      <div className="mt-3 space-y-3">
         {!readOnly && showAddDeduction && (
-          <div className="rounded-lg border p-4 bg-muted/20 space-y-3">
+          <div className="rounded-lg border p-4 bg-muted/30 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Type</Label>
@@ -105,7 +108,8 @@ export function PayrollDeductionsList({
         {deductions.length === 0 && !showAddDeduction && (
           <p className="text-xs text-muted-foreground py-2 text-center">No deductions for this period.</p>
         )}
-        {deductions.map((d: any) => {
+        {(() => {
+        const renderRow = (d: any) => {
           const isStaffCredit = d.type === "staff_credit";
           // System-proposed only — a manager's own free-text "Advance
           // Recovery" line (no salaryAdvanceId) behaves like any other
@@ -132,7 +136,7 @@ export function PayrollDeductionsList({
             <span className={`font-medium ${d.isWaived ? "line-through" : ""}`}>{d.label}</span>
           );
           return (
-            <div key={d.id} className={`flex items-center justify-between text-sm border rounded-lg px-3 py-2 ${d.isWaived ? "bg-muted/30 opacity-60" : "bg-muted/10"}`}>
+            <div key={d.id} className={`flex items-center justify-between gap-3 text-sm border rounded-lg px-3 py-2.5 ${d.isWaived ? "bg-muted/30 opacity-60" : "bg-background"}`}>
               <div className="min-w-0">
                 {/* The label already reads "Staff credit — Checkout Receipt
                     #1042", so it IS the receipt reference: make it the link
@@ -262,14 +266,40 @@ export function PayrollDeductionsList({
               </div>
             </div>
           );
-        })}
-        {totalDeductions > 0 && (
-          <div className="flex justify-between text-sm font-semibold border-t pt-2">
-            <span>Total Deductions</span>
-            <span className="font-mono text-destructive">-{fmtCur(totalDeductions)}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        };
+        const out: React.ReactNode[] = [];
+        let lateEmitted = false;
+        for (const d of deductions) {
+          if (groupLate && d.type === "late_arrival") {
+            if (lateEmitted) continue;
+            lateEmitted = true;
+            const lateTotal = lateActive.reduce((s: number, r: any) => s + Number(r.amount), 0);
+            const perDay = lateActive.length > 0 ? lateTotal / lateActive.length : 0;
+            out.push(
+              <div key="late-group" className="rounded-lg border bg-background px-3 py-2.5 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">Late arrival</span>
+                  <span className="font-semibold tabular-nums text-destructive">−{fmtCur(lateTotal)}</span>
+                </div>
+                <div className="mt-0.5 flex items-center justify-between gap-3 text-muted-foreground">
+                  <span>
+                    {lateActive.length} day{lateActive.length === 1 ? "" : "s"} × {fmtCur(perDay)}
+                    {lateActive.length < lateRows.length && ` (${lateRows.length - lateActive.length} waived)`}
+                  </span>
+                  <button type="button" className="font-medium text-primary hover:underline" aria-expanded={showLateDates} onClick={() => setShowLateDates(v => !v)}>
+                    {showLateDates ? "Hide dates" : `Show ${lateRows.length} dates`}
+                  </button>
+                </div>
+                {showLateDates && <div className="mt-3 space-y-2">{lateRows.map(renderRow)}</div>}
+              </div>
+            );
+          } else {
+            out.push(renderRow(d));
+          }
+        }
+        return out;
+        })()}
+      </div>
+    </section>
   );
 }

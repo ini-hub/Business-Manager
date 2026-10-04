@@ -24,10 +24,23 @@ export function FeatureGate({
   children: ReactNode;
   fallback?: ReactNode;
 }) {
-  const { hasFeature, isLoading } = useEntitlements();
+  const { hasFeature, isLoading, isError, refetch } = useEntitlements();
   const [, navigate] = useLocation();
 
   if (isLoading) return null;
+  if (isError) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+          <p className="font-medium">Couldn't check your plan</p>
+          <p className="text-sm text-muted-foreground">Something went wrong loading your features. Please try again.</p>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
   if (hasFeature(featureKey)) return <>{children}</>;
   if (fallback) return <>{fallback}</>;
 

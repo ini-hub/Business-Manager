@@ -158,10 +158,20 @@ export class BookingRepository {
 
   async createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking> {
     return db.transaction(async (tx) => {
-      const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, data.storeId));
-      const nextBookingNumber = counter?.nextBookingNumber ?? 1;
+      // Atomic allocation: creates the counter row if missing and serialises concurrent bookings.
+      const [counter] = await tx
+        .insert(storeCounters)
+        .values({ storeId: data.storeId, nextBookingNumber: 2 })
+        .onConflictDoUpdate({
+          target: storeCounters.storeId,
+          set: { nextBookingNumber: sql`${storeCounters.nextBookingNumber} + 1` },
+        })
+        .returning({ next: storeCounters.nextBookingNumber });
+      const bookingNumber = counter.next - 1;
       const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const bookingRef = `BKG-${datePart}-${String(nextBookingNumber).padStart(4, "0")}`;
+      // booking_ref is unique across all stores, so include a store code (counters are per store).
+      const storeCode = data.storeId.replace(/-/g, "").slice(0, 4).toUpperCase();
+      const bookingRef = `BKG-${datePart}-${storeCode}-${String(bookingNumber).padStart(4, "0")}`;
 
       const [booking] = await tx
         .insert(bookings)
@@ -195,11 +205,6 @@ export class BookingRepository {
         }));
         await tx.insert(bookingItems).values(bookingItemRows);
       }
-
-      await tx
-        .update(storeCounters)
-        .set({ nextBookingNumber: sql`${storeCounters.nextBookingNumber} + 1` })
-        .where(eq(storeCounters.storeId, data.storeId));
 
       return booking;
     });

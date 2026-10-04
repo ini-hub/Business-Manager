@@ -1,3 +1,5 @@
+import { useAttendanceTracked } from "@/hooks/useAttendanceTracked";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard,
@@ -10,6 +12,7 @@ import {
   BarChart3,
   Settings,
   LogOut,
+  Lock,
   LifeBuoy,
   CalendarDays,
   DollarSign,
@@ -54,6 +57,20 @@ import { StoreSelector } from "@/components/store-selector";
 
 type UserRole = "owner" | "manager" | "staff";
 
+/**
+ * A lock beside a nav item whose page needs a feature the org doesn't hold. The
+ * link stays clickable: the page itself explains what is missing and how to add
+ * it. Which pages are gated comes from the feature registry (gatedScreens), not
+ * from this file. While entitlements load or fail, show nothing rather than lock
+ * everything.
+ */
+function NavLock({ url }: { url: string }) {
+  const { hasFeature, isLoading, isError, gatedFeatureFor } = useEntitlements();
+  const feature = gatedFeatureFor(url);
+  if (!feature || isLoading || isError || hasFeature(feature)) return null;
+  return <Lock className="h-3 w-3 text-muted-foreground" aria-label="Not included in your plan" />;
+}
+
 interface MenuItem {
   title: string;
   url: string;
@@ -62,37 +79,43 @@ interface MenuItem {
   shortcut?: string;
 }
 
+// Staff see their own work, not the business's management menu: what they do
+// every shift first (sell, bookings, clock-in), then their own records. Payroll
+// is here as well as on the dashboard's pay card, so it is never a hunt.
+const staffWorkItems: MenuItem[] = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, allowedRoles: ["staff"], shortcut: "⌥D" },
+  { title: "New Sale", url: "/sales/new", icon: ShoppingCart, allowedRoles: ["staff"], shortcut: "⌥N" },
+  { title: "Bookings", url: "/bookings", icon: CalendarClock, allowedRoles: ["staff"] },
+  { title: "My Attendance", url: "/staff/attendance", icon: CalendarDays, allowedRoles: ["staff"] },
+  { title: "My Payroll", url: "/staff/payroll", icon: DollarSign, allowedRoles: ["staff"] },
+];
+
+const staffMoreItems: MenuItem[] = [
+  { title: "Customers", url: "/customers", icon: Users, allowedRoles: ["staff"], shortcut: "⌥C" },
+  { title: "Transactions", url: "/transactions", icon: Receipt, allowedRoles: ["staff"], shortcut: "⌥T" },
+  { title: "Quotes", url: "/quotes", icon: FileText, allowedRoles: ["staff"] },
+  { title: "Leaderboard", url: "/leaderboard", icon: Trophy, allowedRoles: ["staff"] },
+];
+
 const managementItems: MenuItem[] = [
   {
     title: "Dashboard",
     url: "/",
     icon: LayoutDashboard,
-    allowedRoles: ["owner", "manager", "staff"],
+    allowedRoles: ["owner", "manager"],
     shortcut: "⌥D",
   },
   {
     title: "Customers",
     url: "/customers",
     icon: Users,
-    allowedRoles: ["owner", "manager", "staff"],
-    shortcut: "⌥C",
-  },
-  {
-    title: "My Dashboard",
-    url: "/staff",
-    icon: LayoutDashboard,
     allowedRoles: ["owner", "manager"],
+    shortcut: "⌥C",
   },
   {
     title: "Staff",
     url: "/staffs",
     icon: UserCog,
-    allowedRoles: ["owner", "manager"],
-  },
-  {
-    title: "Attendance",
-    url: "/staffs/attendance",
-    icon: CalendarDays,
     allowedRoles: ["owner", "manager"],
   },
   {
@@ -127,14 +150,14 @@ const salesItems: MenuItem[] = [
     title: "New Sale",
     url: "/sales/new",
     icon: ShoppingCart,
-    allowedRoles: ["owner", "manager", "staff"],
+    allowedRoles: ["owner", "manager"],
     shortcut: "⌥N",
   },
   {
     title: "Transactions",
     url: "/transactions",
     icon: Receipt,
-    allowedRoles: ["owner", "manager", "staff"],
+    allowedRoles: ["owner", "manager"],
     shortcut: "⌥T",
   },
   {
@@ -147,7 +170,7 @@ const salesItems: MenuItem[] = [
     title: "Bookings",
     url: "/bookings",
     icon: CalendarClock,
-    allowedRoles: ["owner", "manager", "staff"],
+    allowedRoles: ["owner", "manager"],
   },
   {
     title: "Broadcasts",
@@ -159,13 +182,13 @@ const salesItems: MenuItem[] = [
     title: "Quotes",
     url: "/quotes",
     icon: FileText,
-    allowedRoles: ["owner", "manager", "staff"],
+    allowedRoles: ["owner", "manager"],
   },
   {
     title: "Leaderboard",
     url: "/leaderboard",
     icon: Trophy,
-    allowedRoles: ["owner", "manager", "staff"],
+    allowedRoles: ["owner", "manager"],
   },
 ];
 
@@ -258,6 +281,12 @@ export function AppSidebar() {
   const filterByRole = (items: MenuItem[]) => 
     items.filter(item => item.allowedRoles.includes(userRole));
   
+  // A store that doesn't keep attendance has nothing to show on that page.
+  const { tracked: attendanceTracked } = useAttendanceTracked(userRole === "staff");
+  const visibleStaffWorkItems = filterByRole(staffWorkItems).filter(
+    (item) => attendanceTracked || item.url !== "/staff/attendance",
+  );
+  const visibleStaffMoreItems = filterByRole(staffMoreItems);
   const visibleManagementItems = filterByRole(managementItems);
   const visibleSalesItems = filterByRole(salesItems);
   const visibleReportsItems = filterByRole(reportsItems);
@@ -307,6 +336,43 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent className="px-3 py-4">
+        {[
+          { label: "My Work", items: visibleStaffWorkItems },
+          { label: "More", items: visibleStaffMoreItems },
+        ].map((group, i) => group.items.length > 0 && (
+          <SidebarGroup key={group.label} className={i > 0 ? "mt-4" : undefined}>
+            <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              {group.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={item.url === "/" ? location === "/" : location === item.url || location.startsWith(item.url + "/")}
+                      className="gap-3 w-full"
+                    >
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`} onClick={handleLinkClick} className="flex items-center w-full justify-between">
+                        <div className="flex items-center gap-3">
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                          <NavLock url={item.url} />
+                        </div>
+                        {item.shortcut && (
+                          <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
+                            {item.shortcut}
+                          </kbd>
+                        )}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+
         {visibleManagementItems.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel className="px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -325,6 +391,7 @@ export function AppSidebar() {
                         <div className="flex items-center gap-3">
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
+                          <NavLock url={item.url} />
                         </div>
                         {item.shortcut && (
                           <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
@@ -358,6 +425,7 @@ export function AppSidebar() {
                         <div className="flex items-center gap-3">
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
+                          <NavLock url={item.url} />
                         </div>
                         {item.shortcut && (
                           <kbd className="pointer-events-none hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[9px] font-medium text-muted-foreground opacity-60">
@@ -392,6 +460,7 @@ export function AppSidebar() {
                       <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`} onClick={handleLinkClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
+                          <NavLock url={item.url} />
                         {item.title === "Payroll" && pendingPayrollCount > 0 && (
                           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm">
                             {pendingPayrollCount}
@@ -423,6 +492,7 @@ export function AppSidebar() {
                       <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`} onClick={handleLinkClick}>
                         <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
+                          <NavLock url={item.url} />
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

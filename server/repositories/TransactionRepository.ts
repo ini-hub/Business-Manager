@@ -184,6 +184,40 @@ export class TransactionRepository {
     return rows.map(buildTransactionFromRow);
   }
 
+  /**
+   * Lifetime spend and first/last visit per customer, computed in SQL so the
+   * customer list doesn't have to download every transaction. Each checkout is
+   * counted once however many line items it has, and voided checkouts are
+   * ignored - the same rules the customer page used to apply in the browser.
+   */
+  async getCustomerSummaries(storeIds: string[]): Promise<{ customerId: string; totalSpend: number; firstVisit: string; lastVisit: string }[]> {
+    if (storeIds.length === 0) return [];
+    const result = await db.execute(sql`
+      SELECT customer_id,
+             COALESCE(SUM(total_price), 0)::numeric AS total_spend,
+             MIN(visit_at) AS first_visit,
+             MAX(visit_at) AS last_visit
+      FROM (
+        SELECT DISTINCT ON (c.id)
+               t.customer_id,
+               c.total_price::numeric AS total_price,
+               COALESCE(t.transaction_date, c.created_at) AS visit_at
+        FROM transactions t
+        JOIN checkouts c ON c.id = t.checkout_id
+        WHERE t.store_id IN (${sql.join(storeIds.map((id) => sql`${id}`), sql`, `)})
+          AND c.is_voided = false
+        ORDER BY c.id, t.transaction_date
+      ) per_checkout
+      GROUP BY customer_id
+    `);
+    return (result.rows as any[]).map((r) => ({
+      customerId: r.customer_id,
+      totalSpend: Number(r.total_spend) || 0,
+      firstVisit: new Date(r.first_visit).toISOString(),
+      lastVisit: new Date(r.last_visit).toISOString(),
+    }));
+  }
+
   async getTransactionById(id: string): Promise<TransactionWithRelations | null> {
     const rows = await db
       .select({

@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
-import { Users, TrendingUp, TrendingDown, Calendar, ShoppingBag, Wrench, BarChart3, AlertCircle, ChevronRight } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Users, TrendingUp, TrendingDown, ShoppingBag, Wrench, Wallet, Gauge, BarChart3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -12,53 +11,31 @@ import { PageHeader } from "@/components/page-header";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { useStore } from "@/lib/store-context";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
-import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
+import { type DateRange } from "@/components/date-range-filter";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { startOfMonth, startOfDay, endOfDay, format } from "date-fns";
 import { Link, useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { StaffPerformanceFiltersSheet, StaffPerformanceSortSheet } from "@/components/staff-performance-filter-sheets";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import { getCurrencyByCode } from "@/lib/currency-utils";
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Legend
-} from "recharts";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Skeleton } from "@/components/ui/skeleton";
-import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
-
-const CustomTooltip = ({ active, payload, label, selectedMetric, formatCurrency }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-background/95 backdrop-blur-md border border-border/80 p-3 rounded-lg shadow-xl text-xs space-y-1.5 font-sans min-w-[150px]">
-        <p className="font-semibold text-foreground border-b border-border/60 pb-1 mb-1">{label}</p>
-        {payload.map((item: any, idx: number) => {
-          let val = item.value;
-          if (selectedMetric === "revenue" || selectedMetric === "performance") {
-            val = formatCurrency(val);
-          } else if (selectedMetric === "attendance") {
-            val = `${val} days`;
-          } else if (selectedMetric === "services") {
-            val = `${val} completed`;
-          } else if (selectedMetric === "products") {
-            val = `${val} sold`;
-          }
-          return (
-            <p key={idx} className="flex justify-between gap-4 font-medium" style={{ color: item.color }}>
-              <span>{item.name}:</span>
-              <span className="font-mono font-bold">{val}</span>
-            </p>
-          );
-        })}
-      </div>
-    );
-  }
-  return null;
-};
+  type StaffPerformanceFilterState,
+  type StaffPerformanceSortState,
+  EMPTY_STAFF_PERFORMANCE_FILTERS,
+  avgDailyRevenue,
+  performanceTier,
+  staffMatchesFilters,
+  staffMatchesSearch,
+  countActiveStaffPerformanceFilters,
+  buildStaffPerformanceFilterChips,
+  clearStaffPerformanceFilterChip,
+  staffPerformanceSortLabel,
+  sortStaffPerformance,
+} from "@/lib/staff-performance-filters";
 
 export default function StaffPerformancePage() {
   const { currentStore, business } = useStore();
@@ -109,8 +86,29 @@ export default function StaffPerformancePage() {
     return formatCurrencyUtil(value, storeCurrency);
   };
 
-  const [selectedMetric, setSelectedMetric] = useUrlState<"revenue" | "services" | "products" | "attendance" | "performance">("metric", "revenue");
-  const [activeTab, setActiveTab] = useUrlState<string>("tab", "directory");
+  // Old bookmarks of the retired in-page analytics tab land on the standalone analytics page.
+  const [legacyTab] = useUrlState<string>("tab", "directory");
+  useEffect(() => {
+    if (legacyTab === "analytics") setLocation("/staffs/performance/analytics", { replace: true });
+  }, [legacyTab, setLocation]);
+
+  const [perfSearch, setPerfSearch] = useState("");
+  // The date range is the report's server-side scope and stays persisted (the analytics page reads
+  // the same range); the Filters sheet edits it alongside the client-side filters.
+  const [otherFilters, setOtherFilters] = useState<StaffPerformanceFilterState>(EMPTY_STAFF_PERFORMANCE_FILTERS);
+  const perfFilters: StaffPerformanceFilterState = {
+    ...otherFilters,
+    dateFrom: dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : null,
+    dateTo: dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : null,
+  };
+  const setPerfFilters = (next: StaffPerformanceFilterState) => {
+    setOtherFilters(next);
+    setDateRange({
+      from: next.dateFrom ? startOfDay(new Date(`${next.dateFrom}T00:00:00`)) : undefined,
+      to: next.dateTo ? endOfDay(new Date(`${next.dateTo}T00:00:00`)) : undefined,
+    });
+  };
+  const [perfSort, setPerfSort] = useState<StaffPerformanceSortState | null>(null);
 
   const [drawerStaff, setDrawerStaff] = useState<{ id: string; name: string } | null>(null);
 
@@ -133,17 +131,6 @@ export default function StaffPerformancePage() {
     enabled: !!drawerStaff && !!currentStore?.id,
   });
 
-  const chartData = performanceData.map((row: any) => ({
-    name: row.name,
-    role: row.role,
-    revenue: row.totalRevenue || 0,
-    services: row.servicesCount || 0,
-    products: row.productsCount || 0,
-    present: row.presentDays || 0,
-    absent: row.absentDays || 0,
-    performance: (row.totalRevenue || 0) / (row.presentDays || 1),
-  }));
-
   if (!currentStore) {
     return (
       <div className="space-y-6">
@@ -153,91 +140,84 @@ export default function StaffPerformancePage() {
     );
   }
 
+  const staffCardAvatar = (row: any) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(row.name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+
   const columns = [
     {
       key: "name",
-      header: "Staff Name",
+      header: "Staff",
+      priority: 1 as const,
       render: (row: any) => (
         <div className="flex flex-col">
           <span className="font-medium">{row.name}</span>
           <span className="text-xs text-muted-foreground capitalize">{row.role}</span>
         </div>
       ),
+      cardRender: (row: any) => <span className="truncate">{row.name}</span>,
+    },
+    {
+      key: "totalRevenue",
+      header: "Revenue",
+      priority: 1 as const,
+      render: (row: any) => <span className="text-sm font-medium">{formatCurrency(row.totalRevenue)}</span>,
     },
     {
       key: "servicesCount",
       header: "Services",
+      priority: 2 as const,
       render: (row: any) => (
         <div className="flex items-center gap-2">
           <Wrench className="h-3 w-3 text-muted-foreground" />
           <span>{row.servicesCount}</span>
         </div>
       ),
+      cardRender: (row: any) => <span>{row.servicesCount} services</span>,
     },
     {
       key: "productsCount",
       header: "Products",
+      priority: 3 as const,
       render: (row: any) => (
         <div className="flex items-center gap-2">
           <ShoppingBag className="h-3 w-3 text-muted-foreground" />
           <span>{row.productsCount}</span>
         </div>
       ),
-    },
-    {
-      key: "totalRevenue",
-      header: "Revenue Share",
-      render: (row: any) => (
-        <span className="font-mono font-medium">{formatCurrency(row.totalRevenue)}</span>
-      ),
+      cardRender: (row: any) => <span>{row.productsCount} products</span>,
     },
     {
       key: "attendance",
       header: "Attendance",
       render: (row: any) => (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-xs">
-            <Badge variant="secondary" className="h-4 px-1 text-[10px]">Present: {row.presentDays}</Badge>
-            <Badge variant="outline" className="h-4 px-1 text-[10px] text-red-600">Absent: {row.absentDays}</Badge>
-            {row.lateDays > 0 && (
-              <Badge variant="outline" className="h-4 px-1 text-[10px] text-amber-600">Late: {row.lateDays}</Badge>
-            )}
-          </div>
+        <div className="flex items-center gap-2 text-xs">
+          <Badge variant="secondary" className="h-4 px-1 text-[10px]">Present: {row.presentDays}</Badge>
+          <Badge variant="outline" className="h-4 px-1 text-[10px] text-red-600">Absent: {row.absentDays}</Badge>
+          {row.lateDays > 0 && (
+            <Badge variant="outline" className="h-4 px-1 text-[10px] text-amber-600">Late: {row.lateDays}</Badge>
+          )}
         </div>
       ),
     },
     {
       key: "score",
       header: "Performance",
-      render: (row: any) => {
-        const avgRevenue = row.totalRevenue / (row.presentDays || 1);
-        return (
-          <div className="flex items-center gap-2">
-            {avgRevenue > 5000 ? (
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            ) : (
-              <TrendingDown className="h-4 w-4 text-amber-600" />
-            )}
-            <span className="text-xs font-medium">
-              {formatCurrency(avgRevenue)}/day
-            </span>
-          </div>
-        );
-      },
-    },
-    {
-      key: "actions",
-      header: "",
       render: (row: any) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs gap-1"
-          onClick={() => setDrawerStaff({ id: row.id, name: row.name })}
-        >
-          View <ChevronRight className="h-3 w-3" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {performanceTier(row) === "above" ? (
+            <TrendingUp className="h-4 w-4 text-green-600" />
+          ) : (
+            <TrendingDown className="h-4 w-4 text-amber-600" />
+          )}
+          <span className="text-xs font-medium">{formatCurrency(avgDailyRevenue(row))}/day</span>
+        </div>
       ),
+      cardRender: (row: any) => <span>{formatCurrency(avgDailyRevenue(row))}/day</span>,
     },
   ];
 
@@ -336,13 +316,18 @@ export default function StaffPerformancePage() {
     rows: visiblePdfRows,
   };
 
-  const metricTabItems: TabItem[] = [
-    { value: "revenue", label: "Revenue" },
-    { value: "services", label: "Services" },
-    { value: "products", label: "Products" },
-    { value: "attendance", label: "Attendance" },
-    { value: "performance", label: "Performance" },
-  ];
+  const currencySymbol = getCurrencyByCode(storeCurrency)?.symbol ?? "₦";
+  const roleOptions = Array.from(new Set(performanceData.map((r: any) => r.role as string))).sort();
+  const searchedRows = performanceData.filter((r: any) => staffMatchesSearch(r, perfSearch));
+  const visibleRows = sortStaffPerformance(
+    searchedRows.filter((r: any) => staffMatchesFilters(r, perfFilters)),
+    perfSort,
+  );
+
+  const totalRevenue = performanceData.reduce((sum: number, r: any) => sum + (r.totalRevenue || 0), 0);
+  const totalServices = performanceData.reduce((sum: number, r: any) => sum + (r.servicesCount || 0), 0);
+  const totalProducts = performanceData.reduce((sum: number, r: any) => sum + (r.productsCount || 0), 0);
+  const totalPresentDays = performanceData.reduce((sum: number, r: any) => sum + (r.presentDays || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -351,14 +336,16 @@ export default function StaffPerformancePage() {
         description="Monitor staff productivity and attendance"
         compact
         actions={
-          <div className="flex flex-col sm:flex-row gap-2 items-center">
-            <DateRangeFilter
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              defaultPreset="thisMonth"
-              timezone={currentStore?.timezone}
-              compact
-            />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setLocation("/staffs/performance/analytics")}
+              aria-label="Analytics"
+              data-testid="button-staff-analytics"
+            >
+              <BarChart3 className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Analytics</span>
+            </Button>
             <ExportToolbar
               data={performanceData}
               columns={exportColumns}
@@ -373,116 +360,59 @@ export default function StaffPerformancePage() {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="directory" data-testid="tab-staff-directory">
-            Performance Directory
-          </TabsTrigger>
-          <TabsTrigger value="analytics" data-testid="tab-staff-analytics">
-            Analytics & Visualization
-          </TabsTrigger>
-        </TabsList>
+      <MetricRow
+        metrics={[
+          { title: "Staff", value: performanceData.length, icon: <Users className="h-4 w-4" />, isLoading },
+          { title: "Revenue", value: formatCurrency(totalRevenue), icon: <Wallet className="h-4 w-4" />, isLoading },
+          { title: "Services", value: totalServices, icon: <Wrench className="h-4 w-4" />, isLoading },
+          { title: "Products sold", value: totalProducts, icon: <ShoppingBag className="h-4 w-4" />, isLoading },
+          { title: "Avg. daily revenue", value: formatCurrency(totalRevenue / (totalPresentDays || 1)), icon: <Gauge className="h-4 w-4" />, isLoading },
+        ]}
+      />
 
-        <TabsContent value="directory" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Staff Metrics Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                data={performanceData}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search staff..."
-                searchKeys={["name", "role"]}
-                isLoading={isLoading}
-                emptyMessage="No data available for the selected period."
-                onVisibleDataChange={setVisiblePerformanceRows}
-                urlKey="directory"
+      <div className="space-y-3">
+          <ListControls
+            testIdPrefix="staff-performance"
+            placeholder="Search staff name or role"
+            search={perfSearch}
+            onSearchChange={setPerfSearch}
+            filterCount={countActiveStaffPerformanceFilters(perfFilters)}
+            filters={(trigger) => (
+              <StaffPerformanceFiltersSheet
+                filters={perfFilters}
+                onApply={setPerfFilters}
+                currencySymbol={currencySymbol}
+                roles={roleOptions}
+                resultCountFor={(draft) => searchedRows.filter((r: any) => staffMatchesFilters(r, draft)).length}
+                trigger={trigger}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
+            )}
+            sortLabel={staffPerformanceSortLabel(perfSort).replace(/^Sort: /, "")}
+            sort={(trigger) => <StaffPerformanceSortSheet sort={perfSort} onChange={setPerfSort} trigger={trigger} />}
+            chips={buildStaffPerformanceFilterChips(perfFilters, currencySymbol)}
+            onRemoveChip={(key) => setPerfFilters(clearStaffPerformanceFilterChip(perfFilters, key as Parameters<typeof clearStaffPerformanceFilterChip>[1]))}
+            hasSort={perfSort !== null}
+            onClearAll={() => { setPerfFilters(EMPTY_STAFF_PERFORMANCE_FILTERS); setPerfSort(null); }}
+            visibleCount={visibleRows.length}
+            noun="staff member"
+          />
 
-        <TabsContent value="analytics" className="mt-4">
-          <Card className="border-primary/10 shadow-sm">
-            <CardContent className="pt-6">
-              {isLoading ? (
-                <div className="space-y-4">
-                  <Skeleton className="h-6 w-[200px]" />
-                  <Skeleton className="h-[300px] w-full" />
-                </div>
-              ) : performanceData.length === 0 ? (
-                <div className="flex h-[300px] items-center justify-center text-muted-foreground text-sm italic">
-                  No visualization data available for this selected date range.
-                </div>
-              ) : (
-                <Tabs value={selectedMetric} onValueChange={(v: any) => setSelectedMetric(v)} className="w-full">
-                  <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
-                    <div>
-                      <h3 className="font-semibold text-sm leading-none tracking-tight">Staff Metrics Visualization</h3>
-                      <p className="text-xs text-muted-foreground mt-1">Select a tab below to compare staff contributions</p>
-                    </div>
-                    <PolymorphicTabsList tabs={metricTabItems} variant="solid" className="w-full xl:w-auto" />
-                  </div>
-
-                  <div className="h-[320px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted/40" />
-                        <XAxis
-                          dataKey="name"
-                          tickLine={false}
-                          axisLine={false}
-                          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                          dy={10}
-                        />
-                        <YAxis
-                          tickLine={false}
-                          axisLine={false}
-                          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                          tickFormatter={(value) => {
-                            if (selectedMetric === "revenue" || selectedMetric === "performance") {
-                              return formatCurrency(value).split('.')[0];
-                            }
-                            return value;
-                          }}
-                        />
-                        <Tooltip
-                          cursor={{ fill: "hsl(var(--muted)/0.2)" }}
-                          content={
-                            <CustomTooltip
-                              selectedMetric={selectedMetric}
-                              formatCurrency={(v: number) => formatCurrency(v)}
-                            />
-                          }
-                        />
-                        {selectedMetric === "revenue" && (
-                          <Bar dataKey="revenue" name="Revenue Generated" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={40} />
-                        )}
-                        {selectedMetric === "services" && (
-                          <Bar dataKey="services" name="Services Performed" fill="#a855f7" radius={[4, 4, 0, 0]} barSize={40} />
-                        )}
-                        {selectedMetric === "products" && (
-                          <Bar dataKey="products" name="Products Sold" fill="#10b981" radius={[4, 4, 0, 0]} barSize={40} />
-                        )}
-                        {selectedMetric === "attendance" && [
-                          <Bar key="present" dataKey="present" name="Present" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} barSize={40} />,
-                          <Bar key="absent" dataKey="absent" name="Absent" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={40} />
-                        ]}
-                        {selectedMetric === "performance" && (
-                          <Bar dataKey="performance" name="Avg Daily Revenue" fill="#06b6d4" radius={[4, 4, 0, 0]} barSize={40} />
-                        )}
-                        {selectedMetric === "attendance" && <Legend verticalAlign="top" height={36} iconType="circle" />}
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </Tabs>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          <DataTable
+            data={visibleRows}
+            columns={columns}
+            hideToolbar
+            isLoading={isLoading}
+            emptyIcon={<Users className="h-6 w-6" />}
+            emptyTitle="No Staff Data"
+            emptyMessage="No data available for the selected period."
+            onRowClick={(row: any) => setDrawerStaff({ id: row.id, name: row.name })}
+            onVisibleDataChange={setVisiblePerformanceRows}
+            urlKey="directory"
+            showCardChevron
+            cardLayout="compact-grid"
+            cardAvatar={staffCardAvatar}
+          />
+      </div>
 
       {/* Staff breakdown drawer */}
       <Sheet open={!!drawerStaff} onOpenChange={(open) => { if (!open) setDrawerStaff(null); }}>

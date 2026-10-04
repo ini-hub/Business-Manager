@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { startOfDay, endOfDay, format } from "date-fns";
+import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import {
   Pagination,
@@ -8,7 +8,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck, Search, SlidersHorizontal, X, RotateCcw, Wallet } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, AlertCircle as AlertIcon, UserCheck, Search, SlidersHorizontal, ArrowUpDown, X, RotateCcw, Wallet } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,21 +16,18 @@ import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation, useSearch } from "wouter";
-import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
 import { useUrlState } from "@/hooks/use-url-state";
 import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { MetricCard } from "@/components/metric-card";
-import { MetricGrid } from "@/components/metric-grid";
-import { formatCurrencyCompact } from "@/lib/currency-utils";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { type TransactionWithRelations } from "@shared/schema";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import { AlertCircle, Clock } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ClearableInput } from "@/components/clearable-input";
@@ -46,7 +43,10 @@ import {
   sortSales,
   saleSortLabel,
 } from "@/lib/sale-filters";
-import { SaleFiltersSheet } from "@/components/sale-filter-sheet";
+import { ListToolbar } from "@/components/list-toolbar";
+import { useSimpleList } from "@/components/simple-list-controls";
+import type { SimpleListConfig } from "@/lib/simple-list";
+import { SaleFiltersSheet, SaleSortSheet, saleSortButtonLabel } from "@/components/sale-filter-sheet";
 
 const PAGE_LIMIT = 50;
 
@@ -58,35 +58,17 @@ export default function Transactions() {
   // Resolve Pending inline dialog state
   const [resolveTx, setResolveTx] = useState<TransactionWithRelations | null>(null);
 
-  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
-    "transactions_date_range",
-    () => {
-      const params = new URLSearchParams(window.location.search);
-      const startDateParam = params.get("startDate");
-      const endDateParam = params.get("endDate");
-      if (startDateParam && endDateParam) {
-        return {
-          from: startOfDay(new Date(startDateParam)),
-          to: endOfDay(new Date(endDateParam))
-        };
-      }
-      return (
-        readPersistedRange("transactions_date_range") ?? {
-          from: startOfDay(new Date()),
-          to: endOfDay(new Date()),
-        }
-      );
-    },
-  );
+  const [saleFilters, setSaleFilters] = useState<SaleFilterState>(EMPTY_SALE_FILTERS);
 
+  // The date range from the Filters sheet is the server-side scope (so pagination stays
+  // correct); with none set, all transactions load, paginated.
   const dateParams = useMemo(() => {
     const p = new URLSearchParams();
-    if (dateRange.from) p.set("startDate", dateRange.from.toISOString());
-    if (dateRange.to) p.set("endDate", dateRange.to.toISOString());
+    if (saleFilters.dateFrom) p.set("startDate", new Date(`${saleFilters.dateFrom}T00:00:00`).toISOString());
+    if (saleFilters.dateTo) p.set("endDate", new Date(`${saleFilters.dateTo}T23:59:59.999`).toISOString());
     return p.toString();
-  }, [dateRange]);
+  }, [saleFilters.dateFrom, saleFilters.dateTo]);
 
-  const [ledgerTab, setLedgerTab] = useUrlState<string>("ledgerTab", "transactions");
   const [page, setPage] = useUrlState("page", 1, Number);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -127,141 +109,6 @@ export default function Transactions() {
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
   });
 
-  // Query to fetch historical shift drawer sessions
-  const { data: drawerSessions = [], isLoading: drawerLoading } = useQuery<any[]>({
-    queryKey: ["/api/cash-register/sessions", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/cash-register/sessions?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat().sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime());
-      }
-      const res = await fetch(`/api/cash-register/sessions?storeId=${currentStore?.id}`);
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
-
-  const closedSessions = useMemo(() => drawerSessions.filter((s: any) => s.status === "closed"), [drawerSessions]);
-  const totalVariance = useMemo(() => closedSessions.reduce((sum: number, s: any) => sum + Number(s.difference || 0), 0), [closedSessions]);
-  const activeSessionItem = useMemo(() => drawerSessions.find((s: any) => s.status === "open"), [drawerSessions]);
-
-  const drawerColumns = [
-    ...(currentStore?.id === "all" ? [{
-      key: "storeName",
-      header: "Store",
-      render: (session: any) => (
-        <Badge variant="outline" className="bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 font-medium font-outfit uppercase shrink-0">
-          {session.storeName || "Global"}
-        </Badge>
-      ),
-    }] : []),
-    {
-      key: "openedAt",
-      header: "Shift Timing",
-      render: (session: any) => (
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5 text-sm">
-            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-semibold text-foreground">Opened: {formatDate(session.openedAt)}</span>
-          </div>
-          {session.status === "closed" && (
-            <span className="text-[10px] text-muted-foreground pl-5 italic font-medium">
-              Closed: {formatDate(session.closedAt)}
-            </span>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: "openingFloat",
-      header: "Base Float",
-      render: (session: any) => (
-        <span className="font-mono text-xs font-semibold text-foreground">{formatCurrency(Number(session.openingFloat))}</span>
-      ),
-    },
-    {
-      key: "expectedCash",
-      header: "Expected Till",
-      render: (session: any) => (
-        <span className="font-mono text-xs font-semibold text-muted-foreground">{formatCurrency(Number(session.expectedCash))}</span>
-      ),
-    },
-    {
-      key: "actualCash",
-      header: "Counted Till",
-      render: (session: any) => (
-        <span className="font-mono text-xs font-bold text-foreground">
-          {session.status === "open" ? (
-            <Badge variant="outline" className="text-[8px] font-bold border-none bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase tracking-wider px-2 py-0.5">
-              ACTIVE
-            </Badge>
-          ) : (
-            formatCurrency(Number(session.actualCash))
-          )}
-        </span>
-      ),
-    },
-    {
-      key: "difference",
-      header: "Discrepancy (Drift)",
-      render: (session: any) => {
-        if (session.status === "open") {
-          return (
-            <Badge variant="outline" className="border-none font-bold text-[8px] uppercase bg-muted text-muted-foreground tracking-wider px-2 py-0.5">
-              DRAWER OPEN
-            </Badge>
-          );
-        }
-        const diff = Number(session.difference || 0);
-        return (
-          <Badge
-            variant="outline"
-            className={`border-none font-bold text-[9px] uppercase tracking-wider px-2.5 py-0.5 ${
-              diff === 0
-                ? "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
-                : diff > 0
-                ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400"
-                : "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400"
-            }`}
-          >
-            {diff === 0
-              ? "Balanced"
-              : diff > 0
-              ? `+${formatCurrency(diff)} (Surplus)`
-              : `-${formatCurrency(Math.abs(diff))} (Shortage)`}
-          </Badge>
-        );
-      },
-    },
-    {
-      key: "notes",
-      header: "Reconciliation Remarks",
-      render: (session: any) => (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="text-xs text-muted-foreground truncate max-w-[180px] block font-medium">
-              {session.notes || "No closing remarks logged."}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{session.notes || "No closing remarks logged."}</TooltipContent>
-        </Tooltip>
-      ),
-    },
-  ];
-
-  const [saleFilters, setSaleFilters] = useState<SaleFilterState>(EMPTY_SALE_FILTERS);
   const [saleSort, setSaleSort] = useState<SaleSortState | null>(null);
   const [saleSearchTerm, setSaleSearchTerm] = useState("");
 
@@ -623,13 +470,12 @@ export default function Transactions() {
   const saleFilterCount = countActiveSaleFilters(saleFilters);
   const saleFilterChips = buildSaleFilterChips(
     saleFilters,
-    storeCurrency === "USD" ? "$" : "₦",
+    getCurrencyByCode(storeCurrency)?.symbol ?? "₦",
     (staffId) => staffOptions.find((s) => s.id === staffId)?.name ?? "Staff"
   );
   const hasSaleFiltersOrQuickChips = saleFilterCount > 0 || saleFilters.returnsOnly || saleFilters.creditOnly || saleFilters.staffPurchasesOnly;
   // "Filters" button badge counts sort as one more active thing, since sort now lives
   // inside the same sheet instead of a separate button.
-  const saleFilterAndSortCount = saleFilterCount + (saleSort ? 1 : 0);
 
   const statusTone = (status: string): "success" | "warning" | "critical" | "neutral" => {
     if (status === "Void") return "critical";
@@ -644,18 +490,9 @@ export default function Transactions() {
     [tableData]
   );
 
-  const periodLabel = useMemo(() => {
-    if (!dateRange.from) return undefined;
-    if (!dateRange.to || startOfDay(dateRange.to).getTime() === startOfDay(dateRange.from).getTime()) {
-      return format(dateRange.from, "d MMM yyyy");
-    }
-    return `${format(dateRange.from, "d MMM")} – ${format(dateRange.to, "d MMM yyyy")}`;
-  }, [dateRange]);
-
   const pdfReport = {
     businessName: business?.name ?? currentStore?.name ?? "Business",
     storeName: currentStore?.name ?? "All Stores",
-    periodLabel,
     kpis: [
       { label: "Net Collected", value: formatCurrency(actualRevenueNet) },
       {
@@ -728,19 +565,9 @@ export default function Transactions() {
         compact
         actions={
           <>
-            {/* Date filter and export live in the top-level header now, next to the
-                title, the same place Dashboard puts its date range and Customers puts
-                its export/bulk-operations control — only relevant to the Sales Ledger
-                tab, so hidden while Register Shifts is active. */}
-            {ledgerTab === "transactions" && (
-              <>
-                <DateRangeFilter
-                  dateRange={dateRange}
-                  onDateRangeChange={setDateRange}
-                  defaultPreset="today"
-                  timezone={currentStore?.timezone}
-                  compact
-                />
+            {/* Mobile/tablet: icon-only "..." trigger; desktop: labelled button. */}
+            {[true, false].map((compact) => (
+              <div key={String(compact)} className={compact ? "lg:hidden" : "hidden lg:block"}>
                 <ExportToolbar
                   data={exportData as unknown as Record<string, unknown>[]}
                   columns={exportColumns}
@@ -750,10 +577,16 @@ export default function Transactions() {
                   pdfReport={pdfReport}
                   visibleData={visibleExportData as unknown as Record<string, unknown>[]}
                   visiblePdfReport={visiblePdfReport}
-                  compact
+                  compact={compact}
                 />
-              </>
-            )}
+              </div>
+            ))}
+            <Button variant="outline" asChild data-testid="button-register-shifts">
+              <Link href="/transactions/register-shifts">
+                <Wallet className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Register Shifts</span>
+              </Link>
+            </Button>
             <Button asChild data-testid="button-new-sale">
               <Link href="/sales/new">
                 <Receipt className="h-4 w-4 lg:mr-2" />
@@ -764,179 +597,67 @@ export default function Transactions() {
         }
       />
 
-      <Tabs value={ledgerTab} onValueChange={setLedgerTab} className="space-y-6">
-        <PolymorphicTabsList
-          tabs={[
-            { value: "transactions", label: "Sales Ledger" },
-            { value: "drawer-shifts", label: "Register Shifts" },
-          ]}
-          variant="default"
-        />
+      <div className="space-y-6">
+          {/* Net is the headline figure — what the business actually kept —
+              shown first, with gross and the refund it reconciles against
+              folded into its own description line rather than a separate tile. */}
+          <MetricRow
+            metrics={[
+              {
+                title: "Net Sales",
+                value: formatCurrency(actualRevenueNet),
+                compactValue: formatCompact(actualRevenueNet),
+                description:
+                  totalRefunded > 0
+                    ? `${formatCompact(totalAmount)} gross − ${formatCompact(totalRefunded)} returned`
+                    : `${formatCompact(totalAmount)} gross · no returns`,
+                icon: <Coins className="h-4 w-4" />,
+                isLoading,
+              },
+              {
+                title: "Completed Sales",
+                value: nonVoidedCount,
+                description: "Excludes voided and fully returned",
+                icon: <Receipt className="h-4 w-4" />,
+                isLoading,
+              },
+              {
+                title: "Avg. Sale (Net)",
+                value: formatCurrency(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
+                compactValue: formatCompact(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
+                icon: <Coins className="h-4 w-4" />,
+                isLoading,
+              },
+            ]}
+          />
 
-        <TabsContent value="transactions" className="space-y-6 animate-in fade-in duration-300">
-          <MetricGrid>
-            {/* Net is the headline figure — what the business actually kept —
-                shown first, with gross and the refund it reconciles against
-                folded into its own description line rather than a separate tile. */}
-            <MetricCard
-              title="Net Sales"
-              value={formatCurrency(actualRevenueNet)}
-              compactValue={formatCompact(actualRevenueNet)}
-              description={
-                totalRefunded > 0
-                  ? `${formatCompact(totalAmount)} gross − ${formatCompact(totalRefunded)} returned`
-                  : `${formatCompact(totalAmount)} gross · no returns`
-              }
-              icon={<Coins className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Completed Sales"
-              value={nonVoidedCount}
-              description="Excludes voided and fully returned"
-              icon={<Receipt className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Avg. Sale (Net)"
-              value={formatCurrency(
-                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
-              )}
-              compactValue={formatCompact(
-                nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0
-              )}
-              icon={<Coins className="h-4 w-4" />}
-              isLoading={isLoading}
-            />
-          </MetricGrid>
-
-          <Card>
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base font-medium">Transaction History</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 min-w-0">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <ClearableInput
-                    placeholder="Search receipt, customer, item or staff"
-                    value={saleSearchTerm}
-                    onChange={(e) => setSaleSearchTerm(e.target.value)}
-                    onClear={() => setSaleSearchTerm("")}
-                    className="pl-9 h-9"
+          <div className="space-y-3">
+              <ListControls
+                testIdPrefix="sale"
+                placeholder="Search receipt, customer, item or staff"
+                search={saleSearchTerm}
+                onSearchChange={setSaleSearchTerm}
+                filterCount={saleFilterCount}
+                filters={(trigger) => (
+                  <SaleFiltersSheet
+                    filters={saleFilters}
+                    onApply={setSaleFilters}
+                    currencySymbol={getCurrencyByCode(storeCurrency)?.symbol ?? "₦"}
+                    paymentMethods={paymentMethods}
+                    staffOptions={staffOptions}
+                    resultCountFor={(draft) => saleSearchedRows.filter((row) => saleMatchesFilters(row, draft)).length}
+                    trigger={trigger}
                   />
-                </div>
-                <SaleFiltersSheet
-                  filters={saleFilters}
-                  onApply={setSaleFilters}
-                  sort={saleSort}
-                  onSortChange={setSaleSort}
-                  currencySymbol={storeCurrency === "USD" ? "$" : "₦"}
-                  paymentMethods={paymentMethods}
-                  staffOptions={staffOptions}
-                  resultCountFor={(draft) => saleSearchedRows.filter((row) => saleMatchesFilters(row, draft)).length}
-                  trigger={
-                    <Button
-                      variant={saleFilterAndSortCount > 0 ? "secondary" : "outline"}
-                      size="sm"
-                      className={cn("h-9 shrink-0 gap-1.5", saleFilterAndSortCount > 0 && "bg-primary/10 border-primary/30 text-primary")}
-                      data-testid="button-sale-filters"
-                    >
-                      <SlidersHorizontal className="h-3.5 w-3.5" />
-                      {saleFilterAndSortCount > 0 ? `Filters ${saleFilterAndSortCount}` : "Filters"}
-                    </Button>
-                  }
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSaleFilters((f) => ({ ...f, returnsOnly: !f.returnsOnly }))}
-                  className={cn(
-                    "h-8 px-3 rounded-full border text-xs font-medium transition-colors inline-flex items-center gap-1.5",
-                    saleFilters.returnsOnly ? "bg-orange-50 border-orange-300 text-orange-700 dark:bg-orange-950/30 dark:border-orange-800 dark:text-orange-400" : "border-input text-foreground hover:bg-muted/50"
-                  )}
-                  data-testid="chip-returns"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Returns
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSaleFilters((f) => ({ ...f, creditOnly: !f.creditOnly }))}
-                  className={cn(
-                    "h-8 px-3 rounded-full border text-xs font-medium transition-colors inline-flex items-center gap-1.5",
-                    saleFilters.creditOnly ? "bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400" : "border-input text-foreground hover:bg-muted/50"
-                  )}
-                  data-testid="chip-credit"
-                >
-                  <Wallet className="h-3 w-3" />
-                  Credit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSaleFilters((f) => ({ ...f, staffPurchasesOnly: !f.staffPurchasesOnly }))}
-                  className={cn(
-                    "h-8 px-3 rounded-full border text-xs font-medium transition-colors inline-flex items-center gap-1.5",
-                    saleFilters.staffPurchasesOnly ? "bg-primary/10 border-primary/30 text-primary" : "border-input text-foreground hover:bg-muted/50"
-                  )}
-                  data-testid="chip-staff-purchases"
-                >
-                  <UserCheck className="h-3 w-3" />
-                  Staff purchases
-                </button>
-
-                {(hasSaleFiltersOrQuickChips || saleSort) && (
-                  <>
-                    {saleSort && (
-                      <span className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium">
-                        {saleSortLabel(saleSort)}
-                        <button
-                          type="button"
-                          onClick={() => setSaleSort(null)}
-                          aria-label="Remove sort"
-                          title="Remove sort"
-                          className="rounded-full p-0.5 hover:bg-muted"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    )}
-                    {saleFilterChips.map((chip) => (
-                      <span
-                        key={chip.key}
-                        className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium"
-                      >
-                        {chip.label}
-                        <button
-                          type="button"
-                          onClick={() => setSaleFilters((f) => clearSaleFilterChip(f, chip.key))}
-                          aria-label={`Remove ${chip.label} filter`}
-                          title={`Remove ${chip.label} filter`}
-                          className="rounded-full p-0.5 hover:bg-muted"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                    <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                      {saleFilteredRows.length} sale{saleFilteredRows.length === 1 ? "" : "s"}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-primary hover:underline shrink-0"
-                      onClick={() => {
-                        setSaleFilters(EMPTY_SALE_FILTERS);
-                        setSaleSort(null);
-                      }}
-                      data-testid="button-sale-clear-all"
-                    >
-                      Clear all
-                    </button>
-                  </>
                 )}
-              </div>
+                sortLabel={saleSortButtonLabel(saleSort).replace(/^Sort: /, "")}
+                sort={(trigger) => <SaleSortSheet sort={saleSort} onChange={setSaleSort} trigger={trigger} />}
+                chips={saleFilterChips}
+                onRemoveChip={(key) => setSaleFilters((f) => clearSaleFilterChip(f, key as Parameters<typeof clearSaleFilterChip>[1]))}
+                hasSort={saleSort !== null}
+                onClearAll={() => { setSaleFilters(EMPTY_SALE_FILTERS); setSaleSort(null); }}
+                visibleCount={saleFilteredRows.length}
+                noun="sale"
+              />
 
               {/* Desktop: the flat table — enough row density that day grouping isn't needed. */}
               <div className="hidden lg:block">
@@ -946,7 +667,7 @@ export default function Transactions() {
                   hideToolbar
                   isLoading={isLoading}
                   emptyTitle="No Transactions"
-                  emptyMessage="No transactions found for the selected date range. Try adjusting the filters or date range."
+                  emptyMessage="No transactions found. Try adjusting the filters or date range."
                   emptyIcon={<ShoppingBag className="h-6 w-6" />}
                   onRowClick={(tx) => setLocation(appendReturnTo(`/transactions/${tx.id}`, location, search))}
                   onVisibleDataChange={setVisibleTxRows}
@@ -964,7 +685,7 @@ export default function Transactions() {
                     <ShoppingBag className="h-6 w-6 text-muted-foreground" />
                     <p className="text-sm font-medium">No Transactions</p>
                     <p className="text-xs text-muted-foreground max-w-xs">
-                      No transactions found for the selected date range. Try adjusting the filters or date range.
+                      No transactions found. Try adjusting the filters or date range.
                     </p>
                   </div>
                 ) : (
@@ -1049,52 +770,8 @@ export default function Transactions() {
                   </PaginationContent>
                 </Pagination>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="drawer-shifts" className="space-y-6 animate-in fade-in duration-300">
-          <MetricGrid>
-            <MetricCard
-              title="Shift Sessions Run"
-              value={drawerSessions.length}
-              icon={<Clock className="h-4 w-4" />}
-              isLoading={drawerLoading}
-            />
-            <MetricCard
-              title="Accumulated Drawer Variance"
-              value={formatCurrency(totalVariance)}
-              compactValue={formatCompact(totalVariance)}
-              icon={<Coins className="h-4 w-4" />}
-              isLoading={drawerLoading}
-            />
-            <MetricCard
-              title="Active Shift Session"
-              value={activeSessionItem ? "SHIFT DRAW ACTIVE" : "ALL SHIFTS AUDITED"}
-              icon={<AlertCircle className="h-4 w-4" />}
-              isLoading={drawerLoading}
-            />
-          </MetricGrid>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-medium">Drawer Shifts & Reconciliations</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                data={drawerSessions}
-                columns={drawerColumns}
-                searchable
-                searchPlaceholder="Search shift remarks..."
-                searchKeys={["notes"]}
-                isLoading={drawerLoading}
-                emptyMessage="No historical cash register sessions found for this branch."
-                urlKey="drawer"
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          </div>
+      </div>
 
       {/* Resolve Pending Payment — inline from transactions list */}
       {resolveTx && resolveTx.checkout?.id && resolveTx.customer?.id && (

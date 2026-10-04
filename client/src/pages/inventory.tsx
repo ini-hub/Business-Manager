@@ -1,18 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
-import { fetchAllStaff } from "@/lib/staff-api";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import type { Product, StockAudit, StockAuditItem, Staff, Settings, Inventory } from "@shared/schema";
+import type { Product, Settings, Inventory } from "@shared/schema";
 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
-type AuditPerson = { name?: string; email?: string };
-type AuditDetail = StockAudit & { items: StockAuditItem[]; conductedBy?: AuditPerson; approvedBy?: AuditPerson };
-import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2, ChevronRight } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Hash, Boxes, AlertTriangle, AlertCircle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, CheckCircle2, FileText, X, ArchiveX, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/metric-card";
 import {
@@ -58,7 +54,24 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation, useSearch } from "wouter";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
-import { MetricGrid } from "@/components/metric-grid";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { InventoryFiltersSheet, InventorySortSheet } from "@/components/inventory-filter-sheets";
+import {
+  EMPTY_INVENTORY_FILTERS,
+  buildInventoryFilterChips,
+  clearInventoryFilterChip,
+  countActiveInventoryFilters,
+  filtersFromLegacyView,
+  inventoryMatchesFilters,
+  inventoryMatchesSearch,
+  inventorySortLabel,
+  LOW_STOCK_FILTERS,
+  sortInventory,
+  urgentFirst,
+  type InventoryFilterState,
+  type InventorySortState,
+} from "@/lib/inventory-filters";
 import { buildSlug } from "@/lib/slug";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
@@ -70,7 +83,8 @@ import {
   formatStockAlertCopy,
 } from "@/lib/inventory-metrics";
 
-type FilterType = "all" | "product" | "service" | "supply" | "low-stock" | "audits" | "archived";
+// Type and low-stock used to be tabs; they are filters now. Old ?view= values still resolve (see filtersFromLegacyView).
+type FilterType = "items" | "archived" | "drafts";
 type Vendor = { id: string; name: string; phoneNumber?: string; email?: string; companyName?: string };
 
 // Adjust stock / Update prices / Create PO all need to resolve one clear inventory
@@ -116,21 +130,19 @@ export default function InventoryPage() {
   const [deleteBlockedBySales, setDeleteBlockedBySales] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ProductWithVariants | null>(null);
-  const [filterType, setFilterType] = useUrlState<FilterType>("view", "all");
-  const [isAuditFormOpen, setIsAuditFormOpen] = useState(false);
-  const [isAuditDetailOpen, setIsAuditDetailOpen] = useState(false);
-  const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
+  const [viewParam, setViewParam] = useUrlState<string>("view", "items");
+  const filterType: FilterType = viewParam === "archived" || viewParam === "drafts" ? viewParam : "items";
+  const setFilterType = (v: FilterType) => setViewParam(v);
+  // Audits left this page; old ?view=audits bookmarks land on the standalone page.
+  useEffect(() => {
+    if (viewParam === "audits") setLocation("/inventory/audits", { replace: true });
+  }, [viewParam, setLocation]);
+  // Seeded once from a legacy deep link such as /inventory?view=low-stock.
+  const [inventoryFilters, setInventoryFilters] = useState<InventoryFilterState>(() => filtersFromLegacyView(viewParam));
+  const [inventorySearchTerm, setInventorySearchTerm] = useState("");
+  const [inventorySort, setInventorySort] = useState<InventorySortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
-  const [conductedByStaffId, setConductedByStaffId] = useState("");
-  const [auditNotes, setAuditNotes] = useState("");
-  const [auditItems, setAuditItems] = useState<{
-    inventoryId: string;
-    name: string;
-    systemQuantity: number;
-    physicalQuantity: number;
-    reason: string;
-  }[]>([]);
   const [restockData, setRestockData] = useState({
     quantity: 1,
     unitCost: 0,
@@ -169,6 +181,28 @@ export default function InventoryPage() {
     { enabled: filterType === "archived" || isExportDialogOpen, staleTime: STALE_TIMES.reference }
   );
 
+  // Saved "New item" wizard sessions. Per-store (the endpoint takes one storeId), and
+  // fetched eagerly so the tab can show a count.
+  const draftsStoreId = currentStore?.id && currentStore.id !== "all" ? currentStore.id : null;
+  const { data: draftsList = [], isLoading: isLoadingDrafts } = useQuery<any[]>({
+    queryKey: ["/api/inventory-drafts", draftsStoreId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/inventory-drafts?storeId=${draftsStoreId}`);
+      if (!res.ok) throw new Error("Failed to load drafts");
+      return res.json();
+    },
+    enabled: !!draftsStoreId,
+  });
+  const discardDraft = async (id: string) => {
+    const res = await apiRequest("DELETE", `/api/inventory-drafts/${id}`);
+    if (!res.ok) {
+      toast({ title: "Couldn't discard draft", variant: "destructive" });
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/inventory-drafts"] });
+    toast({ title: "Draft discarded" });
+  };
+
   const { data: settingsData } = useQuery<Settings>({
     queryKey: ["/api/settings", currentStore?.id],
     enabled: !!currentStore?.id && currentStore.id !== "all",
@@ -188,99 +222,10 @@ export default function InventoryPage() {
     staleTime: STALE_TIMES.reference,
   });
 
-  const { data: auditsRaw = [], isLoading: isLoadingAudits } = useMultiStoreQuery<StockAudit>(
-    "/api/stock-audits",
-    { enabled: filterType === "audits" }
-  );
-  const auditsList = [...auditsRaw].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-
-  const { data: staffList = [] } = useMultiStoreQuery<Staff>("/api/staff", { staleTime: STALE_TIMES.reference, fetchList: fetchAllStaff<Staff> });
-
-  const { data: auditDetail, isLoading: isLoadingAuditDetail } = useQuery<AuditDetail>({
-    queryKey: ["/api/stock-audits", selectedAuditId],
-    queryFn: async () => {
-      const res = await fetch(`/api/stock-audits/${selectedAuditId}`);
-      if (!res.ok) throw new Error("Failed to fetch audit details");
-      return res.json();
-    },
-    enabled: !!selectedAuditId,
-  });
-
-  const createAuditMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/stock-audits", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      toast({ title: "Stock audit submitted successfully." });
-      setIsAuditFormOpen(false);
-      setAuditNotes("");
-      setConductedByStaffId("");
-      setAuditItems([]);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Could not create stock audit",
-        description: getUserFriendlyError(error),
-        variant: "destructive",
-      });
-    },
-  });
-
-  const { data: variancePreview } = useQuery<{ total: number; lines: { name: string; variance: number; cost: number }[] }>({
-    queryKey: ["stock-audit-variance", selectedAuditId],
-    queryFn: async () => {
-      const res = await fetch(`/api/stock-audits/${selectedAuditId}/variance-preview`);
-      if (!res.ok) return { total: 0, lines: [] };
-      return res.json();
-    },
-    enabled: !!selectedAuditId && isAuditDetailOpen,
-  });
-
-  const approveAuditMutation = useMutation({
-    mutationFn: (auditId: string) => apiRequest("POST", `/api/stock-audits/${auditId}/approve`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", currentStore?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stock-audits", selectedAuditId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Stock audit approved. Inventory quantities updated." });
-      setIsAuditDetailOpen(false);
-      setSelectedAuditId(null);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Could not approve stock audit",
-        description: getUserFriendlyError(error),
-        variant: "destructive",
-      });
-    },
-  });
-
   const lowStockThreshold = settingsData?.lowStockThreshold ?? 5;
 
-  const filteredInventory = useMemo(() => {
-    switch (filterType) {
-      case "all":
-        return inventoryList;
-      case "product":
-        return inventoryList.filter((item) => item.type === "product");
-      case "service":
-        return inventoryList.filter((item) => item.type === "service");
-      case "supply":
-        return inventoryList.filter((item) => item.type === "supply");
-      case "low-stock":
-        // Supplies run out too — running dry on shampoo stops services just as
-        // surely as running dry on retail stock. Each variant's own reorderPoint
-        // overrides the store-wide threshold when set.
-        return inventoryList.filter(
-          (item) => item.type !== "service" && item.variants?.some((v: any) => isAtOrBelowReorderPoint(v, lowStockThreshold))
-        );
-      default:
-        return inventoryList;
-    }
-  }, [inventoryList, filterType, lowStockThreshold]);
+  // The list the exports and totals work from; the Filters sheet narrows only what the table shows.
+  const filteredInventory = inventoryList;
 
   const outOfStockCount = useMemo(() => {
     return inventoryList.filter(
@@ -489,7 +434,6 @@ export default function InventoryPage() {
       const res = await apiRequest("POST", "/api/purchase-orders", {
         storeId: currentStore!.id,
         vendorId: bulkPOVendorId,
-        poNumber: `PO-${Date.now().toString().slice(-6)}`,
         items: lineItems,
       });
       if (!res.ok) {
@@ -726,6 +670,7 @@ export default function InventoryPage() {
       key: "name",
       header: "Item Name",
       priority: 1 as const,
+      cardRender: (item: any) => <span className="truncate">{item.name}</span>,
       render: (item: any) => (
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted">
@@ -745,6 +690,7 @@ export default function InventoryPage() {
     {
       key: "type",
       header: "Type",
+      priority: 2 as const,
       render: (item: any) => (
         <Badge variant="outline" className={`capitalize ${itemTypeBadgeClass(item.type)}`}>
           {item.type}
@@ -769,6 +715,7 @@ export default function InventoryPage() {
     {
       key: "sellingPrice",
       header: "Selling Price",
+      priority: 1 as const,
       render: (item: any) => {
         if (!item.variants || item.variants.length === 0) return <span className="font-mono text-sm">—</span>;
         const prices = item.variants.map((v: any) => v.sellingPrice);
@@ -894,13 +841,12 @@ export default function InventoryPage() {
     isMultiStoreView,
   });
 
-  const currentViewProducts = filterType === "archived" ? archivedList : filteredInventory;
+  const itemsNarrowed = countActiveInventoryFilters(inventoryFilters) > 0 || inventorySearchTerm.trim() !== "";
+  const currentViewProducts = filterType === "archived" ? archivedList : itemsNarrowed ? visibleProducts : filteredInventory;
   const currentViewLabel =
     filterType === "archived" ? "Archived"
-    : filterType === "low-stock" ? "Low Stock"
-    : filterType === "product" ? "Products"
-    : filterType === "service" ? "Services"
-    : filterType === "supply" ? "Supplies"
+    : inventoryFilters.stock.length > 0 && inventoryFilters.types.length === 0 ? "Low Stock"
+    : inventoryFilters.types.length === 1 ? { product: "Products", service: "Services", supply: "Supplies" }[inventoryFilters.types[0]]
     : "All";
 
   if (!currentStore) {
@@ -912,12 +858,6 @@ export default function InventoryPage() {
     );
   }
 
-  const totalAuditsCount = auditsList.length;
-  const draftAuditsCount = auditsList.filter((a: any) => a.status === "draft").length;
-  const latestAuditDateStr = auditsList.length > 0 
-    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(auditsList[0].createdAt))
-    : "No audits yet";
-
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
@@ -926,301 +866,139 @@ export default function InventoryPage() {
         compact
         actions={
           <div className="flex items-center gap-2">
-            {filterType === "audits" ? (
-              <Button onClick={() => setLocation("/inventory/audits/new")} aria-label="New Stock Audit" data-testid="button-new-audit">
-                <Plus className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">New Stock Audit</span>
-              </Button>
-            ) : (
-              <>
-                {(() => {
-                  const bulkOpsProps = {
-                    entityConfig: INVENTORY_BULK_CONFIG,
-                    data: quickExportData as unknown as Record<string, unknown>[],
-                    columns: quickExportColumns,
-                    isLoading,
-                    storeId: currentStore.id,
-                    pdfTitle: "Inventory Report",
-                    onExportPDF: () => handleInventoryReportExport(),
-                    onExportFilteredPDF: () => handleInventoryReportExport(true),
-                    visibleData: visibleQuickExportData as unknown as Record<string, unknown>[],
-                    showImportOption: user?.role !== "staff",
-                    extraExportActions: (
-                      <DropdownMenuItem
-                        onClick={() => setIsExportDialogOpen(true)}
-                        data-testid="button-customize-export"
-                      >
-                        <Settings2 className="mr-2 h-4 w-4" />
-                        Customize Export…
-                      </DropdownMenuItem>
-                    ),
-                  };
-                  return (
-                    <>
-                      <div className="lg:hidden">
-                        <BulkOperations {...bulkOpsProps} compact />
-                      </div>
-                      <div className="hidden lg:block">
-                        <BulkOperations {...bulkOpsProps} />
-                      </div>
-                    </>
-                  );
-                })()}
-                <InventoryExportDialog
-                  open={isExportDialogOpen}
-                  onOpenChange={setIsExportDialogOpen}
-                  activeProducts={inventoryList}
-                  currentViewProducts={currentViewProducts}
-                  archivedProducts={archivedList}
-                  isLoadingArchived={isLoadingArchived}
-                  selectedIds={selectedIds}
-                  currentViewLabel={currentViewLabel}
-                  isMultiStoreView={isMultiStoreView}
-                  lowStockThreshold={lowStockThreshold}
-                  formatCurrency={formatCurrency}
-                  storeLabel={currentStore.name}
-                  businessName={business?.name ?? currentStore.name}
-                />
-                <Button onClick={openCreateForm} aria-label="Add Item" data-testid="button-add-item">
-                  <Plus className="h-4 w-4 lg:mr-2" />
-                  <span className="hidden lg:inline">Add Item</span>
-                </Button>
-              </>
-            )}
+            <Button variant="outline" onClick={() => setLocation("/inventory/audits")} aria-label="Stock Audit" data-testid="button-stock-audit">
+              <ClipboardList className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Stock Audit</span>
+            </Button>
+            {(() => {
+              const bulkOpsProps = {
+                entityConfig: INVENTORY_BULK_CONFIG,
+                data: quickExportData as unknown as Record<string, unknown>[],
+                columns: quickExportColumns,
+                isLoading,
+                storeId: currentStore.id,
+                pdfTitle: "Inventory Report",
+                onExportPDF: () => handleInventoryReportExport(),
+                onExportFilteredPDF: () => handleInventoryReportExport(true),
+                visibleData: visibleQuickExportData as unknown as Record<string, unknown>[],
+                showImportOption: user?.role !== "staff",
+                extraExportActions: (
+                  <DropdownMenuItem
+                    onClick={() => setIsExportDialogOpen(true)}
+                    data-testid="button-customize-export"
+                  >
+                    <Settings2 className="mr-2 h-4 w-4" />
+                    Customize Export…
+                  </DropdownMenuItem>
+                ),
+              };
+              return (
+                <>
+                  <div className="lg:hidden">
+                    <BulkOperations {...bulkOpsProps} compact />
+                  </div>
+                  <div className="hidden lg:block">
+                    <BulkOperations {...bulkOpsProps} />
+                  </div>
+                </>
+              );
+            })()}
+            <InventoryExportDialog
+              open={isExportDialogOpen}
+              onOpenChange={setIsExportDialogOpen}
+              activeProducts={inventoryList}
+              currentViewProducts={currentViewProducts}
+              archivedProducts={archivedList}
+              isLoadingArchived={isLoadingArchived}
+              selectedIds={selectedIds}
+              currentViewLabel={currentViewLabel}
+              isMultiStoreView={isMultiStoreView}
+              lowStockThreshold={lowStockThreshold}
+              formatCurrency={formatCurrency}
+              storeLabel={currentStore.name}
+              businessName={business?.name ?? currentStore.name}
+            />
+            <Button onClick={openCreateForm} aria-label="Add Item" data-testid="button-add-item">
+              <Plus className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Add Item</span>
+            </Button>
           </div>
         }
       />
 
-      <MetricGrid>
-        {filterType === "audits" ? (
-          <>
-            <MetricCard
-              title="Total Audits Conducted"
-              value={String(totalAuditsCount)}
-              icon={<ClipboardList className="h-4 w-4" />}
-              description="Historical stock counts performed"
-              isLoading={isLoadingAudits}
-            />
-            <MetricCard
-              title="Pending Approvals"
-              value={String(draftAuditsCount)}
-              icon={<AlertCircle className="h-4 w-4 text-amber-500" />}
-              description="Audits requiring manager approval"
-              isLoading={isLoadingAudits}
-            />
-            <MetricCard
-              title="Latest Audit Performed"
-              value={latestAuditDateStr}
-              icon={<CheckCircle2 className="h-4 w-4 text-green-500" />}
-              description="Most recent physical check date"
-              isLoading={isLoadingAudits}
-            />
-          </>
-        ) : (
-          <>
-            <MetricCard
-              title="Total Cost Value"
-              value={formatCurrency(totalCostValue)}
-              compactValue={formatCompact(totalCostValue)}
-              icon={<Package className="h-4 w-4" />}
-              description="Total value of products in stock"
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Total Retail Value"
-              value={formatCurrency(totalRetailValue)}
-              compactValue={formatCompact(totalRetailValue)}
-              icon={<Coins className="h-4 w-4" />}
-              description="Expected revenue if all sold"
-              isLoading={isLoading}
-            />
-            <MetricCard
-              title="Projected Gross Margin"
-              value={projectedGrossMarginDisplay}
-              icon={<BarChart3 className="h-4 w-4" />}
-              description="Based on current stock value"
-              isLoading={isLoading}
-            />
-          </>
-        )}
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          { title: "Total Cost Value", value: formatCurrency(totalCostValue), compactValue: formatCompact(totalCostValue), icon: <Package className="h-4 w-4" />, description: "Total value of products in stock", isLoading },
+          { title: "Total Retail Value", value: formatCurrency(totalRetailValue), compactValue: formatCompact(totalRetailValue), icon: <Coins className="h-4 w-4" />, description: "Expected revenue if all sold", isLoading },
+          { title: "Projected Gross Margin", value: projectedGrossMarginDisplay, icon: <BarChart3 className="h-4 w-4" />, description: "Based on current stock value", isLoading },
+          {
+            title: "Low Stock Items",
+            value: String(lowStockCount),
+            icon: <AlertTriangle className="h-4 w-4" />,
+            description: lowStockCount > 0
+              ? (outOfStockCount > 0 ? `${outOfStockCount} out of stock, ${lowStockOnlyCount} low` : formatStockAlertCopy(outOfStockCount, lowStockOnlyCount))
+              : "All items above reorder level",
+            tone: lowStockCount > 0 ? "amber" : "default",
+            onClick: lowStockCount > 0 ? () => { setFilterType("items"); setInventoryFilters(LOW_STOCK_FILTERS); } : undefined,
+            isLoading,
+          },
+        ]}
+      />
 
-      {lowStockCount > 0 && filterType !== "audits" && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:p-4 dark:border-amber-900 dark:bg-amber-950">
-          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-amber-800 dark:text-amber-200 truncate">
-              Low Stock Alert
-            </p>
-            <p className="hidden sm:block text-sm text-amber-700 dark:text-amber-300">
-              {formatStockAlertCopy(outOfStockCount, lowStockOnlyCount)}
-              {outOfStockCount > 0 && ` (${outOfStockCount} out of stock, ${lowStockOnlyCount} low)`}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setFilterType("low-stock")}
-            className="hidden sm:inline-flex border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
-            data-testid="button-view-low-stock"
-          >
-            <ShoppingCart className="mr-2 h-4 w-4" />
-            View Items
-          </Button>
-          <IconButton
-            label="View low stock items"
-            variant="ghost"
-            onClick={() => setFilterType("low-stock")}
-            className="sm:hidden h-8 w-8 flex-shrink-0 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900"
-            data-testid="button-view-low-stock-mobile"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </IconButton>
-        </div>
-      )}
-
-      <Tabs defaultValue="all" value={filterType} onValueChange={(v) => { setFilterType(v as FilterType); setSelectedIds([]); }} className="w-full space-y-6">
-        <PolymorphicTabsList 
-          variant="default"
+      <Tabs value={filterType} onValueChange={(v) => { setFilterType(v as FilterType); setSelectedIds([]); }} className="w-full">
+        <PolymorphicTabsList
+          variant="bordered"
           tabs={[
-            { value: "all", label: `All (${inventoryList.length})`, testId: "tab-all" },
-            { value: "product", label: `Products (${inventoryList.filter((i) => i.type === "product").length})`, testId: "tab-products" },
-            { value: "service", label: `Services (${inventoryList.filter((i) => i.type === "service").length})`, testId: "tab-services" },
-            { value: "supply", label: `Supplies (${inventoryList.filter((i) => i.type === "supply").length})`, testId: "tab-supplies" },
-            { 
-              value: "low-stock", 
-              label: `Low Stock (${lowStockCount})`, 
-              icon: <AlertCircle className="mr-1 h-3 w-3" />,
-              testId: "tab-low-stock",
-              className: lowStockCount > 0 ? "text-amber-600 dark:text-amber-400" : "" 
-            },
+            { value: "items", label: `Items ${inventoryList.length}`, testId: "tab-items" },
             {
-              value: "audits",
-              label: "Stock Audits",
-              icon: <ClipboardList className="mr-1 h-3 w-3" />,
-              testId: "tab-audits",
+              value: "drafts",
+              label: `Drafts${draftsList.length > 0 ? ` ${draftsList.length}` : ""}`,
+              icon: <FileText className="mr-1 h-3 w-3" />,
+              testId: "tab-drafts",
+              className: draftsList.length > 0 ? "text-primary" : "",
             },
             {
               value: "archived",
-              label: `Archived${archivedList.length > 0 ? ` (${archivedList.length})` : ""}`,
+              label: `Archived${archivedList.length > 0 ? ` ${archivedList.length}` : ""}`,
               icon: <Archive className="mr-1 h-3 w-3" />,
               testId: "tab-archived",
               className: archivedList.length > 0 ? "text-muted-foreground" : "",
-            }
+            },
           ]}
         />
       </Tabs>
 
-      {filterType === "audits" ? (
-        (() => {
-          const auditColumns = [
-            ...(currentStore?.id === "all" ? [{
-              key: "storeName",
-              header: "Store",
-              render: (audit: any) => (
-                <Badge variant="outline" className="bg-slate-900/40 border-slate-800 text-xs text-slate-300 font-medium font-outfit uppercase shrink-0">
-                  {audit.storeName || "Global"}
-                </Badge>
-              ),
-            }] : []),
-            {
-              key: "id",
-              header: "Audit ID",
-              render: (audit: any) => (
-                <span className="font-mono text-xs font-semibold">
-                  {audit.id.substring(0, 8).toUpperCase()}
-                </span>
-              ),
-            },
-            {
-              key: "createdAt",
-              header: "Date Conducted",
-              render: (audit: any) => (
-                <span className="text-sm">
-                  {new Intl.DateTimeFormat("en-US", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }).format(new Date(audit.createdAt))}
-                </span>
-              ),
-            },
-            {
-              key: "conductedBy",
-              header: "Conducted By",
-              render: (audit: any) => {
-                const conductor = staffList.find((s) => s.id === audit.conductedByStaffId);
-                return (
-                  <span className="text-sm font-medium">
-                    {conductor ? conductor.name : "System / Admin"}
-                  </span>
-                );
-              },
-            },
-            {
-              key: "status",
-              header: "Status",
-              render: (audit: any) => (
-                <Badge
-                  variant="secondary"
-                  className={
-                    audit.status === "approved"
-                      ? "bg-green-500/10 text-green-500 hover:bg-green-500/25 animate-pulse"
-                      : "bg-amber-500/10 text-amber-500 hover:bg-amber-500/25"
-                  }
-                >
-                  {audit.status.toUpperCase()}
-                </Badge>
-              ),
-            },
-            {
-              key: "notes",
-              header: "General Notes",
-              render: (audit: any) => (
-                <span className="text-xs text-muted-foreground line-clamp-1 max-w-[200px]">
-                  {audit.notes || "—"}
-                </span>
-              ),
-            },
-            {
-              key: "actions",
-              header: "",
-              render: (audit: any) => (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedAuditId(audit.id);
-                    setIsAuditDetailOpen(true);
-                  }}
-                >
-                  <FileText className="mr-1.5 h-3.5 w-3.5" />
-                  View Details
-                </Button>
-              ),
-            },
-          ];
-
-          return (
-            <DataTable
-              data={auditsList}
-              columns={auditColumns}
-              searchable
-              searchPlaceholder="Search audits by notes..."
-              searchKeys={["notes"]}
-              isLoading={isLoadingAudits}
-              emptyMessage="No stock audits recorded. Initiate one using the button above."
-              onRowClick={(audit) => {
-                setSelectedAuditId(audit.id);
-                setIsAuditDetailOpen(true);
-              }}
-              urlKey="audits"
-            />
-          );
-        })()
+      {filterType === "drafts" ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 bg-muted/40 rounded-lg border border-dashed">
+            <FileText className="h-4 w-4 shrink-0" />
+            <span>Drafts are items you started but haven't added yet. They are not in stock and can't be sold until you finish them.</span>
+          </div>
+          {!draftsStoreId ? (
+            <div className="py-12 text-center text-muted-foreground">Select a single store to see its drafts.</div>
+          ) : isLoadingDrafts ? (
+            <div className="py-12 text-center text-muted-foreground">Loading drafts…</div>
+          ) : draftsList.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">No drafts. Use “Save draft” while adding an item.</div>
+          ) : (
+            <div className="rounded-lg border divide-y">
+              {draftsList.map((d: any) => (
+                <div key={d.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{d.name || "Untitled item"}</p>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {d.type || "type not chosen"} · saved {new Date(d.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button size="sm" onClick={() => setLocation(`/inventory/new?draft=${d.id}`)}>Continue</Button>
+                    <Button size="sm" variant="ghost" onClick={() => discardDraft(d.id)}>Discard</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : filterType === "archived" ? (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 bg-muted/40 rounded-lg border border-dashed">
@@ -1320,31 +1098,20 @@ export default function InventoryPage() {
               ...item,
               totalStock,
               stockStatus,
+              // Lowest variant price, so a single Price filter works for multi-variant items.
+              price: item.variants && item.variants.length > 0 ? Math.min(...item.variants.map((v: any) => Number(v.sellingPrice) || 0)) : 0,
               margin: Math.round(marginPct)
             };
           });
 
-          if (filterType === "low-stock") {
-            // Out of stock first, then ascending quantity — the items needing
-            // the most urgent attention lead the list instead of table-default order.
-            tableData = [...tableData].sort((a, b) => {
-              const aOut = a.totalStock === 0 ? 0 : 1;
-              const bOut = b.totalStock === 0 ? 0 : 1;
-              if (aOut !== bOut) return aOut - bOut;
-              return a.totalStock - b.totalStock;
-            });
+          const symbol = currencyInfo?.symbol ?? "₦";
+          const searchedItems = tableData.filter((i) => inventoryMatchesSearch(i, inventorySearchTerm));
+          let visibleItems = sortInventory(searchedItems.filter((i) => inventoryMatchesFilters(i, inventoryFilters)), inventorySort);
+          // Looking at low or out of stock with no sort chosen: the most urgent items lead the list.
+          if (!inventorySort && inventoryFilters.stock.some((st) => st === "low" || st === "out")) {
+            visibleItems = [...visibleItems].sort(urgentFirst);
           }
-
-          const filterConfigs = [
-            { 
-              key: "type", 
-              label: "Type", 
-              type: "select" as const,
-              valueMapper: (val: any) => String(val).charAt(0).toUpperCase() + String(val).slice(1)
-            },
-            { key: "stockStatus", label: "Stock Status", type: "select" as const },
-            { key: "margin", label: "Margin %", type: "range" as const }
-          ];
+          const categoryOptions = Array.from(new Set(tableData.map((i) => i.category || "Uncategorized"))).sort();
 
           const inventoryBulkActions: BulkAction<ProductWithVariants>[] = [
             {
@@ -1436,22 +1203,47 @@ export default function InventoryPage() {
           ];
 
           return (
+            <div className="space-y-3">
+            <ListControls
+              testIdPrefix="inventory"
+              placeholder="Search item or category"
+              search={inventorySearchTerm}
+              onSearchChange={setInventorySearchTerm}
+              filterCount={countActiveInventoryFilters(inventoryFilters)}
+              filters={(trigger) => (
+                <InventoryFiltersSheet
+                  filters={inventoryFilters}
+                  onApply={(next) => { setInventoryFilters(next); setSelectedIds([]); }}
+                  currencySymbol={symbol}
+                  categories={categoryOptions}
+                  resultCountFor={(draft) => searchedItems.filter((i) => inventoryMatchesFilters(i, draft)).length}
+                  trigger={trigger}
+                />
+              )}
+              sortLabel={inventorySortLabel(inventorySort).replace(/^Sort: /, "")}
+              sort={(trigger) => <InventorySortSheet sort={inventorySort} onChange={setInventorySort} trigger={trigger} />}
+              chips={buildInventoryFilterChips(inventoryFilters, symbol)}
+              onRemoveChip={(key) => setInventoryFilters((f) => clearInventoryFilterChip(f, key as Parameters<typeof clearInventoryFilterChip>[1]))}
+              hasSort={inventorySort !== null}
+              onClearAll={() => { setInventoryFilters(EMPTY_INVENTORY_FILTERS); setInventorySort(null); }}
+              visibleCount={visibleItems.length}
+              noun="item"
+            />
             <DataTable
-              data={tableData}
+              data={visibleItems}
               columns={columns}
+              hideToolbar
+              showCardChevron
+              cardLayout="compact-grid"
               rowActions={inventoryRowActions}
               bulkActions={user?.role !== "staff" ? inventoryBulkActions : undefined}
               entityNoun={{ singular: "item", plural: "items" }}
-              searchable
-              searchPlaceholder="Search inventory..."
-              searchKeys={["name"]}
               isLoading={isLoading}
               emptyMessage="Track wholesale product stocks, services catalog, and split commission margins."
               onRowClick={navigateToDetails}
               multiselect={user?.role !== "staff"}
               selectedIds={selectedIds}
               onSelectedIdsChange={setSelectedIds}
-              filterConfigs={filterConfigs}
               onVisibleDataChange={setVisibleProducts}
               urlKey="items"
               emptyIcon={<Package className="h-6 w-6" />}
@@ -1465,6 +1257,7 @@ export default function InventoryPage() {
                 )
               }
             />
+            </div>
           );
         })()
       )}
@@ -1773,190 +1566,21 @@ export default function InventoryPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Audit Details Dialog */}
-      <Dialog open={isAuditDetailOpen} onOpenChange={setIsAuditDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 glassmorphic-dark border-muted/30">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-              <FileText className="h-5 w-5 text-indigo-400" />
-              Stock Audit Details
-            </DialogTitle>
-            <DialogDescription>
-              Detailed logs and physical variances for this stock audit.
-            </DialogDescription>
-          </DialogHeader>
-
-          {isLoadingAuditDetail ? (
-            <div className="flex-1 flex items-center justify-center py-8">
-              <RefreshCw className="h-8 w-8 animate-spin text-indigo-400" />
-            </div>
-          ) : auditDetail ? (
-            <>
-              <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-1">
-                <div className="grid grid-cols-2 gap-4 rounded-lg border border-muted/30 bg-muted/5 p-4 text-sm">
-                  <div className="space-y-1">
-                    <span className="text-xs text-muted-foreground block">Status</span>
-                    <Badge
-                      variant="secondary"
-                      className={
-                        auditDetail.status === "approved"
-                          ? "bg-green-500/10 text-green-500 hover:bg-green-500/25"
-                          : "bg-amber-500/10 text-amber-500 hover:bg-amber-500/25"
-                      }
-                    >
-                      {auditDetail.status.toUpperCase()}
-                    </Badge>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-xs text-muted-foreground block">Date Conducted</span>
-                    <span className="font-medium text-foreground">
-                      {new Intl.DateTimeFormat("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }).format(new Date(auditDetail.createdAt))}
-                    </span>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-xs text-muted-foreground block">Conducted By</span>
-                    <span className="font-medium text-foreground">
-                      {auditDetail.conductedBy
-                        ? auditDetail.conductedBy.name
-                        : "System / Admin"}
-                    </span>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-xs text-muted-foreground block">Approved By</span>
-                    <span className="font-medium text-foreground">
-                      {auditDetail.approvedBy
-                        ? auditDetail.approvedBy.name || auditDetail.approvedBy.email
-                        : auditDetail.status === "approved"
-                        ? "Admin / Manager"
-                        : "Pending Approval"}
-                    </span>
-                  </div>
-                  {auditDetail.notes && (
-                    <div className="col-span-2 space-y-1 pt-1.5 border-t border-muted/20">
-                      <span className="text-xs text-muted-foreground block">Notes</span>
-                      <p className="text-xs text-muted-foreground italic bg-muted/10 p-2 rounded border border-muted/20">
-                        {auditDetail.notes}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-foreground">Audited Items & Drifts</h4>
-                  <div className="border border-muted/30 rounded-lg overflow-x-auto">
-                    <table className="w-full min-w-[560px] text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-muted/10 border-b border-muted/30 text-muted-foreground font-semibold">
-                          <th className="p-3">Product Name</th>
-                          <th className="p-3 text-right">System Qty</th>
-                          <th className="p-3 text-right">Physical Qty</th>
-                          <th className="p-3 text-right">Variance</th>
-                          <th className="p-3">Drift Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-muted/20">
-                        {auditDetail.items.map((item: any) => {
-                          const variance = item.physicalQuantity - item.systemQuantity;
-                          return (
-                            <tr key={item.id} className="hover:bg-muted/5">
-                              <td className="p-3 font-medium text-foreground">{item.inventory?.name || "Unknown Product"}</td>
-                              <td className="p-3 text-right font-mono text-muted-foreground">{item.systemQuantity}</td>
-                              <td className="p-3 text-right font-mono text-foreground">{item.physicalQuantity}</td>
-                              <td
-                                className={`p-3 text-right font-mono font-bold ${
-                                  variance > 0 ? "text-green-500" : variance < 0 ? "text-red-500" : "text-muted-foreground"
-                                }`}
-                              >
-                                {variance > 0 ? `+${variance}` : variance}
-                              </td>
-                              <td className="p-3 text-muted-foreground italic">{item.reason || "—"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              {/* Approving a count settles metered supplies against what was really
-                  on the shelf, so it moves money. Say how much BEFORE they commit. */}
-              {auditDetail.status === "draft" && !!variancePreview && variancePreview.total !== 0 && (
-                <Alert className="border-amber-200 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  <AlertDescription className="text-xs space-y-1.5">
-                    <p>
-                      Approving this count will{" "}
-                      {variancePreview.total > 0 ? "charge" : "credit back"}{" "}
-                      <strong>{formatCurrency(Math.abs(variancePreview.total))}</strong>{" "}
-                      {variancePreview.total > 0 ? "to" : "from"} Direct Supplies — the difference between
-                      what your recipes assumed and what is actually on the shelf.
-                    </p>
-                    <ul className="space-y-0.5">
-                      {variancePreview.lines.map((l: any, i: number) => (
-                        <li key={i} className="flex justify-between gap-3">
-                          <span className="text-muted-foreground truncate">{l.name}</span>
-                          <span className="font-mono shrink-0">{formatCurrency(l.cost)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex justify-end gap-2 border-t border-muted/30 pt-4">
-                <Button variant="outline" onClick={() => setIsAuditDetailOpen(false)}>
-                  Close
-                </Button>
-                {auditDetail.status === "draft" && (user?.role === "owner" || user?.role === "manager") && (
-                  <Button
-                    onClick={() => approveAuditMutation.mutate(auditDetail.id)}
-                    disabled={approveAuditMutation.isPending}
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    {approveAuditMutation.isPending ? "Approving..." : "Approve & Resolve Drifts"}
-                  </Button>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">Could not load details.</div>
-          )}
-        </DialogContent>
-      </Dialog>
-
       <SpeedDialFAB
-        actions={
-          filterType === "audits"
-            ? [
-                {
-                  label: "New Audit",
-                  icon: <ClipboardList className="h-5 w-5" />,
-                  onClick: () => setLocation("/inventory/audits/new"),
-                  testId: "fab-new-audit",
-                },
-              ]
-            : [
-                {
-                  label: "Add Item",
-                  icon: <Package className="h-5 w-5" />,
-                  onClick: openCreateForm,
-                  testId: "fab-add-item",
-                },
-                {
-                  label: "New Audit",
-                  icon: <ClipboardList className="h-5 w-5" />,
-                  onClick: () => setLocation("/inventory/audits/new"),
-                  testId: "fab-new-audit",
-                },
-              ]
-        }
+        actions={[
+          {
+            label: "Add Item",
+            icon: <Package className="h-5 w-5" />,
+            onClick: openCreateForm,
+            testId: "fab-add-item",
+          },
+          {
+            label: "Stock Audit",
+            icon: <ClipboardList className="h-5 w-5" />,
+            onClick: () => setLocation("/inventory/audits"),
+            testId: "fab-stock-audit",
+          },
+        ]}
       />
     </div>
   );

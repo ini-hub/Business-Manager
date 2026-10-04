@@ -1,47 +1,62 @@
+import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
-export type CalendarPeriod = "day" | "month" | "year";
+export type CalendarPeriod = "day" | "week" | "month" | "year";
 
 interface CalendarPeriodNavProps {
   period: CalendarPeriod;
   onPeriodChange: (period: CalendarPeriod) => void;
   label: string;
+  filters?: ReactNode;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
 }
 
-export function CalendarPeriodNav({ period, onPeriodChange, label, onPrev, onNext, onToday }: CalendarPeriodNavProps) {
-  const resetLabel = period === "day" ? "Today" : period === "month" ? "This Month" : "This Year";
+const PERIODS: { value: CalendarPeriod; label: string }[] = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "year", label: "Year" },
+];
 
+export function CalendarPeriodNav({ period, onPeriodChange, label, filters, onPrev, onNext, onToday }: CalendarPeriodNavProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <h2 className="text-lg font-semibold">{label}</h2>
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="outline" size="sm" onClick={onToday}>{resetLabel}</Button>
-        <div className="flex items-center rounded-md border [border-color:var(--button-outline)] overflow-hidden">
-          <IconButton
-            variant="ghost"
-            label="Previous period"
-            onClick={onPrev}
-            className="h-8 w-8 rounded-none border-0 border-r [border-color:var(--button-outline)]"
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div role="tablist" aria-label="Calendar view" className="grid grid-cols-4 gap-1 rounded-xl bg-muted p-1 lg:inline-grid">
+        {PERIODS.map((p) => (
+          <button
+            key={p.value}
+            role="tab"
+            type="button"
+            aria-selected={period === p.value}
+            onClick={() => onPeriodChange(p.value)}
+            data-testid={`calendar-period-${p.value}`}
+            className={cn(
+              "h-10 rounded-lg px-5 text-sm font-medium transition-colors",
+              period === p.value ? "bg-background text-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground",
+            )}
           >
-            <ChevronLeft className="h-4 w-4" />
-          </IconButton>
-          <IconButton variant="ghost" label="Next period" onClick={onNext} className="h-8 w-8 rounded-none border-0">
-            <ChevronRight className="h-4 w-4" />
-          </IconButton>
-        </div>
-        <Tabs value={period} onValueChange={(v) => onPeriodChange(v as CalendarPeriod)}>
-          <TabsList className="grid grid-cols-3 w-full sm:w-auto">
-            <TabsTrigger value="day">Day</TabsTrigger>
-            <TabsTrigger value="month">Month</TabsTrigger>
-            <TabsTrigger value="year">Year</TabsTrigger>
-          </TabsList>
-        </Tabs>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        {filters}
+        {filters && <div className="mx-1 hidden h-6 w-px bg-border lg:block" />}
+        <IconButton variant="outline" label="Previous period" onClick={onPrev} className="h-11 w-11 shrink-0 rounded-xl">
+          <ChevronLeft className="h-4 w-4" />
+        </IconButton>
+        <h2 className="min-w-0 flex-1 truncate text-center text-base font-semibold lg:w-44 lg:flex-none">{label}</h2>
+        <IconButton variant="outline" label="Next period" onClick={onNext} className="h-11 w-11 shrink-0 rounded-xl">
+          <ChevronRight className="h-4 w-4" />
+        </IconButton>
+        <Button variant="ghost" onClick={onToday} className="h-11 shrink-0 px-3 font-semibold text-primary hover:text-primary" data-testid="calendar-today">
+          Today
+        </Button>
       </div>
     </div>
   );

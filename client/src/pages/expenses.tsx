@@ -12,20 +12,35 @@ import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
-import { MetricCard } from "@/components/metric-card";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
-import { MetricGrid } from "@/components/metric-grid";
-import { DateRangeFilter } from "@/components/date-range-filter";
-import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { ExpenseFiltersSheet, ExpenseSortSheet } from "@/components/expense-filter-sheets";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import { getCurrencyByCode } from "@/lib/currency-utils";
+import {
+  EMPTY_EXPENSE_FILTERS,
+  buildExpenseFilterChips,
+  clearExpenseFilterChip,
+  countActiveExpenseFilters,
+  expenseDateRangeLabel,
+  expenseMatchesFilters,
+  expenseMatchesSearch,
+  expenseSortLabel,
+  sortExpenses,
+  type ExpenseFilterState,
+  type ExpenseSortState,
+} from "@/lib/expense-filters";
 import { BulkOperations } from "@/components/bulk-operations";
 import { EXPENSE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
-import { endOfDay, startOfDay, startOfMonth, format } from "date-fns";
+import { format } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -106,15 +121,6 @@ export default function ExpensesPage() {
   const search = useSearch();
   const storeCurrency = currentStore?.currency || "NGN";
   
-  const [dateRange, setDateRange] = usePersistedDateRange<{ from: Date; to: Date } | undefined>(
-    "expenses_date_range",
-    () =>
-      (readPersistedRange("expenses_date_range") as { from: Date; to: Date } | undefined) ?? {
-        from: startOfDay(new Date()),
-        to: endOfDay(new Date())
-      },
-  );
-
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
   const [isNewCategoryMode, setIsNewCategoryMode] = useState(false);
@@ -122,7 +128,14 @@ export default function ExpensesPage() {
   const [isEditNewCategoryMode, setIsEditNewCategoryMode] = useState(false);
   const [editCustomCategoryName, setEditCustomCategoryName] = useState("");
   const [expenseToEdit, setExpenseToEdit] = useState<ExpenseWithCategory | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "general" | "linked">("all");
+  const [expenseSearchTerm, setExpenseSearchTerm] = useState("");
+  // The date range lives in the Filters sheet and is the server-side scope; it opens on today.
+  const [expenseFilters, setExpenseFilters] = useState<ExpenseFilterState>(() => {
+    const today = format(new Date(), "yyyy-MM-dd");
+    return { ...EMPTY_EXPENSE_FILTERS, dateFrom: today, dateTo: today };
+  });
+  const dateRange = { from: expenseFilters.dateFrom, to: expenseFilters.dateTo };
+  const [expenseSort, setExpenseSort] = useState<ExpenseSortState | null>(null);
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<ExpenseCategory | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseWithCategory | null>(null);
@@ -134,8 +147,8 @@ export default function ExpensesPage() {
       "/api/expenses", 
       currentStore?.id,
       stores.map(s => s.id).join(","),
-      dateRange?.from?.toISOString(),
-      dateRange?.to?.toISOString()
+      dateRange.from,
+      dateRange.to
     ],
     queryFn: async () => {
       if (currentStore?.id === "all" && stores.length > 0) {
@@ -143,8 +156,8 @@ export default function ExpensesPage() {
           stores.map(async (s) => {
             try {
               const params = new URLSearchParams({ storeId: s.id });
-              if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
-              if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
+              if (dateRange.from) params.append("startDate", dateRange.from);
+              if (dateRange.to) params.append("endDate", dateRange.to);
               const res = await fetch(`/api/expenses?${params.toString()}`);
               if (!res.ok) return [];
               const list = await res.json() as ExpenseWithCategory[];
@@ -157,8 +170,8 @@ export default function ExpensesPage() {
         return responses.flat().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
       const params = new URLSearchParams({ storeId: currentStore!.id });
-      if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
-      if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
+      if (dateRange.from) params.append("startDate", dateRange.from);
+      if (dateRange.to) params.append("endDate", dateRange.to);
       const res = await apiRequest("GET", `/api/expenses?${params.toString()}`);
       return res.json();
     },
@@ -435,11 +448,8 @@ export default function ExpensesPage() {
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
-  const filteredExpenses = expenses.filter((e) => {
-    if (filterType === "general") return !e.inventoryId;
-    if (filterType === "linked") return !!e.inventoryId;
-    return true;
-  });
+  // The date range is the only thing that scopes the totals; the Filters sheet narrows the list.
+  const filteredExpenses = expenses;
 
   const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
   const autoGeneratedIds = new Set(filteredExpenses.filter((e) => e.isAutoGenerated).map((e) => e.id));
@@ -459,7 +469,7 @@ export default function ExpensesPage() {
   const buildPdfReport = (rows: ExpenseReportRow[]) => ({
     businessName: business?.name ?? currentStore?.name ?? "Business",
     storeName: currentStore?.name ?? "All Stores",
-    periodLabel: dateRange?.from && dateRange?.to ? `${format(dateRange.from, "d MMM")} – ${format(dateRange.to, "d MMM yyyy")}` : "All time",
+    periodLabel: expenseDateRangeLabel(dateRange.from, dateRange.to) || "All time",
     kpis: [
       { label: "Total Expenses", value: formatCurrency(totalExpenses) },
       { label: "Transaction Count", value: String(filteredExpenses.length) },
@@ -512,11 +522,14 @@ export default function ExpensesPage() {
     {
       key: "date",
       header: "Date",
+      priority: 2 as const,
       render: (e: ExpenseWithCategory) => <span className="font-mono text-sm">{e.date}</span>,
     },
     {
       key: "title",
       header: "Description",
+      priority: 1 as const,
+      cardRender: (e: ExpenseWithCategory) => <span className="truncate">{e.title}</span>,
       render: (e: ExpenseWithCategory) => (
         <div>
           <p className="font-medium">{e.title}</p>
@@ -534,6 +547,8 @@ export default function ExpensesPage() {
     {
       key: "category",
       header: "Category",
+      priority: 2 as const,
+      cardRender: (e: ExpenseWithCategory) => <span className="truncate">{e.category.name}</span>,
       render: (e: ExpenseWithCategory) => (
         <Badge variant="outline" className={e.category.isSystem ? "bg-amber-50" : ""}>
           {e.category.name}
@@ -572,6 +587,7 @@ export default function ExpensesPage() {
     {
       key: "amount",
       header: "Amount",
+      priority: 1 as const,
       render: (e: ExpenseWithCategory) => (
         <span className="font-mono font-medium">{formatCurrency(e.amount)}</span>
       ),
@@ -659,18 +675,6 @@ export default function ExpensesPage() {
                 showImportOption={["owner", "manager"].includes(user?.role || "")}
               />
             </div>
-            <Select value={filterType} onValueChange={(val: any) => setFilterType(val)}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="All Expenses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Expenses</SelectItem>
-                <SelectItem value="general">General OPEX</SelectItem>
-                <SelectItem value="linked">Linked (Sustaining)</SelectItem>
-              </SelectContent>
-            </Select>
-            <DateRangeFilter dateRange={dateRange ?? { from: undefined, to: undefined }} onDateRangeChange={(r) => setDateRange(r.from && r.to ? { from: r.from, to: r.to } : undefined)} timezone={currentStore?.timezone} compact />
-
             {user?.role === "owner" && (
               <Button variant="outline" onClick={() => setLocation("/expenses/categories")} aria-label="Categories" data-testid="button-categories">
                 <Settings2 className="h-4 w-4 lg:mr-2" />
@@ -688,29 +692,49 @@ export default function ExpensesPage() {
         }
       />
 
-      <MetricGrid>
-        <MetricCard
-          title="Total Expenses"
-          value={formatCurrency(totalExpenses)}
-          compactValue={formatCompact(totalExpenses)}
-          icon={<Wallet className="h-4 w-4" />}
-          description={dateRange?.from && dateRange?.to ? `Period: ${format(dateRange.from, 'MMM d')} - ${format(dateRange.to, 'MMM d')}` : "All time"}
-          isLoading={isLoadingExpenses}
-        />
-        <MetricCard
-          title="Transaction Count"
-          value={filteredExpenses.length}
-          icon={<Receipt className="h-4 w-4" />}
-          isLoading={isLoadingExpenses}
-        />
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          {
+            title: "Total Expenses",
+            value: formatCurrency(totalExpenses),
+            compactValue: formatCompact(totalExpenses),
+            icon: <Wallet className="h-4 w-4" />,
+            description: expenseDateRangeLabel(dateRange.from, dateRange.to) || "All time",
+            isLoading: isLoadingExpenses,
+          },
+          {
+            title: "Transaction Count",
+            value: filteredExpenses.length,
+            icon: <Receipt className="h-4 w-4" />,
+            isLoading: isLoadingExpenses,
+          },
+        ]}
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Expense History</CardTitle>
-          <CardDescription>A complete log of business expenditures</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      {(() => {
+        const currencySymbol = getCurrencyByCode(storeCurrency)?.symbol ?? "₦";
+        const tableData = filteredExpenses.map((e) => ({
+          ...e,
+          categoryName: e.category.name,
+          linkedTo: e.inventory ? e.inventory.name : "General",
+          loggedBy: e.isAutoGenerated ? "System" : "Owner"
+        }));
+        const searchedExpenses = tableData.filter((e) => expenseMatchesSearch(e, expenseSearchTerm));
+        const visibleExpenseRows = sortExpenses(
+          searchedExpenses.filter((e) => expenseMatchesFilters(e, expenseFilters)),
+          expenseSort,
+        );
+        const categoryOptions = Array.from(new Set(tableData.map((e) => e.category.name))).sort();
+        const expenseCardAvatar = (e: ExpenseWithCategory) => (
+          <Avatar className="h-10 w-10">
+            <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+              {getCustomerInitials(e.category.name)}
+            </AvatarFallback>
+          </Avatar>
+        );
+
+        return (
+          <div className="space-y-3">
           {canBulkDelete && (
             <BulkSelectionActionBar
               count={selectedIds.length}
@@ -729,51 +753,61 @@ export default function ExpensesPage() {
               ]}
             />
           )}
-          {(() => {
-            const tableData = filteredExpenses.map((e) => ({
-              ...e,
-              categoryName: e.category.name,
-              linkedTo: e.inventory ? e.inventory.name : "General",
-              loggedBy: e.isAutoGenerated ? "System" : "Owner"
-            }));
 
-            const filterConfigs = [
-              { key: "categoryName", label: "Category", type: "select" as const },
-              { key: "linkedTo", label: "Linked To", type: "select" as const },
-              { key: "loggedBy", label: "Logged By", type: "select" as const },
-              { key: "amount", label: "Amount", type: "range" as const, currencySymbol: storeCurrency === "USD" ? "$" : "₦" }
-            ];
+            <ListControls
+              testIdPrefix="expense"
+              placeholder="Search expense, note or category"
+              search={expenseSearchTerm}
+              onSearchChange={setExpenseSearchTerm}
+              filterCount={countActiveExpenseFilters(expenseFilters)}
+              filters={(trigger) => (
+                <ExpenseFiltersSheet
+                  filters={expenseFilters}
+                  onApply={(next) => { setExpenseFilters(next); setSelectedIds([]); }}
+                  currencySymbol={currencySymbol}
+                  categories={categoryOptions}
+                  resultCountFor={(draft) => searchedExpenses.filter((e) => expenseMatchesFilters(e, draft)).length}
+                  trigger={trigger}
+                />
+              )}
+              sortLabel={expenseSortLabel(expenseSort).replace(/^Sort: /, "")}
+              sort={(trigger) => <ExpenseSortSheet sort={expenseSort} onChange={setExpenseSort} trigger={trigger} />}
+              chips={buildExpenseFilterChips(expenseFilters, currencySymbol)}
+              onRemoveChip={(key) => setExpenseFilters((f) => clearExpenseFilterChip(f, key as Parameters<typeof clearExpenseFilterChip>[1]))}
+              hasSort={expenseSort !== null}
+              onClearAll={() => { setExpenseFilters(EMPTY_EXPENSE_FILTERS); setExpenseSort(null); }}
+              visibleCount={visibleExpenseRows.length}
+              noun="expense"
+            />
 
-            return (
-              <DataTable
-                data={tableData}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search descriptions..."
-                searchKeys={["title", "notes"]}
-                isLoading={isLoadingExpenses}
-                emptyTitle="No Expenses"
-                emptyMessage="No expenses recorded for this period. Log overheads, salaries, and operational costs to track profitability."
-                emptyIcon={<Banknote className="h-6 w-6" />}
-                emptyAction={
-                  <Button size="sm" className="gap-2" onClick={() => setLocation("/expenses/new")}>
-                    <Plus className="h-4 w-4" />Log Expense
-                  </Button>
-                }
-                filterConfigs={filterConfigs}
-                onVisibleDataChange={setVisibleExpenses}
-                urlKey="expenses"
-                multiselect={canBulkDelete}
-                selectedIds={selectedIds}
-                // Auto-generated expenses have no manual delete path (mirrors the
-                // per-row "Auto" badge in place of edit/delete buttons), so they can't
-                // be added to a bulk-delete selection either.
-                onSelectedIdsChange={(ids) => setSelectedIds(ids.filter((id) => !autoGeneratedIds.has(String(id))))}
-              />
-            );
-          })()}
-        </CardContent>
-      </Card>
+            <DataTable
+              data={visibleExpenseRows}
+              columns={columns}
+              hideToolbar
+              isLoading={isLoadingExpenses}
+              emptyTitle="No Expenses"
+              emptyMessage="No expenses recorded for this period. Log overheads, salaries, and operational costs to track profitability."
+              emptyIcon={<Banknote className="h-6 w-6" />}
+              emptyAction={
+                <Button size="sm" className="gap-2" onClick={() => setLocation("/expenses/new")}>
+                  <Plus className="h-4 w-4" />Log Expense
+                </Button>
+              }
+              onVisibleDataChange={setVisibleExpenses}
+              urlKey="expenses"
+              multiselect={canBulkDelete}
+              selectedIds={selectedIds}
+              // Auto-generated expenses have no manual delete path (mirrors the
+              // per-row "Auto" badge in place of edit/delete buttons), so they can't
+              // be added to a bulk-delete selection either.
+              onSelectedIdsChange={(ids) => setSelectedIds(ids.filter((id) => !autoGeneratedIds.has(String(id))))}
+              showCardChevron
+              cardLayout="compact-grid"
+              cardAvatar={expenseCardAvatar}
+            />
+          </div>
+        );
+      })()}
 
       <AlertDialog open={!!categoryToDelete} onOpenChange={(open) => !open && setCategoryToDelete(null)}>
         <AlertDialogContent>

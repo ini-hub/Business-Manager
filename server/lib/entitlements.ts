@@ -13,6 +13,7 @@ import {
   type FeatureCatalog,
 } from "@shared/schema";
 import { isOrgTrialing } from "./trial";
+import { FREE_FEATURE_KEYS } from "@shared/features";
 
 /**
  * Pay-per-feature entitlement resolution. Deliberately request-scoped, no
@@ -25,6 +26,36 @@ type DbOrTx = typeof db;
 
 async function loadCatalog(conn: DbOrTx): Promise<FeatureCatalog[]> {
   return conn.select().from(featureCatalog).where(eq(featureCatalog.isActive, true));
+}
+
+/**
+ * Guards the trial blanket grant, which is built from this table: an empty
+ * catalog means every trialing org is granted nothing and every gated action
+ * 402s. That has happened before (migration 0057) because a recorded
+ * migration does not prove its seed rows landed, so check the data itself.
+ */
+export async function checkCatalogHealth(): Promise<{ ok: boolean; activeFeatures: number }> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(featureCatalog)
+    .where(eq(featureCatalog.isActive, true));
+  const activeFeatures = row?.n ?? 0;
+  return { ok: activeFeatures > 0, activeFeatures };
+}
+
+/** Logs loudly at boot if the catalog is empty; never throws, so a bad seed can't take the whole app down. */
+export async function assertCatalogSeeded(): Promise<void> {
+  try {
+    const { ok } = await checkCatalogHealth();
+    if (!ok) {
+      console.error(
+        "[entitlements] CRITICAL: feature_catalog has no active rows. Trialing orgs will get no features " +
+          "and gated actions will return 402. Run `npm run features:sync` against this database to seed it from shared/features.ts."
+      );
+    }
+  } catch (error) {
+    console.error("[entitlements] assertCatalogSeeded failed:", error);
+  }
 }
 
 /**
@@ -48,10 +79,14 @@ function sweepExpiredEntitlements(organisationId: string): void {
     .catch((error) => console.error(`sweepExpiredEntitlements failed for org ${organisationId}:`, error));
 }
 
-/** Feature keys currently killed platform-wide via the featureFlags release switch (status='off'). */
+/** Feature keys currently killed platform-wide: the feature's own flag (feature_catalog.flag_id) has status='off'. */
 async function loadDisabledFlagKeys(conn: DbOrTx): Promise<Set<string>> {
-  const rows = await conn.select({ name: featureFlags.name }).from(featureFlags).where(eq(featureFlags.status, "off"));
-  return new Set(rows.map((r) => r.name));
+  const rows = await conn
+    .select({ key: featureCatalog.key })
+    .from(featureCatalog)
+    .innerJoin(featureFlags, eq(featureFlags.id, featureCatalog.flagId))
+    .where(eq(featureFlags.status, "off"));
+  return new Set(rows.map((r) => r.key));
 }
 
 /**
@@ -99,7 +134,9 @@ function computePurchasedGrant(
       .map((r) => r.featureId)
   );
 
-  const granted = new Set<string>();
+  // Free features come from the code registry as well as the catalog, so an
+  // empty or half-seeded catalog can never take away what is free by definition.
+  const granted = new Set<string>(FREE_FEATURE_KEYS);
   for (const feature of catalog) {
     if (feature.tierType === "free") granted.add(feature.key);
   }
@@ -134,7 +171,7 @@ export async function getOrgEntitlements(organisationId: string): Promise<Set<st
   // no need to reason about bundles/dependencies/purchases, this isn't a
   // purchase. The kill-switch below still applies even during a trial.
   if (trialing) {
-    const granted = new Set(catalog.map((f) => f.key));
+    const granted = new Set([...FREE_FEATURE_KEYS, ...catalog.map((f) => f.key)]);
     for (const key of Array.from(disabledFlags)) granted.delete(key);
     return granted;
   }

@@ -1,5 +1,8 @@
 import type { RequestHandler } from "express";
 import { featureNotPurchasedBody, getRequestEntitlements } from "./entitlements";
+import { matchDynamicRouteRules } from "./gateRules";
+import { hasModulePermission } from "./permissions";
+import { FEATURE_ROUTE_RULES, API_DOMAIN_OWNERS, type HttpMethod } from "@shared/features";
 
 /**
  * Central, deny-by-default map from API routes to the paid feature they need.
@@ -20,9 +23,7 @@ import { featureNotPurchasedBody, getRequestEntitlements } from "./entitlements"
  * never hides or deletes history.
  */
 
-type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-
-const WRITES: readonly Method[] = ["POST", "PUT", "PATCH", "DELETE"];
+type Method = HttpMethod;
 
 export interface FeatureRule {
   methods: readonly Method[] | "*";
@@ -30,40 +31,22 @@ export interface FeatureRule {
   feature: string;
 }
 
-/** Every matching rule must pass (so a route can require more than one feature). */
-export const FEATURE_RULES: readonly FeatureRule[] = [
-  // Financial Management bundle: P&L, expenses (incl. bulk import + categories).
-  { methods: "*", path: /^\/api\/profit-loss(\/|$)/, feature: "financial_management" },
-  { methods: WRITES, path: /^\/api\/expenses(\/|$)/, feature: "financial_management" },
-  { methods: WRITES, path: /^\/api\/expense-categories(\/|$)/, feature: "financial_management" },
-
-  { methods: "*", path: /^\/api\/reports\/staff-performance(\/|$)/, feature: "staff_performance_tracking" },
-
-  // Self check-in only. Manager-recorded /punch/proxy stays free (§1).
-  { methods: ["POST"], path: /^\/api\/attendance\/punch$/, feature: "self_check_in" },
-
-  { methods: WRITES, path: /^\/api\/custom-roles(\/|$)/, feature: "custom_roles_permissions" },
-
-  { methods: WRITES, path: /^\/api\/credit\/entries(\/|$)/, feature: "credit_sale" },
-  { methods: WRITES, path: /^\/api\/credit\/entries\/[^/]+\/reminders(\/|$)/, feature: "credit_recall_reminders" },
-
-  { methods: ["POST"], path: /^\/api\/products\/[^/]+\/variants(\/|$)/, feature: "product_variants" },
-];
+/**
+ * Every matching rule must pass (so a route can require more than one feature).
+ * Derived from the feature registry (shared/features.ts): add or change a rule
+ * there, not here.
+ */
+export const FEATURE_RULES: readonly FeatureRule[] = FEATURE_ROUTE_RULES;
 
 /**
- * Domains whose mutating routes are free on every plan. Listed at first-path-
- * segment granularity so a route added under an existing domain inherits its
- * classification, while a brand-new domain (or a gated one above) has to be
- * decided on purpose - the coverage test enforces that. Domains guarded by the
- * storage-layer count caps (staff, customers, stores) are free here.
+ * Domains whose mutating routes are free on every plan, i.e. every API domain
+ * the registry assigns to a feature. Listed at first-path-segment granularity
+ * so a route added under an existing domain inherits its classification, while
+ * a brand-new domain (or a gated one above) has to be decided on purpose - the
+ * coverage test enforces that. Domains guarded by the storage-layer count caps
+ * (staff, customers, stores) are free here.
  */
-export const FREE_ROUTE_DOMAINS: readonly string[] = [
-  "accounting", "analytics", "attendance", "audit-logs", "auth", "billing", "bookings", "business", "cash-register",
-  "contract", "customers", "funnel-events", "gamification", "guarantor", "hr", "inventory", "legal",
-  "my-booking", "notifications", "orders", "payments", "payroll", "products", "profile-completion",
-  "promotions", "purchase-orders", "quotes", "sales", "settings", "staff", "stock-audits",
-  "stock-transfers", "stores", "support", "tax-rates", "transactions", "vendors", "webhooks", "whatsapp",
-];
+export const FREE_ROUTE_DOMAINS: readonly string[] = Array.from(API_DOMAIN_OWNERS.keys());
 
 export function matchFeatureRules(method: string, path: string): FeatureRule[] {
   const m = method.toUpperCase() as Method;
@@ -89,13 +72,31 @@ export const enforceFeaturePolicy: RequestHandler = async (req, res, next) => {
 
   const fullPath = req.originalUrl.split("?")[0];
   const rules = matchFeatureRules(req.method, fullPath);
-  if (rules.length === 0) return next();
 
   try {
+    // Admin-defined rules (Feature Catalog > Gate rules) on top of the code baseline.
+    const adminRules = await matchDynamicRouteRules(req.method, fullPath);
+    if (rules.length === 0 && adminRules.length === 0) return next();
+
     const granted = await getRequestEntitlements(res, businessId);
     for (const rule of rules) {
       if (!granted.has(rule.feature)) {
         return res.status(402).json(await featureNotPurchasedBody(rule.feature));
+      }
+    }
+    for (const rule of adminRules) {
+      if (!granted.has(rule.featureKey)) {
+        return res.status(402).json(await featureNotPurchasedBody(rule.featureKey));
+      }
+      // Having the feature is not enough: a custom role also needs the Settings > Roles
+      // module the feature sits under. owner/manager always pass.
+      if (rule.module && !(await hasModulePermission((req as any).user, rule.module))) {
+        return res.status(403).json({
+          error: "module_permission_required",
+          module: rule.module,
+          featureKey: rule.featureKey,
+          message: `Your role doesn't include ${rule.module} access. Ask an owner to update your role in Settings > Roles.`,
+        });
       }
     }
     return next();

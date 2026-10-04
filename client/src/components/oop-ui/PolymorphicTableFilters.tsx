@@ -5,22 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, ListFilter, SlidersHorizontal, CalendarRange } from "lucide-react";
+import { Search } from "lucide-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-  SheetTrigger,
-  SheetClose,
-} from "@/components/ui/sheet";
-import type { TableFilterConfig } from "./PolymorphicTable";
+  ChipOptions, FilterSection, FilterSheet, MoneyRange, SearchableOptions, SortSheet,
+} from "@/components/filter-sheet";
+import type { ColumnConfig, TableFilterConfig } from "./PolymorphicTable";
 
 // Local copy of the same nested-path reader PolymorphicTable.tsx keeps for its own
 // search/sort/filter logic — kept private here too rather than importing it, so this
@@ -346,69 +340,169 @@ export function DropdownFilter({ config, data, value, onChange }: FilterFieldPro
   );
 }
 
-// Mobile: one chip per filter (mirrors the desktop row) — tapping a chip opens a bottom
-// sheet scoped to just that filter's options, instead of one combined form covering
-// every filter at once.
-function filterTypeIcon(type: TableFilterConfig["type"]) {
-  switch (type) {
-    case "date-range":
-      return CalendarRange;
-    case "range":
-      return SlidersHorizontal;
-    default:
-      return ListFilter;
+// Mobile / tablet: every filter becomes a collapsible section of one grouped sheet. The
+// sheet drafts the selection and applies it in one step (see components/filter-sheet.tsx).
+const optionsFor = (config: TableFilterConfig, data: any[]): string[] => {
+  const unique = new Set<string>();
+  data.forEach((item) => {
+    const val = getNestedValue(item, config.key);
+    if (val !== undefined && val !== null && val !== "") {
+      unique.add(config.valueMapper ? config.valueMapper(val) : String(val));
+    }
+  });
+  return Array.from(unique).sort((a, b) => a.localeCompare(b));
+};
+
+const rangeBounds = (v: any) => ({
+  min: v?.min !== undefined && v.min !== "" ? Number(v.min) : null,
+  max: v?.max !== undefined && v.max !== "" ? Number(v.max) : null,
+});
+
+const money = (n: number, symbol?: string) => `${symbol ?? ""}${n.toLocaleString()}`;
+
+function summaryFor(config: TableFilterConfig, value: any): string | null {
+  if (value === undefined || value === null) return null;
+  if (config.type === "select") {
+    const list = value as string[];
+    return list.length === 0 ? null : list.length <= 2 ? list.join(", ") : `${list.length} selected`;
   }
+  if (config.type === "range") {
+    const { min, max } = rangeBounds(value);
+    if (min === null && max === null) return null;
+    if (min !== null && max !== null) return `${money(min, config.currencySymbol)} to ${money(max, config.currencySymbol)}`;
+    return min !== null ? `${money(min, config.currencySymbol)} or more` : `Up to ${money(max as number, config.currencySymbol)}`;
+  }
+  if (!value.min && !value.max) return null;
+  return `${value.min || "…"} to ${value.max || "…"}`;
 }
 
-export function MobileFilterChip({ config, data, value, onChange }: FilterFieldProps) {
-  const [open, setOpen] = useState(false);
-  const controller = useFilterFieldController(config, data, value, onChange);
-  const Icon = filterTypeIcon(config.type);
+/** Removable "Section: value" chips for the applied filters. */
+export function activeFilterChips(configs: TableFilterConfig[], filters: Record<string, any>) {
+  return configs.flatMap((c) => {
+    const text = summaryFor(c, filters[c.key]);
+    return text ? [{ key: c.key, label: `${c.label}: ${text}` }] : [];
+  });
+}
 
+interface GroupedFiltersProps {
+  configs: TableFilterConfig[];
+  data: any[];
+  applied: Record<string, any>;
+  onApply: (next: Record<string, any>) => void;
+  resultCountFor: (draft: Record<string, any>) => number;
+  noun: { singular: string; plural: string };
+  trigger: React.ReactNode;
+}
+
+export function GroupedFilters({ configs, data, applied, onApply, resultCountFor, noun, trigger }: GroupedFiltersProps) {
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button
-          variant={controller.isActive ? "secondary" : "outline"}
-          size="sm"
-          className={cn(
-            "h-9 px-2.5 text-xs font-semibold gap-1.5 border transition-all flex-shrink-0 whitespace-nowrap",
-            controller.isActive && "bg-primary/5 border-primary/30 text-primary shadow-xs"
-          )}
-        >
-          <Icon className="h-3.5 w-3.5 opacity-70" />
-          <span>{config.label}</span>
-          {controller.badge && (
-            <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded-full text-[10px] font-bold">
-              {controller.badge}
-            </span>
-          )}
-          <span className="text-[10px] opacity-60">▾</span>
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="bottom" className="rounded-t-xl max-h-[85vh] overflow-y-auto p-5 gap-4">
-        <SheetHeader className="text-left">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <Filter className="h-4 w-4 text-primary" />
-            {config.label}
-          </SheetTitle>
-        </SheetHeader>
-        <div className="py-1">
-          <FilterFieldBody controller={controller} />
-        </div>
-        <SheetFooter className="flex-row justify-end gap-2 pt-3 border-t">
-          {controller.isActive && (
-            <Button variant="outline" size="sm" onClick={() => onChange(null)} className="text-xs">
-              Clear
-            </Button>
-          )}
-          <SheetClose asChild>
-            <Button size="sm" className="text-xs min-w-[100px]">
-              Done
-            </Button>
-          </SheetClose>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+    <FilterSheet<Record<string, any>>
+      applied={applied}
+      empty={{}}
+      onApply={onApply}
+      resultCountFor={resultCountFor}
+      noun={noun.singular}
+      plural={noun.plural}
+      activeCount={(d) => Object.keys(d).length}
+      trigger={trigger}
+    >
+      {({ draft, setDraft }) => {
+        // Writing a section drops its key when empty, so "any set" always means "key present".
+        const set = (key: string, value: any) => {
+          const next = { ...draft };
+          if (value === null || value === undefined) delete next[key];
+          else next[key] = value;
+          setDraft(next);
+        };
+        return (
+          <>
+            {configs.map((config, i) => {
+              const value = draft[config.key];
+              const summary = summaryFor(config, value);
+              return (
+                <FilterSection key={config.key} label={config.label} defaultOpen={i === 0} summary={summary} onClear={() => set(config.key, null)}>
+                  {config.type === "select" && (() => {
+                    const options = optionsFor(config, data).map((o) => ({
+                      value: o,
+                      label: o,
+                      count: resultCountFor({ ...draft, [config.key]: [o] }),
+                    }));
+                    const selected = (value as string[] | undefined) ?? [];
+                    const change = (next: string[]) => set(config.key, next.length ? next : null);
+                    return options.length > 6
+                      ? <SearchableOptions options={options} value={selected} onChange={change} placeholder={`Search ${config.label.toLowerCase()}`} />
+                      : <ChipOptions options={options} value={selected} onChange={change} />;
+                  })()}
+                  {config.type === "range" && (() => {
+                    const { min, max } = rangeBounds(value);
+                    return (
+                      <MoneyRange
+                        label={config.label}
+                        symbol={config.currencySymbol ?? ""}
+                        min={min}
+                        max={max}
+                        onChange={(lo, hi) => set(config.key, lo === null && hi === null ? null : { min: lo ?? "", max: hi ?? "" })}
+                      />
+                    );
+                  })()}
+                  {config.type === "date-range" && (
+                    <div className="flex items-center gap-2">
+                      <Input type="date" aria-label={`${config.label} from`} className="h-11" value={value?.min ?? ""}
+                        onChange={(e) => set(config.key, e.target.value || value?.max ? { min: e.target.value, max: value?.max ?? "" } : null)} />
+                      <span className="text-sm text-muted-foreground shrink-0">to</span>
+                      <Input type="date" aria-label={`${config.label} to`} className="h-11" value={value?.max ?? ""}
+                        onChange={(e) => set(config.key, e.target.value || value?.min ? { min: value?.min ?? "", max: e.target.value } : null)} />
+                    </div>
+                  )}
+                </FilterSection>
+              );
+            })}
+          </>
+        );
+      }}
+    </FilterSheet>
+  );
+}
+
+interface GroupedSortProps<T> {
+  columns: ColumnConfig<T>[];
+  sortColumn: string | null;
+  sortDirection: "asc" | "desc" | null;
+  onChange: (column: string | null, direction: "asc" | "desc" | null) => void;
+  sortOptions?: { label: string; column: string; direction: "asc" | "desc" }[];
+  trigger: React.ReactNode;
+}
+
+const directionLabels = (type: ColumnConfig<any>["type"]): [string, string] =>
+  type === "currency" ? ["Low to high", "High to low"]
+  : type === "date" ? ["Oldest first", "Newest first"]
+  : ["A to Z", "Z to A"];
+
+/** Sort sheet for the table: one radio row per sortable column and direction; applies instantly. */
+export function GroupedSort<T>({ columns, sortColumn, sortDirection, onChange, trigger, sortOptions }: GroupedSortProps<T>) {
+  const sortable = columns.filter((c) => c.key !== "actions" && c.header);
+  if (sortable.length === 0 && !sortOptions) return null;
+  const options = [
+    { value: "none", label: "Default order" },
+    ...(sortOptions ? sortOptions.map((o) => ({ value: `${o.column}:${o.direction}`, label: o.label })) : sortable.flatMap((c) => {
+      const [asc, desc] = directionLabels(c.type);
+      return [
+        { value: `${c.key}:asc`, label: `${c.header}: ${asc}` },
+        { value: `${c.key}:desc`, label: `${c.header}: ${desc}` },
+      ];
+    })),
+  ];
+  const current = sortColumn && sortDirection ? `${sortColumn}:${sortDirection}` : "none";
+  return (
+    <SortSheet
+      options={options}
+      value={current}
+      onChange={(v) => {
+        if (v === "none") return onChange(null, null);
+        const i = v.lastIndexOf(":");
+        onChange(v.slice(0, i), v.slice(i + 1) as "asc" | "desc");
+      }}
+      trigger={trigger}
+    />
   );
 }

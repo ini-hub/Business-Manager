@@ -1,20 +1,34 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
+import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ArrowLeftRight, CheckCircle, XCircle, Clock, Trash2, ArrowUpRight, ArrowDownLeft, PlusCircle, Trash, RefreshCw } from "lucide-react";
+import { Plus, ArrowLeftRight, CheckCircle, XCircle, Clock, Trash2, ArrowUpRight, ArrowDownLeft, RefreshCw, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/icon-button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
-import { MetricCard } from "@/components/metric-card";
-import { MetricGrid } from "@/components/metric-grid";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { useAuth } from "@/hooks/useAuth";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ListControls } from "@/components/list-controls";
+import { MetricRow } from "@/components/metric-row";
+import { TransferFiltersSheet, TransferSortSheet } from "@/components/transfer-filter-sheets";
+import {
+  EMPTY_TRANSFER_FILTERS,
+  buildTransferFilterChips,
+  clearTransferFilterChip,
+  countActiveTransferFilters,
+  sortTransfers,
+  transferMatchesFilters,
+  transferMatchesSearch,
+  transferStageOf,
+  transferSortLabel,
+  type TransferFilterState,
+  type TransferSortState,
+} from "@/lib/transfer-filters";
 import {
   Dialog,
   DialogContent,
@@ -23,13 +37,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { BulkOperations } from "@/components/bulk-operations";
 import { STOCK_TRANSFER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { runBulkFanOut } from "@/lib/bulk-actions";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { StockTransfer, StockTransferItem, Inventory, Store } from "@shared/schema";
 
 type TransferWithStores = StockTransfer & { fromStore: Store; toStore: Store };
@@ -43,18 +55,16 @@ export default function StockTransfersPage() {
   const { currentStore } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
-  const [activeTab, setActiveTab] = useUrlState<string>("tab", "list");
   const [selectedTransferId, setSelectedTransferId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [transferSearchTerm, setTransferSearchTerm] = useState("");
+  const [transferFilters, setTransferFilters] = useState<TransferFilterState>(EMPTY_TRANSFER_FILTERS);
+  const [transferSort, setTransferSort] = useState<TransferSortState | null>(null);
 
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
-
-  // New transfer form state
-  const [toStoreId, setToStoreId] = useState<string>("");
-  const [notes, setNotes] = useState<string>("");
-  const [items, setItems] = useState<{ inventoryId: string; quantity: number | "" }[]>([]);
 
   // Confirm receipt state
   const [isConfirmReceiptOpen, setIsConfirmReceiptOpen] = useState(false);
@@ -69,6 +79,27 @@ export default function StockTransfersPage() {
     },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
+
+  // Saved send/request forms for this branch. They reserve no stock and are not transfers.
+  const draftsStoreId = currentStore?.id && currentStore.id !== "all" ? currentStore.id : null;
+  const { data: draftsList = [] } = useQuery<any[]>({
+    queryKey: ["/api/stock-transfer-drafts", draftsStoreId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/stock-transfer-drafts?storeId=${draftsStoreId}`);
+      if (!res.ok) throw new Error("Failed to load drafts");
+      return res.json();
+    },
+    enabled: !!draftsStoreId,
+  });
+  const discardDraft = async (id: string) => {
+    const res = await apiRequest("DELETE", `/api/stock-transfer-drafts/${id}`);
+    if (!res.ok) {
+      toast({ title: "Couldn't discard draft", variant: "destructive" });
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/stock-transfer-drafts"] });
+    toast({ title: "Draft discarded" });
+  };
 
   // Fetch Stores (for destination selection)
   const { data: stores = [] } = useQuery<Store[]>({
@@ -97,44 +128,6 @@ export default function StockTransfersPage() {
       return res.json();
     },
     enabled: !!selectedTransferId,
-  });
-
-  // Create Transfer mutation
-  const createTransferMutation = useMutation({
-    mutationFn: async () => {
-      if (items.length === 0) throw new Error("At least one item is required.");
-      if (!toStoreId) throw new Error("Please select a target store.");
-      if (toStoreId === currentStore!.id) throw new Error("Source and target stores must be different.");
-
-      // Ensure all quantities are valid numbers >= 1 and clamped to maxStock
-      const sanitizedItems = items.map(item => {
-        const selectedInv = inventoryItems.find(i => i.id === item.inventoryId);
-        const maxStock = selectedInv ? selectedInv.quantity : 0;
-        const val = Number(item.quantity) || 1;
-        const clamped = maxStock ? Math.min(maxStock, val) : val;
-        return {
-          inventoryId: item.inventoryId,
-          quantity: Math.max(1, clamped),
-        };
-      });
-
-      const submission = {
-        fromStoreId: currentStore!.id,
-        toStoreId,
-        notes: notes || null,
-        items: sanitizedItems,
-      };
-      await apiRequest("POST", "/api/stock-transfers", submission);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
-      toast({ title: "Transfer Initialized", description: "Stock shipment draft recorded successfully." });
-      setActiveTab("list");
-      resetForm();
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: error.message || "Failed to initiate transfer.", variant: "destructive" });
-    },
   });
 
   // Update status mutation (approve / cancel)
@@ -167,7 +160,7 @@ export default function StockTransfersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stock-transfers", selectedTransferId] });
-      toast({ title: "Transfer Accepted", description: "Next: source will schedule delivery." });
+      toast({ title: "Transfer Accepted", description: "Next: the supplying branch will schedule delivery." });
     },
     onError: (error) => {
       toast({ title: "Error", description: error.message || "Could not accept transfer.", variant: "destructive" });
@@ -175,8 +168,8 @@ export default function StockTransfersPage() {
   });
 
   const rejectTransferMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/reject`, { reason: "Rejected by destination store" });
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const res = await apiRequest("PUT", `/api/stock-transfers/${id}/reject`, { reason });
       return res.json();
     },
     onSuccess: () => {
@@ -272,28 +265,9 @@ export default function StockTransfersPage() {
     },
   });
 
-  const resetForm = () => {
-    setToStoreId("");
-    setNotes("");
-    setItems([]);
-  };
-
-  const addItemRow = () => {
-    setItems([...items, { inventoryId: "", quantity: 1 }]);
-  };
-
-  const removeItemRow = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
-
-  const updateItemRow = (index: number, field: string, value: any) => {
-    const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
-    setItems(updated);
-  };
-
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
+    if (s === "requested") return <Badge variant="secondary" className="bg-sky-100 text-sky-800">Requested</Badge>;
     if (s === "pending") return <Badge variant="secondary" className="bg-amber-100 text-amber-800">Pending Approval</Badge>;
     if (s === "completed") return <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">Completed & Dispatched</Badge>;
     if (s === "cancelled") return <Badge variant="secondary" className="bg-red-100 text-red-800">Declined / Cancelled</Badge>;
@@ -304,6 +278,7 @@ export default function StockTransfersPage() {
     {
       key: "direction",
       header: "Direction",
+      priority: 2 as const,
       render: (t: TransferWithStores) => {
         const isOutgoing = t.fromStoreId === currentStore!.id;
         return isOutgoing ? (
@@ -320,8 +295,12 @@ export default function StockTransfersPage() {
     {
       key: "fromStore",
       header: "Origin Branch",
+      priority: 1 as const,
       render: (t: TransferWithStores) => (
         <span className="font-medium text-sm">{t.fromStore?.name || "Unknown Origin"}</span>
+      ),
+      cardRender: (t: TransferWithStores) => (
+        <span className="truncate">{t.fromStore?.name || "Unknown Origin"} → {t.toStore?.name || "Unknown Target"}</span>
       ),
     },
     {
@@ -334,6 +313,7 @@ export default function StockTransfersPage() {
     {
       key: "createdAt",
       header: "Transfer Date",
+      priority: 2 as const,
       render: (t: TransferWithStores) => (
         <span className="text-muted-foreground text-sm">
           {new Date(t.createdAt).toLocaleDateString()}
@@ -343,6 +323,7 @@ export default function StockTransfersPage() {
     {
       key: "status",
       header: "Status",
+      priority: 1 as const,
       render: (t: TransferWithStores) => getStatusBadge(t.status),
     },
     {
@@ -387,7 +368,7 @@ export default function StockTransfersPage() {
   // Aggregates
   const outgoingCount = transfers.filter(t => t.fromStoreId === currentStore.id).length;
   const incomingCount = transfers.filter(t => t.toStoreId === currentStore.id).length;
-  const pendingCount = transfers.filter(t => t.status === "pending").length;
+  const pendingCount = transfers.filter(t => t.status === "pending" || t.status === "requested").length;
 
   const transfersWithDirection = transfers.map(t => ({
     ...t,
@@ -422,11 +403,14 @@ export default function StockTransfersPage() {
     },
   ];
 
-  const transferFilterConfigs: TableFilterConfig[] = [
-    { key: "status", label: "Status", type: "select" },
-    { key: "direction", label: "Direction", type: "select" },
-    { key: "createdAt", label: "Transfer Date", type: "date-range" },
-  ];
+  const searchedTransfers = transfersWithDirection.filter((t) => transferMatchesSearch(t, transferSearchTerm));
+  const visibleTransfers = sortTransfers(
+    searchedTransfers.filter((t) => transferMatchesFilters(t, transferFilters)),
+    transferSort,
+  );
+  const branchOptions = Array.from(
+    new Set(transfersWithDirection.flatMap((t) => [t.fromStore?.name, t.toStore?.name]).filter((n): n is string => !!n)),
+  ).sort();
 
   const exportColumns = [
     { key: "direction", header: "Direction" },
@@ -445,6 +429,10 @@ export default function StockTransfersPage() {
         description="Shift inventory dynamically across different branch stores, balancing regional demand with atomic logs."
         actions={
           <>
+            <Button onClick={() => setLocation("/stock-transfers/new")} aria-label="Create request" data-testid="button-create-transfer">
+              <Plus className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Create request</span>
+            </Button>
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={STOCK_TRANSFER_BULK_CONFIG}
@@ -472,211 +460,101 @@ export default function StockTransfersPage() {
         }
       />
 
-      <MetricGrid>
-        <MetricCard
-          title="Outgoing Shipments"
-          value={outgoingCount}
-          icon={<ArrowUpRight className="h-4 w-4 text-blue-500" />}
-          isLoading={isLoadingTransfers}
-        />
-        <MetricCard
-          title="Incoming Shipments"
-          value={incomingCount}
-          icon={<ArrowDownLeft className="h-4 w-4 text-purple-500" />}
-          isLoading={isLoadingTransfers}
-        />
-        <MetricCard
-          title="Pending Approvals"
-          value={pendingCount}
-          icon={<Clock className="h-4 w-4 text-amber-500" />}
-          isLoading={isLoadingTransfers}
-        />
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          { title: "Outgoing Shipments", value: outgoingCount, icon: <ArrowUpRight className="h-4 w-4 text-blue-500" />, isLoading: isLoadingTransfers },
+          { title: "Incoming Shipments", value: incomingCount, icon: <ArrowDownLeft className="h-4 w-4 text-purple-500" />, isLoading: isLoadingTransfers },
+          { title: "Pending Approvals", value: pendingCount, icon: <Clock className="h-4 w-4 text-amber-500" />, isLoading: isLoadingTransfers },
+        ]}
+      />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="list" className="gap-2">
-            <ArrowLeftRight className="h-4 w-4" /> Transfer Registry
-          </TabsTrigger>
-          <TabsTrigger value="create" className="gap-2">
-            <Plus className="h-4 w-4" /> Create Stock Dispatch
-          </TabsTrigger>
-        </TabsList>
+      {draftsList.length > 0 && (
+        <div className="rounded-lg border" data-testid="transfer-drafts">
+          <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2.5 text-sm font-medium">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            Drafts ({draftsList.length})
+            <span className="hidden text-xs font-normal text-muted-foreground sm:inline">
+              Not sent yet. No stock is set aside and the other branch can't see them.
+            </span>
+          </div>
+          <div className="divide-y">
+            {draftsList.map((d: any) => {
+              const other = stores.find((st) => st.id === d.otherStoreId)?.name;
+              const count = Array.isArray(d.formData?.lines) ? d.formData.lines.length : 0;
+              return (
+                <div key={d.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {d.kind === "request"
+                        ? `Request from ${other ?? "a branch to be chosen"}`
+                        : `Send to ${other ?? "a branch to be chosen"}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {count} {count === 1 ? "item" : "items"} · saved {new Date(d.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button size="sm" onClick={() => setLocation(`/stock-transfers/new?draft=${d.id}`)}>Continue</Button>
+                    <Button size="sm" variant="ghost" onClick={() => discardDraft(d.id)}>Discard</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-        <TabsContent value="list" className="space-y-6">
-          <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>Cross-Store Shipment Registry</CardTitle>
-              <CardDescription>Monitor outstanding transfer requests, origins, and arrival logs.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <DataTable
-                data={transfersWithDirection}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search notes..."
-                searchKeys={["notes"]}
-                filterConfigs={transferFilterConfigs}
-                isLoading={isLoadingTransfers}
-                emptyMessage="No stock transfers recorded. Draft one to relocate stock."
-                multiselect={isManagerOrOwner}
-                selectedIds={selectedIds}
-                onSelectedIdsChange={setSelectedIds}
-                bulkActions={isManagerOrOwner ? transferBulkActions : undefined}
-                entityNoun={{ singular: "transfer", plural: "transfers" }}
-                urlKey="transfers"
+      <div className="space-y-3">
+          <ListControls
+            testIdPrefix="transfer"
+            placeholder="Search branch or notes"
+            search={transferSearchTerm}
+            onSearchChange={setTransferSearchTerm}
+            filterCount={countActiveTransferFilters(transferFilters)}
+            filters={(trigger) => (
+              <TransferFiltersSheet
+                filters={transferFilters}
+                onApply={setTransferFilters}
+                branches={branchOptions}
+                resultCountFor={(draft) => searchedTransfers.filter((t) => transferMatchesFilters(t, draft)).length}
+                trigger={trigger}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
+            )}
+            sortLabel={transferSortLabel(transferSort).replace(/^Sort: /, "")}
+            sort={(trigger) => <TransferSortSheet sort={transferSort} onChange={setTransferSort} trigger={trigger} />}
+            chips={buildTransferFilterChips(transferFilters)}
+            onRemoveChip={(key) => setTransferFilters((f) => clearTransferFilterChip(f, key as keyof TransferFilterState))}
+            hasSort={transferSort !== null}
+            onClearAll={() => { setTransferFilters(EMPTY_TRANSFER_FILTERS); setTransferSort(null); }}
+            visibleCount={visibleTransfers.length}
+            noun="transfer"
+          />
 
-        <TabsContent value="create" className="space-y-6">
-          <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>Initiate Stock Transfer</CardTitle>
-              <CardDescription>Reallocate inventory cohorts between branch locations. Source stock is reserved pending approval.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label>Origin Branch (Source)</Label>
-                    <Input value={currentStore.name} disabled className="font-semibold bg-muted" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="toStore">Destination Branch (Target)</Label>
-                    <Select value={toStoreId} onValueChange={setToStoreId}>
-                      <SelectTrigger id="toStore">
-                        <SelectValue placeholder="Select target store branch" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {otherStores.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>{s.name} ({s.address || "No Address"})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Required Items Grid</Label>
-                  {inventoryItems.filter((inv) => inv.quantity > 0).length === 0 && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-amber-700 text-sm font-medium">
-                        ⚠️ No inventory items available to transfer
-                      </p>
-                      <p className="text-amber-700 text-sm mt-1">
-                        All items at {currentStore.name} are out of stock. Build inventory or select a different source store.
-                      </p>
-                    </div>
-                  )}
-                  <div className="space-y-3">
-                    {items.map((item, index) => {
-                      const selectedInv = inventoryItems.find(i => i.id === item.inventoryId);
-                      const maxStock = selectedInv ? selectedInv.quantity : 0;
-
-                      return (
-                        <div key={index} className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center bg-muted/40 p-3 rounded-lg border">
-                          <div className="flex-1 sm:min-w-[200px]">
-                            <Label className="text-xs text-muted-foreground">Select Product</Label>
-                            <Select
-                              value={item.inventoryId}
-                              onValueChange={(val) => updateItemRow(index, "inventoryId", val)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Choose item" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {inventoryItems.filter((inv) => inv.quantity > 0).length === 0 ? (
-                                  <div className="px-2 py-1.5 text-sm text-muted-foreground text-center">
-                                    No items with available stock
-                                  </div>
-                                ) : (
-                                  inventoryItems.filter((inv) => inv.quantity > 0).map((inv) => (
-                                    <SelectItem key={inv.id} value={inv.id}>
-                                      {inv.name} (SKU: {inv.id.substring(0, 8).toUpperCase()}) | Stock: {inv.quantity}
-                                    </SelectItem>
-                                  ))
-                                )}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="w-full sm:w-36">
-                            <div className="flex justify-between items-center mb-1">
-                              <Label className="text-xs text-muted-foreground">Transfer Qty</Label>
-                              {selectedInv && (
-                                <span className="text-[10px] text-amber-600 font-semibold font-mono">Max: {maxStock}</span>
-                              )}
-                            </div>
-                            <Input
-                              type="number"
-                              min="1"
-                              max={maxStock != null ? maxStock : undefined}
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const valStr = e.target.value;
-                                if (valStr === "") {
-                                  updateItemRow(index, "quantity", "");
-                                  return;
-                                }
-                                const val = Number(valStr);
-                                if (isNaN(val)) return;
-                                const clamped = maxStock != null ? Math.min(maxStock, val) : val;
-                                updateItemRow(index, "quantity", clamped);
-                              }}
-                              onBlur={() => {
-                                const val = Number(item.quantity);
-                                const clamped = maxStock != null ? Math.min(maxStock, val) : val;
-                                updateItemRow(index, "quantity", Math.max(1, clamped));
-                              }}
-                            />
-                          </div>
-
-                          <IconButton
-                            label="Remove line"
-                            variant="ghost"
-                            onClick={() => removeItemRow(index)}
-                            className="text-red-500 hover:text-red-700 self-end sm:self-auto sm:mt-5"
-                          >
-                            <Trash className="h-4 w-4" />
-                          </IconButton>
-                        </div>
-                      );
-                    })}
-
-                    <Button variant="outline" onClick={addItemRow} className="w-full gap-2">
-                      <PlusCircle className="h-4 w-4" /> Add Item Line
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Dispatch notes (Optional)</Label>
-                  <Input
-                    id="notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="e.g. Relocating slow-moving items due to promotion in branch B."
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 bg-muted/20 p-4 rounded-lg border">
-                  <Button variant="ghost" onClick={resetForm}>Reset Form</Button>
-                  <Button
-                    onClick={() => createTransferMutation.mutate()}
-                    disabled={createTransferMutation.isPending || items.length === 0}
-                    className="px-6"
-                  >
-                    Initiate Stock Transfer
-                  </Button>
-                </div>
+          <DataTable
+            data={visibleTransfers}
+            columns={columns}
+            hideToolbar
+            isLoading={isLoadingTransfers}
+            emptyMessage="No stock transfers recorded. Draft one to relocate stock."
+            multiselect={isManagerOrOwner}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            bulkActions={isManagerOrOwner ? transferBulkActions : undefined}
+            entityNoun={{ singular: "transfer", plural: "transfers" }}
+            urlKey="transfers"
+            onRowClick={(t) => {
+              setSelectedTransferId(t.id);
+              setIsDetailsOpen(true);
+            }}
+            showCardChevron
+            cardLayout="compact-grid"
+            cardAvatar={(t) => (
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${t.fromStoreId === currentStore.id ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300"}`}>
+                {t.fromStoreId === currentStore.id ? <ArrowUpRight className="h-5 w-5" /> : <ArrowDownLeft className="h-5 w-5" />}
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            )}
+          />
+      </div>
 
       {/* Transfer Details Dialog */}
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
@@ -685,13 +563,50 @@ export default function StockTransfersPage() {
             <DialogTitle className="flex justify-between items-center w-full pr-6">
               <span>Stock Transfer Shipment Review</span>
               <div className="flex gap-2">
-                {fullTransfer && fullTransfer.status === "pending" && (
+                {/* The branch that did not start the transfer decides on it: the receiver for
+                    a send, the supplier for a request. The branch that started a request can
+                    withdraw it. */}
+                {fullTransfer && fullTransfer.status === "requested" && fullTransfer.fromStoreId === currentStore?.id && (
                   <>
                     <Button
                       variant="outline"
                       size="sm"
                       className="bg-emerald-600 text-white hover:bg-emerald-700 gap-1"
                       onClick={() => acceptTransferMutation.mutate(fullTransfer.id)}
+                      disabled={acceptTransferMutation.isPending}
+                    >
+                      <CheckCircle className="h-4 w-4" /> Approve request
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-500 hover:text-red-700 gap-1"
+                      onClick={() => rejectTransferMutation.mutate({ id: fullTransfer.id, reason: "Declined by the supplying branch" })}
+                      disabled={rejectTransferMutation.isPending}
+                    >
+                      <XCircle className="h-4 w-4" /> Decline
+                    </Button>
+                  </>
+                )}
+                {fullTransfer && fullTransfer.status === "requested" && fullTransfer.toStoreId === currentStore?.id && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-red-500 hover:text-red-700 gap-1"
+                    onClick={() => updateStatusMutation.mutate({ id: fullTransfer.id, status: "cancelled" })}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    <XCircle className="h-4 w-4" /> Cancel request
+                  </Button>
+                )}
+                {fullTransfer && fullTransfer.status === "pending" && fullTransfer.toStoreId === currentStore?.id && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-emerald-600 text-white hover:bg-emerald-700 gap-1"
+                      onClick={() => acceptTransferMutation.mutate(fullTransfer.id)}
+                      disabled={acceptTransferMutation.isPending}
                     >
                       <CheckCircle className="h-4 w-4" /> Accept
                     </Button>
@@ -699,7 +614,8 @@ export default function StockTransfersPage() {
                       variant="outline"
                       size="sm"
                       className="text-red-500 hover:text-red-700 gap-1"
-                      onClick={() => rejectTransferMutation.mutate(fullTransfer.id)}
+                      onClick={() => rejectTransferMutation.mutate({ id: fullTransfer.id, reason: "Rejected by destination store" })}
+                      disabled={rejectTransferMutation.isPending}
                     >
                       <XCircle className="h-4 w-4" /> Reject
                     </Button>
@@ -759,6 +675,9 @@ export default function StockTransfersPage() {
                   <div>
                     <h3 className="text-lg font-bold font-mono">Shipment ID: #{fullTransfer.id.slice(-6)}</h3>
                     <p className="text-xs text-muted-foreground mt-1">Status: {getStatusBadge(fullTransfer.status)}</p>
+                    {fullTransfer.kind === "request" && (
+                      <p className="text-xs text-muted-foreground mt-1">Requested by {fullTransfer.toStore?.name}</p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-muted-foreground">Dispatched: {new Date(fullTransfer.createdAt).toLocaleDateString()}</p>
@@ -877,6 +796,17 @@ export default function StockTransfersPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <SpeedDialFAB
+        actions={[
+          {
+            label: "Create request",
+            icon: <Plus className="h-5 w-5" />,
+            onClick: () => setLocation("/stock-transfers/new"),
+            testId: "fab-create-transfer",
+          },
+        ]}
+      />
     </div>
   );
 }

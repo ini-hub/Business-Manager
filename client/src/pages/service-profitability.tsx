@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
@@ -8,6 +9,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
+import { ListControls } from "@/components/list-controls";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import { ProfitabilityFiltersSheet, ProfitabilitySortSheet } from "@/components/profitability-filter-sheets";
+import {
+  EMPTY_PROFITABILITY_FILTERS,
+  buildProfitabilityFilterChips,
+  clearProfitabilityFilterChip,
+  countActiveProfitabilityFilters,
+  profitabilityMatchesFilters,
+  profitabilitySortLabel,
+  sortProfitability,
+  type ProfitabilityFilterState,
+  type ProfitabilitySortState,
+} from "@/lib/profitability-filters";
 import { PageHeader } from "@/components/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,12 +33,11 @@ import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/l
 import { MetricGrid } from "@/components/metric-grid";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
-import { format, startOfMonth } from "date-fns";
+import { endOfDay, format, startOfDay, startOfMonth } from "date-fns";
 import { PageContainer } from "@/components/oop-ui/PageContainer";
 import { PolymorphicMetricCard } from "@/components/oop-ui/PolymorphicMetricCard";
 import { analyticsApi } from "@/services/AnalyticsApiService";
 import { ExportToolbar } from "@/components/export-toolbar";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
 interface SustainingBreakdownEntry {
   title: string;
@@ -72,7 +87,25 @@ export default function ServiceProfitabilityPage() {
       },
   );
 
+  const [searchText, setSearchText] = useState("");
+  // The date range is the report's server-side scope and stays persisted; the Filters sheet
+  // edits it alongside the client-side filters.
+  const [otherFilters, setOtherFilters] = useState<ProfitabilityFilterState>(EMPTY_PROFITABILITY_FILTERS);
+  const [sort, setSort] = useState<ProfitabilitySortState | null>(null);
+
   const startDateStr = dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : undefined;
+  const filters: ProfitabilityFilterState = {
+    ...otherFilters,
+    dateFrom: startDateStr ?? null,
+    dateTo: dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : null,
+  };
+  const setFilters = (next: ProfitabilityFilterState) => {
+    setOtherFilters(next);
+    setDateRange({
+      from: next.dateFrom ? startOfDay(new Date(`${next.dateFrom}T00:00:00`)) : undefined,
+      to: next.dateTo ? endOfDay(new Date(`${next.dateTo}T00:00:00`)) : undefined,
+    } as DateRange);
+  };
   const endDateStr = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
 
   const { data: report, isLoading } = useQuery<ServiceProfitabilityReport>({
@@ -216,10 +249,23 @@ export default function ServiceProfitabilityPage() {
     { key: "status", header: "Status" },
   ];
 
-  const profitabilityFilterConfigs: TableFilterConfig[] = [
-    { key: "type", label: "Type", type: "select" },
-    { key: "status", label: "Status", type: "select" },
-  ];
+  const itemCardAvatar = (item: ServiceProfitabilityItem) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className={`text-sm font-semibold ${
+        item.type === "service"
+          ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+          : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"}`}>
+        {getCustomerInitials(item.name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+
+  const searchTerm = searchText.trim().toLowerCase();
+  const searchedItems = (report?.items ?? []).filter((i) => !searchTerm || i.name.toLowerCase().includes(searchTerm));
+  const visibleItems = sortProfitability(
+    searchedItems.filter((i) => profitabilityMatchesFilters(i, filters)),
+    sort,
+  );
 
   return (
     <PageContainer
@@ -229,13 +275,6 @@ export default function ServiceProfitabilityPage() {
       currentStore={currentStore}
       actions={
         <div className="flex items-center gap-2">
-          <DateRangeFilter
-            dateRange={dateRange}
-            onDateRangeChange={setDateRange}
-            defaultPreset="thisMonth"
-            timezone={currentStore?.timezone}
-            compact
-          />
           <ExportToolbar
             data={(report?.items ?? []) as unknown as Record<string, unknown>[]}
             columns={exportColumns}
@@ -313,24 +352,46 @@ export default function ServiceProfitabilityPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Profitability & Sustainability Ledger</CardTitle>
-          <CardDescription>
-            Detailed analysis of active inventory types, replenishments, and associated maintenance allocations
-          </CardDescription>
-        </CardHeader>
         <CardContent>
-          <DataTable
-            data={report?.items ?? []}
-            columns={columns}
-            searchable
-            searchPlaceholder="Search services or products..."
-            searchKeys={["name"]}
-            filterConfigs={profitabilityFilterConfigs}
-            isLoading={isLoading}
-            emptyMessage="No inventory items found."
-            urlKey="profitability"
-          />
+          <div className="space-y-3">
+            <ListControls
+              testIdPrefix="profitability"
+              placeholder="Search services or products"
+              search={searchText}
+              onSearchChange={setSearchText}
+              filterCount={countActiveProfitabilityFilters(filters)}
+              filters={(trigger) => (
+                <ProfitabilityFiltersSheet
+                  filters={filters}
+                  onApply={setFilters}
+                  resultCountFor={(draft) => searchedItems.filter((i) => profitabilityMatchesFilters(i, draft)).length}
+                  trigger={trigger}
+                />
+              )}
+              sortLabel={profitabilitySortLabel(sort).replace(/^Sort: /, "")}
+              sort={(trigger) => <ProfitabilitySortSheet sort={sort} onChange={setSort} trigger={trigger} />}
+              chips={buildProfitabilityFilterChips(filters)}
+              onRemoveChip={(key) => setFilters(clearProfitabilityFilterChip(filters, key as Parameters<typeof clearProfitabilityFilterChip>[1]))}
+              hasSort={sort !== null}
+              onClearAll={() => { setFilters(EMPTY_PROFITABILITY_FILTERS); setSort(null); }}
+              visibleCount={visibleItems.length}
+              noun="item"
+            />
+            <DataTable
+              data={visibleItems}
+              columns={columns}
+              hideToolbar
+              isLoading={isLoading}
+              emptyTitle="No Items Found"
+              emptyMessage="No inventory items found."
+              emptyIcon={<BarChart3 className="h-6 w-6" />}
+              onRowClick={(item) => setLocation(appendReturnTo(`/inventory/${buildSlug(item.name, item.id)}`, location, search))}
+              urlKey="profitability"
+              showCardChevron
+              cardLayout="compact-grid"
+              cardAvatar={itemCardAvatar}
+            />
+          </div>
         </CardContent>
       </Card>
     </PageContainer>

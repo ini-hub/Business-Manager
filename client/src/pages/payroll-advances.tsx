@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { ChevronLeft, Plus, Banknote, Check, Trash2, X } from "lucide-react";
+import { ChevronLeft, Plus, Banknote, Check, Trash2, X, RotateCcw, Users, Clock, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,19 +10,35 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
-import { DataTable } from "@/components/data-table";
+import { ListControls } from "@/components/list-controls";
+import { MetricRow } from "@/components/metric-row";
+import { AdvanceFiltersSheet, AdvanceSortSheet } from "@/components/advance-filter-sheets";
+import {
+  EMPTY_ADVANCE_FILTERS, advanceMatchesFilters, advanceMatchesSearch, advanceSortLabel,
+  buildAdvanceFilterChips, clearAdvanceFilterChip, countActiveAdvanceFilters, sortAdvances,
+  type AdvanceFilterState, type AdvanceSortState,
+} from "@/lib/advance-filters";
+import { DataTable, type RowAction, type BulkAction } from "@/components/data-table";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { formatCurrency } from "@/lib/currency-utils";
+import { formatCurrency, getCurrencyByCode } from "@/lib/currency-utils";
 import { useLocation } from "wouter";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { ExportToolbar } from "@/components/export-toolbar";
-import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchAllStaff } from "@/lib/staff-api";
+
+const advanceCardAvatar = (a: { staffName?: string }) => (
+  <Avatar className="h-10 w-10">
+    <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+      {(a.staffName || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?"}
+    </AvatarFallback>
+  </Avatar>
+);
 
 export default function PayrollAdvancesPage() {
   const { currentStore, business } = useStore();
@@ -38,6 +54,9 @@ export default function PayrollAdvancesPage() {
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filters, setFilters] = useState<AdvanceFilterState>(EMPTY_ADVANCE_FILTERS);
+  const [sort, setSort] = useState<AdvanceSortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [rejectTarget, setRejectTarget] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -134,32 +153,15 @@ export default function PayrollAdvancesPage() {
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       // The server rejects deleting an advance that still has a payroll
-      // deduction on record — collect that reason per row instead of
-      // reducing every failure to an opaque "failed" count.
-      const failureReasons: string[] = [];
-      const result = await runBulkFanOut(ids, async (id, batchId) => {
+      // deduction on record, so a failure here is a real per-row refusal.
+      const { counts, byOutcome } = await runBulkFanOut(ids, async (id, batchId) => {
         const res = await apiRequest("DELETE", `/api/payroll/advances/${id}`, undefined, { "X-Batch-Id": batchId });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          failureReasons.push(body?.error || "delete failed");
-          throw new Error(body?.error || "delete failed");
-        }
+        if (!res.ok) throw new Error("delete failed");
         return "deleted" as const;
       });
-      return { ...result, failureReasons };
+      return { counts, failedIds: byOutcome.failed ?? [] };
     },
-    onSuccess: ({ counts, failureReasons }) => {
-      refetch();
-      setSelectedIds([]);
-      const deleted = counts.deleted ?? 0;
-      const failed = counts.failed ?? 0;
-      toast(
-        failed === 0
-          ? { title: `${deleted} advance${deleted !== 1 ? "s" : ""} deleted` }
-          : { title: `${deleted} deleted, ${failed} failed`, description: failureReasons[0], variant: "destructive" }
-      );
-    },
-    onError: () => toast({ title: "Bulk delete failed", variant: "destructive" }),
+    onSuccess: () => { refetch(); setSelectedIds([]); },
   });
 
   if (!currentStore) return <StoreRequiredAlert />;
@@ -181,6 +183,12 @@ export default function PayrollAdvancesPage() {
       staffMobile: staffMember?.mobileNumber || "—",
     };
   });
+
+  const currencySymbol = getCurrencyByCode(currency)?.symbol ?? "₦";
+  const searchedAdvances = enrichedAdvances.filter((a: any) => advanceMatchesSearch(a, searchTerm));
+  const tableAdvances = sortAdvances(searchedAdvances.filter((a: any) => advanceMatchesFilters(a, filters)), sort);
+  const staffNames = Array.from(new Set(enrichedAdvances.map((a: any) => a.staffName as string))).sort();
+  const awaitingApproval = advances.filter((a: any) => a.status === "pending").length;
 
   const exportColumns = [
     { key: "staffName", header: "Staff" },
@@ -251,37 +259,43 @@ export default function PayrollAdvancesPage() {
       header: "Staff",
       render: (a: any) => (
         <EntityLink href={`/staffs/${a.staffId}/edit`} className="font-medium">
-          {staffList.find(s => s.id === a.staffId)?.name || a.staffId}
+          {a.staffName}
         </EntityLink>
       ),
     },
     {
       key: "staffNumber",
+      priority: 3 as const,
       header: "Staff #",
-      render: (a: any) => <span className="text-muted-foreground">{staffList.find(s => s.id === a.staffId)?.staffNumber || "—"}</span>,
+      render: (a: any) => <span className="text-muted-foreground">{a.staffNumber}</span>,
     },
     {
       key: "staffMobile",
+      priority: 2 as const,
       header: "Phone",
-      render: (a: any) => <span className="text-muted-foreground">{staffList.find(s => s.id === a.staffId)?.mobileNumber || "—"}</span>,
+      render: (a: any) => <span className="text-muted-foreground">{a.staffMobile}</span>,
     },
     {
       key: "amount",
+      priority: 1 as const,
       header: "Amount",
       render: (a: any) => <span className="font-mono font-semibold">{fmt(Number(a.amount))}</span>,
     },
     {
       key: "date",
+      priority: 1 as const,
       header: "Date",
       render: (a: any) => <span className="text-muted-foreground">{format(parseISO(a.date), "MMM d, yyyy")}</span>,
     },
     {
       key: "notes",
+      priority: 3 as const,
       header: "Notes",
       render: (a: any) => <span className="text-xs text-muted-foreground">{a.notes || "—"}</span>,
     },
     {
       key: "status",
+      priority: 1 as const,
       header: "Status",
       render: (a: any) => {
         const statusBadge = (() => {
@@ -322,54 +336,61 @@ export default function PayrollAdvancesPage() {
         );
       },
     },
+  ];
+
+  const rowActions = (a: any): RowAction[] => {
+    const reserved = a.reservedPeriod && a.recoveryStatus !== "recovered";
+    const actions: RowAction[] = [];
+    if (a.status === "pending") {
+      actions.push(
+        { label: "Approve", icon: <Check className="h-4 w-4" />, disabled: approveMutation.isPending, onClick: () => approveMutation.mutate(a.id), testId: `button-approve-${a.id}` },
+        { label: "Reject", icon: <X className="h-4 w-4" />, onClick: () => { setRejectTarget(a); setRejectReason(""); }, testId: `button-reject-${a.id}` },
+      );
+    }
+    if (a.status === "approved" && !a.isRecovered) {
+      actions.push({
+        // A reserved advance is already proposed on an open payroll period and
+        // will be recovered when that period is paid — release it first.
+        label: reserved ? "Recover outside payroll (reserved)" : "Recover outside payroll",
+        icon: <Banknote className="h-4 w-4" />,
+        disabled: !!reserved,
+        onClick: () => { setRecoverTarget(a); setRecoverReason(""); },
+        testId: `button-recover-${a.id}`,
+      });
+    }
+    // manualRecoveryReason is only set by the manual override, which is exactly what's undoable.
+    if (a.isRecovered && a.manualRecoveryReason && isOwner) {
+      actions.push({
+        label: "Undo recovery",
+        icon: <RotateCcw className="h-4 w-4" />,
+        disabled: !a.canRestoreManualRecovery || restoreManualRecoveryMutation.isPending,
+        onClick: () => restoreManualRecoveryMutation.mutate(a.id),
+        testId: `button-undo-recovery-${a.id}`,
+      });
+    }
+    if (!a.isRecovered) {
+      actions.push({ label: "Delete", icon: <Trash2 className="h-4 w-4" />, destructive: true, onClick: () => deleteMutation.mutate(a.id), testId: `button-delete-${a.id}` });
+    }
+    return actions;
+  };
+
+  // Recovered advances have no manual delete path, so they're ineligible here.
+  const bulkActions: BulkAction<any>[] = [
     {
-      key: "actions",
-      header: "",
-      render: (a: any) => (
-        <div className="flex items-center gap-1">
-          {a.status === "pending" && (
-            <>
-              <Button variant="ghost" size="sm" className="h-7 text-xs text-emerald-700 hover:text-emerald-700"
-                disabled={approveMutation.isPending}
-                onClick={() => approveMutation.mutate(a.id)}>
-                <Check className="h-3 w-3" />
-              </Button>
-              <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
-                onClick={() => { setRejectTarget(a); setRejectReason(""); }}>
-                <X className="h-3 w-3" />
-              </Button>
-            </>
-          )}
-          {a.status === "approved" && !a.isRecovered && (() => {
-            const reserved = a.reservedPeriod && a.recoveryStatus !== "recovered";
-            return (
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-                disabled={reserved}
-                title={reserved ? "Already proposed on an open payroll period — it'll be recovered automatically when that period is paid, or release the reservation first." : undefined}
-                onClick={() => { setRecoverTarget(a); setRecoverReason(""); }}>
-                Recover outside payroll
-              </Button>
-            );
-          })()}
-          {/* manualRecoveryReason is only ever set by the manual override —
-              a payroll-settled recovery never sets it, so this is exactly
-              the distinction that matters for what's undoable here. */}
-          {a.isRecovered && a.manualRecoveryReason && isOwner && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-              disabled={!a.canRestoreManualRecovery || restoreManualRecoveryMutation.isPending}
-              title={a.canRestoreManualRecovery ? undefined : (a.restoreManualRecoveryBlockedReason ?? undefined)}
-              onClick={() => restoreManualRecoveryMutation.mutate(a.id)}>
-              Undo recovery
-            </Button>
-          )}
-          {!a.isRecovered && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
-              onClick={() => deleteMutation.mutate(a.id)}>
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          )}
-        </div>
-      ),
+      id: "delete",
+      label: "Delete",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      kind: "destructive",
+      destructiveDescription: "Advances that already have a payroll deduction on record can't be deleted and will be skipped.",
+      precheck: (selection) => {
+        const ineligibleCount = selection.items.filter((a: any) => recoveredIds.has(a.id)).length;
+        return ineligibleCount > 0 ? { ineligibleCount, reason: "are already recovered and can't be deleted" } : null;
+      },
+      onExecute: async (selection) => {
+        const ids = (selection.ids as string[]).filter((id) => !recoveredIds.has(id));
+        const { counts, failedIds } = await bulkDeleteMutation.mutateAsync(ids);
+        return { succeeded: counts.deleted ?? 0, failed: counts.failed ?? 0, failedIds };
+      },
     },
   ];
 
@@ -416,42 +437,62 @@ export default function PayrollAdvancesPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">All Advances</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <BulkSelectionActionBar
-            count={selectedIds.length}
-            unitLabel="advance"
-            onClear={() => setSelectedIds([])}
-            actions={[
-              {
-                key: "delete",
-                label: "Delete Selected",
-                pendingLabel: "Deleting…",
-                icon: <Trash2 className="h-3.5 w-3.5" />,
-                tone: "destructive",
-                pending: bulkDeleteMutation.isPending,
-                onClick: () => bulkDeleteMutation.mutate(selectedIds as string[]),
-              },
-            ]}
-          />
+      <MetricRow
+        metrics={[
+          { title: "Pending Recoverable", value: fmt(totalPending), icon: <Banknote className="h-4 w-4" /> },
+          { title: "Total Advances", value: advances.length, icon: <Users className="h-4 w-4" /> },
+          { title: "Awaiting Approval", value: awaitingApproval, icon: <Clock className="h-4 w-4" /> },
+          { title: "Recovered", value: advances.filter((a: any) => a.isRecovered).length, icon: <CheckCircle2 className="h-4 w-4" /> },
+        ]}
+      />
+
+      <div className="space-y-3">
+        <ListControls
+          testIdPrefix="advance"
+          placeholder="Search staff, staff # or phone"
+          search={searchTerm}
+          onSearchChange={setSearchTerm}
+          filterCount={countActiveAdvanceFilters(filters)}
+          filters={(trigger) => (
+            <AdvanceFiltersSheet
+              filters={filters}
+              onApply={(next) => { setFilters(next); setSelectedIds([]); }}
+              currencySymbol={currencySymbol}
+              staffNames={staffNames}
+              resultCountFor={(draft) => searchedAdvances.filter((a: any) => advanceMatchesFilters(a, draft)).length}
+              trigger={trigger}
+            />
+          )}
+          sortLabel={advanceSortLabel(sort).replace(/^Sort: /, "")}
+          sort={(trigger) => <AdvanceSortSheet sort={sort} onChange={setSort} trigger={trigger} />}
+          chips={buildAdvanceFilterChips(filters, currencySymbol)}
+          onRemoveChip={(key) => setFilters((f) => clearAdvanceFilterChip(f, key as Parameters<typeof clearAdvanceFilterChip>[1]))}
+          hasSort={sort !== null}
+          onClearAll={() => { setFilters(EMPTY_ADVANCE_FILTERS); setSort(null); }}
+          visibleCount={tableAdvances.length}
+          noun="advance"
+        />
           <DataTable
-            data={enrichedAdvances}
+            data={tableAdvances}
             columns={columns}
-            searchable
-            searchKeys={["staffName", "staffNumber", "staffMobile", "notes"]}
-            searchPlaceholder="Search by staff, staff #, phone, or notes..."
+            hideToolbar
             emptyMessage="No salary advances recorded."
             multiselect
             selectedIds={selectedIds}
-            // Recovered advances have no manual delete path (mirrors the per-row action
-            // column, which only shows a delete button for non-recovered advances).
-            onSelectedIdsChange={(ids) => setSelectedIds(ids.filter((id) => !recoveredIds.has(String(id))))}
+            onSelectedIdsChange={setSelectedIds}
+            bulkActions={bulkActions}
+            entityNoun={{ singular: "advance", plural: "advances" }}
+            rowActions={rowActions}
+            onRowClick={(a: any) => setLocation(`/staffs/${a.staffId}/edit`)}
+            showCardChevron
+            cardLayout="compact-grid"
+            cardAvatar={advanceCardAvatar}
+            emptyIcon={<Banknote className="h-6 w-6" />}
+            emptyTitle="No Salary Advances"
             onVisibleDataChange={setVisibleAdvanceRows}
             urlKey="advances"
           />
-        </CardContent>
-      </Card>
+      </div>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>

@@ -1,3 +1,4 @@
+import { getFeatureDef, type FeatureKey } from "@shared/features";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useEffect, lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
@@ -17,7 +18,11 @@ import { StoreSelector } from "@/components/store-selector";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
-import { Loader2 } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { useEntitlements } from "@/hooks/useEntitlements";
+import { useHasPermission } from "@/lib/permissions";
+import type { PermissionModule } from "@shared/permissionModules";
 import { isOrgLocked } from "@/lib/trial";
 import { TrialBanner } from "@/components/trial-banner";
 import { AnnouncementBanner } from "@/components/announcement-banner";
@@ -51,6 +56,7 @@ import { PageSkeleton } from "@/components/page-skeleton";
 // Lazy — split into per-route chunks by Vite
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Customers = lazy(() => import("@/pages/customers"));
+const CustomerInsights = lazy(() => import("@/pages/customer-insights"));
 const CustomerDetails = lazy(() => import("@/pages/customer-details"));
 const CustomerFormPage = lazy(() => import("@/pages/customer-form"));
 const StaffPage = lazy(() => import("@/pages/staff"));
@@ -60,9 +66,11 @@ const CompleteProfilePage = lazy(() => import("@/pages/complete-profile"));
 const GuarantorSignPage = lazy(() => import("@/pages/guarantor-sign"));
 const AttendancePage = lazy(() => import("@/pages/attendance"));
 const StaffPerformancePage = lazy(() => import("@/pages/staff-performance"));
+const StaffPerformanceAnalyticsPage = lazy(() => import("@/pages/staff-performance-analytics"));
 const MyPerformancePage = lazy(() => import("@/pages/my-performance"));
 const MyPayrollPage = lazy(() => import("@/pages/my-payroll"));
 const MyPayrollDetailPage = lazy(() => import("@/pages/my-payroll-detail"));
+import { DashboardViewSwitch } from "@/components/dashboard-view-switch";
 const StaffDashboard = lazy(() => import("@/pages/staff-dashboard"));
 const StaffAttendancePage = lazy(() => import("@/pages/staff-attendance"));
 const NotAuthorized = lazy(() => import("@/components/not-authorized"));
@@ -71,9 +79,11 @@ const InventoryDetails = lazy(() => import("@/pages/inventory-details"));
 const InventoryNewPage = lazy(() => import("@/pages/inventory-new"));
 const InventoryEditPage = lazy(() => import("@/pages/inventory-edit"));
 const InventoryRestockPage = lazy(() => import("@/pages/inventory-restock"));
+const InventoryAuditsPage = lazy(() => import("@/pages/inventory-audits"));
 const InventoryAuditNewPage = lazy(() => import("@/pages/inventory-audit-new"));
 const NewSale = lazy(() => import("@/pages/new-sale"));
 const Transactions = lazy(() => import("@/pages/transactions"));
+const RegisterShiftsPage = lazy(() => import("@/pages/register-shifts"));
 const TransactionDetailsPage = lazy(() => import("@/pages/transaction-details"));
 const ProfitLossPage = lazy(() => import("@/pages/profit-loss"));
 const ExpensesPage = lazy(() => import("@/pages/expenses"));
@@ -86,19 +96,24 @@ const VendorBillNewPage = lazy(() => import("@/pages/vendor-bill-new"));
 const VendorBillPayPage = lazy(() => import("@/pages/vendor-bill-pay"));
 const PayrollPage = lazy(() => import("@/pages/payroll"));
 const PayrollNewPage = lazy(() => import("@/pages/payroll-new"));
+const PayrollPeriodPage = lazy(() => import("@/pages/payroll-period"));
 const PayrollDetailPage = lazy(() => import("@/pages/payroll-detail"));
 const PayrollAdvancesPage = lazy(() => import("@/pages/payroll-advances"));
 const PayrollReportPage = lazy(() => import("@/pages/payroll-report"));
 const CreditSalesPage = lazy(() => import("@/pages/credit-sales"));
 const BookingsPage = lazy(() => import("@/pages/bookings"));
+const BookingCalendarPage = lazy(() => import("@/pages/booking-calendar"));
 const BroadcastsPage = lazy(() => import("@/pages/broadcasts"));
 const BookingFormPage = lazy(() => import("@/pages/booking-form"));
 const BookingDetailsPage = lazy(() => import("@/pages/booking-details"));
 const QuotesPage = lazy(() => import("@/pages/quotes"));
+const QuoteFormPage = lazy(() => import("@/pages/quote-form"));
 const LeaderboardPage = lazy(() => import("@/pages/leaderboard"));
 const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
 const PurchaseOrderFormPage = lazy(() => import("@/pages/purchase-order-form"));
+const PurchaseOrderDetailPage = lazy(() => import("@/pages/purchase-order-detail"));
 const StockTransfersPage = lazy(() => import("@/pages/stock-transfers"));
+const StockTransferNewPage = lazy(() => import("@/pages/stock-transfer-new"));
 const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
 const BalanceSheetPage = lazy(() => import("@/pages/balance-sheet"));
 const ProfilePage = lazy(() => import("@/pages/profile"));
@@ -179,7 +194,8 @@ function OnboardingRoute() {
 // Pages that ARE the paid feature render a locked card instead of a form that
 // can only fail with a 402. Only write/report pages are wrapped - lists of data
 // the org already owns (e.g. /expenses) stay readable after an add-on lapses.
-function withFeatureGate<P extends object>(featureKey: string, featureName: string, Page: React.ComponentType<P>) {
+function withFeatureGate<P extends object>(featureKey: FeatureKey, Page: React.ComponentType<P>) {
+  const featureName = getFeatureDef(featureKey)?.name;
   return function GatedPage(props: P) {
     return (
       <FeatureGate featureKey={featureKey} featureName={featureName}>
@@ -188,12 +204,45 @@ function withFeatureGate<P extends object>(featureKey: string, featureName: stri
     );
   };
 }
-const GatedProfitLoss = withFeatureGate("financial_management", "Profit & Loss", ProfitLossPage);
-const GatedAddExpense = withFeatureGate("financial_management", "Expenses", AddExpensePage);
-const GatedExpenseEdit = withFeatureGate("financial_management", "Expenses", ExpenseEditPage);
-const GatedExpenseCategories = withFeatureGate("financial_management", "Expenses", ExpenseCategoriesPage);
-const GatedStaffPerformance = withFeatureGate("staff_performance_tracking", "Staff Performance Tracking", StaffPerformancePage);
-const GatedRoleForm = withFeatureGate("custom_roles_permissions", "Custom Roles & Permissions", RoleFormPage);
+// Router-level gate for admin-defined screen rules (Feature Catalog > Gate rules). The
+// pages wrapped with withFeatureGate above are the code baseline; this reads the same
+// list the server returns, so a screen a super admin gates is locked here without a
+// deploy. Admin rules additionally need the feature's Settings > Roles module.
+function ModuleLockedCard({ module }: { module: PermissionModule }) {
+  return (
+    <Card className="border-dashed">
+      <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
+        <Lock className="h-6 w-6 text-muted-foreground" />
+        <p className="font-medium">Your role doesn't include {module} access</p>
+        <p className="text-sm text-muted-foreground">Ask an owner to update your role in Settings &gt; Roles.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModuleGate({ module, children }: { module: PermissionModule; children: React.ReactNode }) {
+  const { hasPermission, isLoading } = useHasPermission(module);
+  if (isLoading) return null;
+  return hasPermission ? <>{children}</> : <ModuleLockedCard module={module} />;
+}
+
+function ScreenGate({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+  const { hasFeature, isLoading, isError, gatedFeatureFor, gatedModuleFor } = useEntitlements();
+  const featureKey = gatedFeatureFor(location);
+  if (!featureKey || isLoading || isError) return <>{children}</>;
+  if (!hasFeature(featureKey)) return <FeatureGate featureKey={featureKey}>{null}</FeatureGate>;
+  const module = gatedModuleFor(location);
+  return module ? <ModuleGate module={module}>{children}</ModuleGate> : <>{children}</>;
+}
+
+const GatedProfitLoss = withFeatureGate("financial_management", ProfitLossPage);
+const GatedAddExpense = withFeatureGate("financial_management", AddExpensePage);
+const GatedExpenseEdit = withFeatureGate("financial_management", ExpenseEditPage);
+const GatedExpenseCategories = withFeatureGate("financial_management", ExpenseCategoriesPage);
+const GatedStaffPerformance = withFeatureGate("staff_performance_tracking", StaffPerformancePage);
+const GatedStaffPerformanceAnalytics = withFeatureGate("staff_performance_tracking", StaffPerformanceAnalyticsPage);
+const GatedRoleForm = withFeatureGate("custom_roles_permissions", RoleFormPage);
 
 export default function App() {
   return (
@@ -469,11 +518,13 @@ function AuthenticatedLayout() {
             <main className="flex-1 overflow-auto w-full min-w-0 p-3 sm:p-6">
               <div className="mx-auto max-w-7xl w-full min-w-0">
                 <Suspense fallback={<PageLoader />}>
+                <ScreenGate>
                 <Switch>
                   <Route path="/">
-                    {user?.role === "staff" ? <StaffDashboard /> : <Dashboard />}
+                    {user?.role === "staff" ? <StaffDashboard /> : <DashboardViewSwitch><Dashboard /></DashboardViewSwitch>}
                   </Route>
                   <Route path="/customers" component={Customers} />
+                  <Route path="/customers/insights" component={CustomerInsights} />
                   <Route path="/customers/new">
                     <LimitGate limitType="customer_count"><CustomerFormPage /></LimitGate>
                   </Route>
@@ -485,7 +536,9 @@ function AuthenticatedLayout() {
                       attendance/performance), manager/owner only: a staff account
                       hitting one of these gets an in-page "not authorized" card, not
                       a redirect — the URL never bounces. */}
-                  <Route path="/staff" component={StaffDashboard} />
+                  <Route path="/staff">
+                    <DashboardViewSwitch><StaffDashboard /></DashboardViewSwitch>
+                  </Route>
                   <Route path="/staff/attendance" component={StaffAttendancePage} />
                   <Route path="/staff/performance" component={MyPerformancePage} />
                   <Route path="/staff/payroll" component={MyPayrollPage} />
@@ -506,17 +559,22 @@ function AuthenticatedLayout() {
                   <Route path="/staffs/attendance">
                     {user?.role === "staff" ? <NotAuthorized /> : <AttendancePage />}
                   </Route>
+                  <Route path="/staffs/performance/analytics">
+                    {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformanceAnalytics />}
+                  </Route>
                   <Route path="/staffs/performance">
                     {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformance />}
                   </Route>
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/new" component={InventoryNewPage} />
+                  <Route path="/inventory/audits" component={InventoryAuditsPage} />
                   <Route path="/inventory/audits/new" component={InventoryAuditNewPage} />
                   <Route path="/inventory/:id/edit" component={InventoryEditPage} />
                   <Route path="/inventory/:id/restock" component={InventoryRestockPage} />
                   <Route path="/inventory/:id" component={InventoryDetails} />
                   <Route path="/sales/new" component={NewSale} />
                   <Route path="/transactions" component={Transactions} />
+                  <Route path="/transactions/register-shifts" component={RegisterShiftsPage} />
                   <Route path="/transactions/:id" component={TransactionDetailsPage} />
                   <Route path="/profit-loss" component={GatedProfitLoss} />
                   <Route path="/expenses" component={ExpensesPage} />
@@ -526,6 +584,7 @@ function AuthenticatedLayout() {
                   <Route path="/credit-sales" component={CreditSalesPage} />
                   <Route path="/bookings/new" component={BookingFormPage} />
                   <Route path="/bookings/:id/edit" component={BookingFormPage} />
+                  <Route path="/bookings/calendar" component={BookingCalendarPage} />
                   <Route path="/bookings/:id" component={BookingDetailsPage} />
                   <Route path="/bookings" component={BookingsPage} />
                   <Route path="/broadcasts" component={BroadcastsPage} />
@@ -535,6 +594,7 @@ function AuthenticatedLayout() {
                   <Route path="/payroll/new" component={PayrollNewPage} />
                   <Route path="/payroll/advances" component={PayrollAdvancesPage} />
                   <Route path="/payroll/report" component={PayrollReportPage} />
+                  <Route path="/payroll/:periodId" component={PayrollPeriodPage} />
                   <Route path="/profile" component={ProfilePage} />
                   <Route path="/help-support" component={HelpSupportPage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
@@ -600,11 +660,19 @@ function AuthenticatedLayout() {
                   <Route path="/vendors/:id/edit" component={VendorFormPage} />
                   <Route path="/vendors/:vendorId/bills/new" component={VendorBillNewPage} />
                   <Route path="/vendors/bills/:billId/pay" component={VendorBillPayPage} />
+                  <Route path="/quotes/new" component={QuoteFormPage} />
                   <Route path="/quotes" component={QuotesPage} />
                   <Route path="/leaderboard" component={LeaderboardPage} />
                   <Route path="/purchase-orders/new" component={PurchaseOrderFormPage} />
+                  <Route path="/purchase-orders/:id/edit" component={PurchaseOrderFormPage} />
+                  <Route path="/purchase-orders/:id" component={PurchaseOrderDetailPage} />
                   <Route path="/purchase-orders" component={PurchaseOrdersPage} />
-                  <Route path="/stock-transfers" component={StockTransfersPage} />
+                  <Route path="/stock-transfers">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <StockTransfersPage />}
+                  </Route>
+                  <Route path="/stock-transfers/new">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <StockTransferNewPage />}
+                  </Route>
                   <Route path="/settings/taxes">
                     {user?.role === "staff" ? <Redirect to="/" /> : <TaxesCompliancePage />}
                   </Route>
@@ -636,6 +704,7 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route component={NotFound} />
                 </Switch>
+                </ScreenGate>
                 </Suspense>
               </div>
             </main>

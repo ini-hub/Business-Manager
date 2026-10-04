@@ -34,7 +34,6 @@ export default function FeatureFlags() {
   const { admin } = useAdminAuth();
   const { toast } = useToast();
 
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [selectedFlag, setSelectedFlag] = useState<any>(null);
 
@@ -51,30 +50,6 @@ export default function FeatureFlags() {
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/admin/feature-flags");
       return res.json();
-    },
-  });
-
-  // Create Mutation
-  const createMutation = useMutation({
-    mutationFn: async (flag: any) => {
-      const res = await apiRequest("POST", "/api/admin/feature-flags", flag);
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Feature Flag Created",
-        description: "The new beta feature flag is active in system routers.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/feature-flags"] });
-      setShowCreateDialog(false);
-      resetForm();
-    },
-    onError: (err: any) => {
-      toast({
-        title: "Registration Failed",
-        description: err?.message || "Failed to create flag.",
-        variant: "destructive",
-      });
     },
   });
 
@@ -142,40 +117,6 @@ export default function FeatureFlags() {
     setShowEditDialog(true);
   };
 
-  const handleCreateSubmit = () => {
-    if (!name || !description) {
-      toast({
-        title: "Missing fields",
-        description: "Name and description are required.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    let scopedOrgIds = null;
-    if (status === "scoped" && scopedOrgIdsStr) {
-      try {
-        scopedOrgIds = JSON.parse(scopedOrgIdsStr);
-        if (!Array.isArray(scopedOrgIds)) throw new Error();
-      } catch (e) {
-        toast({
-          title: "JSON parsing error",
-          description: "Scoped Organization IDs must be a valid JSON array of strings, e.g. [\"id1\", \"id2\"]",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    createMutation.mutate({
-      name,
-      description,
-      status,
-      scopedOrgIds,
-      subscriptionTier: subscriptionTier === "none" ? null : subscriptionTier,
-    });
-  };
-
   const handleEditSubmit = () => {
     if (!selectedFlag) return;
 
@@ -212,20 +153,8 @@ export default function FeatureFlags() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-foreground tracking-tight font-outfit">Feature Flags</h1>
-          <p className="text-muted-foreground text-sm mt-1">Configure global beta channels, scope experimental modules, or unlock pricing-tier features.</p>
+          <p className="text-muted-foreground text-sm mt-1">Each feature in the catalog owns one flag. Set a flag to off to switch that feature off for every business, trial and paid. Flags are created with their feature; add a feature in the Feature Catalog.</p>
         </div>
-        {isSuperAdmin && (
-          <Button
-            className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold self-start sm:self-auto"
-            onClick={() => {
-              resetForm();
-              setShowCreateDialog(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Feature Flag
-          </Button>
-        )}
       </div>
 
       {/* Main flags display grid */}
@@ -317,103 +246,6 @@ export default function FeatureFlags() {
           })}
         </div>
       )}
-
-      {/* Feature Flag Creation Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="bg-card border border-border text-muted-foreground max-w-md rounded-3xl p-6">
-          <DialogHeader className="space-y-3">
-            <DialogTitle className="text-lg font-bold text-foreground">Create Feature Flag</DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              Declare a new conditional flag. It will default to disabled ('off') globally.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 my-4">
-            <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Flag Router Key (Unique)</Label>
-              <Input
-                placeholder="e.g. bookings_v2"
-                className="bg-background border-border text-foreground rounded-xl"
-                value={name}
-                onChange={(e) => setName(e.target.value.toLowerCase().replace(/\s+/g, "_"))}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Description</Label>
-              <Textarea
-                placeholder="Provide detailed context for this modular feature channel..."
-                className="bg-background border-border text-foreground rounded-xl min-h-[70px]"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Routing Status</Label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border text-muted-foreground">
-                  <SelectItem value="off">Off (Globally Disabled)</SelectItem>
-                  <SelectItem value="on">On (Globally Enabled)</SelectItem>
-                  <SelectItem value="scoped">Scoped (Enabled only for specific Organisation IDs)</SelectItem>
-                  <SelectItem value="by_plan">By Plan (Enabled for selected subscription tier)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {status === "scoped" && (
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                  Scoped Organisation IDs (JSON Array)
-                  <span title='e.g. ["uuid-1", "uuid-2"]'><HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" /></span>
-                </Label>
-                <Input
-                  placeholder='e.g. ["847c234a-...", "9823f982-..."]'
-                  className="bg-background border-border text-foreground rounded-xl font-mono text-xs"
-                  value={scopedOrgIdsStr}
-                  onChange={(e) => setScopedOrgIdsStr(e.target.value)}
-                />
-              </div>
-            )}
-
-            {status === "by_plan" && (
-              <div className="space-y-1">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Minimum Subscription Plan</Label>
-                <Select value={subscriptionTier} onValueChange={setSubscriptionTier}>
-                  <SelectTrigger className="bg-background border-border text-foreground rounded-xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-card border-border text-muted-foreground">
-                    <SelectItem value="none">Standard Free Tier</SelectItem>
-                    <SelectItem value="pro">Pro Plan</SelectItem>
-                    <SelectItem value="premium">Enterprise Premium Plan</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              className="rounded-xl border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setShowCreateDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
-              onClick={handleCreateSubmit}
-              disabled={createMutation.isPending}
-            >
-              Confirm Creation
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Feature Flag Modification Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>

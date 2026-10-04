@@ -238,7 +238,9 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           });
         }
         // Also update the linked inventory variant if it exists
-        const linkedVariant = (product.variants ?? [])[0];
+        // Only when the product has exactly one variant — with several, a product-level
+        // PATCH must never silently rewrite whichever variant happens to be first.
+        const linkedVariant = (product.variants ?? []).length === 1 ? product.variants![0] : undefined;
         if (linkedVariant) {
           req.params.id = linkedVariant.id;
           item = await storage.getInventoryItem(linkedVariant.id);
@@ -275,6 +277,19 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         finalType === "supply" ? 0 : finalSellingPrice,
       );
       if (pricingError) return res.status(400).json({ error: pricingError });
+
+      if (data.variantDimensions !== undefined) {
+        const clash = await storage.getVariantByDimensions(item.productId, data.variantDimensions as Record<string, string> | null);
+        if (clash && clash.id !== item.id) {
+          return res.status(409).json({ error: `A variant with this exact combination already exists: "${clash.name}".` });
+        }
+      }
+      if (data.name && data.name !== item.name) {
+        const nameClash = await storage.getInventoryItemByName(item.storeId, data.name, item.type);
+        if (nameClash && nameClash.id !== item.id) {
+          return res.status(409).json({ error: `An item named "${data.name}" already exists.` });
+        }
+      }
 
       const updatedItem = await storage.updateInventoryItem(req.params.id, data);
       if (!updatedItem) {

@@ -28,6 +28,7 @@ export interface DataTableProps<T> {
   
   // Advanced table filters prop
   filterConfigs?: TableFilterConfig[];
+  sortOptions?: { label: string; column: string; direction: "asc" | "desc" }[];
 
   // Multiselect properties
   multiselect?: boolean;
@@ -106,6 +107,7 @@ export function DataTable<T extends { id: string | number }>({
   pageSize = 10,
   onRowClick,
   filterConfigs,
+  sortOptions,
   multiselect,
   selectedIds,
   onSelectedIdsChange,
@@ -148,6 +150,7 @@ export function DataTable<T extends { id: string | number }>({
       pageSize={pageSize}
       onRowClick={onRowClick}
       filterConfigs={filterConfigs}
+      sortOptions={sortOptions}
       multiselect={multiselect}
       selectedIds={selectedIds}
       onSelectedIdsChange={onSelectedIdsChange}

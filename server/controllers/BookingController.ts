@@ -68,6 +68,15 @@ export class BookingController extends BaseController {
     router.patch("/bookings/:id/reschedule", isAuthenticated, this.rescheduleBooking.bind(this));
   }
 
+  // The JWT/org-member staffId is the human staff number (e.g. "MAIN-002"),
+  // not staff.id, so bookings (which store staff.id) must be matched via the
+  // staff row linked to the logged-in user in this store.
+  private async resolveOwnStaffId(user: any, storeId: string): Promise<string | undefined> {
+    const userId = user?.id ?? user?.userId;
+    if (!userId) return undefined;
+    return (await storage.getStaffByUserId(userId, storeId))?.id;
+  }
+
   private async getBookings(req: Request, res: Response): Promise<Response> {
     try {
       const storeId = req.query.storeId as string;
@@ -85,11 +94,12 @@ export class BookingController extends BaseController {
         startDate: req.query.startDate as string | undefined,
         endDate: req.query.endDate as string | undefined,
         search: req.query.search as string | undefined,
+        staffId: (req.query.staffId as string | undefined) || undefined,
       };
 
       const user = (req as any).user;
       if (user?.role === "staff") {
-        const staffId = user.staffId as string | undefined;
+        const staffId = await this.resolveOwnStaffId(user, storeId);
         if (!staffId) {
           return this.forbidden(res, "Staff access requires a linked staff record.");
         }
@@ -128,7 +138,7 @@ export class BookingController extends BaseController {
 
       const user = (req as any).user;
       if (user?.role === "staff") {
-        const staffId = user.staffId as string | undefined;
+        const staffId = await this.resolveOwnStaffId(user, storeId);
         if (!staffId) {
           return this.forbidden(res, "Staff access requires a linked staff record.");
         }
@@ -153,7 +163,7 @@ export class BookingController extends BaseController {
       if (!(await this.checkStoreAccess(booking.storeId, req, res))) return res;
       const user = (req as any).user;
       if (user?.role === "staff") {
-        const staffId = user.staffId as string | undefined;
+        const staffId = await this.resolveOwnStaffId(user, booking.storeId);
         if (!staffId || (booking.leadStaffId !== staffId && booking.assistingStaffId !== staffId)) {
           return this.forbidden(res, "You are not authorized to view this booking.");
         }
@@ -188,6 +198,11 @@ export class BookingController extends BaseController {
 
       const parsed = createBookingSchema.parse(req.body);
       if (!(await this.checkStoreAccess(parsed.storeId, req, res))) return res;
+
+      // Order dates are date-only (midnight), so only appointments carry a meaningful time.
+      if (parsed.type === "appointment" && parsed.scheduledAt.getTime() < Date.now() - 5 * 60 * 1000) {
+        return this.badRequest(res, "Appointment time cannot be in the past.");
+      }
 
       const newBooking = await storage.createBooking(parsed as any);
       const items = await storage.getBookingItems(newBooking.id);

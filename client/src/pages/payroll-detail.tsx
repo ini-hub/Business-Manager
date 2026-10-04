@@ -2,12 +2,11 @@ import { useState } from "react";
 import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { useReturnTo } from "@/lib/return-to";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format, parseISO } from "date-fns";
-import { ArrowLeft, Lock } from "lucide-react";
+import { format, parseISO, differenceInCalendarDays } from "date-fns";
+import { ChevronLeft, ChevronRight, Download, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -23,6 +22,7 @@ import { WRITE_OFF_REASONS } from "@shared/schema";
 import { explainCommission, commissionHeadline } from "@shared/commission-explainer";
 import { PayrollEarningsSummary } from "@/components/payroll/PayrollEarningsSummary";
 import { PayrollDeductionsList } from "@/components/payroll/PayrollDeductionsList";
+import { PayrollAttendanceCard } from "@/components/payroll/PayrollAttendanceCard";
 import { PayrollFormulaBreakdown } from "@/components/payroll/PayrollFormulaBreakdown";
 import { PayrollDailySummaryTable } from "@/components/payroll/PayrollDailySummaryTable";
 import { PayrollTransactionBreakdown } from "@/components/payroll/PayrollTransactionBreakdown";
@@ -33,7 +33,7 @@ export default function PayrollDetailPage() {
   const [, params] = useRoute("/payroll/:periodId/staff/:staffId");
   const periodId = params?.periodId ?? "";
   const staffId = params?.staffId ?? "";
-  const { backHref } = useReturnTo("/payroll");
+  const { backHref } = useReturnTo(`/payroll/${periodId}`);
   const [location] = useLocation();
   const search = useSearch();
   const { currentStore, business } = useStore();
@@ -64,15 +64,22 @@ export default function PayrollDetailPage() {
     enabled: !!periodId,
   });
 
-  const { data: entry } = useQuery<any>({
-    queryKey: ["/api/payroll/periods/entries", periodId, staffId],
+  // The whole period's entries, so the header can step to the previous and
+  // next staff member without going back to the list.
+  const { data: periodEntries = [] } = useQuery<any[]>({
+    queryKey: ["/api/payroll/periods/entries", periodId, "all"],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/payroll/periods/${periodId}/entries`);
       const entries = await res.json();
-      return entries.find((e: any) => e.staffId === staffId);
+      return Array.isArray(entries) ? entries : [];
     },
-    enabled: !!periodId && !!staffId,
+    enabled: !!periodId,
   });
+  const entryIndex = periodEntries.findIndex((e: any) => e.staffId === staffId);
+  const entry = entryIndex >= 0 ? periodEntries[entryIndex] : undefined;
+  const prevEntry = entryIndex > 0 ? periodEntries[entryIndex - 1] : undefined;
+  const nextEntry = entryIndex >= 0 ? periodEntries[entryIndex + 1] : undefined;
+  const staffHref = (id: string) => `/payroll/${periodId}/staff/${id}${search ? `?${search}` : ""}`;
 
   const { data: drilldownData, isLoading: breakdownLoading } = useQuery<PayrollDrilldown>({
     queryKey: ["/api/payroll/drilldown", periodId, staffId],
@@ -207,38 +214,61 @@ export default function PayrollDetailPage() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Back navigation */}
-      <div className="flex items-center gap-3">
-        <Link href={backHref}>
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Payroll
-          </Button>
-        </Link>
-      </div>
+  const staffName = entry?.staff?.name ?? "Staff member";
+  const periodDays = period ? differenceInCalendarDays(parseISO(period.endDate), parseISO(period.startDate)) + 1 : null;
+  const periodMonth = period ? format(parseISO(period.startDate), "MMMM yyyy") : "";
+  const periodRange = period
+    ? `${format(parseISO(period.startDate), "d")} to ${format(parseISO(period.endDate), "d MMMM yyyy")}`
+    : "";
+  const payModel = entry?.calculationDetails?.paymentMethod === "fixed" ? "Fixed pay" : "Hybrid pay";
 
-      {/* Staff + period header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {entry?.staff?.name ?? "Staff Member"}
-          </h1>
-          <p className="text-muted-foreground mt-0.5">
-            Hybrid Drill-Down Dashboard
-            {period && (
-              <> · {format(parseISO(period.startDate), "MMM d")} – {format(parseISO(period.endDate), "MMM d, yyyy")}</>
-            )}
-          </p>
+  return (
+    <div className="space-y-5">
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+        <Link href={backHref} className="font-medium text-primary hover:underline">Payroll</Link>
+        <span aria-hidden>/</span>
+        <Link href={backHref} className="font-medium text-primary hover:underline">{periodMonth}</Link>
+        <span aria-hidden>/</span>
+        <span>{staffName}</span>
+      </nav>
+
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
+            {staffName.charAt(0)}
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-bold truncate">{staffName}</h1>
+              {period?.status === "paid" && (
+                <Badge variant="outline" className="gap-1 text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200">
+                  <Lock className="h-3 w-3" /> Paid and locked
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {entry?.staff?.staffNumber && <>{entry.staff.staffNumber} · </>}
+              Payslip for {periodRange} · {payModel}
+            </p>
+          </div>
         </div>
-        {period?.status === "paid" && (
-          <Badge variant="outline" className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 gap-1.5">
-            <Lock className="h-3 w-3" />
-            Paid & Locked
-          </Badge>
-        )}
-      </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {prevEntry && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={staffHref(prevEntry.staffId)}><ChevronLeft className="mr-1 h-4 w-4" />{prevEntry.staff?.name}</Link>
+            </Button>
+          )}
+          {nextEntry && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={staffHref(nextEntry.staffId)}>{nextEntry.staff?.name}<ChevronRight className="ml-1 h-4 w-4" /></Link>
+            </Button>
+          )}
+          <Button size="sm" onClick={handleDownloadPayslip} disabled={isGeneratingPayslip || !entry}>
+            <Download className="mr-2 h-4 w-4" />
+            {isGeneratingPayslip ? "Generating…" : "Download payslip"}
+          </Button>
+        </div>
+      </header>
 
       <PayrollEarningsSummary
         entry={entry}
@@ -247,44 +277,39 @@ export default function PayrollDetailPage() {
         takeHomePay={takeHomePay}
         shortfall={shortfall}
         totalDeductions={totalDeductions}
+        deductionsCount={activeDeductions.length}
         isPeriodOngoing={isPeriodOngoing}
         fmtCur={fmtCur}
-        fmtCompact={fmtCompact}
-        onDownloadPayslip={handleDownloadPayslip}
-        isDownloading={isGeneratingPayslip}
       />
 
-      <PayrollDeductionsList
-        deductions={deductions}
-        periodStatus={period?.status}
-        isOwner={isOwner}
-        totalDeductions={totalDeductions}
-        fmtCur={fmtCur}
-        location={location}
-        search={search}
-        showAddDeduction={showAddDeduction}
-        setShowAddDeduction={setShowAddDeduction}
-        dedType={dedType}
-        setDedType={setDedType}
-        dedLabel={dedLabel}
-        setDedLabel={setDedLabel}
-        dedAmount={dedAmount}
-        setDedAmount={setDedAmount}
-        addDeductionMutation={addDeductionMutation}
-        deleteDeductionMutation={deleteDeductionMutation}
-        restoreDeductionMutation={restoreDeductionMutation}
-        setDebtToWriteOff={setDebtToWriteOff}
-        setDebtToRestore={setDebtToRestore}
-      />
-
-      <PayrollFormulaBreakdown calculationDetails={entry?.calculationDetails} fmtCur={fmtCur} />
-
-      {period?.status === "paid" && (
-        <Alert>
-          <Lock className="h-4 w-4" />
-          <AlertDescription>This payroll period is locked. All records shown are final and immutable based on settings snapshot.</AlertDescription>
-        </Alert>
-      )}
+      <div className="grid gap-5 lg:grid-cols-2 items-start">
+        <div className="space-y-5 min-w-0">
+          <PayrollAttendanceCard entry={entry} periodDays={periodDays} />
+          <PayrollFormulaBreakdown calculationDetails={entry?.calculationDetails} explanation={commissionExplanation} fmtCur={fmtCur} />
+        </div>
+        <PayrollDeductionsList
+          deductions={deductions}
+          periodStatus={period?.status}
+          isOwner={isOwner}
+          totalDeductions={totalDeductions}
+          fmtCur={fmtCur}
+          location={location}
+          search={search}
+          showAddDeduction={showAddDeduction}
+          setShowAddDeduction={setShowAddDeduction}
+          dedType={dedType}
+          setDedType={setDedType}
+          dedLabel={dedLabel}
+          setDedLabel={setDedLabel}
+          dedAmount={dedAmount}
+          setDedAmount={setDedAmount}
+          addDeductionMutation={addDeductionMutation}
+          deleteDeductionMutation={deleteDeductionMutation}
+          restoreDeductionMutation={restoreDeductionMutation}
+          setDebtToWriteOff={setDebtToWriteOff}
+          setDebtToRestore={setDebtToRestore}
+        />
+      </div>
 
       <PayrollDailySummaryTable dailySummary={dailySummary} isLoading={breakdownLoading} fmtCur={fmtCur} />
 

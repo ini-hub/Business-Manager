@@ -1,19 +1,29 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { Plus, Calendar, List as ListIcon, CalendarDays, CheckCircle, XCircle, CalendarCheck2, CalendarX2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
-import { MetricCard } from "@/components/metric-card";
-import { MetricGrid } from "@/components/metric-grid";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { BookingFiltersSheet, BookingSortSheet } from "@/components/booking-filter-sheets";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
+  EMPTY_BOOKING_FILTERS,
+  buildBookingFilterChips,
+  clearBookingFilterChip,
+  countActiveBookingFilters,
+  bookingMatchesFilters,
+  bookingMatchesSearch,
+  bookingSortLabel,
+  sortBookings,
+  type BookingFilterState,
+  type BookingSortState,
+} from "@/lib/booking-filters";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { useStore } from "@/lib/store-context";
@@ -22,6 +32,7 @@ import { DataTable } from "@/components/data-table";
 import { CustomerLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
+import { fetchAllStaff } from "@/lib/staff-api";
 import { BulkOperations } from "@/components/bulk-operations";
 import { BOOKING_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
@@ -29,18 +40,22 @@ import { runBulkFanOut } from "@/lib/bulk-actions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getStatusColor } from "@/lib/booking-status";
-import { BookingCalendarView } from "@/components/booking-calendar/BookingCalendarView";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 
 export default function BookingsPage() {
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [view, setView] = useUrlState<"list" | "calendar">("view", "list");
+  const [view] = useUrlState<"list" | "calendar">("view", "list");
   const [location, setLocation] = useLocation();
   const search = useSearch();
+  // Old bookmarks of the retired in-page calendar tab land on the standalone calendar page.
+  useEffect(() => {
+    if (view === "calendar") setLocation("/bookings/calendar", { replace: true });
+  }, [view, setLocation]);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
-  const [statusFilter, setStatusFilter] = useUrlState<"all" | "completed" | "issues">("status", "all");
+  const [bookingSearchTerm, setBookingSearchTerm] = useState("");
+  const [bookingFilters, setBookingFilters] = useState<BookingFilterState>(EMPTY_BOOKING_FILTERS);
+  const [bookingSort, setBookingSort] = useState<BookingSortState | null>(null);
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
   const ISSUE_STATUSES = ["no_show", "cancelled", "rescheduled"];
 
@@ -84,6 +99,7 @@ export default function BookingsPage() {
     {
       key: "bookingRef",
       header: "Reference",
+      priority: 3 as const,
       render: (booking: any) => (
         <span className="font-semibold text-foreground">
           {booking.bookingRef}
@@ -93,6 +109,7 @@ export default function BookingsPage() {
     {
       key: "typeLabel",
       header: "Type",
+      priority: 2 as const,
       render: (booking: any) => (
         <span className="capitalize">{booking.type}</span>
       ),
@@ -100,6 +117,8 @@ export default function BookingsPage() {
     {
       key: "customerName",
       header: "Customer",
+      priority: 1 as const,
+      cardRender: (booking: any) => <span className="truncate">{booking.customerName}</span>,
       render: (booking: any) => (
         <CustomerLink customer={booking.customer} customerId={booking.customerId} />
       ),
@@ -107,6 +126,8 @@ export default function BookingsPage() {
     {
       key: "scheduledAt",
       header: "Date & Time",
+      priority: 2 as const,
+      cardRender: (booking: any) => <span className="truncate">{format(new Date(booking.scheduledAt), "MMM d, h:mm a")}</span>,
       render: (booking: any) => (
         <div className="flex flex-col">
           <span>{format(new Date(booking.scheduledAt), "MMM d, yyyy")}</span>
@@ -117,6 +138,7 @@ export default function BookingsPage() {
     {
       key: "status",
       header: "Status",
+      priority: 1 as const,
       render: (booking: any) => (
         <Badge variant="secondary" className={`capitalize font-medium ${getStatusColor(booking.status)} hover:opacity-80`}>
           {booking.status.replace("_", " ")}
@@ -125,8 +147,16 @@ export default function BookingsPage() {
     },
   ];
 
+  const { data: staffList = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/staff", currentStore?.id],
+    queryFn: () => fetchAllStaff(currentStore!.id),
+    enabled: !!currentStore?.id && currentStore.id !== "all",
+  });
+  const staffName = (id?: string | null) => (id ? staffList.find((s) => s.id === id)?.name ?? "" : "");
+
   const tableData = (data?.data || []).map((booking: any) => ({
     ...booking,
+    staffLabel: staffName(booking.leadStaffId) || "Unassigned",
     customerName: booking.customer?.name || "Unknown",
     typeLabel: booking.type.charAt(0).toUpperCase() + booking.type.slice(1),
     statusLabel: booking.status.replace("_", " ").split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
@@ -136,17 +166,23 @@ export default function BookingsPage() {
   const completedBookingsCount = tableData.filter((b: any) => b.status === "completed").length;
   const issueBookingsCount = tableData.filter((b: any) => ISSUE_STATUSES.includes(b.status)).length;
 
-  const filteredTableData = tableData.filter((b: any) => {
-    if (statusFilter === "completed") return b.status === "completed";
-    if (statusFilter === "issues") return ISSUE_STATUSES.includes(b.status);
-    return true;
-  });
+  const searchedBookings = tableData.filter((b: any) => bookingMatchesSearch(b, bookingSearchTerm));
+  const visibleBookings = sortBookings(
+    searchedBookings.filter((b: any) => bookingMatchesFilters(b, bookingFilters)),
+    bookingSort,
+  );
+  const staffOptions = currentStore?.id === "all"
+    ? []
+    : Array.from(new Set(tableData.map((b: any) => b.staffLabel as string))).sort();
+  const typeOptions = Array.from(new Set(tableData.map((b: any) => b.typeLabel as string))).sort();
 
-  const filterConfigs: TableFilterConfig[] = [
-    { key: "typeLabel", label: "Type", type: "select" },
-    { key: "statusLabel", label: "Status", type: "select" },
-    { key: "scheduledAt", label: "Appointment Date", type: "date-range" },
-  ];
+  const bookingCardAvatar = (booking: any) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(booking.customerName)}
+      </AvatarFallback>
+    </Avatar>
+  );
 
   const exportColumns = [
     { key: "bookingRef", header: "Reference" },
@@ -230,6 +266,12 @@ export default function BookingsPage() {
                 showImportOption={isManagerOrOwner}
               />
             </div>
+            <Button variant="outline" asChild data-testid="button-calendar">
+              <Link href="/bookings/calendar">
+                <Calendar className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Calendar</span>
+              </Link>
+            </Button>
             <Button asChild className="shrink-0 shadow-sm hover:shadow transition-all">
               <Link href="/bookings/new">
                 <Plus className="h-4 w-4 lg:mr-2" />
@@ -240,106 +282,91 @@ export default function BookingsPage() {
         }
       />
 
-      <MetricGrid>
-        <MetricCard
-          title="Total Bookings"
-          value={totalBookingsCount}
-          icon={<CalendarDays className="h-4 w-4" />}
-          isLoading={isLoading}
-          active={statusFilter === "all"}
-          onClick={() => setStatusFilter("all")}
-        />
-        <MetricCard
-          title="Completed"
-          value={completedBookingsCount}
-          icon={<CalendarCheck2 className="h-4 w-4" />}
-          isLoading={isLoading}
-          active={statusFilter === "completed"}
-          onClick={() => setStatusFilter(statusFilter === "completed" ? "all" : "completed")}
-        />
-        <MetricCard
-          title="No Show + Cancelled + Rescheduled"
-          value={issueBookingsCount}
-          icon={<CalendarX2 className="h-4 w-4" />}
-          isLoading={isLoading}
-          active={statusFilter === "issues"}
-          onClick={() => setStatusFilter(statusFilter === "issues" ? "all" : "issues")}
-        />
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          { title: "Total Bookings", value: totalBookingsCount, icon: <CalendarDays className="h-4 w-4" />, isLoading },
+          { title: "Completed", value: completedBookingsCount, icon: <CalendarCheck2 className="h-4 w-4" />, isLoading },
+          { title: "No Show + Cancelled + Rescheduled", value: issueBookingsCount, icon: <CalendarX2 className="h-4 w-4" />, isLoading },
+        ]}
+      />
 
-      <Card className="border-border/50 shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-base font-medium">Bookings Ledger</CardTitle>
-          <Tabs value={view} onValueChange={(v) => setView(v as "list" | "calendar")} className="w-full sm:w-auto">
-            <TabsList className="w-full sm:w-auto grid grid-cols-2">
-              <TabsTrigger value="list" className="gap-2">
-                <ListIcon className="h-4 w-4" />
-                <span>List</span>
-              </TabsTrigger>
-              <TabsTrigger value="calendar" className="gap-2">
-                <Calendar className="h-4 w-4" />
-                <span>Calendar</span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </CardHeader>
-        <CardContent>
-          {view === "list" ? (
-            <div className="space-y-3">
-              {isManagerOrOwner && (
-                <BulkSelectionActionBar
-                  count={selectedIds.length}
-                  unitLabel="booking"
-                  onClear={() => setSelectedIds([])}
-                  actions={[
-                    {
-                      key: "confirm",
-                      label: "Confirm Selected",
-                      pendingLabel: "Confirming…",
-                      icon: <CheckCircle className="h-3.5 w-3.5" />,
-                      pending: bulkConfirmMutation.isPending,
-                      onClick: () => bulkConfirmMutation.mutate(selectedIds as string[]),
-                    },
-                    {
-                      key: "cancel",
-                      label: "Cancel Selected",
-                      pendingLabel: "Cancelling…",
-                      icon: <XCircle className="h-3.5 w-3.5" />,
-                      tone: "warning",
-                      pending: bulkCancelMutation.isPending,
-                      onClick: () => bulkCancelMutation.mutate(selectedIds as string[]),
-                    },
-                  ]}
-                />
-              )}
-              <DataTable
-                data={filteredTableData}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search reference, customer, or notes..."
-                searchKeys={["bookingRef", "customerName", "notes"]}
-                isLoading={isLoading}
-                emptyTitle="No Bookings Yet"
-                emptyMessage="Schedule your first appointment or order to start managing bookings."
-                emptyIcon={<CalendarDays className="h-6 w-6" />}
-                emptyAction={
-                  <Link href="/bookings/new">
-                    <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />New Booking</Button>
-                  </Link>
-                }
-                filterConfigs={filterConfigs}
-                onRowClick={(booking) => setLocation(appendReturnTo(`/bookings/${booking.id}`, location, search))}
-                multiselect={isManagerOrOwner}
-                selectedIds={selectedIds}
-                onSelectedIdsChange={setSelectedIds}
-                urlKey="bookings"
-              />
-            </div>
-          ) : (
-            <BookingCalendarView />
+      <div className="space-y-3">
+          {isManagerOrOwner && (
+            <BulkSelectionActionBar
+              count={selectedIds.length}
+              unitLabel="booking"
+              onClear={() => setSelectedIds([])}
+              actions={[
+                {
+                  key: "confirm",
+                  label: "Confirm Selected",
+                  pendingLabel: "Confirming…",
+                  icon: <CheckCircle className="h-3.5 w-3.5" />,
+                  pending: bulkConfirmMutation.isPending,
+                  onClick: () => bulkConfirmMutation.mutate(selectedIds as string[]),
+                },
+                {
+                  key: "cancel",
+                  label: "Cancel Selected",
+                  pendingLabel: "Cancelling…",
+                  icon: <XCircle className="h-3.5 w-3.5" />,
+                  tone: "warning",
+                  pending: bulkCancelMutation.isPending,
+                  onClick: () => bulkCancelMutation.mutate(selectedIds as string[]),
+                },
+              ]}
+            />
           )}
-        </CardContent>
-      </Card>
+
+          <ListControls
+            testIdPrefix="booking"
+            placeholder="Search reference, customer or notes"
+            search={bookingSearchTerm}
+            onSearchChange={setBookingSearchTerm}
+            filterCount={countActiveBookingFilters(bookingFilters)}
+            filters={(trigger) => (
+              <BookingFiltersSheet
+                filters={bookingFilters}
+                onApply={(next) => { setBookingFilters(next); setSelectedIds([]); }}
+                staff={staffOptions}
+                types={typeOptions}
+                resultCountFor={(draft) => searchedBookings.filter((b: any) => bookingMatchesFilters(b, draft)).length}
+                trigger={trigger}
+              />
+            )}
+            sortLabel={bookingSortLabel(bookingSort).replace(/^Sort: /, "")}
+            sort={(trigger) => <BookingSortSheet sort={bookingSort} onChange={setBookingSort} trigger={trigger} />}
+            chips={buildBookingFilterChips(bookingFilters)}
+            onRemoveChip={(key) => setBookingFilters((f) => clearBookingFilterChip(f, key as keyof BookingFilterState))}
+            hasSort={bookingSort !== null}
+            onClearAll={() => { setBookingFilters(EMPTY_BOOKING_FILTERS); setBookingSort(null); }}
+            visibleCount={visibleBookings.length}
+            noun="booking"
+          />
+
+          <DataTable
+            data={visibleBookings}
+            columns={columns}
+            hideToolbar
+            isLoading={isLoading}
+            emptyTitle="No Bookings Yet"
+            emptyMessage="Schedule your first appointment or order to start managing bookings."
+            emptyIcon={<CalendarDays className="h-6 w-6" />}
+            emptyAction={
+              <Link href="/bookings/new">
+                <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />New Booking</Button>
+              </Link>
+            }
+            onRowClick={(booking) => setLocation(appendReturnTo(`/bookings/${booking.id}`, location, search))}
+            multiselect={isManagerOrOwner}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            urlKey="bookings"
+            showCardChevron
+            cardLayout="compact-grid"
+            cardAvatar={bookingCardAvatar}
+          />
+      </div>
 
       <SpeedDialFAB
         actions={[

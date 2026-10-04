@@ -81,10 +81,10 @@ export default function PayrollNewPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (period: { id: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll/periods"] });
       toast({ title: "Payroll period created" });
-      setLocation("/payroll");
+      setLocation(`/payroll/${period.id}`);
     },
     onError: (e: Error) =>
       toast({ title: "Error", description: e.message, variant: "destructive" }),

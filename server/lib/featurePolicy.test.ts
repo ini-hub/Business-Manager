@@ -8,6 +8,11 @@ vi.mock("./entitlements", () => ({
   featureNotPurchasedBody: vi.fn(async (key: string) => ({ error: "feature_not_purchased", featureKey: key, featureName: key, message: "nope" })),
 }));
 
+let adminRules: { featureKey: string; module: string | null }[] = [];
+vi.mock("./gateRules", () => ({ matchDynamicRouteRules: vi.fn(async () => adminRules) }));
+let moduleAllowed = true;
+vi.mock("./permissions", () => ({ hasModulePermission: vi.fn(async () => moduleAllowed) }));
+
 import { FEATURE_RULES, enforceFeaturePolicy, isClassified, matchFeatureRules } from "./featurePolicy";
 
 function run(method: string, url: string, user: unknown = { businessId: "org-1" }) {
@@ -19,7 +24,7 @@ function run(method: string, url: string, user: unknown = { businessId: "org-1" 
   return enforceFeaturePolicy(req, res, next).then(() => ({ res, next }));
 }
 
-beforeEach(() => granted.clear());
+beforeEach(() => { granted.clear(); adminRules = []; moduleAllowed = true; });
 
 describe("matchFeatureRules", () => {
   it("gates writes to expenses (incl. bulk) but not reads", () => {
@@ -81,6 +86,44 @@ describe("enforceFeaturePolicy", () => {
   });
 });
 
+describe("admin-defined gate rules", () => {
+  it("402s when the org lacks the feature an admin rule names", async () => {
+    adminRules = [{ featureKey: "new_thing", module: null }];
+    const { res, next } = await run("POST", "/api/anything");
+    expect(res.statusCode).toBe(402);
+    expect(res.body).toMatchObject({ featureKey: "new_thing" });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("passes when the feature is held and the rule names no module", async () => {
+    adminRules = [{ featureKey: "new_thing", module: null }];
+    granted.add("new_thing");
+    expect((await run("POST", "/api/anything")).next).toHaveBeenCalledOnce();
+  });
+
+  it("403s a role that lacks the feature's Settings > Roles module, even with the feature", async () => {
+    adminRules = [{ featureKey: "new_thing", module: "Expenses & Reports" }];
+    granted.add("new_thing");
+    moduleAllowed = false;
+    const { res, next } = await run("GET", "/api/anything");
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({ error: "module_permission_required", module: "Expenses & Reports" });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("lets a role that holds the module through", async () => {
+    adminRules = [{ featureKey: "new_thing", module: "Expenses & Reports" }];
+    granted.add("new_thing");
+    expect((await run("GET", "/api/anything")).next).toHaveBeenCalledOnce();
+  });
+
+  it("still enforces the code baseline alongside admin rules", async () => {
+    adminRules = [{ featureKey: "new_thing", module: null }];
+    granted.add("new_thing");
+    expect((await run("POST", "/api/custom-roles")).res.statusCode).toBe(402);
+  });
+});
+
 /**
  * Deny-by-default guard: every mutating route declared in the server sources
  * must be gated in FEATURE_RULES or belong to a domain in FREE_ROUTE_DOMAINS.
@@ -127,5 +170,28 @@ describe("route coverage", () => {
 
   it("has no gated rule pointing at an empty feature key", () => {
     for (const rule of FEATURE_RULES) expect(rule.feature).toMatch(/^[a-z_]+$/);
+  });
+});
+
+/**
+ * Route rules in shared/features.ts are the only place a route is gated. A
+ * second, per-route requireFeature(...) would be a gate the registry (and the
+ * admin kill-switch view of it) doesn't know about.
+ */
+describe("single source of gating", () => {
+  it("has no per-route requireFeature outside the entitlements module", () => {
+    const serverDir = path.resolve(__dirname, "..");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== "node_modules") walk(full); continue; }
+        if (!e.name.endsWith(".ts") || /\.(i?test)\.ts$/.test(e.name)) continue;
+        if (full === path.join(serverDir, "lib", "entitlements.ts")) continue;
+        if (/\brequireFeature\(/.test(fs.readFileSync(full, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""))) offenders.push(path.relative(serverDir, full));
+      }
+    };
+    walk(serverDir);
+    expect(offenders).toEqual([]);
   });
 });

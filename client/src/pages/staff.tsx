@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { Plus, UserPlus, Edit, Trash2, Phone, Hash, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users, UserSquare2 } from "lucide-react";
+import { Plus, UserPlus, UserCheck, UserX, FileSignature, Edit, Trash2, Phone, Hash, AlertCircle, RotateCcw, Archive, ArrowRightLeft, Users, UserSquare2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,25 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { StaffFiltersSheet, StaffSortSheet } from "@/components/staff-filter-sheets";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import {
+  EMPTY_STAFF_FILTERS,
+  buildStaffFilterChips,
+  clearStaffFilterChip,
+  countActiveStaffFilters,
+  accountStatusOf,
+  sortStaff,
+  staffMatchesFilters,
+  staffSortLabel,
+  type StaffFilterState,
+  type StaffSortState,
+} from "@/lib/staff-filters";
 import {
   Select,
   SelectContent,
@@ -35,7 +53,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import { insertStaffSchema, type Staff, type InsertStaff, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
-import { Mail, Shield, MailWarning, ShieldCheck, Send, Clock, Crown } from "lucide-react";
+import { CalendarDays, Mail, Shield, MailWarning, ShieldCheck, Send, Clock, Crown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -75,6 +93,17 @@ function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
   return <Badge variant="secondary" className="gap-1">Not invited</Badge>;
 }
 
+// Mobile/tablet compact-grid card: the avatar renders once via cardAvatar and
+// the name cell is name-only (the staff number would crowd a narrow card).
+const staffCardAvatar = (staff: { name: string }) => (
+  <Avatar className="h-10 w-10">
+    <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+      {getCustomerInitials(staff.name)}
+    </AvatarFallback>
+  </Avatar>
+);
+const StaffCardNameCell = ({ staff }: { staff: { name: string } }) => <span className="truncate">{staff.name}</span>;
+
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
@@ -98,6 +127,12 @@ export default function StaffPage() {
   const [isResendInviteOpen, setIsResendInviteOpen] = useState(false);
   const [transferTargetStoreId, setTransferTargetStoreId] = useState<string>("");
   const [activeTab, setActiveTab] = useUrlState<string>("tab", "active");
+  const [staffSearchTerm, setStaffSearchTerm] = useState("");
+  const [staffFilters, setStaffFilters] = useState<StaffFilterState>(EMPTY_STAFF_FILTERS);
+  const [staffSort, setStaffSort] = useState<StaffSortState | null>(null);
+  const [archivedSearchTerm, setArchivedSearchTerm] = useState("");
+  const [archivedFilters, setArchivedFilters] = useState<StaffFilterState>(EMPTY_STAFF_FILTERS);
+  const [archivedSort, setArchivedSort] = useState<StaffSortState | null>(null);
 
   const { data: staffList = [], isLoading } = useQuery<StaffRow[]>({
     queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
@@ -264,14 +299,17 @@ export default function StaffPage() {
       {
         key: "name",
         header: "Staff Member",
+        priority: 1 as const,
         render: (staff: StaffRow) => {
           const presenter = new StaffPresenter(staff);
           return <EntityDisplay presenter={presenter} />;
         },
+        cardRender: (staff: StaffRow) => <StaffCardNameCell staff={staff} />,
       },
       {
         key: "email",
         header: "Email",
+        priority: 3 as const,
         render: (staff: StaffRow) => (
           <div className="flex items-center gap-2">
             <Mail className="h-3 w-3 text-muted-foreground" />
@@ -282,11 +320,13 @@ export default function StaffPage() {
       {
         key: "inviteStatus",
         header: "Account",
+        priority: 1 as const,
         render: (staff: StaffRow) => <InviteStatusBadge status={staff.inviteStatus} />,
       },
       {
         key: "mobileNumber",
         header: "Mobile",
+        priority: 2 as const,
         render: (staff: StaffRow) => (
           <div className="flex items-center gap-2">
             <Phone className="h-3 w-3 text-muted-foreground" />
@@ -305,6 +345,7 @@ export default function StaffPage() {
         {
           key: "role",
           header: "Role",
+          priority: 2 as const,
           render: (staff: StaffRow) => (
             <Badge
               variant={staff.role === "owner" ? "default" : staff.role === "manager" ? "default" : "secondary"}
@@ -395,6 +436,7 @@ export default function StaffPage() {
     {
       key: "name",
       header: "Staff Member",
+      priority: 1 as const,
       render: (staff: StaffRow) => {
         const presenter = new StaffPresenter(staff);
         return (
@@ -404,10 +446,12 @@ export default function StaffPage() {
           </div>
         );
       },
+      cardRender: (staff: StaffRow) => <StaffCardNameCell staff={staff} />,
     },
     {
       key: "mobileNumber",
       header: "Mobile",
+      priority: 1 as const,
       render: (staff: StaffRow) => (
         <div className="flex items-center gap-2">
           <Phone className="h-3 w-3 text-muted-foreground" />
@@ -418,6 +462,7 @@ export default function StaffPage() {
     {
       key: "payPerMonth",
       header: "Monthly Pay",
+      priority: 2 as const,
       render: (staff: StaffRow) => (
         staff.overridePaymentMethod
           ? <span className="font-mono">{formatCurrency(staff.payPerMonth)}</span>
@@ -551,6 +596,17 @@ export default function StaffPage() {
         description={`Managing staff for ${currentStore.name}`}
         actions={
           <div className="flex items-center gap-2">
+            {userRole !== "staff" && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/staffs/attendance")}
+                aria-label="Attendance"
+                data-testid="button-attendance"
+              >
+                <CalendarDays className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Attendance</span>
+              </Button>
+            )}
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={STAFF_BULK_CONFIG}
@@ -592,22 +648,24 @@ export default function StaffPage() {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="active">Active ({activeStaff.length})</TabsTrigger>
-          {isOwner && <TabsTrigger value="archived">Archived ({archivedStaff.length})</TabsTrigger>}
-        </TabsList>
-        {(() => {
-          const filterConfigs = [
-            { 
-              key: "role", 
-              label: "Role", 
-              type: "select" as const,
-              valueMapper: (val: any) => String(val).charAt(0).toUpperCase() + String(val).slice(1)
-            },
-            { key: "status", label: "Status", type: "select" as const }
-          ];
+      <MetricRow
+        metrics={[
+          { title: "Active", value: activeStaff.length, icon: <UserCheck className="h-4 w-4" />, isLoading },
+          { title: "Contract pending", value: activeStaff.filter((s) => s.contractStatus !== "signed").length, icon: <FileSignature className="h-4 w-4" />, isLoading },
+          { title: "Invite pending", value: activeStaff.filter((s) => accountStatusOf(s) !== "active").length, icon: <MailWarning className="h-4 w-4" />, isLoading },
+          ...(isOwner ? [{ title: "Deactivated", value: archivedStaff.length, icon: <UserX className="h-4 w-4" />, isLoading }] : []),
+        ]}
+      />
 
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <PolymorphicTabsList
+          tabs={[
+            { value: "active", label: `Active ${activeStaff.length}` },
+            { value: "archived", label: `Deactivated ${archivedStaff.length}`, visible: isOwner },
+          ]}
+          variant="bordered"
+        />
+        {(() => {
           const activeTableData = activeStaff.map((s) => ({
             ...s,
             status: s.contractStatus === "signed" ? "Active" : "Pending"
@@ -618,16 +676,90 @@ export default function StaffPage() {
             status: "Deactivated"
           }));
 
+          const searchRows = <T extends StaffRow>(rows: T[], term: string): T[] => {
+            const q = term.trim().toLowerCase();
+            if (!q) return rows;
+            return rows.filter((s) =>
+              s.name.toLowerCase().includes(q) ||
+              s.email?.toLowerCase().includes(q) ||
+              s.staffNumber?.toLowerCase().includes(q) ||
+              s.mobileNumber?.toLowerCase().includes(q)
+            );
+          };
+          const searchedActive = searchRows(activeTableData, staffSearchTerm);
+          const visibleActive = sortStaff(searchedActive.filter((s) => staffMatchesFilters(s, staffFilters)), staffSort);
+          const searchedArchived = searchRows(archivedTableData, archivedSearchTerm);
+          const visibleArchived = sortStaff(searchedArchived.filter((s) => staffMatchesFilters(s, archivedFilters)), archivedSort);
+
+          const roleOptions = Array.from(new Set(staffList.map((s) => s.role || "staff"))).sort();
+          const branchOptions = currentStore?.id === "all"
+            ? Array.from(new Set(staffList.map((s) => s.storeName || "Global"))).sort()
+            : [];
+
+          // Search + Filters/Sort sheets + removable chips, shared by the Active and Deactivated tabs.
+          const renderListControls = (cfg: {
+            testIdPrefix: string;
+            searchTerm: string;
+            setSearchTerm: (v: string) => void;
+            filters: StaffFilterState;
+            setFilters: React.Dispatch<React.SetStateAction<StaffFilterState>>;
+            sort: StaffSortState | null;
+            setSort: (s: StaffSortState | null) => void;
+            searched: StaffRow[];
+            visibleCount: number;
+          }) => {
+            return (
+              <ListControls
+                testIdPrefix={cfg.testIdPrefix}
+                placeholder="Search name, email, phone or staff ID"
+                search={cfg.searchTerm}
+                onSearchChange={cfg.setSearchTerm}
+                filterCount={countActiveStaffFilters(cfg.filters)}
+                filters={(trigger) => (
+                  <StaffFiltersSheet
+                    filters={cfg.filters}
+                    onApply={cfg.setFilters}
+                    roles={roleOptions}
+                    branches={branchOptions}
+                    resultCountFor={(draft) => cfg.searched.filter((s) => staffMatchesFilters(s, draft)).length}
+                    trigger={trigger}
+                  />
+                )}
+                sortLabel={staffSortLabel(cfg.sort).replace(/^Sort: /, "")}
+                sort={(trigger) => <StaffSortSheet sort={cfg.sort} onChange={cfg.setSort} trigger={trigger} />}
+                chips={buildStaffFilterChips(cfg.filters)}
+                onRemoveChip={(key) => cfg.setFilters((f) => clearStaffFilterChip(f, key as Parameters<typeof clearStaffFilterChip>[1]))}
+                hasSort={cfg.sort !== null}
+                onClearAll={() => {
+                  cfg.setFilters(EMPTY_STAFF_FILTERS);
+                  cfg.setSort(null);
+                }}
+                visibleCount={cfg.visibleCount}
+                noun="staff member"
+              />
+            );
+          };
+
           return (
             <>
-              <TabsContent value="active" className="mt-4">
+              <TabsContent value="active" className="mt-4 space-y-3">
+                {renderListControls({
+                  testIdPrefix: "staff",
+                  searchTerm: staffSearchTerm,
+                  setSearchTerm: setStaffSearchTerm,
+                  filters: staffFilters,
+                  setFilters: setStaffFilters,
+                  sort: staffSort,
+                  setSort: setStaffSort,
+                  searched: searchedActive,
+                  visibleCount: visibleActive.length,
+                })}
+
                 <DataTable
-                  data={activeTableData}
+                  data={visibleActive}
                   columns={activeColumns}
                   rowActions={activeRowActions}
-                  searchable
-                  searchPlaceholder="Search active staff..."
-                  searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
+                  hideToolbar
                   isLoading={isLoading}
                   emptyTitle="No Active Staff"
                   emptyMessage="Add your first staff member to start tracking attendance, payroll, and commissions."
@@ -637,26 +769,40 @@ export default function StaffPage() {
                       <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />Add Staff Member</Button>
                     </Link>
                   }
-                  filterConfigs={filterConfigs}
                   onVisibleDataChange={setVisibleStaffRows}
                   urlKey="active"
+                  showCardChevron
+                  cardLayout="compact-grid"
+                  cardAvatar={staffCardAvatar}
                 />
               </TabsContent>
-              <TabsContent value="archived" className="mt-4">
+              <TabsContent value="archived" className="mt-4 space-y-3">
+                {renderListControls({
+                  testIdPrefix: "archived-staff",
+                  searchTerm: archivedSearchTerm,
+                  setSearchTerm: setArchivedSearchTerm,
+                  filters: archivedFilters,
+                  setFilters: setArchivedFilters,
+                  sort: archivedSort,
+                  setSort: setArchivedSort,
+                  searched: searchedArchived,
+                  visibleCount: visibleArchived.length,
+                })}
+
                 <DataTable
-                  data={archivedTableData}
+                  data={visibleArchived}
                   columns={archivedColumns}
                   rowActions={archivedRowActions}
-                  searchable
-                  searchPlaceholder="Search archived staff..."
-                  searchKeys={["name", "email", "staffNumber", "mobileNumber"]}
+                  hideToolbar
                   isLoading={isLoading}
                   emptyTitle="No Archived Staff"
                   emptyMessage="Archived staff members will appear here. Their history is preserved for payroll and audit records."
-                  emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
-                  filterConfigs={filterConfigs}
+                  emptyIcon={<Archive className="h-6 w-6" />}
                   onVisibleDataChange={setVisibleStaffRows}
                   urlKey="archivedTbl"
+                  showCardChevron
+                  cardLayout="compact-grid"
+                  cardAvatar={staffCardAvatar}
                 />
               </TabsContent>
             </>

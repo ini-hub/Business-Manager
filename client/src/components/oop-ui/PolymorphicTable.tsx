@@ -50,7 +50,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { DropdownFilter, MobileFilterChip } from "./PolymorphicTableFilters";
+import { ListToolbar } from "@/components/list-toolbar";
+import { DropdownFilter, GroupedFilters, GroupedSort, activeFilterChips } from "./PolymorphicTableFilters";
 import {
   type SelectionMode,
   type SelectionState,
@@ -164,6 +165,9 @@ export interface PolymorphicTableProps<T> {
   
   // Advanced table filters prop
   filterConfigs?: TableFilterConfig[];
+  // The sort choices offered in the mobile Sort sheet. Defaults to every column in both
+  // directions; screens pass a short list ("Due soonest", "Balance") to match the pattern.
+  sortOptions?: { label: string; column: string; direction: "asc" | "desc" }[];
 
   // Multiselect properties
   multiselect?: boolean;
@@ -309,6 +313,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   onRowClick,
   className,
   filterConfigs = [],
+  sortOptions,
   
   // Multiselect
   multiselect = false,
@@ -409,6 +414,8 @@ export function PolymorphicTable<T extends { id: string | number }>({
   };
 
   const hasActiveFilters = Object.keys(activeFilters).length > 0;
+  const sortedColumn = columns.find((c) => c.key === sortColumn);
+  const sortLabelText = sortedColumn && sortDirection ? `${sortedColumn.header} ${sortDirection === "asc" ? "↑" : "↓"}` : "Sort";
 
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
   useEffect(() => {
@@ -436,7 +443,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
   }, [urlKey, debouncedSearchTerm, currentPage, pageSizeState, sortColumn, sortDirection, activeFilters]);
 
   // Filter & Search Logic
-  const filteredData = useMemo(() => data.filter((item) => {
+  const matchesSearch = (item: T) => {
     // 1. Global Search
     if (searchable && searchTerm && searchKeys.length > 0) {
       const matchesGlobal = searchKeys.some((keyPath) => {
@@ -454,10 +461,16 @@ export function PolymorphicTable<T extends { id: string | number }>({
       if (!matchesGlobal) return false;
     }
 
+    return true;
+  };
+
+  // Takes the filter values explicitly so the mobile Filters sheet can count what a
+  // draft selection would show before it is applied.
+  const matchesFilterValues = (item: T, filters: Record<string, any>) => {
     // 2. Toolbar Filters
     for (const config of filterConfigs) {
       const { key, type } = config;
-      const filterValue = activeFilters[key];
+      const filterValue = filters[key];
       if (filterValue === undefined || filterValue === null) continue;
 
       let itemValue = getNestedValue(item, key);
@@ -497,7 +510,12 @@ export function PolymorphicTable<T extends { id: string | number }>({
     }
 
     return true;
-  }), [data, searchable, searchTerm, searchKeys, filterConfigs, activeFilters]);
+  };
+
+  const filteredData = useMemo(
+    () => data.filter((item) => matchesSearch(item) && matchesFilterValues(item, activeFilters)),
+    [data, searchable, searchTerm, searchKeys, filterConfigs, activeFilters],
+  );
 
   const sortedData = useMemo(() => [...filteredData].sort((a, b) => {
     if (!sortColumn || !sortDirection) return 0;
@@ -708,7 +726,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
           {searchSlot ? (
             <div className="flex-1 min-w-[96px] sm:flex-initial sm:w-auto sm:max-w-xs md:max-w-sm">{searchSlot}</div>
           ) : searchable && (
-            <div className="relative flex-1 min-w-[96px] sm:flex-initial sm:w-56 sm:max-w-xs md:max-w-sm">
+            <div className="relative hidden lg:block lg:w-56 lg:max-w-xs">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <ClearableInput
                 placeholder={searchPlaceholder}
@@ -756,37 +774,6 @@ export function PolymorphicTable<T extends { id: string | number }>({
             </div>
           )}
 
-          {/* Tablet + mobile Filters: one chip per filter, mirroring the desktop toolbar above —
-              tapping a chip opens a bottom sheet scoped to just that filter, instead of
-              one combined form covering every filter at once. Shares the row with search
-              (rather than a full-width row below it) and scrolls internally so it never
-              forces a second line. */}
-          {filterConfigs.length > 0 && (
-            <div className="lg:hidden flex items-center gap-1.5 flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-0.5">
-                {filterConfigs.map((config) => (
-                  <MobileFilterChip
-                    key={config.key}
-                    config={config}
-                    data={data}
-                    value={activeFilters[config.key]}
-                    onChange={(val) => handleFilterChange(config.key, val)}
-                  />
-                ))}
-              </div>
-
-              {hasActiveFilters && (
-                <IconButton
-                  variant="ghost"
-                  onClick={clearAllFilters}
-                  className="h-9 w-9 flex-shrink-0 text-muted-foreground"
-                  label="Clear all filters"
-                >
-                  <X className="h-4 w-4" />
-                </IconButton>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Record count indicator */}
@@ -804,6 +791,62 @@ export function PolymorphicTable<T extends { id: string | number }>({
           )}
         </div>
       </div>
+      )}
+
+      {/* Tablet + mobile: Search, Filters and Sort on one line, with the grouped Filters sheet
+          and a separate Sort sheet. The desktop pills above carry the same sections. */}
+      {!hideToolbar && (filterConfigs.length > 0 || (searchable && !searchSlot)) && (
+        <div className="lg:hidden space-y-2">
+          <ListToolbar
+            testIdPrefix="table"
+            search={searchTerm}
+            onSearchChange={(v) => { setSearchTerm(v); setCurrentPage(1); }}
+            placeholder={searchPlaceholder}
+            filterCount={Object.keys(activeFilters).length}
+            filters={filterConfigs.length > 0 ? (trigger) => (
+              <GroupedFilters
+                configs={filterConfigs}
+                data={data}
+                applied={activeFilters}
+                onApply={(next) => { setActiveFilters(next); setCurrentPage(1); }}
+                resultCountFor={(draft) => data.filter((item) => matchesSearch(item) && matchesFilterValues(item, draft)).length}
+                noun={entityNoun ?? { singular: "record", plural: "records" }}
+                trigger={trigger}
+              />
+            ) : undefined}
+            sortLabel={sortOptions?.find((o) => o.column === sortColumn && o.direction === sortDirection)?.label ?? sortLabelText}
+            sort={(trigger) => (
+              <GroupedSort
+                columns={columns}
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                sortOptions={sortOptions}
+                onChange={(col, dir) => { setSortColumn(col); setSortDirection(dir); setCurrentPage(1); }}
+                trigger={trigger}
+              />
+            )}
+          />
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-2">
+              {activeFilterChips(filterConfigs, activeFilters).map((chip) => (
+                <span key={chip.key} className="inline-flex items-center gap-1 h-7 pl-3 pr-1.5 rounded-full border border-input bg-muted/40 text-xs font-medium">
+                  {chip.label}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${chip.label} filter`}
+                    className="rounded-full p-0.5 hover:bg-muted"
+                    onClick={() => handleFilterChange(chip.key, null)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <button type="button" className="text-xs font-medium text-primary hover:underline shrink-0 ml-auto" onClick={clearAllFilters}>
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {multiselect && shouldShowSelectAllBanner(asSelectionState(), currentPageIds, sortedData.length) && (

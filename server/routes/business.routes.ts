@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import { requireCustomerSpendAccess } from "../lib/transactionAccess";
 import { invalidateStoreTimezone } from "../lib/dateUtils";
 import { storage } from "../storage";
 import { LOGO_PATH, LogoError, isDataUrl, isS3Ref, s3KeyOf, parseDataUrl, persistableLogo, withPublicLogo } from "../lib/businessLogo";
@@ -832,6 +833,27 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     } catch (error: any) {
       console.error("Global Profile Creation Error:", error);
       res.status(500).json({ error: error.message || "Could not profile customer from another branch." });
+    }
+  });
+
+  // Per-customer lifetime spend + first/last visit for the customer list. Money figures, so
+  // owner/manager/Customers-module roles only (never the built-in staff role). Must be
+  // registered before any /api/customers/:id route so "summary" isn't read as an id.
+  app.get("/api/customers/summary", requireCustomerSpendAccess, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Please select a store first." });
+
+      let storeIds: string[];
+      if (storeId === "all") {
+        storeIds = (await getUserStores(req)).map((s) => s.id);
+      } else {
+        if (!(await checkStoreAccess(storeId, req, res))) return;
+        storeIds = [storeId];
+      }
+      res.json(await storage.getCustomerSummaries(storeIds));
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't load customer activity. Please try again." });
     }
   });
 

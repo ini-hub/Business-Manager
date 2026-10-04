@@ -1,3 +1,4 @@
+import { listScreenGates } from "../lib/gateRules";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { db } from "../db";
@@ -285,8 +286,13 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         getCountLimitStatus(user.businessId, "store_count"),
       ]);
 
+      const screenGates = (await listScreenGates()).map(({ pattern, featureKey, module, source }) => ({ pattern, featureKey, module, source }));
+
       res.json({
         features: Array.from(granted),
+        // Client screens that need a feature (code baseline + admin-defined rules), so the
+        // sidebar and router lock them from the same data the server enforces.
+        screenGates,
         // Subset of `features` that's actually been purchased (or is free),
         // never inflated by the trial blanket grant - see getOrgPurchasedFeatures.
         purchasedFeatures: Array.from(purchased),

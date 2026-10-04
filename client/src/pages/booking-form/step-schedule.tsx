@@ -29,9 +29,57 @@ import { fetchAllStaff } from "@/lib/staff-api";
 
 interface StepScheduleProps {
   form: UseFormReturn<BookingFormValues>;
+  excludeBookingId?: string;
 }
 
-export function StepSchedule({ form }: StepScheduleProps) {
+const ACTIVE_STATUSES = ["pending", "confirmed", "in_progress"];
+
+function UpcomingStaffBookings({ storeId, staffId, excludeBookingId }: { storeId: string; staffId: string; excludeBookingId?: string }) {
+  const { data, isLoading } = useQuery<{ data: any[] }>({
+    queryKey: ["/api/bookings", storeId, "staff-upcoming", staffId],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        storeId,
+        staffId,
+        status: ACTIVE_STATUSES.join(","),
+        startDate: format(new Date(), "yyyy-MM-dd"),
+        limit: "100",
+      });
+      const res = await fetch(`/api/bookings?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch staff bookings");
+      return res.json();
+    },
+  });
+
+  const now = Date.now();
+  const upcoming = (data?.data ?? [])
+    .filter((b) => b.id !== excludeBookingId && new Date(b.scheduledAt).getTime() >= now)
+    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-3 text-sm" id="staff-upcoming-bookings">
+      <div className="mb-2 font-medium">Upcoming bookings for this staff ({upcoming.length})</div>
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading...</p>
+      ) : upcoming.length === 0 ? (
+        <p className="text-muted-foreground">No upcoming bookings. This staff member is free.</p>
+      ) : (
+        <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+          {upcoming.map((b) => (
+            <li key={b.id} className="flex items-center justify-between gap-2">
+              <span>{format(new Date(b.scheduledAt), "EEE, d MMM · h:mm a")}</span>
+              <span className="truncate text-muted-foreground">
+                {b.customer?.name ?? b.bookingRef} · {b.bookingRef}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export function StepSchedule({ form, excludeBookingId }: StepScheduleProps) {
   const { currentStore } = useStore();
   const [staffOpen, setStaffOpen] = useState(false);
 
@@ -222,6 +270,13 @@ export function StepSchedule({ form }: StepScheduleProps) {
                     </PopoverContent>
                   </Popover>
                   <FormMessage />
+                  {field.value && field.value !== "unassigned" && currentStore?.id && currentStore.id !== "all" && (
+                    <UpcomingStaffBookings
+                      storeId={currentStore.id}
+                      staffId={field.value}
+                      excludeBookingId={excludeBookingId}
+                    />
+                  )}
                 </FormItem>
               )}
             />

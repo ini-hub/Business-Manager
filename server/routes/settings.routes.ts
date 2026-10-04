@@ -20,6 +20,7 @@ import {
   inventory,
   staff,
   customRoles,
+  featureCatalog,
   taxRates,
   repayments,
   expenses,
@@ -28,6 +29,7 @@ import {
   cashRegisterSessions,
 } from "@shared/schema";
 import { z } from "zod";
+import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { db } from "../db";
 import { eq, and, gte, lte, gt, count, desc, inArray, asc } from "drizzle-orm";
 import { sanitizeString, sanitizeUUID, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber, sanitizeStoreCode } from "../sanitize";
@@ -398,6 +400,33 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       res.json(roles);
     } catch (error) {
       res.status(500).json({ error: "Could not load custom roles." });
+    }
+  });
+
+  // Which paid features sit under each Settings > Roles module, and whether this org holds
+  // them, so the role form can say "Staff & Payroll includes Staff Performance (not in your plan)".
+  // Driven by feature_catalog.permission_module, so a feature added in the admin console
+  // shows up here with no code change.
+  app.get("/api/permission-modules", isAuthenticated, async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
+
+      const [catalog, granted] = await Promise.all([
+        db.select().from(featureCatalog).where(eq(featureCatalog.isActive, true)),
+        getOrgEntitlements(businessId),
+      ]);
+      const modules = PERMISSION_MODULES.map((module) => ({
+        module,
+        features: catalog
+          .filter((f) => f.permissionModule === module && f.tierType !== "free" && f.tierType !== "bundle_child")
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((f) => ({ key: f.key, name: f.name, tierType: f.tierType, granted: granted.has(f.key) })),
+      }));
+      res.json({ modules });
+    } catch (error) {
+      console.error("GET /api/permission-modules error:", error);
+      res.status(500).json({ error: "Could not load permission modules." });
     }
   });
 

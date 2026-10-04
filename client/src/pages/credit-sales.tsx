@@ -52,8 +52,23 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { DataTable } from "@/components/data-table";
-import { MetricCard } from "@/components/metric-card";
-import { MetricGrid } from "@/components/metric-grid";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
+import { CreditFiltersSheet, CreditSortSheet } from "@/components/credit-filter-sheets";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import {
+  EMPTY_CREDIT_FILTERS,
+  buildCreditFilterChips,
+  clearCreditFilterChip,
+  countActiveCreditFilters,
+  creditMatchesFilters,
+  creditMatchesSearch,
+  creditSortLabel,
+  sortCredits,
+  type CreditFilterState,
+  type CreditSortState,
+} from "@/lib/credit-filters";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { CustomerLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
@@ -63,7 +78,7 @@ import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
 import { WRITE_OFF_REASONS } from "@shared/schema";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
+import { getCurrencyByCode } from "@/lib/currency-utils";
 
 
 export default function CreditSalesPage() {
@@ -91,6 +106,9 @@ export default function CreditSalesPage() {
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [creditSearchTerm, setCreditSearchTerm] = useState("");
+  const [creditFilters, setCreditFilters] = useState<CreditFilterState>(EMPTY_CREDIT_FILTERS);
+  const [creditSort, setCreditSort] = useState<CreditSortState | null>(null);
   const [isBulkWriteOff, setIsBulkWriteOff] = useState(false);
   const isOwner = user?.role === "owner";
 
@@ -140,6 +158,8 @@ export default function CreditSalesPage() {
     {
       key: "customerName",
       header: "Customer",
+      priority: 1 as const,
+      cardRender: (entry: any) => <span className="truncate">{entry.customerName}</span>,
       render: (entry: any) => (
         <CustomerLink
           customer={entry.customer ? {
@@ -158,6 +178,8 @@ export default function CreditSalesPage() {
     {
       key: "receiptNumber",
       header: "Receipt / Description",
+      priority: 3 as const,
+      cardRender: (entry: any) => <span className="truncate">{entry.receiptNumber ? `#${entry.receiptNumber}` : "Standalone"}</span>,
       render: (entry: any) => (
         <div className="flex flex-col">
           <span
@@ -199,6 +221,7 @@ export default function CreditSalesPage() {
     {
       key: "outstandingBalance",
       header: "Outstanding",
+      priority: 1 as const,
       className: "text-right",
       render: (entry: any) => (
         <span className="font-bold text-sm text-amber-500">
@@ -209,6 +232,12 @@ export default function CreditSalesPage() {
     {
       key: "dueDate",
       header: "Due Date",
+      priority: 2 as const,
+      cardRender: (entry: any) => (
+        <span className="truncate">
+          {entry.dueDate ? new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" }) : "No due date"}
+        </span>
+      ),
       render: (entry: any) => (
         entry.dueDate ? (
           <div className="flex flex-col">
@@ -225,6 +254,7 @@ export default function CreditSalesPage() {
     {
       key: "statusLabel",
       header: "Status",
+      priority: 2 as const,
       render: (entry: any) => getStatusBadge(entry.status),
     },
     {
@@ -332,11 +362,21 @@ export default function CreditSalesPage() {
     };
   });
 
-  const filterConfigs: TableFilterConfig[] = [
-    { key: "statusLabel", label: "Status", type: "select" },
-    { key: "dueDate", label: "Due Date", type: "date-range" },
-    { key: "outstandingBalance", label: "Outstanding Balance", type: "range", currencySymbol: "₦" },
-  ];
+  const currencySymbol = getCurrencyByCode(storeCurrency)?.symbol ?? "₦";
+  const searchedCredits = tableData.filter((e: any) => creditMatchesSearch(e, creditSearchTerm));
+  const visibleCredits = sortCredits(
+    searchedCredits.filter((e: any) => creditMatchesFilters(e, creditFilters)),
+    creditSort,
+  );
+  const customerOptions = Array.from(new Set(tableData.map((e: any) => e.customerName as string))).sort();
+
+  const creditCardAvatar = (entry: any) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(entry.customerName)}
+      </AvatarFallback>
+    </Avatar>
+  );
 
   const exportColumns = [
     { key: "customerName", header: "Customer" },
@@ -569,6 +609,9 @@ export default function CreditSalesPage() {
         description="Digital ledger for tracking customer credits, partial repayments, and pidgin notifications"
         actions={
           <>
+            <IconButton variant="ghost" onClick={() => refetchLedger()} label="Refresh list" className="h-9 w-9">
+              <RefreshCw className="h-4 w-4" />
+            </IconButton>
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={CREDIT_SALES_BULK_CONFIG}
@@ -598,100 +641,118 @@ export default function CreditSalesPage() {
         }
       />
 
-      {/* Summary Metrics Cards */}
-      <MetricGrid>
-        <MetricCard
-          title="Total Outstanding"
-          value={formatCurrency(summary?.totalOwed ?? 0)}
-          compactValue={formatCompact(summary?.totalOwed ?? 0)}
-          description={`${summary?.totalOwedCount ?? 0} customers owing`}
-          icon={<BookOpen className="h-4 w-4" />}
-          tone="amber"
-          className="glass-card hover-elevate"
-        />
-        <MetricCard
-          title="Overdue Balance"
-          value={formatCurrency(summary?.totalOverdue ?? 0)}
-          compactValue={formatCompact(summary?.totalOverdue ?? 0)}
-          description={`${summary?.totalOverdueCount ?? 0} debts overdue`}
-          icon={<AlertTriangle className="h-4 w-4 animate-pulse" />}
-          tone="rose"
-          className="glass-card hover-elevate"
-        />
-        <MetricCard
-          title="Due This Week"
-          value={formatCurrency(summary?.totalDueThisWeek ?? 0)}
-          compactValue={formatCompact(summary?.totalDueThisWeek ?? 0)}
-          description={`${summary?.totalDueThisWeekCount ?? 0} entries pending`}
-          icon={<Calendar className="h-4 w-4" />}
-          tone="blue"
-          className="glass-card hover-elevate"
-        />
-        <MetricCard
-          title="Collected (Month)"
-          value={formatCurrency(summary?.totalCollectedThisMonth ?? 0)}
-          compactValue={formatCompact(summary?.totalCollectedThisMonth ?? 0)}
-          description="Reflects successful collections"
-          icon={<TrendingDown className="h-4 w-4" />}
-          tone="emerald"
-          className="glass-card hover-elevate"
-        />
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          {
+            title: "Total Outstanding",
+            value: formatCurrency(summary?.totalOwed ?? 0),
+            compactValue: formatCompact(summary?.totalOwed ?? 0),
+            description: `${summary?.totalOwedCount ?? 0} customers owing`,
+            icon: <BookOpen className="h-4 w-4" />,
+            tone: "amber",
+            className: "glass-card hover-elevate",
+          },
+          {
+            title: "Overdue Balance",
+            value: formatCurrency(summary?.totalOverdue ?? 0),
+            compactValue: formatCompact(summary?.totalOverdue ?? 0),
+            description: `${summary?.totalOverdueCount ?? 0} debts overdue`,
+            icon: <AlertTriangle className="h-4 w-4 animate-pulse" />,
+            tone: "rose",
+            className: "glass-card hover-elevate",
+          },
+          {
+            title: "Due This Week",
+            value: formatCurrency(summary?.totalDueThisWeek ?? 0),
+            compactValue: formatCompact(summary?.totalDueThisWeek ?? 0),
+            description: `${summary?.totalDueThisWeekCount ?? 0} entries pending`,
+            icon: <Calendar className="h-4 w-4" />,
+            tone: "blue",
+            className: "glass-card hover-elevate",
+          },
+          {
+            title: "Collected (Month)",
+            value: formatCurrency(summary?.totalCollectedThisMonth ?? 0),
+            compactValue: formatCompact(summary?.totalCollectedThisMonth ?? 0),
+            description: "Reflects successful collections",
+            icon: <TrendingDown className="h-4 w-4" />,
+            tone: "emerald",
+            className: "glass-card hover-elevate",
+          },
+        ]}
+      />
 
-      {/* Main Ledger Table & Filters Card */}
-      <Card className="border-border/50 shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-base font-medium">Credit Sales Ledger</CardTitle>
-          <IconButton variant="ghost" onClick={() => refetchLedger()} label="Refresh list" className="h-8 w-8">
-            <RefreshCw className="h-4 w-4" />
-          </IconButton>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {user?.role !== "staff" && (
-            <BulkSelectionActionBar
-              count={selectedIds.length}
-              unitLabel="entry"
-              onClear={() => setSelectedIds([])}
-              actions={[
-                {
-                  key: "remind",
-                  label: "Send Reminder",
-                  pendingLabel: "Sending…",
-                  icon: <Send className="h-3.5 w-3.5" />,
-                  pending: bulkSendReminderMutation.isPending,
-                  onClick: () => bulkSendReminderMutation.mutate(selectedIds as string[]),
-                },
-                ...(isOwner
-                  ? [
-                      {
-                        key: "write-off",
-                        label: "Write Off Selected",
-                        icon: <XCircle className="h-3.5 w-3.5" />,
-                        tone: "destructive" as const,
-                        onClick: () => { setIsBulkWriteOff(true); setWriteOffReason(""); setWriteOffOpen(true); },
-                      },
-                    ]
-                  : []),
-              ]}
+      {/* Main ledger */}
+      <div className="space-y-3">
+      {user?.role !== "staff" && (
+        <BulkSelectionActionBar
+          count={selectedIds.length}
+          unitLabel="entry"
+          onClear={() => setSelectedIds([])}
+          actions={[
+            {
+              key: "remind",
+              label: "Send Reminder",
+              pendingLabel: "Sending…",
+              icon: <Send className="h-3.5 w-3.5" />,
+              pending: bulkSendReminderMutation.isPending,
+              onClick: () => bulkSendReminderMutation.mutate(selectedIds as string[]),
+            },
+            ...(isOwner
+              ? [
+                  {
+                    key: "write-off",
+                    label: "Write Off Selected",
+                    icon: <XCircle className="h-3.5 w-3.5" />,
+                    tone: "destructive" as const,
+                    onClick: () => { setIsBulkWriteOff(true); setWriteOffReason(""); setWriteOffOpen(true); },
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+        <ListControls
+          testIdPrefix="credit"
+          placeholder="Search customer, phone, receipt or note"
+          search={creditSearchTerm}
+          onSearchChange={setCreditSearchTerm}
+          filterCount={countActiveCreditFilters(creditFilters)}
+          filters={(trigger) => (
+            <CreditFiltersSheet
+              filters={creditFilters}
+              onApply={(next) => { setCreditFilters(next); setSelectedIds([]); }}
+              currencySymbol={currencySymbol}
+              customers={customerOptions}
+              resultCountFor={(draft) => searchedCredits.filter((e: any) => creditMatchesFilters(e, draft)).length}
+              trigger={trigger}
             />
           )}
-          <DataTable
-            data={tableData}
-            columns={columns}
-            searchable
-            searchPlaceholder="Search customer name, phone, receipt or description..."
-            searchKeys={["customerName", "customerMobile", "receiptNumber", "description"]}
-            isLoading={isLedgerLoading}
-            emptyMessage="No credit records found."
-            filterConfigs={filterConfigs}
-            multiselect={user?.role !== "staff"}
-            selectedIds={selectedIds}
-            onSelectedIdsChange={setSelectedIds}
-            urlKey="credit"
-          />
-        </CardContent>
-      </Card>
+          sortLabel={creditSortLabel(creditSort).replace(/^Sort: /, "")}
+          sort={(trigger) => <CreditSortSheet sort={creditSort} onChange={setCreditSort} trigger={trigger} />}
+          chips={buildCreditFilterChips(creditFilters, currencySymbol)}
+          onRemoveChip={(key) => setCreditFilters((f) => clearCreditFilterChip(f, key as Parameters<typeof clearCreditFilterChip>[1]))}
+          hasSort={creditSort !== null}
+          onClearAll={() => { setCreditFilters(EMPTY_CREDIT_FILTERS); setCreditSort(null); }}
+          visibleCount={visibleCredits.length}
+          noun="entry"
+        />
 
+        <DataTable
+          data={visibleCredits}
+          columns={columns}
+          hideToolbar
+          isLoading={isLedgerLoading}
+          emptyMessage="No credit records found."
+          multiselect={user?.role !== "staff"}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+          urlKey="credit"
+          showCardChevron
+          cardLayout="compact-grid"
+          cardAvatar={creditCardAvatar}
+        />
+      </div>
 
       {/* Record Repayment Dialog */}
       <Dialog open={repaymentOpen} onOpenChange={setRepaymentOpen}>

@@ -18,6 +18,9 @@ import {
 } from "@shared/schema";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 
+/** The status a transfer sits in while the other branch decides whether to take it on. */
+const awaitingResponseStatus = (t: { kind: string }) => (t.kind === "request" ? "requested" : "pending");
+
 export class StockTransferRepository extends BaseRepository<typeof stockTransfers> {
   constructor() {
     super(stockTransfers);
@@ -105,7 +108,8 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
         .insert(stockTransfers)
         .values({
           ...transferData,
-          status: "pending",
+          // A request waits for the supplying branch; a send waits for the receiving one.
+          status: transferData.kind === "request" ? "requested" : "pending",
         })
         .returning();
 
@@ -368,8 +372,8 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
       }
       // Only allow deletion of pending, rejected, or cancelled transfers
       // Completed/delivered transfers have already moved stock and cannot be deleted
-      if (!["pending", "rejected", "cancelled"].includes(transfer.status)) {
-        return { success: false, message: `Cannot delete a ${transfer.status} transfer. Only pending, rejected, or cancelled transfers can be deleted.` };
+      if (!["requested", "pending", "rejected", "cancelled"].includes(transfer.status)) {
+        return { success: false, message: `Cannot delete a ${transfer.status} transfer. Only requested, pending, rejected, or cancelled transfers can be deleted.` };
       }
 
       await tx.delete(stockTransferItems).where(eq(stockTransferItems.transferId, id));
@@ -382,8 +386,8 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
     return db.transaction(async (tx) => {
       const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
       if (!transfer) return { success: false, message: "Transfer not found." };
-      if (transfer.status !== "pending") {
-        return { success: false, message: `Transfer is already ${transfer.status}. Only pending transfers can be accepted.` };
+      if (transfer.status !== awaitingResponseStatus(transfer)) {
+        return { success: false, message: `Transfer is already ${transfer.status}. Only ${awaitingResponseStatus(transfer)} transfers can be accepted.` };
       }
 
       const [updated] = await tx
@@ -400,8 +404,8 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
     return db.transaction(async (tx) => {
       const [transfer] = await tx.select().from(stockTransfers).where(eq(stockTransfers.id, id));
       if (!transfer) return { success: false, message: "Transfer not found." };
-      if (transfer.status !== "pending") {
-        return { success: false, message: `Transfer is already ${transfer.status}. Only pending transfers can be rejected.` };
+      if (transfer.status !== awaitingResponseStatus(transfer)) {
+        return { success: false, message: `Transfer is already ${transfer.status}. Only ${awaitingResponseStatus(transfer)} transfers can be rejected.` };
       }
 
       const [updated] = await tx

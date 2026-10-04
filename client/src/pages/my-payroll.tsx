@@ -17,6 +17,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
 import { commissionHeadline } from "@shared/commission-explainer";
 import { generatePayslipPdf } from "@/lib/generatePayslipPdf";
+import { PeriodFilter, usePeriodFilter } from "@/components/period-filter";
+import { useAttendanceTracked } from "@/hooks/useAttendanceTracked";
+import { overlapsRange } from "@/lib/period-range";
 
 const PERIOD_TYPE_LABELS: Record<string, string> = {
   weekly: "Weekly",
@@ -38,7 +41,10 @@ export default function MyPayrollPage() {
   const formatCurrency = (val: number) => formatCurrencyUtil(val, currency);
   const formatCompact = (val: number) => formatCurrencyCompact(val, currency);
 
-  const [yearFilter, setYearFilter] = useState("all");
+  // Paid history defaults to the whole year: the open period isn't paid yet, so
+  // defaulting to it would open on an empty list.
+  const filter = usePeriodFilter("year");
+  const { tracked: attendanceTracked } = useAttendanceTracked();
   const [typeFilter, setTypeFilter] = useState("all");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -59,21 +65,24 @@ export default function MyPayrollPage() {
     [history],
   );
 
-  const years = useMemo(
-    () => Array.from(new Set(sortedHistory.map((h: any) => h.startDate?.slice(0, 4)).filter(Boolean))).sort().reverse(),
-    [sortedHistory],
-  );
   const periodTypes = useMemo(
     () => Array.from(new Set(sortedHistory.map((h: any) => h.periodType).filter(Boolean))),
     [sortedHistory],
   );
 
   const filteredHistory = useMemo(() => sortedHistory.filter((h: any) =>
-    (yearFilter === "all" || h.startDate?.startsWith(yearFilter)) &&
+    overlapsRange(h, filter.range) &&
     (typeFilter === "all" || h.periodType === typeFilter)
-  ), [sortedHistory, yearFilter, typeFilter]);
+  ), [sortedHistory, filter.range, typeFilter]);
 
-  const hasFilters = yearFilter !== "all" || typeFilter !== "all";
+  const totals = useMemo(() => filteredHistory.reduce(
+    (t: any, h: any) => ({
+      takeHome: t.takeHome + (h.takeHomePay ?? h.netPay ?? 0),
+      gross: t.gross + (h.grossPay ?? h.netPay ?? 0),
+      deductions: t.deductions + (h.deductionsTotal ?? 0),
+    }),
+    { takeHome: 0, gross: 0, deductions: 0 },
+  ), [filteredHistory]);
 
   // Pulls the same breakdown the detail page renders, then builds the PDF —
   // so a payslip can be pulled straight from the list without opening a
@@ -143,12 +152,14 @@ export default function MyPayrollPage() {
           icon={<Clock className="h-4 w-4" />}
           description="Based on present days"
         />
-        <MetricCard
-          title="Attendance (Present)"
-          value={summary?.attendance?.present || 0}
-          icon={<CalendarCheck className="h-4 w-4" />}
-          description={`${summary?.attendance?.absent || 0} absent this period`}
-        />
+        {attendanceTracked && (
+          <MetricCard
+            title="Attendance (Present)"
+            value={summary?.attendance?.present || 0}
+            icon={<CalendarCheck className="h-4 w-4" />}
+            description={`${summary?.attendance?.absent || 0} absent this period`}
+          />
+        )}
       </MetricGrid>
 
       {summary?.period?.id && (
@@ -175,31 +186,41 @@ export default function MyPayrollPage() {
                 <History className="h-5 w-5" />
                 Payment History
               </CardTitle>
-              <CardDescription>Records of your past paid salaries — filter, tap for a breakdown, or download a payslip directly</CardDescription>
+              <CardDescription>Your past paid salaries — pick a period, tap for a breakdown, or download a payslip</CardDescription>
             </div>
           </div>
-          {(years.length > 0 || periodTypes.length > 0) && (
+          <PeriodFilter filter={filter} />
+          {periodTypes.length > 1 && (
             <div className="flex items-center gap-2 flex-wrap">
               <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <Select value={yearFilter} onValueChange={setYearFilter}>
-                <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue placeholder="Year" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All years</SelectItem>
-                  {years.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
-                </SelectContent>
-              </Select>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue placeholder="Period type" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Period type" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All period types</SelectItem>
                   {periodTypes.map(t => <SelectItem key={t} value={t}>{PERIOD_TYPE_LABELS[t] || t}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {hasFilters && (
-                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setYearFilter("all"); setTypeFilter("all"); }}>
-                  Clear filters
+              {typeFilter !== "all" && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setTypeFilter("all")}>
+                  Clear
                 </Button>
               )}
+            </div>
+          )}
+          {!isHistoryLoading && sortedHistory.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/40 p-3 text-center" data-testid="payroll-totals">
+              <div>
+                <p className="text-[11px] text-muted-foreground">Paid out</p>
+                <p className="font-mono text-sm font-bold md:text-base">{formatCurrency(totals.takeHome)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Gross</p>
+                <p className="font-mono text-sm font-bold md:text-base">{formatCurrency(totals.gross)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Deductions</p>
+                <p className="font-mono text-sm font-bold md:text-base">{formatCurrency(totals.deductions)}</p>
+              </div>
             </div>
           )}
         </CardHeader>
@@ -217,8 +238,8 @@ export default function MyPayrollPage() {
           ) : filteredHistory.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-20" />
-              <p>No payments match these filters.</p>
-              <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setYearFilter("all"); setTypeFilter("all"); }}>Clear filters</Button>
+              <p>No payments in this period.</p>
+              <Button variant="ghost" size="sm" className="text-xs" onClick={() => { filter.setKey("year"); setTypeFilter("all"); }}>Show this year</Button>
             </div>
           ) : (
             <div className="divide-y">

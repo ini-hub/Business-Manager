@@ -1,6 +1,7 @@
+import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Check, Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -24,6 +25,13 @@ export default function RoleFormPage() {
   const [roleName, setRoleName] = useState("");
   const [roleDesc, setRoleDesc] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+
+  // Paid features under each module, with whether this business holds them. Driven by the
+  // feature catalog, so a feature added in the admin console appears here with no code change.
+  const { data: moduleInfo } = useQuery<{ modules: { module: string; features: { key: string; name: string; granted: boolean }[] }[] }>({
+    queryKey: ["/api/permission-modules"],
+  });
+  const featuresByModule = new Map((moduleInfo?.modules ?? []).map((m) => [m.module, m.features]));
 
   // Fetch all custom roles to extract the editing one
   const { data: customRoles = [], isLoading: isLoadingRoles } = useQuery<any[]>({
@@ -118,15 +126,7 @@ export default function RoleFormPage() {
     );
   }
 
-  const permissionsList = [
-    "Dashboard",
-    "Sales & Checkout",
-    "Customers",
-    "Staff & Payroll",
-    "Inventory & Catalog",
-    "Expenses & Reports",
-    "Settings",
-  ];
+  const permissionsList = PERMISSION_MODULES;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
@@ -177,6 +177,7 @@ export default function RoleFormPage() {
 
               <div className="space-y-3">
                 <Label className="text-sm font-semibold text-foreground uppercase tracking-wider block">Modular Permissions</Label>
+                <p className="text-xs text-muted-foreground">A role can only use a paid feature if your business has it in its plan and the role includes the module it sits under.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 border p-4 rounded-lg bg-muted/10">
                   {permissionsList.map((perm) => {
                     const isChecked = selectedPermissions.includes(perm);
@@ -195,7 +196,20 @@ export default function RoleFormPage() {
                           checked={isChecked}
                           onChange={() => togglePermission(perm)}
                         />
-                        {perm}
+                        <span className="flex flex-col gap-1">
+                          <span>{perm}</span>
+                          {(featuresByModule.get(perm) ?? []).map((f) => (
+                            <span
+                              key={f.key}
+                              className={`flex items-center gap-1 text-[10px] font-normal ${f.granted ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}
+                              title={f.granted ? "Included in your plan" : "Not in your plan yet - add it from Settings > Billing"}
+                            >
+                              {f.granted ? <Check className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                              {f.name}
+                              {!f.granted && " (not in your plan)"}
+                            </span>
+                          ))}
+                        </span>
                       </label>
                     );
                   })}

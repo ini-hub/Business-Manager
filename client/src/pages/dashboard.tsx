@@ -709,20 +709,24 @@ export default function Dashboard() {
 
       {/* ─── Desktop (lg+): dense analytics layout ─── */}
       <div className="hidden lg:block space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm text-muted-foreground leading-tight">
+        <div className="flex items-end justify-between gap-6">
+          <div className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {greeting}, {firstName}
             </p>
-            <h1 className="text-3xl font-bold tracking-tight leading-tight">Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {currentStore?.id === "all" ? `All ${stores.length} branches` : currentStore?.name}
-              {dateRangeLabel && ` · ${dateRangeLabel}`}
-              {prevRangeLabel && ` vs ${prevRangeLabel}`}
-            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight leading-none">Dashboard</h1>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {stores.length > 1 && (
+                <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-foreground">
+                  {currentStore?.id === "all" ? `All ${stores.length} branches` : currentStore?.name}
+                </span>
+              )}
+              {dateRangeLabel && <span>{dateRangeLabel}</span>}
+              {prevRangeLabel && <span className="text-muted-foreground/70">vs {prevRangeLabel}</span>}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-md border p-0.5">
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex items-center gap-0.5 rounded-lg bg-muted p-1">
               {([
                 ["today", "Today"],
                 ["7d", "7d"],
@@ -736,8 +740,10 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => applyDatePreset(preset)}
                   className={cn(
-                    "px-3 py-1.5 text-sm rounded font-medium transition-colors whitespace-nowrap",
-                    datePreset === preset ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground",
+                    "px-3 py-1.5 text-sm rounded-md font-medium transition-all whitespace-nowrap",
+                    datePreset === preset
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                   data-testid={`button-preset-${preset}`}
                 >

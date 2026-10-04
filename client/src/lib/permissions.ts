@@ -1,20 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 
-// Mirrors server/lib/permissions.ts PERMISSION_MODULES - keep both lists and
-// the role-form.tsx checkbox list in sync.
-export const PERMISSION_MODULES = [
-  "Dashboard",
-  "Sales & Checkout",
-  "Customers",
-  "Staff & Payroll",
-  "Inventory & Catalog",
-  "Expenses & Reports",
-  "Settings",
-] as const;
-export type PermissionModule = typeof PERMISSION_MODULES[number];
+import { PERMISSION_MODULES, roleHasModule, type PermissionModule } from "@shared/permissionModules";
 
-const STAFF_BASE_MODULES: PermissionModule[] = ["Sales & Checkout", "Customers", "Inventory & Catalog"];
+export { PERMISSION_MODULES, type PermissionModule };
 
 /**
  * Client-side mirror of server/lib/permissions.ts hasModulePermission - used
@@ -26,11 +15,7 @@ export function hasModulePermission(
   customRoles: { name: string; permissions?: string[] | null }[],
   module: PermissionModule,
 ): boolean {
-  if (!role) return false;
-  if (role === "owner" || role === "manager") return true;
-  if (role === "staff") return STAFF_BASE_MODULES.includes(module);
-  const match = customRoles.find((r) => r.name.toLowerCase() === role);
-  return match?.permissions?.includes(module) ?? false;
+  return roleHasModule(role, customRoles, module);
 }
 
 /** Whether the current user has `module` access - resolves custom roles via /api/custom-roles. */

@@ -1,20 +1,11 @@
 import { db } from "../db";
 import { customRoles } from "@shared/schema";
 import { and, eq } from "drizzle-orm";
+import { PERMISSION_MODULES, roleHasModule, type PermissionModule } from "@shared/permissionModules";
 
-// Modules a custom role's permissions[] can name - must match the checkbox
-// list in client/src/pages/role-form.tsx (permissionsList) and the System
-// Roles snapshot in client/src/pages/settings/components/roles-permissions.tsx.
-export const PERMISSION_MODULES = [
-  "Dashboard",
-  "Sales & Checkout",
-  "Customers",
-  "Staff & Payroll",
-  "Inventory & Catalog",
-  "Expenses & Reports",
-  "Settings",
-] as const;
-export type PermissionModule = typeof PERMISSION_MODULES[number];
+// The module list lives in shared/permissionModules.ts (one list for the role
+// form, these checks and the feature registry).
+export { PERMISSION_MODULES, type PermissionModule };
 
 /**
  * Whether `user` (req.user - role is either "owner"/"manager"/"staff" or a
@@ -32,10 +23,7 @@ export async function hasModulePermission(
   module: PermissionModule,
 ): Promise<boolean> {
   if (!user?.role) return false;
-  if (user.role === "owner" || user.role === "manager") return true;
-
-  const STAFF_BASE_MODULES: PermissionModule[] = ["Sales & Checkout", "Customers", "Inventory & Catalog"];
-  if (user.role === "staff") return STAFF_BASE_MODULES.includes(module);
+  if (user.role === "owner" || user.role === "manager" || user.role === "staff") return roleHasModule(user.role, [], module);
 
   if (!user.businessId) return false;
   // Custom roles are matched by name.toLowerCase() against user.role - see
@@ -45,6 +33,5 @@ export async function hasModulePermission(
   const rows = await db.select({ name: customRoles.name, permissions: customRoles.permissions })
     .from(customRoles)
     .where(and(eq(customRoles.businessId, user.businessId), eq(customRoles.isDeleted, false)));
-  const match = rows.find((r) => r.name.toLowerCase() === user.role);
-  return match?.permissions?.includes(module) ?? false;
+  return roleHasModule(user.role, rows, module);
 }

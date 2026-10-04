@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { GateRulesDialog } from "./GateRulesDialog";
+import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 const CATEGORIES = ["vendor_mgmt", "staff_mgmt", "customer_mgmt", "financial_mgmt", "tax_compliance", "inventory_mgmt", "analytics", "business_settings"] as const;
@@ -42,6 +44,7 @@ export default function FeatureCatalog() {
   const [editing, setEditing] = useState<any>(null);
   const [sunsetting, setSunsetting] = useState<any>(null);
   const [sunsetDate, setSunsetDate] = useState("");
+  const [gating, setGating] = useState<any>(null);
 
   const [form, setForm] = useState({
     key: "",
@@ -52,11 +55,12 @@ export default function FeatureCatalog() {
     priceMonthly: "",
     priceAnnual: "",
     freeLimit: "",
+    permissionModule: "none" as string,
     isActive: true,
   });
 
   const resetForm = () =>
-    setForm({ key: "", name: "", description: "", category: "staff_mgmt", tierType: "paid_flat", priceMonthly: "", priceAnnual: "", freeLimit: "", isActive: true });
+    setForm({ key: "", name: "", description: "", category: "staff_mgmt", tierType: "paid_flat", priceMonthly: "", priceAnnual: "", freeLimit: "", permissionModule: "none", isActive: true });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/admin/feature-catalog"],
@@ -120,6 +124,7 @@ export default function FeatureCatalog() {
       priceMonthly: f.priceMonthly != null ? String(f.priceMonthly) : "",
       priceAnnual: f.priceAnnual != null ? String(f.priceAnnual) : "",
       freeLimit: f.freeLimit != null ? String(f.freeLimit) : "",
+      permissionModule: f.permissionModule ?? "none",
       isActive: f.isActive,
     });
   };
@@ -133,6 +138,7 @@ export default function FeatureCatalog() {
     priceMonthly: form.priceMonthly ? Number(form.priceMonthly) : null,
     priceAnnual: form.priceAnnual ? Number(form.priceAnnual) : null,
     freeLimit: form.freeLimit ? Number(form.freeLimit) : null,
+    permissionModule: form.permissionModule === "none" ? null : form.permissionModule,
     isActive: form.isActive,
   });
 
@@ -197,6 +203,11 @@ export default function FeatureCatalog() {
                             <Edit2 className="mr-1.5 h-3 w-3" /> Edit
                           </Button>
                           {f.tierType !== "free" && f.tierType !== "bundle_child" && (
+                            <Button size="sm" variant="outline" onClick={() => setGating(f)}>
+                              <Lock className="mr-1.5 h-3 w-3" /> Gate rules
+                            </Button>
+                          )}
+                          {f.tierType !== "free" && f.tierType !== "bundle_child" && (
                             <Button size="sm" variant="outline" onClick={() => setSunsetting(f)}>
                               <Sunset className="mr-1.5 h-3 w-3" /> Sunset
                             </Button>
@@ -241,6 +252,7 @@ export default function FeatureCatalog() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {gating && <GateRulesDialog feature={gating} onClose={() => setGating(null)} />}
       {/* Schedule sunset dialog - §2.7 of the pay-per-feature plan */}
       <Dialog open={!!sunsetting} onOpenChange={(open) => !open && setSunsetting(null)}>
         <DialogContent className="max-w-md">
@@ -318,6 +330,17 @@ function FeatureForm({ form, setForm, keyEditable }: { form: any; setForm: (f: a
           <Input type="number" value={form.freeLimit} onChange={(e) => setForm({ ...form, freeLimit: e.target.value })} />
         </div>
       )}
+      <div className="space-y-1">
+        <Label className="text-xs">Settings &gt; Roles module</Label>
+        <Select value={form.permissionModule} onValueChange={(v) => setForm({ ...form, permissionModule: v })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            {PERMISSION_MODULES.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">Where this feature is listed on the business's role form. Custom roles need this module to use its admin-gated pages and routes.</p>
+      </div>
       <div className="flex items-center justify-between pt-1">
         <Label className="text-xs">Active (purchasable now)</Label>
         <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />

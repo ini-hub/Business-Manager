@@ -21,6 +21,8 @@ export * from "./pos-extras";
 export * from "./super-admin";
 export * from "./system";
 export * from "./sale-drafts";
+export * from "./inventory-drafts";
+export * from "./stock-transfer-drafts";
 export * from "./analytics";
 export * from "./entitlements";
 export * from "./platform";

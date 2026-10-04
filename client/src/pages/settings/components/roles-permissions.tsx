@@ -1,3 +1,4 @@
+import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
@@ -79,7 +80,7 @@ export function RolesPermissionsSection() {
             <CardContent className="space-y-2">
               <p className="text-xs font-semibold text-muted-foreground">Permissions Snapshot:</p>
               <div className="flex flex-wrap gap-1.5">
-                {["Dashboard", "Sales & Checkout", "Customers", "Staff & Payroll", "Inventory & Catalog", "Expenses & Reports", "Settings"].map((p) => (
+                {PERMISSION_MODULES.map((p) => (
                   <Badge key={p} variant="outline" className="text-[10px] py-0.5 px-1.5 flex items-center gap-1 bg-green-50/20 text-green-700 border-green-200/50">
                     <Check className="h-3 w-3 text-green-500" /> {p}
                   </Badge>
@@ -101,7 +102,7 @@ export function RolesPermissionsSection() {
             <CardContent className="space-y-2">
               <p className="text-xs font-semibold text-muted-foreground">Permissions Snapshot:</p>
               <div className="flex flex-wrap gap-1.5">
-                {["Dashboard", "Sales & Checkout", "Customers", "Staff & Payroll", "Inventory & Catalog", "Expenses & Reports"].map((p) => (
+                {PERMISSION_MODULES.filter((m) => m !== "Settings").map((p) => (
                   <Badge key={p} variant="outline" className="text-[10px] py-0.5 px-1.5 flex items-center gap-1 bg-green-50/20 text-green-700 border-green-200/50">
                     <Check className="h-3 w-3 text-green-500" /> {p}
                   </Badge>

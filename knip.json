@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "client/src/main.tsx",
+    "server/index.ts",
+    "script/build.ts",
+    "scripts/*.ts",
+    "seed-demo.ts",
+    "**/*.test.{ts,tsx}",
+    "**/*.itest.ts"
+  ],
+  "project": ["client/src/**/*.{ts,tsx}", "server/**/*.ts", "shared/**/*.ts", "scripts/**/*.ts"],
+  "ignore": ["client/src/components/ui/**"],
+  "drizzle": false
+}

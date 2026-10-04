@@ -1,19 +1,14 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { PeriodFilter, usePeriodFilter } from "@/components/period-filter";
+import { useAttendanceTracked } from "@/hooks/useAttendanceTracked";
 import { ClockInCard } from "@/components/clock-in-card";
 import { useStore } from "@/lib/store-context";
-import { format, parseISO, subDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { CalendarClock, CheckCircle2, XCircle, Hourglass } from "lucide-react";
 import { formatDurationCompact } from "@/lib/duration-utils";
 
@@ -58,8 +53,9 @@ const STATUS_LABEL: Record<string, string> = {
   leave: "Leave",
 };
 
-const PAGE_SIZE = 6; // weeks per page
-const WINDOW_DAYS = 180; // how far back the log goes; pagination makes this cheap to browse
+// The period filter bounds the range (a year at most), so the whole range comes
+// back in one request and the totals strip can add it up. The server caps this.
+const ALL_WEEKS = 500;
 
 /**
  * The caller's own attendance record — and only their own — for anyone,
@@ -73,19 +69,18 @@ const WINDOW_DAYS = 180; // how far back the log goes; pagination makes this che
  */
 export default function StaffAttendancePage() {
   const { currentStore } = useStore();
-  const [page, setPage] = useState(1);
-  const today = new Date();
-  const startDate = format(subDays(today, WINDOW_DAYS), "yyyy-MM-dd");
-  const endDate = format(today, "yyyy-MM-dd");
+  const { tracked, isLoading: trackedLoading } = useAttendanceTracked();
+  const filter = usePeriodFilter("current");
+  const { from: startDate, to: endDate } = filter.range;
 
   const { data, isLoading } = useQuery<AttendanceLogResponse>({
-    queryKey: ["/api/attendance/log", currentStore?.id, startDate, endDate, page],
+    queryKey: ["/api/attendance/log", currentStore?.id, startDate, endDate],
     queryFn: async () => {
       const res = await fetch(
-        `/api/attendance/log?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}&page=${page}&pageSize=${PAGE_SIZE}&self=1`,
+        `/api/attendance/log?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}&page=1&pageSize=${ALL_WEEKS}&self=1`,
         { credentials: "include" },
       );
-      if (!res.ok) return { groups: [], page: 1, pageSize: PAGE_SIZE, totalGroups: 0 };
+      if (!res.ok) return { groups: [], page: 1, pageSize: ALL_WEEKS, totalGroups: 0 };
       return res.json();
     },
     enabled: !!currentStore?.id,
@@ -102,8 +97,36 @@ export default function StaffAttendancePage() {
   });
 
   const groups = data?.groups ?? [];
-  const totalGroups = data?.totalGroups ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalGroups / PAGE_SIZE));
+  const totals = useMemo(
+    () => groups.reduce(
+      (t, g) => ({
+        present: t.present + g.summary.present,
+        late: t.late + g.summary.late,
+        absent: t.absent + g.summary.absent,
+        leave: t.leave + g.summary.leave + g.summary.holiday,
+      }),
+      { present: 0, late: 0, absent: 0, leave: 0 },
+    ),
+    [groups],
+  );
+
+  // Reached by a bookmarked or typed link: say so plainly rather than show a
+  // page of zeros.
+  if (!trackedLoading && !tracked) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="My Attendance" description="Your clock-ins and attendance record" compact />
+        <Card>
+          <CardContent className="py-10 text-center" data-testid="attendance-not-tracked">
+            <p className="text-sm font-semibold">Your store doesn't track attendance</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Nothing to clock in to or review here. If your manager turns attendance on, it will appear in this page.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -115,10 +138,26 @@ export default function StaffAttendancePage() {
 
       <ClockInCard />
 
+      <PeriodFilter filter={filter} />
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="attendance-totals">
+        {[
+          { label: "Present", value: totals.present },
+          { label: "Late", value: totals.late },
+          { label: "Absent", value: totals.absent },
+          { label: "Leave & holiday", value: totals.leave },
+        ].map((t) => (
+          <div key={t.label} className="rounded-xl border bg-card p-3 md:p-4">
+            <p className="text-xs text-muted-foreground md:text-sm">{t.label}</p>
+            <p className="mt-1 font-mono text-xl font-bold md:text-2xl">{isLoading ? "–" : t.value}</p>
+          </div>
+        ))}
+      </div>
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Your attendance log</CardTitle>
-          <CardDescription>Grouped by week, most recent first.</CardDescription>
+          <CardDescription>{filter.range.label} · grouped by week, most recent first.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {isLoading ? (
@@ -128,7 +167,7 @@ export default function StaffAttendancePage() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : groups.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No attendance recorded yet.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">No attendance recorded for this period.</p>
           ) : (
             groups.map((group) => (
               <div key={group.weekStart} data-testid={`week-${group.weekStart}`}>
@@ -172,32 +211,6 @@ export default function StaffAttendancePage() {
                 </div>
               </div>
             ))
-          )}
-
-          {totalPages > 1 && (
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    aria-disabled={page === 1}
-                    className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-                <PaginationItem>
-                  <span className="px-3 py-2 text-sm text-muted-foreground">
-                    Page {page} of {totalPages}
-                  </span>
-                </PaginationItem>
-                <PaginationItem>
-                  <PaginationNext
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    aria-disabled={page === totalPages}
-                    className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
           )}
         </CardContent>
       </Card>

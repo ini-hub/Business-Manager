@@ -1,61 +1,70 @@
-import { TrendingUp } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { formulaLabel, type CommissionExplanation } from "@shared/commission-explainer";
 
 /**
- * "Why is my pay this number" — the resolved compensation settings plus the
- * step-by-step math audit trail snapshotted when the period was calculated
- * (`payroll_entries.calculation_details.formulaSteps`).
+ * "How commission was worked out": the derivation steps as a short ledger,
+ * with the full step-by-step audit trail snapshotted at calculation
+ * (`payroll_entries.calculation_details.formulaSteps`) one click away.
  */
 export function PayrollFormulaBreakdown({
-  calculationDetails, fmtCur,
+  calculationDetails, explanation, fmtCur,
 }: {
   calculationDetails: any;
+  explanation?: CommissionExplanation | null;
   fmtCur: (v: number) => string;
 }) {
+  const [showLog, setShowLog] = useState(false);
   if (!calculationDetails) return null;
 
-  return (
-    <Card className="border-indigo-200 bg-indigo-50/10 dark:border-indigo-900/30 dark:bg-indigo-950/5">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2 text-indigo-950 dark:text-indigo-200">
-          <TrendingUp className="h-4 w-4 text-indigo-500" />
-          Formula & Calculation Step Breakdown ({calculationDetails.formulaName || calculationDetails.commissionFormula || "Resolved Model"})
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 bg-background p-3 rounded-lg border shadow-sm text-xs">
-          <div>
-            <span className="text-muted-foreground block mb-0.5 font-medium">Payment Method</span>
-            <span className="font-bold capitalize text-primary font-mono text-[13px]">{calculationDetails.paymentMethod}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground block mb-0.5 font-medium">Base Salary</span>
-            <span className="font-bold text-primary font-mono text-[13px]">{fmtCur(calculationDetails.baseSalary || 0)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground block mb-0.5 font-medium">Commission Type</span>
-            <span className="font-bold text-primary font-mono text-[13px] capitalize">{calculationDetails.commissionType}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground block mb-0.5 font-medium">Commission Rate</span>
-            <span className="font-bold text-primary font-mono text-[13px]">{(calculationDetails.commissionRate * 100).toFixed(0)}%</span>
-          </div>
-        </div>
+  const steps = explanation?.steps ?? [];
+  const logSteps: string[] = calculationDetails.formulaSteps || [];
+  const rate = Number(calculationDetails.commissionRate ?? 0) * 100;
+  const formula = calculationDetails.formulaName || formulaLabel(calculationDetails.commissionFormula);
+  const method = calculationDetails.paymentMethod === "fixed" ? "Fixed salary" : "Hybrid";
 
-        <div className="space-y-2 mt-2">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Step-by-Step Math Audit Trail</h4>
-          <div className="space-y-2.5">
-            {(calculationDetails.formulaSteps || []).map((step: string, idx: number) => (
-              <div key={idx} className="flex gap-3 text-xs leading-relaxed items-start">
-                <span className="flex-shrink-0 h-5 w-5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold font-mono text-[11px] mt-0.5">
-                  {idx + 1}
-                </span>
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium">{step}</span>
-              </div>
-            ))}
-          </div>
+  return (
+    <section className="rounded-xl border bg-card p-4 md:p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold">How commission was worked out</h2>
+        <span className="text-xs text-muted-foreground">{method} · {formula}</span>
+      </div>
+
+      {steps.length > 0 ? (
+        <ul className="mt-3 divide-y">
+          {steps.map((s, i) => {
+            const value = s.format === "count" ? String(s.value) : fmtCur(s.value);
+            const strong = s.kind === "result" || s.kind === "subtotal";
+            return (
+              <li key={i} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <span className={strong ? "font-semibold" : ""}>{s.label}</span>
+                <span className={`tabular-nums ${strong ? "font-bold" : "font-medium"}`}>{s.kind === "less" ? "−" : ""}{value}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">
+          {calculationDetails.paymentMethod === "fixed" ? "Fixed salary: there is no commission component." : `Commission rate is ${+rate.toFixed(2)}%.`}
+        </p>
+      )}
+
+      {logSteps.length > 0 && (
+        <div className="mt-2">
+          <button type="button" className="text-sm font-medium text-primary hover:underline" aria-expanded={showLog} onClick={() => setShowLog(v => !v)}>
+            {showLog ? "Hide calculation log" : "Show calculation log"}
+          </button>
+          {showLog && (
+            <ol className="mt-3 space-y-2.5">
+              {logSteps.map((step, idx) => (
+                <li key={idx} className="flex items-start gap-3 text-xs leading-relaxed">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[11px] font-bold">{idx + 1}</span>
+                  <span className="text-muted-foreground">{step}</span>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </section>
   );
 }

@@ -8,7 +8,8 @@ import { STALE_TIMES } from "@/lib/queryClient";
 import { Plus, Edit, Trash2, Phone, Mail, MapPin, FileText, Building2, Archive, RotateCcw } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/icon-button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -21,22 +22,34 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { DataTable, type BulkAction } from "@/components/data-table";
+import { DataTable, type BulkAction, type RowAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
+import { ListControls } from "@/components/list-controls";
+import { MetricRow } from "@/components/metric-row";
+import { VendorFiltersSheet, VendorSortSheet } from "@/components/vendor-filter-sheets";
+import {
+  EMPTY_VENDOR_FILTERS,
+  buildVendorFilterChips,
+  clearVendorFilterChip,
+  countActiveVendorFilters,
+  sortVendors,
+  vendorMatchesFilters,
+  vendorSortLabel,
+  type VendorFilterState,
+  type VendorSortState,
+} from "@/lib/vendor-filters";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
-import { MetricCard } from "@/components/metric-card";
-import { MetricGrid } from "@/components/metric-grid";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { BulkOperations } from "@/components/bulk-operations";
 import { VENDOR_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
 import type { Vendor, VendorBill } from "@shared/schema";
 
 type VendorWithStats = Vendor & {
@@ -44,6 +57,8 @@ type VendorWithStats = Vendor & {
   totalPaid?: number;
   outstandingBalance?: number;
   billCount?: number;
+  openOrders?: number;
+  lastOrderAt?: string | null;
 };
 
 const emptyForm = {
@@ -77,6 +92,11 @@ export default function VendorsPage() {
   const [activeTab, setActiveTab] = useUrlState<"active" | "archived">("tab", "active");
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [archivedSelectedIds, setArchivedSelectedIds] = useState<(string | number)[]>([]);
+  const [vendorSearchTerm, setVendorSearchTerm] = useState("");
+  const [vendorFilters, setVendorFilters] = useState<VendorFilterState>(EMPTY_VENDOR_FILTERS);
+  const [vendorSort, setVendorSort] = useState<VendorSortState | null>(null);
+  const [archivedSearchTerm, setArchivedSearchTerm] = useState("");
+  const [archivedSort, setArchivedSort] = useState<VendorSortState | null>(null);
   const [visibleVendorRows, setVisibleVendorRows] = useState<VendorWithStats[]>([]);
   const [location, setLocation] = useLocation();
   const search = useSearch();
@@ -104,12 +124,24 @@ export default function VendorsPage() {
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
+  const { data: vendorPOs = [] } = useQuery<{ vendorId: string; status: string; createdAt: string }[]>({
+    queryKey: ["/api/purchase-orders", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/purchase-orders?storeId=${currentStore!.id}`);
+      return res.json();
+    },
+    enabled: !!currentStore?.id && currentStore.id !== "all",
+  });
+
   // Enrich vendors with bill stats
   const vendorsWithStats: VendorWithStats[] = vendors.map((v) => {
     const vBills = bills.filter((b) => b.vendorId === v.id);
     const totalBilled = vBills.reduce((s, b) => s + Number(b.amount), 0);
     const totalPaid = vBills.reduce((s, b) => s + Number(b.amountPaid ?? 0), 0);
-    return { ...v, totalBilled, totalPaid, outstandingBalance: totalBilled - totalPaid, billCount: vBills.length };
+    const vPOs = vendorPOs.filter((po) => po.vendorId === v.id);
+    const openOrders = vPOs.filter((po) => po.status === "ordered" || po.status === "partially_received").length;
+    const lastOrderAt = vPOs.reduce<string | null>((m, po) => (!m || po.createdAt > m ? po.createdAt : m), null);
+    return { ...v, totalBilled, totalPaid, outstandingBalance: totalBilled - totalPaid, billCount: vBills.length, openOrders, lastOrderAt };
   });
 
   const selectedVendorBills = bills.filter((b) => b.vendorId === selectedVendorId);
@@ -337,63 +369,63 @@ export default function VendorsPage() {
     });
   };
 
-  const vendorFilterConfigs: TableFilterConfig[] = [
-    { key: "outstandingBalance", label: "Outstanding Balance", type: "range", currencySymbol: storeCurrency === "USD" ? "$" : "₦" },
-  ];
+  const vendorCardAvatar = (v: VendorWithStats) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(v.name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+
+  const activeRowActions = (v: VendorWithStats): RowAction[] =>
+    isManagerOrOwner
+      ? [
+          { label: "Edit vendor", icon: <Edit className="h-4 w-4" />, onClick: () => openEdit(v) },
+          { label: "Archive vendor", icon: <Archive className="h-4 w-4" />, onClick: () => archiveMutation.mutate(v.id), disabled: archiveMutation.isPending },
+        ]
+      : [];
+
+  const archivedRowActions = (v: VendorWithStats): RowAction[] =>
+    isManagerOrOwner
+      ? [
+          { label: "Restore vendor", icon: <RotateCcw className="h-4 w-4" />, onClick: () => restoreMutation.mutate(v.id), disabled: restoreMutation.isPending },
+          // Permanent delete matches the server's owner-only requireRole("owner") gate on DELETE /api/vendors/:id
+          ...(isOwner ? [{ label: "Permanently delete", icon: <Trash2 className="h-4 w-4" />, onClick: () => deleteMutation.mutate(v.id), destructive: true, disabled: deleteMutation.isPending }] : []),
+        ]
+      : [];
 
   const vendorColumns = [
-    { key: "name", header: "Vendor", render: (v: VendorWithStats) => (
+    { key: "name", header: "Vendor", priority: 1 as const, cardRender: (v: VendorWithStats) => <span className="truncate">{v.name}</span>, render: (v: VendorWithStats) => (
       <button className="text-left" onClick={() => setSelectedVendorId(selectedVendorId === v.id ? null : v.id)}>
         <p className="font-medium text-sm">{v.name}</p>
         {v.contactName && <p className="text-xs text-muted-foreground">{v.contactName}</p>}
       </button>
     )},
-    { key: "phone", header: "Contact", render: (v: VendorWithStats) => (
+    { key: "phone", header: "Contact", priority: 2 as const, cardRender: (v: VendorWithStats) => <span className="truncate">{v.phone || v.email || v.contactName || "—"}</span>, render: (v: VendorWithStats) => (
       <div className="space-y-0.5">
         {v.phone && <p className="text-xs flex items-center gap-1"><Phone className="h-3 w-3" />{v.phone}</p>}
         {v.email && <p className="text-xs flex items-center gap-1"><Mail className="h-3 w-3" />{v.email}</p>}
       </div>
     )},
-    { key: "totalBilled", header: "Total Billed", render: (v: VendorWithStats) => <span className="font-mono text-sm">{formatCurrency(v.totalBilled ?? 0)}</span> },
-    { key: "outstandingBalance", header: "Outstanding", render: (v: VendorWithStats) => (
+    { key: "totalBilled", header: "Total Billed", priority: 2 as const, render: (v: VendorWithStats) => <span className="font-mono text-sm">{formatCurrency(v.totalBilled ?? 0)}</span> },
+    { key: "outstandingBalance", header: "Outstanding", priority: 1 as const, render: (v: VendorWithStats) => (
       <span className={`font-mono text-sm font-medium ${(v.outstandingBalance ?? 0) > 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
         {formatCurrency(v.outstandingBalance ?? 0)}
       </span>
     )},
-    { key: "actions", header: "", render: (v: VendorWithStats) => isManagerOrOwner && (
-      <div className="flex items-center gap-1">
-        <IconButton label="Edit vendor" variant="ghost" className="h-7 w-7" onClick={() => openEdit(v)}><Edit className="h-3.5 w-3.5" /></IconButton>
-        <IconButton label="Archive vendor" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => archiveMutation.mutate(v.id)} disabled={archiveMutation.isPending}>
-          <Archive className="h-3.5 w-3.5" />
-        </IconButton>
-      </div>
-    )},
   ];
 
   const archivedVendorColumns = [
-    { key: "name", header: "Vendor", render: (v: VendorWithStats) => (
+    { key: "name", header: "Vendor", priority: 1 as const, cardRender: (v: VendorWithStats) => <span className="truncate">{v.name}</span>, render: (v: VendorWithStats) => (
       <div>
         <p className="font-medium text-sm text-muted-foreground">{v.name}</p>
         {v.contactName && <p className="text-xs text-muted-foreground">{v.contactName}</p>}
       </div>
     )},
-    { key: "phone", header: "Contact", render: (v: VendorWithStats) => (
+    { key: "phone", header: "Contact", priority: 2 as const, cardRender: (v: VendorWithStats) => <span className="truncate">{v.phone || v.email || "—"}</span>, render: (v: VendorWithStats) => (
       <div className="space-y-0.5">
         {v.phone && <p className="text-xs flex items-center gap-1 text-muted-foreground"><Phone className="h-3 w-3" />{v.phone}</p>}
         {v.email && <p className="text-xs flex items-center gap-1 text-muted-foreground"><Mail className="h-3 w-3" />{v.email}</p>}
-      </div>
-    )},
-    { key: "actions", header: "", render: (v: VendorWithStats) => isManagerOrOwner && (
-      <div className="flex items-center gap-1">
-        <IconButton label="Restore vendor" variant="ghost" className="h-7 w-7 text-emerald-600" onClick={() => restoreMutation.mutate(v.id)} disabled={restoreMutation.isPending}>
-          <RotateCcw className="h-3.5 w-3.5" />
-        </IconButton>
-        {/* Permanent delete matches the server's owner-only requireRole("owner") gate on DELETE /api/vendors/:id */}
-        {isOwner && (
-          <IconButton label="Permanently delete" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteMutation.mutate(v.id)} disabled={deleteMutation.isPending}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </IconButton>
-        )}
       </div>
     )},
   ];
@@ -457,68 +489,132 @@ export default function VendorsPage() {
         }
       />
 
-      {/* Summary cards */}
-      <MetricGrid>
-        <MetricCard title="Total Vendors" value={vendors.length} />
-        <MetricCard title="Open Bills" value={unpaidBills} />
-        <MetricCard
-          title="Total Outstanding"
-          value={formatCurrency(totalOutstanding)}
-          compactValue={formatCompact(totalOutstanding)}
-        />
-        <MetricCard title="Total Bills" value={bills.length} />
-      </MetricGrid>
+      <MetricRow
+        metrics={[
+          { title: "Total Vendors", value: vendors.length },
+          { title: "Open Bills", value: unpaidBills },
+          { title: "Total Outstanding", value: formatCurrency(totalOutstanding), compactValue: formatCompact(totalOutstanding) },
+          { title: "Total Bills", value: bills.length },
+        ]}
+      />
 
       {/* Vendor list with tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "active" | "archived")}>
-        <TabsList>
-          <TabsTrigger value="active">Active ({vendors.length})</TabsTrigger>
-          <TabsTrigger value="archived">Archived ({archivedVendors.length})</TabsTrigger>
-        </TabsList>
+        <PolymorphicTabsList
+          tabs={[
+            { value: "active", label: `Active ${vendors.length}` },
+            { value: "archived", label: `Archived ${archivedVendors.length}` },
+          ]}
+          variant="bordered"
+        />
 
-        <TabsContent value="active" className="mt-4 space-y-3">
-          <DataTable
-            data={vendorsWithStats}
-            columns={vendorColumns}
-            searchable
-            searchPlaceholder="Search vendors..."
-            searchKeys={["name", "contactName", "email", "phone"]}
-            filterConfigs={vendorFilterConfigs}
-            isLoading={isLoading}
-            emptyTitle="No Vendors Yet"
-            emptyMessage="Add your suppliers to start tracking bills and payments."
-            emptyIcon={<Building2 className="h-6 w-6" />}
-            emptyAction={isManagerOrOwner && <Button size="sm" className="gap-2" onClick={openCreate}><Plus className="h-4 w-4" />Add First Vendor</Button>}
-            multiselect={isManagerOrOwner}
-            selectedIds={selectedIds}
-            onSelectedIdsChange={setSelectedIds}
-            bulkActions={isManagerOrOwner ? activeVendorBulkActions : undefined}
-            entityNoun={{ singular: "vendor", plural: "vendors" }}
-            onVisibleDataChange={setVisibleVendorRows}
-            urlKey="active"
-          />
-        </TabsContent>
+        {(() => {
+          const searchRows = <T extends VendorWithStats>(rows: T[], term: string): T[] => {
+            const q = term.trim().toLowerCase();
+            if (!q) return rows;
+            return rows.filter((v) =>
+              v.name.toLowerCase().includes(q) ||
+              v.contactName?.toLowerCase().includes(q) ||
+              v.email?.toLowerCase().includes(q) ||
+              v.phone?.toLowerCase().includes(q)
+            );
+          };
+          const searchedActive = searchRows(vendorsWithStats, vendorSearchTerm);
+          const visibleActive = sortVendors(searchedActive.filter((v) => vendorMatchesFilters(v, vendorFilters)), vendorSort);
+          const searchedArchived = searchRows(archivedVendors as VendorWithStats[], archivedSearchTerm);
+          const visibleArchived = sortVendors(searchedArchived, archivedSort);
 
-        <TabsContent value="archived" className="mt-4 space-y-3">
-          <DataTable
-            data={archivedVendors as VendorWithStats[]}
-            columns={archivedVendorColumns}
-            searchable
-            searchPlaceholder="Search archived vendors..."
-            searchKeys={["name", "contactName", "email", "phone"]}
-            isLoading={isLoading}
-            emptyTitle="No Archived Vendors"
-            emptyMessage="Archived vendors appear here. Their bill history is preserved."
-            emptyIcon={<Archive className="h-6 w-6 opacity-40" />}
-            multiselect={isManagerOrOwner}
-            selectedIds={archivedSelectedIds}
-            onSelectedIdsChange={setArchivedSelectedIds}
-            bulkActions={isManagerOrOwner ? archivedVendorBulkActions : undefined}
-            entityNoun={{ singular: "vendor", plural: "vendors" }}
-            onVisibleDataChange={(rows) => setVisibleVendorRows(rows as VendorWithStats[])}
-            urlKey="archivedTbl"
-          />
-        </TabsContent>
+          return (
+            <>
+              <TabsContent value="active" className="mt-4 space-y-3">
+                <ListControls
+                  testIdPrefix="vendor"
+                  placeholder="Search vendor, contact, phone or email"
+                  search={vendorSearchTerm}
+                  onSearchChange={setVendorSearchTerm}
+                  filterCount={countActiveVendorFilters(vendorFilters)}
+                  filters={(trigger) => (
+                    <VendorFiltersSheet
+                      filters={vendorFilters}
+                      onApply={setVendorFilters}
+                      resultCountFor={(draft) => searchedActive.filter((v) => vendorMatchesFilters(v, draft)).length}
+                      trigger={trigger}
+                    />
+                  )}
+                  sortLabel={vendorSortLabel(vendorSort).replace(/^Sort: /, "")}
+                  sort={(trigger) => <VendorSortSheet sort={vendorSort} onChange={setVendorSort} trigger={trigger} />}
+                  chips={buildVendorFilterChips(vendorFilters)}
+                  onRemoveChip={(key) => setVendorFilters((f) => clearVendorFilterChip(f, key as keyof VendorFilterState))}
+                  hasSort={vendorSort !== null}
+                  onClearAll={() => { setVendorFilters(EMPTY_VENDOR_FILTERS); setVendorSort(null); }}
+                  visibleCount={visibleActive.length}
+                  noun="vendor"
+                />
+
+                <DataTable
+                  data={visibleActive}
+                  columns={vendorColumns}
+                  hideToolbar
+                  isLoading={isLoading}
+                  emptyTitle="No Vendors Yet"
+                  emptyMessage="Add your suppliers to start tracking bills and payments."
+                  emptyIcon={<Building2 className="h-6 w-6" />}
+                  emptyAction={isManagerOrOwner && <Button size="sm" className="gap-2" onClick={openCreate}><Plus className="h-4 w-4" />Add First Vendor</Button>}
+                  multiselect={isManagerOrOwner}
+                  selectedIds={selectedIds}
+                  onSelectedIdsChange={setSelectedIds}
+                  bulkActions={isManagerOrOwner ? activeVendorBulkActions : undefined}
+                  entityNoun={{ singular: "vendor", plural: "vendors" }}
+                  onVisibleDataChange={setVisibleVendorRows}
+                  urlKey="active"
+                  showCardChevron
+                  cardLayout="compact-grid"
+                  cardAvatar={vendorCardAvatar}
+                  rowActions={activeRowActions}
+                />
+              </TabsContent>
+
+              <TabsContent value="archived" className="mt-4 space-y-3">
+                <ListControls
+                  testIdPrefix="archived-vendor"
+                  placeholder="Search vendor, contact, phone or email"
+                  search={archivedSearchTerm}
+                  onSearchChange={setArchivedSearchTerm}
+                  filterCount={0}
+                  sortLabel={vendorSortLabel(archivedSort).replace(/^Sort: /, "")}
+                  sort={(trigger) => <VendorSortSheet sort={archivedSort} onChange={setArchivedSort} nameOnly trigger={trigger} />}
+                  chips={[]}
+                  onRemoveChip={() => {}}
+                  hasSort={archivedSort !== null}
+                  onClearAll={() => setArchivedSort(null)}
+                  visibleCount={visibleArchived.length}
+                  noun="vendor"
+                />
+
+                <DataTable
+                  data={visibleArchived}
+                  columns={archivedVendorColumns}
+                  hideToolbar
+                  isLoading={isLoading}
+                  emptyTitle="No Archived Vendors"
+                  emptyMessage="Archived vendors appear here. Their bill history is preserved."
+                  emptyIcon={<Archive className="h-6 w-6" />}
+                  multiselect={isManagerOrOwner}
+                  selectedIds={archivedSelectedIds}
+                  onSelectedIdsChange={setArchivedSelectedIds}
+                  bulkActions={isManagerOrOwner ? archivedVendorBulkActions : undefined}
+                  entityNoun={{ singular: "vendor", plural: "vendors" }}
+                  onVisibleDataChange={(rows) => setVisibleVendorRows(rows as VendorWithStats[])}
+                  urlKey="archivedTbl"
+                  showCardChevron
+                  cardLayout="compact-grid"
+                  cardAvatar={vendorCardAvatar}
+                  rowActions={archivedRowActions}
+                />
+              </TabsContent>
+            </>
+          );
+        })()}
       </Tabs>
 
       {/* Bills panel for selected vendor */}

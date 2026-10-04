@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Check, Circle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,19 +22,39 @@ import { fetchAllStaff } from "@/lib/staff-api";
  */
 export function GettingStartedChecklist() {
   const { currentStore } = useStore();
+  const { user } = useAuth();
+  const isStaff = user?.role === "staff";
   const enabled = !!currentStore?.id && currentStore.id !== "all";
 
+  // Setup is the owner's and manager's job: staff can't open those forms, so for
+  // them the staff list isn't fetched and the steps aren't shown at all.
   const { data: staffList = [] } = useQuery<any[]>({
     queryKey: ["/api/staff", currentStore?.id],
     queryFn: () => fetchAllStaff(currentStore!.id),
-    enabled,
+    enabled: enabled && !isStaff,
   });
-  const { data: products = [] } = useQuery<any[]>({
+  const { data: products = [], isSuccess: productsLoaded } = useQuery<any[]>({
     queryKey: ["/api/products", currentStore?.id],
     enabled,
   });
 
   if (!enabled) return null;
+
+  if (isStaff) {
+    // Only claim the catalogue is empty once it has actually loaded; a failed
+    // fetch also leaves `products` empty.
+    if (!productsLoaded || products.length > 0) return null;
+    return (
+      <Card className="border-amber-300/60 bg-amber-50 dark:bg-amber-950/20" data-testid="card-store-not-ready">
+        <CardContent className="p-3 space-y-0.5">
+          <p className="font-medium text-sm">This store has nothing to sell yet</p>
+          <p className="text-xs text-muted-foreground">
+            No products or services have been added. Ask your manager to add them, then you can ring up sales here.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const missingStaff = staffList.length === 0;
   const missingInventory = products.length === 0;

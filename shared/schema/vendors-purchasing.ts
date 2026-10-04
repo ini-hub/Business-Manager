@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, index, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, index, uniqueIndex, numeric, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { stores } from "./stores";
@@ -115,14 +115,20 @@ export const purchaseOrders = pgTable("purchase_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
-  poNumber: text("po_number").notNull().unique(),
+  poNumber: text("po_number").notNull(),
   status: text("status").notNull().default("draft"),
   totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
   expectedDelivery: timestamp("expected_delivery"),
+  supplierRef: text("supplier_ref"),
+  placedAt: timestamp("placed_at"),
+  notes: text("notes"),
+  receiptKey: text("receipt_key"),
+  receiptName: text("receipt_name"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_purchase_orders_store").on(table.storeId),
+  uniqueIndex("purchase_orders_store_po_number_unique").on(table.storeId, table.poNumber),
   index("idx_purchase_orders_vendor").on(table.vendorId),
 ]);
 
@@ -135,6 +141,18 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
   totalCost: numeric("total_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
 });
+
+export const purchaseOrderDeliveryReceipts = pgTable("purchase_order_delivery_receipts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  poId: varchar("po_id").notNull().references(() => purchaseOrders.id),
+  restockEventId: varchar("restock_event_id").references(() => inventoryRestockEvents.id),
+  receiptKey: text("receipt_key").notNull(),
+  receiptName: text("receipt_name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_po_delivery_receipts_po").on(table.poId),
+]);
+export type PurchaseOrderDeliveryReceipt = typeof purchaseOrderDeliveryReceipts.$inferSelect;
 
 export const purchaseOrderRelations = relations(purchaseOrders, ({ one, many }) => ({
   store: one(stores, { fields: [purchaseOrders.storeId], references: [stores.id] }),
@@ -164,7 +182,12 @@ export const stockTransfers = pgTable("stock_transfers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   fromStoreId: varchar("from_store_id").notNull().references(() => stores.id),
   toStoreId: varchar("to_store_id").notNull().references(() => stores.id),
-  status: text("status").notNull().default("pending"), // pending, accepted, rejected, scheduled, delivered, confirmed, cancelled
+  status: text("status").notNull().default("pending"), // requested, pending, accepted, rejected, scheduled, delivered, confirmed, cancelled
+  // 'send': the sending branch pushes stock and the receiving branch accepts it (starts as
+  // 'pending'). 'request': the receiving branch asks a neighbour for stock and the sending
+  // branch approves (starts as 'requested'). Either way fromStoreId is where the stock
+  // leaves and toStoreId is where it arrives; from 'accepted' on, both kinds share a path.
+  kind: text("kind").notNull().default("send"),
   notes: text("notes"),
   // Workflow tracking
   acceptedAt: timestamp("accepted_at"),

@@ -13,6 +13,8 @@ import { startTrialReminderService } from "./services/TrialReminderService";
 import { startFeatureSunsetReminderService } from "./services/FeatureSunsetReminderService";
 import { startAttendanceDayCloseService } from "./services/AttendanceDayCloseService";
 import { runMigrations } from "./migrate";
+import { assertCatalogSeeded } from "./lib/entitlements";
+import { formatSyncReport, syncFeatureRegistry } from "./lib/featureSync";
 
 // Manually load .env file if DATABASE_URL is not already in env
 if (!process.env.DATABASE_URL) {
@@ -124,6 +126,17 @@ app.use((req, res, next) => {
 
 (async () => {
   await runMigrations();
+  // Opt-in: lets a deploy keep the catalog and flags in step with shared/features.ts.
+  // Off by default so booting against a database never writes to its catalog unasked;
+  // `npm run features:sync` does the same on demand.
+  if (process.env.FEATURE_SYNC_ON_BOOT === "true") {
+    try {
+      log(`feature sync:\n${formatSyncReport(await syncFeatureRegistry())}`);
+    } catch (error) {
+      console.error("[features] boot sync failed:", error);
+    }
+  }
+  await assertCatalogSeeded();
 
   await registerRoutes(httpServer, app);
 

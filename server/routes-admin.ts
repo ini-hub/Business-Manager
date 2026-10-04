@@ -1,3 +1,11 @@
+import { listApiRoutes } from "./lib/listRoutes";
+import { APP_SCREEN_PATHS } from "@shared/screens";
+import { validateGateRule } from "@shared/gateRules";
+import { FEATURES, type FeatureDef } from "@shared/features";
+import {
+  GateRuleError, computeRuleImpact, listRuleEvents as listGateRuleEvents, listRulesWithFeature, revertEvent as revertGateRuleEvent,
+  createRule as createGateRule, updateRule as updateGateRule, enableRule as enableGateRule, disableRule as disableGateRule, deleteRule as deleteGateRule,
+} from "./lib/gateRuleAdmin";
 import { Router, type Request, type Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
@@ -2259,33 +2267,9 @@ adminRouter.get("/feature-flags", isAdminAuthenticated, async (req: Request, res
   }
 });
 
-adminRouter.post("/feature-flags", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
-  const { name, status, scopedOrgIds, description } = req.body;
-
-  if (!name || !description) {
-    return res.status(400).json({ error: "Flag name and description are required." });
-  }
-
-  try {
-    const [newFlag] = await db
-      .insert(featureFlags)
-      .values({
-        name,
-        status: status || "off",
-        scopedOrgIds: scopedOrgIds ? JSON.stringify(scopedOrgIds) : null,
-        description,
-        updatedBy: req.admin!.email,
-      })
-      .returning();
-
-    await writeAuditLog(req, "create_feature_flag", name, { status });
-
-    return res.json({ success: true, flag: newFlag });
-  } catch (error) {
-    console.error("Create feature flag error:", error);
-    return res.status(500).json({ error: "Failed to register feature flag." });
-  }
-});
+// Flags are not created by hand: every feature_catalog row owns exactly one
+// (created together with it by POST /feature-catalog or the registry sync), so
+// a flag can never exist under a name that matches no feature.
 
 adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -2327,6 +2311,11 @@ adminRouter.delete("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(
       return res.status(404).json({ error: "Feature flag not found." });
     }
 
+    const [owner] = await db.select({ key: featureCatalog.key }).from(featureCatalog).where(eq(featureCatalog.flagId, id)).limit(1);
+    if (owner) {
+      return res.status(409).json({ error: `This flag belongs to the "${owner.key}" feature and cannot be deleted. Set it to "on" to re-enable the feature.` });
+    }
+
     await db.delete(featureFlags).where(eq(featureFlags.id, id));
 
     await writeAuditLog(req, "delete_feature_flag", flag.name);
@@ -2362,7 +2351,14 @@ adminRouter.post("/feature-catalog", isAdminAuthenticated, requireAdminRole(["su
     return res.status(400).json({ error: parsed.error.errors.map((e) => e.message).join(", ") });
   }
   try {
-    const [created] = await db.insert(featureCatalog).values(parsed.data).returning();
+    const created = await db.transaction(async (tx) => {
+      const [flag] = await tx
+        .insert(featureFlags)
+        .values({ name: parsed.data.key, status: "on", description: parsed.data.name, updatedBy: req.admin!.email })
+        .returning();
+      const [row] = await tx.insert(featureCatalog).values({ ...parsed.data, flagId: flag.id }).returning();
+      return row;
+    });
     await writeAuditLog(req, "create_feature_catalog_entry", created.key, { category: created.category, tierType: created.tierType });
     return res.json({ success: true, feature: created });
   } catch (error) {
@@ -2377,7 +2373,8 @@ adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole([
     const [existing] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, id)).limit(1);
     if (!existing) return res.status(404).json({ error: "Feature not found." });
 
-    const patch = insertFeatureCatalogSchema.partial().safeParse(req.body);
+    // The key is also the feature's flag name and what every gate refers to, so it never changes.
+    const patch = insertFeatureCatalogSchema.partial().omit({ key: true }).safeParse(req.body);
     if (!patch.success) {
       return res.status(400).json({ error: patch.error.errors.map((e) => e.message).join(", ") });
     }
@@ -2469,6 +2466,125 @@ adminRouter.delete("/feature-catalog/dependencies/:dependencyId", isAdminAuthent
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: "Failed to remove this dependency." });
+  }
+});
+
+// ----------------------------------------------------
+// 6c. GATE RULES (attach an existing route/screen to a paid feature)
+// ----------------------------------------------------
+// Safeguards live in server/lib/gateRuleAdmin.ts + shared/gateRules.ts: rules
+// are validated (protected areas, real routes/screens, paid features only),
+// saved as drafts, enabled only after the admin confirms the affected-org
+// count, and every change is in an append-only history that can be reverted.
+
+const sendGateRuleError = (res: Response, error: unknown, fallback: string) => {
+  if (error instanceof GateRuleError) return res.status(error.status).json({ error: error.message, details: error.details });
+  console.error("Gate rule error:", error);
+  return res.status(500).json({ error: fallback });
+};
+
+const gateRulePickerRoutes = (req: Request) => listApiRoutes(req.app).filter((r) => !validateGateRule({ kind: "route", methods: "*", pattern: r.path }));
+
+adminRouter.get("/feature-gate-rules", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    const rules = await listRulesWithFeature();
+    const baseline = (FEATURES as readonly FeatureDef[]).flatMap((f) => [
+      ...(f.routes ?? []).map((r) => ({ featureKey: f.key, kind: "route", methods: r.methods === "*" ? "*" : r.methods.join(","), pattern: r.path.source })),
+      ...(f.gatedScreens ?? []).map((pattern) => ({ featureKey: f.key, kind: "screen", methods: "*", pattern })),
+    ]);
+    return res.json({ rules, baseline });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to load gate rules.");
+  }
+});
+
+adminRouter.get("/feature-gate-rules/picker", isAdminAuthenticated, async (req: Request, res: Response) => {
+  const screens = APP_SCREEN_PATHS.filter((p) => !validateGateRule({ kind: "screen", methods: "*", pattern: p }));
+  return res.json({ routes: gateRulePickerRoutes(req), screens });
+});
+
+adminRouter.post("/feature-gate-rules", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const { featureId, kind, methods, pattern, note } = req.body ?? {};
+  if (!featureId || (kind !== "route" && kind !== "screen") || typeof pattern !== "string") {
+    return res.status(400).json({ error: "featureId, kind ('route' or 'screen') and pattern are required." });
+  }
+  try {
+    const rule = await createGateRule(
+      { featureId, kind, methods: kind === "screen" ? "*" : String(methods ?? "*"), pattern, note },
+      req.admin!.email,
+      listApiRoutes(req.app),
+    );
+    await writeAuditLog(req, "create_gate_rule", rule.pattern, { featureId, kind, methods: rule.methods });
+    return res.json({ success: true, rule });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to create this rule.");
+  }
+});
+
+adminRouter.patch("/feature-gate-rules/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const rule = await updateGateRule(req.params.id, req.body ?? {}, req.admin!.email, listApiRoutes(req.app));
+    await writeAuditLog(req, "update_gate_rule", rule.pattern, req.body);
+    return res.json({ success: true, rule });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to update this rule.");
+  }
+});
+
+adminRouter.get("/feature-gate-rules/:id/preview", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    return res.json({ impact: await computeRuleImpact(req.params.id) });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to preview this rule.");
+  }
+});
+
+adminRouter.post("/feature-gate-rules/:id/enable", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const { rule, impact } = await enableGateRule(req.params.id, req.body?.confirmAffectedOrgs, req.admin!.email);
+    await writeAuditLog(req, "enable_gate_rule", rule.pattern, { affectedOrgs: impact.wouldLoseAccess });
+    return res.json({ success: true, rule, impact });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to enable this rule.");
+  }
+});
+
+adminRouter.post("/feature-gate-rules/:id/disable", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const rule = await disableGateRule(req.params.id, req.admin!.email);
+    await writeAuditLog(req, "disable_gate_rule", rule.pattern);
+    return res.json({ success: true, rule });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to disable this rule.");
+  }
+});
+
+adminRouter.delete("/feature-gate-rules/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    await deleteGateRule(req.params.id, req.admin!.email);
+    await writeAuditLog(req, "delete_gate_rule", req.params.id);
+    return res.json({ success: true });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to delete this rule.");
+  }
+});
+
+adminRouter.get("/feature-gate-rule-events", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const ruleId = typeof req.query.ruleId === "string" ? req.query.ruleId : undefined;
+    return res.json({ events: await listGateRuleEvents(ruleId) });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to load history.");
+  }
+});
+
+adminRouter.post("/feature-gate-rule-events/:eventId/revert", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const result = await revertGateRuleEvent(req.params.eventId, listApiRoutes(req.app), req.admin!.email);
+    await writeAuditLog(req, "revert_gate_rule", req.params.eventId, result);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendGateRuleError(res, error, "Failed to revert this change.");
   }
 });
 

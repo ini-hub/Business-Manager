@@ -1,30 +1,10 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  ShieldCheck,
-  Search,
-  Eye,
-  Loader2,
-  AlertCircle,
-  X,
-  CheckCircle2,
-  XCircle,
-  EyeOff,
-} from "lucide-react";
+import { ShieldCheck, Eye, AlertCircle, CheckCircle2, XCircle, EyeOff, ListChecks, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -35,43 +15,30 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { DataTable } from "@/components/data-table";
 import { ExportToolbar } from "@/components/export-toolbar";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
 import { BulkSelectionActionBar } from "@/components/bulk-selection-action-bar";
+import { AuditLogFiltersSheet, AuditLogSortSheet } from "@/components/audit-log-filter-sheets";
 import { runBulkFanOut } from "@/lib/bulk-actions";
-import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
-import { usePersistedDateRange, readPersistedRange } from "@/hooks/use-persisted-date-range";
+import { getCustomerInitials } from "@/lib/customer-detail-utils";
+import {
+  type AuditLogFilterState,
+  type AuditLogSortState,
+  EMPTY_AUDIT_LOG_FILTERS,
+  auditLogSortLabel,
+  auditMatchesFilters,
+  auditMatchesSearch,
+  auditUserLabel,
+  buildAuditLogFilterChips,
+  clearAuditLogFilterChip,
+  countActiveAuditLogFilters,
+  formatAuditText as formatAction,
+  formatAuditText as formatResource,
+  isFailed,
+  sortAuditLogs,
+} from "@/lib/audit-log-filters";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
-
-const ACTION_GROUPS: Record<string, string[]> = {
-  "Sales & Payments": ["CHECKOUT", "PAYMENT", "TRANSACTION_VOID", "PAYMENT_UPDATE", "TRANSACTION_ADDENDUM"],
-  "Inventory": ["INVENTORY_UPDATE", "INVENTORY_ARCHIVE", "INVENTORY_DELETE", "INVENTORY_BULK_IMPORT", "INVENTORY_BULK_UPDATE", "INVENTORY_BUNDLE_UPDATE", "INVENTORY_BATCH_CREATE", "CREATE", "CREATE_RESTOCK"],
-  "Payroll": ["PAYROLL_PERIOD_CREATE", "PAYROLL_PERIOD_CALCULATE", "PAYROLL_PERIOD_APPROVE", "PAYROLL_PERIOD_MARK_PAID", "PAYROLL_PERIOD_DELETE", "PAYROLL_DEDUCTION_CREATE", "PAYROLL_DEDUCTION_DELETE", "PAYROLL_DISBURSEMENT_CREATE", "SALARY_ADVANCE_CREATE", "SALARY_ADVANCE_APPROVE", "SALARY_ADVANCE_REJECT", "SALARY_ADVANCE_RECOVER", "SALARY_ADVANCE_DELETE", "PAYSLIP_REGISTER"],
-  "Expenses": ["EXPENSE_CREATE", "EXPENSE_UPDATE", "EXPENSE_DELETE", "EXPENSE_CATEGORY_CREATE", "EXPENSE_CATEGORY_UPDATE", "EXPENSE_CATEGORY_DELETE"],
-  "Cash Register": ["CASH_REGISTER_OPEN", "CASH_DROP", "CASH_REGISTER_CLOSE"],
-  "Vendors & Procurement": ["VENDOR_CREATE", "VENDOR_UPDATE", "VENDOR_ARCHIVE", "VENDOR_RESTORE", "VENDOR_DELETE", "VENDOR_BILL_CREATE", "VENDOR_BILL_UPDATE", "VENDOR_BILL_DELETE", "PURCHASE_ORDER_CREATE", "PURCHASE_ORDER_STATUS_UPDATE", "PURCHASE_ORDER_RECEIVE", "PURCHASE_ORDER_DELETE", "STOCK_AUDIT_CREATE", "STOCK_AUDIT_APPROVE", "STOCK_TRANSFER_CREATE", "STOCK_TRANSFER_STATUS_UPDATE", "STOCK_TRANSFER_DELETE", "QUOTE_CREATE", "QUOTE_STATUS_UPDATE", "QUOTE_DELETE", "TAX_RATE_CREATE", "TAX_RATE_UPDATE", "TAX_RATE_DELETE"],
-  "Auth": ["AUTH_ATTEMPT", "LOGIN", "SIGNUP", "PASSWORD_RESET"],
-  "Settings": ["SETTINGS_UPDATE"],
-  "Staff & Customers": ["CREATE", "UPDATE", "DELETE", "ARCHIVE", "RESTORE", "PERMANENT_DELETE", "STAFF_TRANSFER"],
-};
-
-const RESOURCE_OPTIONS = [
-  "checkout", "inventory", "payroll_period", "payroll_deduction", "payroll_disbursement",
-  "salary_advance", "payslip", "expense", "expense_category", "cash_register",
-  "vendor", "vendor_bill", "purchase_order", "stock_audit", "stock_transfer",
-  "quote", "tax_rate", "settings", "customer", "staff", "promotions", "custom_roles",
-];
-
-// audit_log_batches kinds, shown when a row's batchId groups it with a bulk/import action.
-const BATCH_KIND_LABELS: Record<string, string> = {
-  bulk_delete: "Bulk delete",
-  bulk_archive: "Bulk archive",
-  bulk_restore: "Bulk restore",
-  bulk_update: "Bulk update",
-  csv_import_staff: "CSV import (staff)",
-  csv_import_expense: "CSV import (expenses)",
-  csv_import_vendor: "CSV import (vendors)",
-};
 
 function actionBadgeStyle(action: string) {
   if (action.includes("DELETE") || action.includes("VOID") || action.includes("ARCHIVE") || action.includes("REJECT")) {
@@ -86,39 +53,25 @@ function actionBadgeStyle(action: string) {
   return "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700";
 }
 
-function formatAction(action: string) {
-  return action.replace(/_/g, " ");
-}
-
-function formatResource(resource: string) {
-  return resource.replace(/_/g, " ");
-}
 
 export default function AuditLogsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const isOwner = user?.role === "owner";
   const [search, setSearch] = useState("");
-  const [actionFilter, setActionFilter] = useState("all");
-  const [resourceFilter, setResourceFilter] = useState("all");
-  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
-    "audit_logs_date_range",
-    () => readPersistedRange("audit_logs_date_range") ?? { from: undefined, to: undefined },
-  );
+  const [filters, setFilters] = useState<AuditLogFilterState>(EMPTY_AUDIT_LOG_FILTERS);
+  const [sort, setSort] = useState<AuditLogSortState | null>(null);
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [visibleLogs, setVisibleLogs] = useState<any[]>([]);
 
-  const startDate = dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : "";
-  const endDate = dateRange.to ? format(dateRange.to, "yyyy-MM-dd") : "";
-
+  // The date range is the only server-side scope; everything else narrows the loaded entries.
   const queryParams = useMemo(() => {
     const p: Record<string, string> = {};
-    if (actionFilter !== "all") p.action = actionFilter;
-    if (resourceFilter !== "all") p.resource = resourceFilter;
-    if (startDate) p.startDate = startDate;
-    if (endDate) p.endDate = endDate;
+    if (filters.dateFrom) p.startDate = filters.dateFrom;
+    if (filters.dateTo) p.endDate = filters.dateTo;
     return p;
-  }, [actionFilter, resourceFilter, startDate, endDate]);
+  }, [filters.dateFrom, filters.dateTo]);
 
   const bulkRedactMutation = useMutation({
     mutationFn: (ids: string[]) =>
@@ -150,260 +103,219 @@ export default function AuditLogsPage() {
     },
   });
 
-  const logs = useMemo(() => {
-    const all: any[] = data?.logs || [];
-    if (!search.trim()) return all;
-    const q = search.toLowerCase();
-    return all.filter(
-      (l) =>
-        l.action?.toLowerCase().includes(q) ||
-        l.resource?.toLowerCase().includes(q) ||
-        l.userEmail?.toLowerCase().includes(q) ||
-        l.userName?.toLowerCase().includes(q) ||
-        l.resourceId?.toLowerCase().includes(q) ||
-        l.ip?.toLowerCase().includes(q),
-    );
-  }, [data?.logs, search]);
+  const allLogs: any[] = data?.logs || [];
+  const searched = useMemo(() => allLogs.filter((l) => auditMatchesSearch(l, search)), [allLogs, search]);
+  const logs = useMemo(
+    () => sortAuditLogs(searched.filter((l) => auditMatchesFilters(l, filters)), sort),
+    [searched, filters, sort],
+  );
+  const resourceOptions = useMemo(() => Array.from(new Set(allLogs.map((l) => l.resource as string))).sort(), [allLogs]);
+  const userOptions = useMemo(() => Array.from(new Set(allLogs.map((l) => auditUserLabel(l)))).sort(), [allLogs]);
 
-  const clearFilters = () => {
-    setActionFilter("all");
-    setResourceFilter("all");
-    setDateRange({ from: undefined, to: undefined });
-    setSearch("");
-  };
+  const failedCount = allLogs.filter(isFailed).length;
+  const redactedCount = allLogs.filter((l) => l.redactedAt).length;
 
-  const hasActiveFilters =
-    actionFilter !== "all" || resourceFilter !== "all" || startDate || endDate || search;
+  const logCardAvatar = (log: any) => (
+    <Avatar className="h-10 w-10">
+      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-sm font-semibold">
+        {getCustomerInitials(auditUserLabel(log))}
+      </AvatarFallback>
+    </Avatar>
+  );
+
+  const columns = [
+    {
+      key: "userName",
+      header: "User",
+      priority: 1 as const,
+      render: (log: any) => (
+        <div className="flex flex-col">
+          <span className="font-medium leading-tight">{log.userName || "—"}</span>
+          {log.userEmail && <span className="text-xs text-muted-foreground">{log.userEmail}</span>}
+        </div>
+      ),
+      cardRender: (log: any) => <span className="truncate">{auditUserLabel(log)}</span>,
+    },
+    {
+      key: "action",
+      header: "Action",
+      priority: 1 as const,
+      render: (log: any) => (
+        <Badge variant="outline" className={`text-[10px] font-bold uppercase tracking-wide ${actionBadgeStyle(log.action)}`}>
+          {formatAction(log.action)}
+        </Badge>
+      ),
+      cardRender: (log: any) => <span className="truncate text-xs font-semibold uppercase">{formatAction(log.action)}</span>,
+    },
+    {
+      key: "timestamp",
+      header: "Time",
+      priority: 2 as const,
+      render: (log: any) => (
+        <span className="text-xs text-muted-foreground whitespace-nowrap font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+      ),
+      cardRender: (log: any) => <span>{new Date(log.timestamp).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      priority: 2 as const,
+      render: (log: any) =>
+        !isFailed(log) ? (
+          <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Success
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
+            <XCircle className="h-3.5 w-3.5" />
+            Failed
+          </span>
+        ),
+    },
+    {
+      key: "resource",
+      header: "Resource",
+      priority: 3 as const,
+      render: (log: any) => (
+        <div className="text-xs text-muted-foreground">
+          <span className="capitalize">{formatResource(log.resource)}</span>
+          {log.resourceId && (
+            <span className="block font-mono text-[10px] opacity-60 truncate max-w-[120px]">{log.resourceId}</span>
+          )}
+        </div>
+      ),
+      cardRender: (log: any) => <span className="capitalize truncate">{formatResource(log.resource)}</span>,
+    },
+    {
+      key: "details",
+      header: "Details",
+      render: (log: any) =>
+        log.redactedAt ? (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
+            <EyeOff className="h-3.5 w-3.5" />
+            Redacted
+          </span>
+        ) : log.details || log.errorMessage ? (
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Eye className="h-3.5 w-3.5" />
+            View
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground/50">—</span>
+        ),
+    },
+  ];
+
+  const exportColumns = [
+    { key: "timestamp", header: "Time" },
+    { key: "userName", header: "User" },
+    { key: "userEmail", header: "Email" },
+    { key: "action", header: "Action" },
+    { key: "resource", header: "Resource" },
+    { key: "resourceId", header: "Resource ID" },
+    { key: "status", header: "Status" },
+    { key: "ip", header: "IP Address" },
+  ];
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-6">
       <PageHeader
         title="Activity Log"
         description="A full audit trail of every change made in your business."
         compact
         actions={
           <ExportToolbar
-            data={logs as unknown as Record<string, unknown>[]}
-            columns={[
-              { key: "timestamp", header: "Time" },
-              { key: "userName", header: "User" },
-              { key: "userEmail", header: "Email" },
-              { key: "action", header: "Action" },
-              { key: "resource", header: "Resource" },
-              { key: "resourceId", header: "Resource ID" },
-              { key: "status", header: "Status" },
-              { key: "ip", header: "IP Address" },
-            ]}
+            data={allLogs as unknown as Record<string, unknown>[]}
+            columns={exportColumns}
             filename={`activity-log_${new Date().toISOString().slice(0, 10)}`}
             title="Activity Log"
-            disabled={logs.length === 0}
+            disabled={allLogs.length === 0}
+            visibleData={visibleLogs as unknown as Record<string, unknown>[]}
           />
         }
       />
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col sm:flex-row gap-3">
-              {/* Search */}
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by user, action, resource ID..."
-                  className="pl-9"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
+      <MetricRow
+        metrics={[
+          { title: "Entries", value: allLogs.length, icon: <ListChecks className="h-4 w-4" />, isLoading },
+          { title: "Failed", value: failedCount, icon: <XCircle className="h-4 w-4" />, isLoading },
+          { title: "Active users", value: new Set(allLogs.map((l) => auditUserLabel(l))).size, icon: <Users className="h-4 w-4" />, isLoading },
+          { title: "Redacted", value: redactedCount, icon: <EyeOff className="h-4 w-4" />, isLoading },
+        ]}
+      />
 
-              {/* Action filter */}
-              <Select value={actionFilter} onValueChange={setActionFilter}>
-                <SelectTrigger className="w-full sm:w-[220px]">
-                  <SelectValue placeholder="Filter by action" />
-                </SelectTrigger>
-                <SelectContent className="max-h-80">
-                  <SelectItem value="all">All actions</SelectItem>
-                  {Object.entries(ACTION_GROUPS).map(([group, actions]) => (
-                    <SelectGroup key={group}>
-                      <SelectLabel>{group}</SelectLabel>
-                      {actions.map((a) => (
-                        <SelectItem key={a} value={a}>
-                          {formatAction(a)}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Resource filter */}
-              <Select value={resourceFilter} onValueChange={setResourceFilter}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Filter by resource" />
-                </SelectTrigger>
-                <SelectContent className="max-h-80">
-                  <SelectItem value="all">All resources</SelectItem>
-                  {RESOURCE_OPTIONS.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {formatResource(r)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 items-center">
-              <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} defaultPreset="all" compact />
-
-              {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="shrink-0">
-                  <X className="h-4 w-4 mr-1" />
-                  Clear filters
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Log count */}
-      {!isLoading && !error && (
-        <p className="text-sm text-muted-foreground">
-          Showing <span className="font-semibold text-foreground">{logs.length}</span> entries
-          {data?.logs?.length !== logs.length && (
-            <> (filtered from {data?.logs?.length})</>
-          )}
-        </p>
-      )}
-
-      {/* Table */}
       {error ? (
         <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
           <AlertCircle className="h-5 w-5 shrink-0" />
           Failed to load audit logs. Please try again.
         </div>
       ) : (
-        <Card>
-          <CardContent className="pt-4 space-y-3">
-            {isOwner && (
-              <BulkSelectionActionBar
-                count={selectedIds.length}
-                unitLabel="entry"
-                onClear={() => setSelectedIds([])}
-                actions={[
-                  {
-                    key: "redact",
-                    label: "Redact Selected",
-                    pendingLabel: "Redacting…",
-                    icon: <EyeOff className="h-3.5 w-3.5" />,
-                    tone: "destructive",
-                    pending: bulkRedactMutation.isPending,
-                    onClick: () => bulkRedactMutation.mutate(selectedIds as string[]),
-                  },
-                ]}
-              />
-            )}
-            <DataTable
-              data={logs}
-              columns={[
+        <div className="space-y-3">
+          {isOwner && (
+            <BulkSelectionActionBar
+              count={selectedIds.length}
+              unitLabel="entry"
+              onClear={() => setSelectedIds([])}
+              actions={[
                 {
-                  key: "timestamp",
-                  header: "Time",
-                  render: (log: any) => (
-                    <span className="text-xs text-muted-foreground whitespace-nowrap font-mono">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </span>
-                  ),
-                },
-                {
-                  key: "userName",
-                  header: "User",
-                  render: (log: any) => (
-                    <div className="flex flex-col">
-                      <span className="font-medium leading-tight">{log.userName || "—"}</span>
-                      {log.userEmail && (
-                        <span className="text-xs text-muted-foreground">{log.userEmail}</span>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  key: "action",
-                  header: "Action",
-                  render: (log: any) => (
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] font-bold uppercase tracking-wide ${actionBadgeStyle(log.action)}`}
-                    >
-                      {formatAction(log.action)}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "resource",
-                  header: "Resource",
-                  render: (log: any) => (
-                    <div className="text-xs text-muted-foreground">
-                      <span className="capitalize">{formatResource(log.resource)}</span>
-                      {log.resourceId && (
-                        <span className="block font-mono text-[10px] opacity-60 truncate max-w-[120px]">
-                          {log.resourceId}
-                        </span>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  key: "status",
-                  header: "Status",
-                  render: (log: any) =>
-                    log.status === "success" ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Success
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
-                        <XCircle className="h-3.5 w-3.5" />
-                        Failed
-                      </span>
-                    ),
-                },
-                {
-                  key: "details",
-                  header: "Details",
-                  render: (log: any) =>
-                    log.redactedAt ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground italic">
-                        <EyeOff className="h-3.5 w-3.5" />
-                        Redacted
-                      </span>
-                    ) : log.details || log.errorMessage ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setSelectedLog(log)}
-                      >
-                        <Eye className="h-3.5 w-3.5 mr-1" />
-                        View
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground/50">—</span>
-                    ),
+                  key: "redact",
+                  label: "Redact Selected",
+                  pendingLabel: "Redacting…",
+                  icon: <EyeOff className="h-3.5 w-3.5" />,
+                  tone: "destructive",
+                  pending: bulkRedactMutation.isPending,
+                  onClick: () => bulkRedactMutation.mutate(selectedIds as string[]),
                 },
               ]}
-              isLoading={isLoading}
-              emptyTitle="No matching entries"
-              emptyMessage="Try adjusting your filters."
-              emptyIcon={<ShieldCheck className="h-6 w-6" />}
-              multiselect={isOwner}
-              selectedIds={selectedIds}
-              onSelectedIdsChange={setSelectedIds}
             />
-          </CardContent>
-        </Card>
+          )}
+
+          <ListControls
+            testIdPrefix="audit-log"
+            placeholder="Search user, action or resource ID"
+            search={search}
+            onSearchChange={setSearch}
+            filterCount={countActiveAuditLogFilters(filters)}
+            filters={(trigger) => (
+              <AuditLogFiltersSheet
+                filters={filters}
+                onApply={(next) => { setFilters(next); setSelectedIds([]); }}
+                resources={resourceOptions}
+                users={userOptions}
+                resultCountFor={(draft) => searched.filter((l) => auditMatchesFilters(l, draft)).length}
+                trigger={trigger}
+              />
+            )}
+            sortLabel={auditLogSortLabel(sort).replace(/^Sort: /, "")}
+            sort={(trigger) => <AuditLogSortSheet sort={sort} onChange={setSort} trigger={trigger} />}
+            chips={buildAuditLogFilterChips(filters)}
+            onRemoveChip={(key) => setFilters((f) => clearAuditLogFilterChip(f, key as Parameters<typeof clearAuditLogFilterChip>[1]))}
+            hasSort={sort !== null}
+            onClearAll={() => { setFilters(EMPTY_AUDIT_LOG_FILTERS); setSort(null); }}
+            visibleCount={logs.length}
+            noun="entry"
+          />
+
+          <DataTable
+            data={logs}
+            columns={columns}
+            hideToolbar
+            isLoading={isLoading}
+            emptyTitle="No matching entries"
+            emptyMessage="Try adjusting your filters."
+            emptyIcon={<ShieldCheck className="h-6 w-6" />}
+            onRowClick={(log: any) => setSelectedLog(log)}
+            onVisibleDataChange={setVisibleLogs}
+            urlKey="log"
+            showCardChevron
+            cardLayout="compact-grid"
+            cardAvatar={logCardAvatar}
+            multiselect={isOwner}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+          />
+        </div>
       )}
 
       {/* Detail dialog */}
@@ -540,8 +452,7 @@ export default function AuditLogsPage() {
                   className="w-full"
                   onClick={() => {
                     setSearch(selectedLog.resourceId);
-                    setActionFilter("all");
-                    setResourceFilter("all");
+                    setFilters(EMPTY_AUDIT_LOG_FILTERS);
                     setSelectedLog(null);
                   }}
                 >

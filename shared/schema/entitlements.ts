@@ -1,9 +1,11 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, numeric, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { organisations } from "./organisations";
 import { subscriptionPayments } from "./organisations";
+import { featureFlags } from "./super-admin";
+import { PERMISSION_MODULES } from "../permissionModules";
 
 // Pay-per-feature entitlement model (requirements: see the plan this shipped
 // from — "Pay-Per-Feature Entitlement Model"). This is a monetization catalog,
@@ -37,6 +39,12 @@ export const featureCatalog = pgTable("feature_catalog", {
   parentFeatureId: varchar("parent_feature_id").references((): any => featureCatalog.id), // set only for tierType='bundle_child'
   freeLimit: integer("free_limit"), // only for tierType='paid_metered_limit': 1 (staff), 50 (customers)
   limitType: text("limit_type"), // symbolic key checkAndReserveCountLimit switches on: 'staff_seats' | 'customer_count'
+  // The feature's own flag (name = key); status 'off' is the platform-wide kill-switch.
+  // Created together with the row (see server/lib/featureSync.ts); never set by hand.
+  flagId: varchar("flag_id").notNull().references(() => featureFlags.id),
+  // The Settings > Roles module this feature sits under (shared/permissionModules.ts);
+  // null for a feature that has not been placed in one.
+  permissionModule: text("permission_module"),
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -53,12 +61,13 @@ export const featureCatalogRelations = relations(featureCatalog, ({ one, many })
 }));
 
 export const insertFeatureCatalogSchema = createInsertSchema(featureCatalog)
-  .omit({ id: true, createdAt: true, updatedAt: true })
+  .omit({ id: true, createdAt: true, updatedAt: true, flagId: true })
   .extend({
     key: z.string().trim().min(1, "Feature key is required").regex(/^[a-z][a-z0-9_]*$/, "Use lowercase snake_case, e.g. 'staff_seats_addon'."),
     name: z.string().trim().min(1, "Feature name is required"),
     category: z.enum(["vendor_mgmt", "staff_mgmt", "customer_mgmt", "financial_mgmt", "tax_compliance", "inventory_mgmt", "analytics", "business_settings"]),
     tierType: z.enum(["free", "paid_flat", "paid_metered_limit", "bundle_parent", "bundle_child"]),
+    permissionModule: z.enum(PERMISSION_MODULES).nullable().optional(),
     priceMonthly: z.number().nonnegative().nullable().optional(),
     priceAnnual: z.number().nonnegative().nullable().optional(),
   });
@@ -129,3 +138,45 @@ export const featureSunsetReminderLogs = pgTable("feature_sunset_reminder_logs",
 
 export type InsertFeatureSunsetReminderLog = typeof featureSunsetReminderLogs.$inferInsert;
 export type FeatureSunsetReminderLog = typeof featureSunsetReminderLogs.$inferSelect;
+
+// Admin-defined gate rules: a super admin attaches an existing API route or
+// client screen to a paid feature from the UI (see shared/gateRules.ts for what
+// is allowed and server/lib/gateRules.ts for how they are enforced). The
+// baseline rules in shared/features.ts are code and cannot be edited here.
+//   kind   'route' | 'screen'
+//   status 'draft' (saved, enforced nowhere) | 'active' (enforced)
+export const featureGateRules = pgTable("feature_gate_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  featureId: varchar("feature_id").notNull().references(() => featureCatalog.id),
+  kind: text("kind").notNull(),
+  methods: text("methods").notNull().default("*"), // '*' | 'writes' | 'POST,PATCH' (screens use '*')
+  pattern: text("pattern").notNull(),
+  status: text("status").notNull().default("draft"),
+  note: text("note"),
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  unique("uq_feature_gate_rules").on(table.featureId, table.kind, table.methods, table.pattern),
+  index("idx_feature_gate_rules_status").on(table.status),
+]);
+
+export type FeatureGateRule = typeof featureGateRules.$inferSelect;
+
+// Append-only history of every change to a gate rule, kept after the rule is
+// deleted (no FK on purpose) so a mistaken change can be reverted from here.
+export const featureGateRuleEvents = pgTable("feature_gate_rule_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleId: varchar("rule_id").notNull(),
+  featureKey: text("feature_key").notNull(),
+  action: text("action").notNull(), // 'create' | 'update' | 'enable' | 'disable' | 'delete' | 'revert'
+  before: jsonb("before"),
+  after: jsonb("after"),
+  adminEmail: text("admin_email"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_feature_gate_rule_events_rule").on(table.ruleId),
+]);
+
+export type FeatureGateRuleEvent = typeof featureGateRuleEvents.$inferSelect;

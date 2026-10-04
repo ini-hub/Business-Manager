@@ -138,43 +138,46 @@ export interface FilterChip {
 }
 
 const LAST_VISITED_LABELS: Record<LastVisitedPreset, string> = {
-  "7d": "Visited last 7 days",
-  "30d": "Visited last 30 days",
-  "30d+": "Visited 30+ days ago",
+  "7d": "In the last 7 days",
+  "30d": "In the last 30 days",
+  "30d+": "More than 30 days ago",
   never: "Never visited",
 };
 
 const DATE_ADDED_LABELS: Record<DateAddedPreset, string> = {
-  month: "Added this month",
-  "3months": "Added last 3 months",
+  month: "This month",
+  "3months": "In the last 3 months",
 };
 
-/** Builds the removable-chip list shown under the Filters/Sort pills once filters are applied. */
+/** Builds the removable "Section: value" chips shown under the Filters/Sort buttons once filters are applied. */
 export function buildCustomerFilterChips(filters: CustomerFilterState, currencySymbol: string): FilterChip[] {
   const chips: FilterChip[] = [];
+  const m = (n: number) => `${currencySymbol}${n.toLocaleString()}`;
 
-  if (filters.lastVisited) chips.push({ key: "lastVisited", label: LAST_VISITED_LABELS[filters.lastVisited] });
+  if (filters.lastVisited) chips.push({ key: "lastVisited", label: `Last visit: ${LAST_VISITED_LABELS[filters.lastVisited]}` });
   if (filters.lastVisitedCustom?.from || filters.lastVisitedCustom?.to) {
-    chips.push({ key: "lastVisitedCustom", label: `Visited ${filters.lastVisitedCustom.from ?? "…"} – ${filters.lastVisitedCustom.to ?? "…"}` });
+    chips.push({ key: "lastVisitedCustom", label: `Last visit: ${filters.lastVisitedCustom.from ?? "…"} to ${filters.lastVisitedCustom.to ?? "…"}` });
   }
 
-  if (filters.spendPreset === "top10") chips.push({ key: "spendPreset", label: "Top 10% spenders" });
-  if (filters.spendPreset === "none") chips.push({ key: "spendPreset", label: "No purchases" });
-  if (filters.spendMin != null && filters.spendMax != null) {
-    chips.push({ key: "spendRange", label: `Spend ${currencySymbol}${filters.spendMin.toLocaleString()}–${currencySymbol}${filters.spendMax.toLocaleString()}` });
+  if (filters.spendPreset === "top10") chips.push({ key: "spendPreset", label: "Total spend: Top 10%" });
+  if (filters.spendPreset === "none") chips.push({ key: "spendPreset", label: "Total spend: No purchases" });
+  if (filters.spendMax === 0 && filters.spendMin == null) {
+    chips.push({ key: "spendRange", label: "Total spend: No purchases" });
+  } else if (filters.spendMin != null && filters.spendMax != null) {
+    chips.push({ key: "spendRange", label: `Total spend: ${m(filters.spendMin)} to ${m(filters.spendMax)}` });
   } else if (filters.spendMax != null) {
-    chips.push({ key: "spendRange", label: `Spend up to ${currencySymbol}${filters.spendMax.toLocaleString()}` });
+    chips.push({ key: "spendRange", label: `Total spend: Up to ${m(filters.spendMax)}` });
   } else if (filters.spendMin != null) {
-    chips.push({ key: "spendRange", label: `Spend from ${currencySymbol}${filters.spendMin.toLocaleString()}` });
+    chips.push({ key: "spendRange", label: `Total spend: ${m(filters.spendMin)} or more` });
   }
 
-  if (filters.dateAdded) chips.push({ key: "dateAdded", label: DATE_ADDED_LABELS[filters.dateAdded] });
+  if (filters.dateAdded) chips.push({ key: "dateAdded", label: `Date added: ${DATE_ADDED_LABELS[filters.dateAdded]}` });
   if (filters.dateAddedCustom?.from || filters.dateAddedCustom?.to) {
-    chips.push({ key: "dateAddedCustom", label: `Added ${filters.dateAddedCustom.from ?? "…"} – ${filters.dateAddedCustom.to ?? "…"}` });
+    chips.push({ key: "dateAddedCustom", label: `Date added: ${filters.dateAddedCustom.from ?? "…"} to ${filters.dateAddedCustom.to ?? "…"}` });
   }
 
-  if (filters.missingAddress) chips.push({ key: "missingAddress", label: "Missing address" });
-  if (filters.missingPhone) chips.push({ key: "missingPhone", label: "Missing phone" });
+  if (filters.missingAddress) chips.push({ key: "missingAddress", label: "Missing details: No address" });
+  if (filters.missingPhone) chips.push({ key: "missingPhone", label: "Missing details: No phone number" });
 
   return chips;
 }
@@ -194,15 +197,15 @@ export function clearCustomerFilterChip(filters: CustomerFilterState, key: Filte
 }
 
 const SORT_LABELS: Record<CustomerSortKey, Record<CustomerSortDirection, string>> = {
-  lastVisited: { desc: "Recent", asc: "Oldest" },
-  totalSpend: { desc: "High", asc: "Low" },
+  lastVisited: { desc: "Most recent visit", asc: "Oldest visit" },
+  totalSpend: { desc: "Highest spend", asc: "Lowest spend" },
   dateAdded: { desc: "Newest", asc: "Oldest" },
-  name: { asc: "A to Z", desc: "Z to A" },
+  name: { asc: "Name", desc: "Name Z to A" },
 };
 
 export function customerSortLabel(sort: CustomerSortState | null): string {
   if (!sort) return "Sort";
-  return SORT_LABELS[sort.key][sort.direction];
+  return `Sort: ${SORT_LABELS[sort.key][sort.direction]}`;
 }
 
 export function sortCustomers<T extends FilterableCustomer>(customers: T[], sort: CustomerSortState | null): T[] {

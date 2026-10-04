@@ -1,3 +1,4 @@
+import { checkCatalogHealth } from "./lib/entitlements";
 import { checkStoreAccessHelper } from "./routes/helpers";
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
@@ -93,6 +94,8 @@ import { registerStaffRoutes } from "./routes/staff.routes";
 import { registerHrRoutes } from "./routes/hr.routes";
 import { adminHrRouter } from "./routes/admin-hr.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
+import { registerInventoryDraftRoutes } from "./routes/inventory-drafts.routes";
+import { registerStockTransferDraftRoutes } from "./routes/stock-transfer-drafts.routes";
 import { registerConsumablesRoutes } from "./routes/consumables.routes";
 import { registerTransactionRoutes } from "./routes/transaction.routes";
 import { registerSalesRoutes } from "./routes/sales.routes";
@@ -178,8 +181,16 @@ export async function registerRoutes(
   app.use("/api/admin", adminHrRouter);
 
   // Health check endpoint (no auth required, used by hosting providers)
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString(), uptime: process.uptime() });
+  // A hosting health probe must not restart-loop over bad seed data, so an
+  // empty catalog reports "degraded" with a 200 rather than failing the check.
+  app.get("/api/health", async (_req, res) => {
+    const catalog = await checkCatalogHealth().catch(() => ({ ok: false, activeFeatures: 0 }));
+    res.json({
+      status: catalog.ok ? "ok" : "degraded",
+      catalog,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    });
   });
 
   // Temporary email queue debug — remove after confirming delivery works
@@ -1847,6 +1858,8 @@ export async function registerRoutes(
   registerStaffRoutes(app, routeMiddlewares);
   registerHrRoutes(app, routeMiddlewares);
   registerInventoryRoutes(app, routeMiddlewares);
+  registerInventoryDraftRoutes(app, routeMiddlewares);
+  registerStockTransferDraftRoutes(app, routeMiddlewares);
   registerConsumablesRoutes(app, routeMiddlewares);
   registerTransactionRoutes(app, routeMiddlewares);
   registerSalesRoutes(app, routeMiddlewares);

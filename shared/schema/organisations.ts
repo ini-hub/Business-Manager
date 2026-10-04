@@ -13,6 +13,8 @@ export const organisations = pgTable("organisations", {
   slug: text("slug").unique(),
   logoUrl: text("logo_url"),
   receiptPrefix: text("receipt_prefix").default("EXB"),
+  // When true, non-owner/manager users only see transactions they took part in.
+  staffOwnTransactionsOnly: boolean("staff_own_transactions_only").notNull().default(true),
   address: text("address"),
   phone: text("phone"),
   phoneCountryCode: text("phone_country_code").default("+234"),

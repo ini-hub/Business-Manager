@@ -118,8 +118,8 @@ describe("buildCustomerFilterChips / clearCustomerFilterChip", () => {
     const filters: CustomerFilterState = { ...EMPTY_CUSTOMER_FILTERS, lastVisited: "30d+", spendMax: 10000 };
     const chips = buildCustomerFilterChips(filters, "₦");
     expect(chips).toEqual([
-      { key: "lastVisited", label: "Visited 30+ days ago" },
-      { key: "spendRange", label: "Spend up to ₦10,000" },
+      { key: "lastVisited", label: "Last visit: More than 30 days ago" },
+      { key: "spendRange", label: "Total spend: Up to ₦10,000" },
     ]);
     const cleared = clearCustomerFilterChip(filters, "lastVisited");
     expect(cleared.lastVisited).toBeNull();
@@ -133,9 +133,9 @@ describe("customerSortLabel / sortCustomers", () => {
   });
 
   it("labels each sort key/direction combination", () => {
-    expect(customerSortLabel({ key: "lastVisited", direction: "desc" })).toBe("Recent");
-    expect(customerSortLabel({ key: "totalSpend", direction: "asc" })).toBe("Low");
-    expect(customerSortLabel({ key: "name", direction: "asc" })).toBe("A to Z");
+    expect(customerSortLabel({ key: "lastVisited", direction: "desc" })).toBe("Sort: Most recent visit");
+    expect(customerSortLabel({ key: "totalSpend", direction: "asc" })).toBe("Sort: Lowest spend");
+    expect(customerSortLabel({ key: "name", direction: "asc" })).toBe("Sort: Name");
   });
 
   it("sorts by total spend descending", () => {

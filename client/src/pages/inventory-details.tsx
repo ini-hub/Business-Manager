@@ -22,7 +22,10 @@ import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DataTable } from "@/components/data-table";
+import { DataTable, type RowAction } from "@/components/data-table";
+import { ListToolbar } from "@/components/list-toolbar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -80,6 +83,32 @@ type RestockEventWithStaff = RestockEvent & {
   user?: UserType | null;
 };
 
+type VariantSort = "name" | "price-desc" | "price-asc" | "stock-asc" | "stock-desc";
+const VARIANT_SORTS: { value: VariantSort; label: string }[] = [
+  { value: "name", label: "Name A–Z" },
+  { value: "price-desc", label: "Price: high to low" },
+  { value: "price-asc", label: "Price: low to high" },
+  { value: "stock-asc", label: "Stock: low to high" },
+  { value: "stock-desc", label: "Stock: high to low" },
+];
+
+// "Large / Blue" — attribute values only, in stored order.
+const variantAttrText = (v: any): string =>
+  Object.values(v.variantDimensions || {}).filter(Boolean).join(" / ");
+
+// Same avatar treatment as the customers list: tinted circle with initials.
+const VariantAvatar = ({ variant, size = "md" }: { variant: any; size?: "md" | "lg" }) => {
+  const label = variantAttrText(variant) || variant.name || "?";
+  const initials = label.split(/[\s/]+/).filter(Boolean).slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
+  return (
+    <Avatar className={size === "lg" ? "h-10 w-10" : "h-8 w-8 shrink-0"}>
+      <AvatarFallback className={cn("bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-semibold", size === "lg" ? "text-sm" : "text-xs")}>
+        {initials}
+      </AvatarFallback>
+    </Avatar>
+  );
+};
+
 export default function InventoryDetails() {
   const [, setLocation] = useLocation();
   const [match, params] = useRoute("/inventory/:id");
@@ -101,8 +130,17 @@ export default function InventoryDetails() {
   });
 
   // Every item is now a product group; "simple" = exactly one variant
-  const isSimpleProduct = inventory?.variants?.length === 1;
-  const primaryVariant = isSimpleProduct ? inventory.variants[0] : null;
+  // A dimensionless row is a leftover "base item" from before the product was split into
+  // variants. Once dimensioned siblings exist it is not a real variant, so it must not feed
+  // the header metrics, stock totals or the variants table.
+  const realVariants: any[] = (() => {
+    const all: any[] = inventory?.variants ?? [];
+    const hasDims = (v: any) => !!v.variantDimensions && Object.keys(v.variantDimensions).length > 0;
+    return all.some(hasDims) ? all.filter(hasDims) : all;
+  })();
+  const staleBaseCount = (inventory?.variants?.length ?? 0) - realVariants.length;
+  const isSimpleProduct = realVariants.length === 1;
+  const primaryVariant = isSimpleProduct ? realVariants[0] : null;
   const activeVariantId = primaryVariant?.id;
 
   const canViewActivity = user?.role === "owner" || user?.role === "manager";
@@ -159,44 +197,23 @@ export default function InventoryDetails() {
 
   // --- VARIANTS ---
   const [isAddVariantsSheetOpen, setIsAddVariantsSheetOpen] = useState(false);
-  const variants = inventory?.variants || [];
-
-  // Per-variant edit dialog
-  const [editingVariant, setEditingVariant] = useState<any | null>(null);
-  const [editCost, setEditCost] = useState<number | "">("");
-  const [editSelling, setEditSelling] = useState<number | "">("");
-  const [editQty, setEditQty] = useState<number>(0);
-
-  const openVariantEdit = (v: any) => {
-    setEditingVariant(v);
-    setEditCost(Number(v.costPrice) || "");
-    setEditSelling(Number(v.sellingPrice) || "");
-    setEditQty(Number(v.quantity) || 0);
-  };
-
-  const variantEditMutation = useMutation({
-    mutationFn: async () => {
-      if (!editingVariant) return;
-      const res = await apiRequest("PATCH", `/api/inventory/${editingVariant.id}`, {
-        costPrice: Number(editCost) || 0,
-        sellingPrice: Number(editSelling) || 0,
-        quantity: inventory?.type === "product" ? editQty : 0,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as any).error || "Failed to update variant");
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      toast({ title: "Variant updated" });
-      setEditingVariant(null);
-    },
-    onError: (e: Error) =>
-      toast({ title: "Couldn't update variant", description: e.message, variant: "destructive" }),
-  });
+  const variants = realVariants;
+  const [variantSearch, setVariantSearch] = useState("");
+  const [variantSort, setVariantSort] = useState<VariantSort>("name");
+  const visibleVariants = (() => {
+    const q = variantSearch.trim().toLowerCase();
+    const matched = q
+      ? variants.filter((v: any) => `${v.name} ${variantAttrText(v)} ${v.sku ?? ""}`.toLowerCase().includes(q))
+      : variants;
+    const by: Record<VariantSort, (a: any, b: any) => number> = {
+      name: (a, b) => String(a.name).localeCompare(String(b.name)),
+      "price-desc": (a, b) => Number(b.sellingPrice) - Number(a.sellingPrice),
+      "price-asc": (a, b) => Number(a.sellingPrice) - Number(b.sellingPrice),
+      "stock-asc": (a, b) => Number(a.quantity) - Number(b.quantity),
+      "stock-desc": (a, b) => Number(b.quantity) - Number(a.quantity),
+    };
+    return [...matched].sort(by[variantSort]);
+  })();
 
   // Per-variant delete / archive
   const [deletingVariant, setDeletingVariant] = useState<any | null>(null);
@@ -535,7 +552,7 @@ export default function InventoryDetails() {
     );
   }
 
-  const variantsList = inventory?.variants || [];
+  const variantsList = realVariants;
   const minCost = variantsList.length > 0 ? Math.min(...variantsList.map((v: any) => v.costPrice)) : 0;
   const maxCost = variantsList.length > 0 ? Math.max(...variantsList.map((v: any) => v.costPrice)) : 0;
   const minSelling = variantsList.length > 0 ? Math.min(...variantsList.map((v: any) => v.sellingPrice)) : 0;
@@ -1190,6 +1207,19 @@ export default function InventoryDetails() {
               </Button>
             </CardHeader>
             <CardContent>
+              {staleBaseCount > 0 && (
+                <Alert className="mb-4 border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertDescription className="flex flex-wrap items-center justify-between gap-2 text-amber-800 dark:text-amber-300">
+                    <span>
+                      This product has {staleBaseCount} leftover base item{staleBaseCount > 1 ? "s" : ""} without attributes. It is hidden from the totals above.
+                    </span>
+                    <Button size="sm" variant="outline" onClick={() => setIsAddVariantsSheetOpen(true)}>
+                      Review &amp; archive
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
               {variants.length === 0 ? (
                 <div className="py-14 text-center border border-dashed rounded-lg bg-muted/10">
                   <Layers className="h-10 w-10 mx-auto mb-3 text-muted-foreground/30" />
@@ -1204,85 +1234,115 @@ export default function InventoryDetails() {
                   </Button>
                 </div>
               ) : (
-                <DataTable
-                  columns={[
-                    {
-                      key: "name", header: "Variant",
-                      render: (row: any) => <span className="font-medium">{row.name}</span>
-                    },
-                    {
-                      key: "dimensions", header: "Attributes",
-                      render: (row: any) => {
-                        const dims = row.variantDimensions || {};
-                        const entries = Object.entries(dims).filter(([_, val]) => !!val);
-                        if (entries.length === 0) return <span className="text-muted-foreground text-xs">—</span>;
-                        return (
-                          <div className="flex gap-1 flex-wrap">
-                            {entries.map(([key, value]) => (
-                              <Badge key={key} variant="secondary" className="text-[10px] font-semibold px-2 py-0.5 capitalize">
-                                <span className="opacity-60 mr-1">{key}:</span>{String(value)}
-                              </Badge>
+                <div className="space-y-3">
+                  <ListToolbar
+                    testIdPrefix="variant"
+                    search={variantSearch}
+                    onSearchChange={setVariantSearch}
+                    placeholder="Search variant or attribute"
+                    sortLabel={VARIANT_SORTS.find((o) => o.value === variantSort)?.label}
+                    sort={(trigger) => (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuRadioGroup value={variantSort} onValueChange={(v) => setVariantSort(v as VariantSort)}>
+                            {VARIANT_SORTS.map((o) => (
+                              <DropdownMenuRadioItem key={o.value} value={o.value}>{o.label}</DropdownMenuRadioItem>
                             ))}
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  />
+                  <DataTable
+                    data={visibleVariants}
+                    hideToolbar
+                    urlKey="variants"
+                    showCardChevron
+                    cardLayout="compact-grid"
+                    cardAvatar={(row: any) => <VariantAvatar variant={row} size="lg" />}
+                    onRowClick={(row: any) => setLocation(`/inventory/${inventoryId}/edit?variant=${row.id}`)}
+                    emptyIcon={<Layers className="h-6 w-6" />}
+                    emptyTitle="No matching variants"
+                    emptyMessage="Try a different search."
+                    rowActions={(row: any): RowAction[] => [
+                      {
+                        label: "Edit",
+                        icon: <Pencil className="h-4 w-4" />,
+                        onClick: () => setLocation(`/inventory/${inventoryId}/edit?variant=${row.id}`),
+                        testId: `button-edit-variant-${row.id}`,
+                      },
+                      ...(row.type === "product" ? [{
+                        label: "Restock",
+                        icon: <Plus className="h-4 w-4" />,
+                        onClick: () => setLocation(`/inventory/${buildSlug(row.name, row.id)}/restock`),
+                        testId: `button-restock-variant-${row.id}`,
+                      }] : []),
+                      {
+                        label: row.hasSales ? "Archive" : "Delete",
+                        icon: row.hasSales ? <Archive className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />,
+                        onClick: () => {
+                          setDeletingVariant(row);
+                          setVariantDeleteBlockedBySales(!!row.hasSales);
+                        },
+                        destructive: true,
+                        testId: `button-delete-variant-${row.id}`,
+                      },
+                    ]}
+                    columns={[
+                      {
+                        key: "name", header: "Variant", priority: 1 as const,
+                        render: (row: any) => (
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <VariantAvatar variant={row} />
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{row.name}</p>
+                              {variantAttrText(row) && (
+                                <p className="text-xs text-muted-foreground truncate capitalize">{variantAttrText(row)}</p>
+                              )}
+                            </div>
                           </div>
-                        );
-                      }
-                    },
-                    {
-                      key: "costPrice", header: "Cost",
-                      render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.costPrice)}</span>
-                    },
-                    {
-                      key: "sellingPrice", header: "Price",
-                      render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.sellingPrice)}</span>
-                    },
-                    {
-                      key: "quantity", header: "Stock",
-                      render: (row: any) => row.type === "service" ? (
-                        <span className="text-muted-foreground text-xs">Unlimited</span>
-                      ) : (
-                        <span className={cn("font-mono font-medium", row.quantity === 0 && "text-destructive")}>
-                          {row.quantity}
-                        </span>
-                      )
-                    },
-                    {
-                      key: "action", header: "",
-                      render: (row: any) => (
-                        <div className="flex items-center gap-1">
-                          <IconButton
-                            label="Edit prices / stock"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={(e) => { e.stopPropagation(); openVariantEdit(row); }}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </IconButton>
-                          {row.type === "product" && (
-                            <Button variant="outline" size="sm" onClick={() => setLocation(`/inventory/${buildSlug(row.name, row.id)}/restock`)}>
-                              Restock
-                            </Button>
-                          )}
-                          <IconButton
-                            label={row.hasSales ? "Archive variant" : "Delete variant"}
-                            variant="ghost"
-                            className="h-7 w-7 text-muted-foreground"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeletingVariant(row);
-                              setVariantDeleteBlockedBySales(!!row.hasSales);
-                            }}
-                          >
-                            {row.hasSales
-                              ? <Archive className="h-3.5 w-3.5 text-amber-500" />
-                              : <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                            }
-                          </IconButton>
-                        </div>
-                      )
-                    },
-                  ]}
-                  data={variants}
-                />
+                        ),
+                        cardRender: (row: any) => <span className="font-medium truncate">{row.name}</span>,
+                      },
+                      {
+                        key: "dimensions", header: "Attributes", priority: 2 as const,
+                        render: (row: any) => {
+                          const entries = Object.entries(row.variantDimensions || {}).filter(([_, val]) => !!val);
+                          if (entries.length === 0) return <span className="text-muted-foreground text-xs">—</span>;
+                          return (
+                            <div className="flex gap-1 flex-wrap">
+                              {entries.map(([key, value]) => (
+                                <Badge key={key} variant="secondary" className="text-[10px] font-semibold px-2 py-0.5 capitalize">
+                                  <span className="opacity-60 mr-1">{key}:</span>{String(value)}
+                                </Badge>
+                              ))}
+                            </div>
+                          );
+                        },
+                        cardRender: (row: any) => <span className="truncate capitalize">{variantAttrText(row) || "—"}</span>,
+                      },
+                      {
+                        key: "costPrice", header: "Cost", priority: 3 as const,
+                        render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.costPrice)}</span>,
+                      },
+                      {
+                        key: "sellingPrice", header: "Price", priority: 1 as const,
+                        render: (row: any) => <span className="font-mono text-sm">{formatCurrency(row.sellingPrice)}</span>,
+                      },
+                      {
+                        key: "quantity", header: "Stock", priority: 1 as const,
+                        render: (row: any) => row.type === "service" ? (
+                          <span className="text-muted-foreground text-xs">Unlimited</span>
+                        ) : (
+                          <span className={cn("font-mono font-medium", row.quantity === 0 && "text-destructive")}>
+                            {row.quantity}
+                          </span>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1616,176 +1676,6 @@ export default function InventoryDetails() {
         )
       )}
 
-      {/* Variant edit dialog */}
-      {editingVariant && (() => {
-        const cost = editCost === "" ? 0 : Number(editCost);
-        const sell = editSelling === "" ? 0 : Number(editSelling);
-        const profit = sell - cost;
-        const margin = sell > 0 ? (profit / sell) * 100 : 0;
-        const priceInvalid = editCost !== "" && editSelling !== "" && sell < cost;
-        const dims = editingVariant.variantDimensions as Record<string, string> | null;
-        const dimEntries = dims ? Object.entries(dims).filter(([, v]) => !!v) : [];
-        const isProduct = inventory?.type === "product";
-
-        return (
-          <Dialog open onOpenChange={(open) => { if (!open) setEditingVariant(null); }}>
-            <DialogContent className="max-w-md p-0 overflow-hidden gap-0">
-              {/* ── Identity header ── */}
-              <div className="px-6 pt-6 pb-5 border-b bg-muted/30">
-                <div className="flex items-start gap-3">
-                  <div className={cn(
-                    "p-2.5 rounded-lg border shrink-0",
-                    isProduct
-                      ? "bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800"
-                      : "bg-violet-50 border-violet-200 dark:bg-violet-950/30 dark:border-violet-800"
-                  )}>
-                    {isProduct
-                      ? <Package className="h-5 w-5 text-sky-600 dark:text-sky-400" />
-                      : <Wrench className="h-5 w-5 text-violet-600 dark:text-violet-400" />}
-                  </div>
-                  <div className="min-w-0">
-                    <DialogTitle className="text-base font-semibold leading-snug truncate">
-                      {editingVariant.name}
-                    </DialogTitle>
-                    {dimEntries.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {dimEntries.map(([k, v]) => (
-                          <Badge key={k} variant="secondary" className="text-[11px] h-5 font-normal gap-1">
-                            <span className="text-muted-foreground">{k}:</span>
-                            <span className="font-medium">{v}</span>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 py-5 space-y-5">
-                {/* ── Pricing section ── */}
-                <div className="space-y-3">
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Pricing</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ev-cost" className="text-sm">Cost Price</Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-                          {formatCurrency(0).replace(/[\d,. ]+/, "")}
-                        </span>
-                        <Input
-                          id="ev-cost"
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          placeholder="0.00"
-                          value={editCost}
-                          onChange={(e) => setEditCost(e.target.value === "" ? "" : parseFloat(e.target.value))}
-                          className={cn("pl-7", priceInvalid && "border-destructive focus-visible:ring-destructive")}
-                          autoFocus
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ev-selling" className="text-sm">Selling Price</Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-                          {formatCurrency(0).replace(/[\d,. ]+/, "")}
-                        </span>
-                        <Input
-                          id="ev-selling"
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          placeholder="0.00"
-                          value={editSelling}
-                          onChange={(e) => setEditSelling(e.target.value === "" ? "" : parseFloat(e.target.value))}
-                          className={cn("pl-7", priceInvalid && "border-destructive focus-visible:ring-destructive")}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Live margin row */}
-                  {editCost !== "" && editSelling !== "" && (
-                    priceInvalid ? (
-                      <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2">
-                        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                        <p className="text-xs text-destructive font-medium">Selling price cannot be less than cost price.</p>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between rounded-lg bg-muted/40 border px-3 py-2">
-                        <span className="text-xs text-muted-foreground">Profit per sale</span>
-                        <div className="flex items-center gap-3">
-                          <span className={cn(
-                            "text-sm font-mono font-semibold",
-                            profit >= 0 ? "text-green-600 dark:text-green-400" : "text-destructive"
-                          )}>
-                            {formatCurrency(profit)}
-                          </span>
-                          <Badge variant="outline" className={cn(
-                            "text-[11px] h-5 font-medium",
-                            profit >= 0
-                              ? "text-green-700 border-green-200 bg-green-50 dark:bg-green-950/20"
-                              : "text-destructive border-destructive/30 bg-destructive/5"
-                          )}>
-                            {margin.toFixed(1)}%
-                          </Badge>
-                        </div>
-                      </div>
-                    )
-                  )}
-                </div>
-
-                {/* ── Stock section (products only) ── */}
-                {isProduct && (
-                  <>
-                    <Separator />
-                    <div className="space-y-3">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Stock</p>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="ev-qty" className="text-sm">
-                          Quantity{editingVariant.unit ? ` (${editingVariant.unit})` : ""}
-                        </Label>
-                        <Input
-                          id="ev-qty"
-                          type="number"
-                          min="0"
-                          step={editingVariant.allowFractional ? "0.01" : "1"}
-                          value={editQty}
-                          onChange={(e) => setEditQty(
-                            editingVariant.allowFractional
-                              ? parseFloat(e.target.value) || 0
-                              : parseInt(e.target.value) || 0
-                          )}
-                        />
-                      </div>
-                      <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2">
-                        <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                        <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                          Use <strong>Restock</strong> to add stock — it tracks unit cost and updates profitability. Edit quantity here only to correct a counting error.
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* ── Actions ── */}
-                <div className="flex justify-end gap-2 pt-1">
-                  <Button variant="outline" onClick={() => setEditingVariant(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={() => variantEditMutation.mutate()}
-                    disabled={variantEditMutation.isPending || !editCost || !editSelling || priceInvalid}
-                  >
-                    {variantEditMutation.isPending ? "Saving…" : "Save Changes"}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        );
-      })()}
 
       {/* Add Variants Sheet */}
       {inventory && (

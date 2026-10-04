@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { checkoutInScope, filterToScope, resolveTransactionScope } from "../lib/transactionAccess";
 import { storage } from "../storage";
 import { z } from "zod";
 import { auditLogger } from "../audit";
@@ -110,7 +111,10 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
           stores.map(s => storage.getTransactions(s.id, filters))
         );
         let merged = allTxs.flat();
-        let grouped = groupTransactions(merged);
+        // Non-owner/manager users only see their own checkouts (business setting). Filtered
+        // after grouping so a merged multi-service receipt is never cut down to some of its lines.
+        const scope = await resolveTransactionScope((req as any).user, stores.map(s => s.id));
+        let grouped = filterToScope(groupTransactions(merged), scope);
 
         if (page > 0 && limit > 0) {
           const search = req.query.search as string;
@@ -145,7 +149,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const txs = await storage.getTransactions(storeId, filters);
-      let grouped = groupTransactions(txs);
+      const scope = await resolveTransactionScope((req as any).user, [storeId]);
+      let grouped = filterToScope(groupTransactions(txs), scope);
 
       if (page > 0 && limit > 0) {
         const search = req.query.search as string;
@@ -191,6 +196,11 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       // Verify the requesting user has access to the transaction's store
       if (!(await checkStoreAccess(tx.storeId, req, res))) return;
 
+      const scope = await resolveTransactionScope(req.user, [tx.storeId]);
+      if (scope && !checkoutInScope(tx.checkout, scope)) {
+        return res.status(403).json({ error: "You can only view transactions you took part in." });
+      }
+
       res.json(tx);
     } catch (error) {
       res.status(500).json({ error: "Could not load transaction." });
@@ -207,7 +217,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         if (!(await checkStoreAccess(storeId, req, res))) return;
       }
 
-      res.json(groupTransactions(txs));
+      const scope = await resolveTransactionScope(req.user, txs.map((t) => t.storeId));
+      res.json(filterToScope(groupTransactions(txs), scope));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load customer transactions. Please try again." });
     }
@@ -220,6 +231,12 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       const payload = await storage.getReceiptPayload(checkoutId);
       if (!payload) return res.status(404).json({ error: "Transaction not found." });
       if (!(await checkStoreAccess(payload.checkout.storeId, req, res))) return;
+      const scope = await resolveTransactionScope(req.user, [payload.checkout.storeId]);
+      // A merged receipt has one checkout per line, so being on any line counts.
+      const receiptCheckouts = [payload.checkout, ...((payload as any).items ?? []).map((i: any) => i.checkout)];
+      if (scope && !receiptCheckouts.some((c: any) => checkoutInScope(c, scope))) {
+        return res.status(403).json({ error: "You can only view receipts for transactions you took part in." });
+      }
       res.json(payload);
     } catch (error) {
       console.error("Receipt API Error:", error);

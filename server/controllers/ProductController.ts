@@ -8,7 +8,6 @@ import { z } from "zod";
 import { withProductId } from "../utils/slug-resolver";
 import { toTitleCase, sanitizeString } from "../sanitize";
 import { broadcastChange, getAuditContext } from "../routes/helpers";
-import { requireFeature } from "../lib/entitlements";
 import { auditLogger } from "../audit";
 
 /** Quick-pick strip defaults. 30 days keeps the ranking current enough to follow
@@ -33,7 +32,7 @@ export class ProductController extends BaseController {
     router.post("/products", isAuthenticated, this.createProduct.bind(this));
     router.patch("/products/:id", isAuthenticated, withProductId, this.updateProduct.bind(this));
     router.delete("/products/:id", isAuthenticated, withProductId, this.deleteProduct.bind(this));
-    router.post("/products/:id/variants", isAuthenticated, withProductId, requireFeature("product_variants"), this.createVariant.bind(this));
+    router.post("/products/:id/variants", isAuthenticated, withProductId, this.createVariant.bind(this));
     router.post("/products/:id/restore", isAuthenticated, withProductId, this.restoreProduct.bind(this));
     router.delete("/products/:id/permanent", isAuthenticated, withProductId, this.permanentDeleteProduct.bind(this));
   }

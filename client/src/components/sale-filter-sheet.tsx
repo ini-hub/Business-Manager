@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { cn } from "@/lib/utils";
+import { DateRangeSection } from "@/components/filter-date-range-section";
+import {
+  ChipOptions, FilterSheet, FilterSection, MoneyRange, OptionRows, SearchableOptions, SortSheet as SortRadioSheet, SwitchRows,
+} from "@/components/filter-sheet";
 import {
   type SaleFilterState,
   type SaleItemType,
@@ -10,31 +9,9 @@ import {
   type SaleSortKey,
   type SaleSortDirection,
   EMPTY_SALE_FILTERS,
-  saleSortLabel,
+  countActiveSaleFilters,
+  saleDateRangeLabel,
 } from "@/lib/sale-filters";
-
-function PresetChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "h-9 px-3.5 rounded-full border text-sm font-medium transition-colors whitespace-nowrap capitalize",
-        active ? "bg-primary/10 border-primary text-primary" : "border-input text-foreground hover:bg-muted/50"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 interface SaleFiltersSheetProps {
   filters: SaleFilterState;
@@ -44,163 +21,113 @@ interface SaleFiltersSheetProps {
   paymentMethods: string[];
   staffOptions: { id: string; name: string }[];
   trigger: React.ReactNode;
-  /** Consolidated here rather than a separate Sort button/sheet (unlike the Customers
-   * list) — the sales toolbar only has room for one control beside search. */
-  sort: SaleSortState | null;
-  onSortChange: (next: SaleSortState | null) => void;
 }
 
-const SALE_SORT_ROWS: { key: SaleSortKey; label: string; directions: SaleSortDirection[] }[] = [
-  { key: "date", label: "Date", directions: ["desc", "asc"] },
-  { key: "amount", label: "Amount", directions: ["desc", "asc"] },
-  { key: "customer", label: "Customer", directions: ["asc", "desc"] },
-];
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const money = (n: number, s: string) => `${s}${n.toLocaleString()}`;
 
-export function SaleFiltersSheet({
-  filters,
-  onApply,
-  resultCountFor,
-  currencySymbol,
-  paymentMethods,
-  staffOptions,
-  trigger,
-  sort,
-  onSortChange,
-}: SaleFiltersSheetProps) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(filters);
-  const [sortDraft, setSortDraft] = useState(sort);
-
-  // Re-seed the draft from the last applied filters each time the sheet opens, so a
-  // cancelled edit (closing without tapping "Show N sales") doesn't stick.
-  useEffect(() => {
-    if (open) {
-      setDraft(filters);
-      setSortDraft(sort);
-    }
-  }, [open, filters, sort]);
-
-  const liveCount = resultCountFor(draft);
-
+export function SaleFiltersSheet({ filters, onApply, resultCountFor, currencySymbol, paymentMethods, staffOptions, trigger }: SaleFiltersSheetProps) {
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>{trigger}</SheetTrigger>
-      <SheetContent side="bottom" className="rounded-t-xl max-h-[85vh] overflow-y-auto p-5 gap-5">
-        <SheetHeader className="flex-row items-center justify-between text-left p-0 space-y-0">
-          <SheetTitle className="text-lg">Filters</SheetTitle>
-          <button
-            type="button"
-            className="text-sm font-medium text-primary hover:underline"
-            onClick={() => {
-              setDraft(EMPTY_SALE_FILTERS);
-              setSortDraft(null);
-            }}
-            data-testid="button-sale-filters-reset"
-          >
-            Reset
-          </button>
-        </SheetHeader>
+    <FilterSheet
+      applied={filters}
+      empty={EMPTY_SALE_FILTERS}
+      onApply={onApply}
+      resultCountFor={resultCountFor}
+      noun="sale"
+      trigger={trigger}
+      activeCount={countActiveSaleFilters}
+    >
+      {({ draft, patch }) => {
+        const amountSummary = draft.amountMin != null && draft.amountMax != null
+          ? `${money(draft.amountMin, currencySymbol)} to ${money(draft.amountMax, currencySymbol)}`
+          : draft.amountMin != null ? `${money(draft.amountMin, currencySymbol)} or more`
+          : draft.amountMax != null ? `Up to ${money(draft.amountMax, currencySymbol)}` : null;
+        const staffName = staffOptions.find((s) => s.id === draft.staffId)?.name;
+        const saleTypes = [draft.returnsOnly && "Returns", draft.creditOnly && "Credit", draft.staffPurchasesOnly && "Staff purchases"].filter(Boolean) as string[];
+        return (
+          <>
+            <DateRangeSection from={draft.dateFrom} to={draft.dateTo} summary={saleDateRangeLabel(draft.dateFrom, draft.dateTo)} onChange={(dateFrom, dateTo) => patch({ dateFrom, dateTo })} />
 
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-muted-foreground">Sort by</p>
-          <div className="divide-y">
-            {SALE_SORT_ROWS.map((row) => (
-              <div key={row.key} className="flex items-center justify-between py-2.5 gap-3">
-                <span className="text-sm font-medium">{row.label}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  {row.directions.map((direction) => (
-                    <PresetChip
-                      key={direction}
-                      active={sortDraft?.key === row.key && sortDraft.direction === direction}
-                      onClick={() => setSortDraft({ key: row.key, direction })}
-                    >
-                      {saleSortLabel({ key: row.key, direction }).replace("Sort: ", "")}
-                    </PresetChip>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+            <FilterSection
+              label="Sale type"
+              defaultOpen
+              summary={saleTypes.join(", ")}
+              onClear={() => patch({ returnsOnly: false, creditOnly: false, staffPurchasesOnly: false })}
+            >
+              <SwitchRows
+                rows={[
+                  { label: "Returns", checked: draft.returnsOnly, onChange: (v) => patch({ returnsOnly: v }), count: resultCountFor({ ...draft, returnsOnly: true }) },
+                  { label: "Credit sales", checked: draft.creditOnly, onChange: (v) => patch({ creditOnly: v }), count: resultCountFor({ ...draft, creditOnly: true }) },
+                  { label: "Staff purchases", checked: draft.staffPurchasesOnly, onChange: (v) => patch({ staffPurchasesOnly: v }), count: resultCountFor({ ...draft, staffPurchasesOnly: true }) },
+                ]}
+              />
+            </FilterSection>
 
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-muted-foreground">Payment method</p>
-          <div className="flex flex-wrap gap-2">
-            {paymentMethods.map((method) => (
-              <PresetChip
-                key={method}
-                active={draft.paymentMethod === method}
-                onClick={() => setDraft((d) => ({ ...d, paymentMethod: d.paymentMethod === method ? null : method }))}
-              >
-                {method}
-              </PresetChip>
-            ))}
-          </div>
-        </div>
+            <FilterSection label="Payment method" summary={draft.paymentMethod ? cap(draft.paymentMethod) : null} onClear={() => patch({ paymentMethod: null })}>
+              <OptionRows
+                options={paymentMethods.map((m) => ({ value: m, label: cap(m), count: resultCountFor({ ...draft, paymentMethod: m }) }))}
+                value={draft.paymentMethod}
+                onChange={(v) => patch({ paymentMethod: v })}
+              />
+            </FilterSection>
 
-        {staffOptions.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-muted-foreground">Staff</p>
-            <div className="flex flex-wrap gap-2">
-              {staffOptions.map((staff) => (
-                <PresetChip
-                  key={staff.id}
-                  active={draft.staffId === staff.id}
-                  onClick={() => setDraft((d) => ({ ...d, staffId: d.staffId === staff.id ? null : staff.id }))}
-                >
-                  {staff.name}
-                </PresetChip>
-              ))}
-            </div>
-          </div>
-        )}
+            <FilterSection label="Amount" summary={amountSummary} onClear={() => patch({ amountMin: null, amountMax: null })}>
+              <MoneyRange label="Amount" symbol={currencySymbol} min={draft.amountMin} max={draft.amountMax} onChange={(min, max) => patch({ amountMin: min, amountMax: max })} />
+            </FilterSection>
 
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-muted-foreground">Item type</p>
-          <div className="flex flex-wrap gap-2">
-            {(["service", "product", "mixed"] as SaleItemType[]).map((type) => (
-              <PresetChip
-                key={type}
-                active={draft.itemType === type}
-                onClick={() => setDraft((d) => ({ ...d, itemType: d.itemType === type ? null : type }))}
-              >
-                {type}
-              </PresetChip>
-            ))}
-          </div>
-        </div>
+            {staffOptions.length > 0 && (
+              <FilterSection label="Staff" summary={staffName} onClear={() => patch({ staffId: null })}>
+                {staffOptions.length > 6 ? (
+                  <SearchableOptions
+                    options={staffOptions.map((s) => ({ value: s.id, label: s.name, count: resultCountFor({ ...draft, staffId: s.id }) }))}
+                    value={draft.staffId ? [draft.staffId] : []}
+                    onChange={(v) => patch({ staffId: v[v.length - 1] ?? null })}
+                    placeholder="Search staff"
+                  />
+                ) : (
+                  <OptionRows
+                    options={staffOptions.map((s) => ({ value: s.id, label: s.name, count: resultCountFor({ ...draft, staffId: s.id }) }))}
+                    value={draft.staffId}
+                    onChange={(v) => patch({ staffId: v })}
+                  />
+                )}
+              </FilterSection>
+            )}
 
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-muted-foreground">Amount ({currencySymbol})</p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              placeholder="Min"
-              value={draft.amountMin ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, amountMin: e.target.value ? Number(e.target.value) : null }))}
-            />
-            <span className="text-sm text-muted-foreground shrink-0">to</span>
-            <Input
-              type="number"
-              placeholder="Max"
-              value={draft.amountMax ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, amountMax: e.target.value ? Number(e.target.value) : null }))}
-            />
-          </div>
-        </div>
-
-        <Button
-          className="w-full h-11"
-          onClick={() => {
-            onApply(draft);
-            onSortChange(sortDraft);
-            setOpen(false);
-          }}
-          data-testid="button-sale-filters-apply"
-        >
-          Show {liveCount} sale{liveCount === 1 ? "" : "s"}
-        </Button>
-      </SheetContent>
-    </Sheet>
+            <FilterSection label="Item type" summary={draft.itemType ? cap(draft.itemType) : null} onClear={() => patch({ itemType: null })}>
+              <ChipOptions
+                options={(["service", "product", "mixed"] as SaleItemType[]).map((t) => ({ value: t, label: cap(t), count: resultCountFor({ ...draft, itemType: t }) }))}
+                value={draft.itemType ? [draft.itemType] : []}
+                onChange={(v) => patch({ itemType: (v[v.length - 1] as SaleItemType | undefined) ?? null })}
+              />
+            </FilterSection>
+          </>
+        );
+      }}
+    </FilterSheet>
   );
 }
+
+const SORT_OPTIONS: { value: string; label: string; key: SaleSortKey; direction: SaleSortDirection }[] = [
+  { value: "date:desc", label: "Newest", key: "date", direction: "desc" },
+  { value: "amount:desc", label: "Amount: high to low", key: "amount", direction: "desc" },
+  { value: "amount:asc", label: "Amount: low to high", key: "amount", direction: "asc" },
+];
+
+/** Sort lives in its own sheet and applies instantly; it never sits behind "Show N sales". */
+export function SaleSortSheet({ sort, onChange, trigger }: { sort: SaleSortState | null; onChange: (s: SaleSortState | null) => void; trigger: React.ReactNode }) {
+  return (
+    <SortRadioSheet
+      options={SORT_OPTIONS.map(({ value, label }) => ({ value, label }))}
+      value={sort ? `${sort.key}:${sort.direction}` : "date:desc"}
+      onChange={(v) => {
+        const o = SORT_OPTIONS.find((s) => s.value === v)!;
+        onChange(o.key === "date" ? null : { key: o.key, direction: o.direction });
+      }}
+      trigger={trigger}
+    />
+  );
+}
+
+export const saleSortButtonLabel = (sort: SaleSortState | null) =>
+  `Sort: ${SORT_OPTIONS.find((o) => o.value === (sort ? `${sort.key}:${sort.direction}` : "date:desc"))?.label ?? "Newest"}`;

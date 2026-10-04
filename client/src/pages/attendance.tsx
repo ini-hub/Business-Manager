@@ -14,6 +14,7 @@ import {
   AlertCircle,
   BookOpen,
   Clock,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -697,6 +698,15 @@ export default function AttendancePage() {
       <PageHeader
         title="Attendance"
         description={`Staff attendance tracking for ${currentStore.name}`}
+        compact
+        actions={
+          <Button variant="outline" asChild data-testid="button-back-to-staff">
+            <Link href="/staffs">
+              <ArrowLeft className="h-4 w-4 lg:mr-2" />
+              <span className="hidden lg:inline">Staff</span>
+            </Link>
+          </Button>
+        }
       />
 
       {/* Legend */}

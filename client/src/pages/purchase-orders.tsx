@@ -1,20 +1,26 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Truck, CheckSquare, Clock, AlertTriangle, Printer, Trash, RefreshCw, UserCheck, Inbox, Coins } from "lucide-react";
+import { FileText, CheckSquare, AlertTriangle, Trash, Coins, Plus, Search, SlidersHorizontal, ArrowUpDown, X } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, type BulkAction } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
-import { MetricCard } from "@/components/metric-card";
+import { PoFilterSheet, PoSortSheet } from "@/components/po-filter-sheet";
+import { ClearableInput } from "@/components/clearable-input";
+import {
+  EMPTY_PO_FILTERS, buildPoFilterChips, clearPoFilterChip, countActivePoFilters, daysLate, dueDay, isAwaiting,
+  poMatchesFilters, poMatchesSearch, sortPos, PO_SORT_LABELS, type PoFilterState, type PoSort,
+} from "@/lib/po-filters";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact } from "@/lib/currency-utils";
-import { MetricGrid } from "@/components/metric-grid";
+import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
+import { MetricRow } from "@/components/metric-row";
+import { ListControls } from "@/components/list-controls";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList } from "@/components/oop-ui/PolymorphicTabsList";
 import {
@@ -26,23 +32,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { BulkOperations } from "@/components/bulk-operations";
 import { PURCHASE_ORDER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { exportReportToPDF } from "@/lib/export-utils";
-import type { TableFilterConfig } from "@/components/oop-ui/PolymorphicTable";
-import type { PurchaseOrder, PurchaseOrderItem, Inventory, Staff } from "@shared/schema";
-import { fetchAllStaff } from "@/lib/staff-api";
+import type { PurchaseOrder } from "@shared/schema";
 
 type Vendor = { id: string; name: string; phoneNumber?: string; email?: string; companyName?: string };
 type POWithVendor = PurchaseOrder & { vendor?: Vendor; vendorName?: string; poNumber: string };
-type FullPO = PurchaseOrder & { 
-  vendor: Vendor; 
-  items: (PurchaseOrderItem & { inventory: Inventory })[] 
-};
 
 export default function PurchaseOrdersPage() {
   const [, setLocation] = useLocation();
@@ -52,9 +51,9 @@ export default function PurchaseOrdersPage() {
   const storeCurrency = currentStore?.currency || "NGN";
 
   const [activeTab, setActiveTab] = useUrlState<string>("tab", "list");
-  const [selectedPOId, setSelectedPOId] = useState<string | null>(null);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [isReceiveOpen, setIsReceiveOpen] = useState(false);
+  const [poSearch, setPoSearch] = useState("");
+  const [poFilters, setPoFilters] = useState<PoFilterState>(EMPTY_PO_FILTERS);
+  const [poSort, setPoSort] = useState<PoSort | null>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
 
   const isManagerOrOwner = user?.role === "owner" || user?.role === "manager";
@@ -118,10 +117,6 @@ export default function PurchaseOrdersPage() {
     },
   });
 
-  // Receive PO form state
-  const [receiveStaffId, setReceiveStaffId] = useState<string>("");
-  const [itemsToReceive, setItemsToReceive] = useState<{ inventoryId: string; quantity: number }[]>([]);
-
   // Fetch Purchase Orders
   const { data: purchaseOrders = [], isLoading: isLoadingPOs } = useQuery<POWithVendor[]>({
     queryKey: ["/api/purchase-orders", currentStore?.id, stores.map(s => s.id).join(",")],
@@ -145,99 +140,6 @@ export default function PurchaseOrdersPage() {
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
-
-  // Fetch Staff
-  const { data: staffList = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const list = await fetchAllStaff<Staff>(s.id);
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat();
-      }
-      return fetchAllStaff<Staff>(currentStore!.id);
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
-
-  // Fetch Inventory items
-  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/inventory?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as Inventory[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat();
-      }
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
-
-  // Fetch Full PO Details
-  const { data: fullPO, isLoading: isLoadingDetails } = useQuery<FullPO>({
-    queryKey: ["/api/purchase-orders", selectedPOId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/purchase-orders/${selectedPOId}`);
-      return res.json();
-    },
-    enabled: !!selectedPOId,
-  });
-
-  // Receive PO items mutation
-  const receivePOMutation = useMutation({
-    mutationFn: async () => {
-      if (!receiveStaffId) throw new Error("Please select the receiving staff member.");
-      const activeReceipts = itemsToReceive.filter(i => i.quantity > 0);
-      if (activeReceipts.length === 0) throw new Error("Please specify quantities to receive.");
-
-      await apiRequest("POST", `/api/purchase-orders/${selectedPOId}/receive`, {
-        staffId: receiveStaffId,
-        itemsToReceive: activeReceipts,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders", selectedPOId] });
-      toast({ title: "Fulfillment Success", description: "Procurement items received, inventory updated with weighted cost." });
-      setIsReceiveOpen(false);
-      setIsDetailsOpen(true);
-    },
-  });
-
-  const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      await apiRequest("PATCH", `/api/purchase-orders/${id}/status`, { status });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders", selectedPOId] });
-      toast({ title: "Success", description: "Purchase order status updated successfully." });
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: error.message || "Failed to update purchase order status.", variant: "destructive" });
-    },
   });
 
   // No toast/selection-clear here — driven via BulkAction.onExecute now, and
@@ -299,30 +201,21 @@ export default function PurchaseOrdersPage() {
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
-    if (s === "draft") return <Badge variant="secondary" className="bg-slate-100 text-slate-800">Draft</Badge>;
-    if (s === "ordered") return <Badge variant="secondary" className="bg-blue-100 text-blue-800">Ordered</Badge>;
-    if (s === "partially_received") return <Badge variant="secondary" className="bg-amber-100 text-amber-800">Partially Received</Badge>;
-    if (s === "received") return <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">Received & Fulfilled</Badge>;
-    if (s === "cancelled") return <Badge variant="secondary" className="bg-red-100 text-red-800">Cancelled</Badge>;
-    return <Badge>{status}</Badge>;
+    const styles: Record<string, [string, string]> = {
+      draft: ["Draft", "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"],
+      ordered: ["Awaiting delivery", "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"],
+      partially_received: ["Partly received", "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"],
+      received: ["Received", "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"],
+      cancelled: ["Cancelled", "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"],
+    };
+    const [label, cls] = styles[s] ?? [status, ""];
+    return <Badge variant="secondary" className={`${cls} whitespace-nowrap`}>{label}</Badge>;
   };
 
-  const openReceiveFulfillment = () => {
-    if (!fullPO) return;
-    setItemsToReceive(
-      fullPO.items.map(item => ({
-        inventoryId: item.inventoryId,
-        quantity: Math.max(0, item.quantity - (item.receivedQuantity || 0)), // default to remaining amount
-      }))
-    );
-    // select first staff by default if available
-    if (staffList.length > 0) {
-      setReceiveStaffId(staffList[0].id);
-    }
-    setIsDetailsOpen(false);
-    setIsReceiveOpen(true);
-  };
-
+  const localToday = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
   const columns = [
     ...(currentStore?.id === "all" ? [{
       key: "storeName",
@@ -335,54 +228,63 @@ export default function PurchaseOrdersPage() {
     }] : []),
     {
       key: "poNumber",
-      header: "PO Code",
+      header: "Purchase order",
+      priority: 1 as const,
+      cardRender: (q: POWithVendor) => <span className="font-mono truncate">{q.poNumber}</span>,
       render: (q: POWithVendor) => (
-        <span className="font-mono text-sm font-semibold text-primary">{q.poNumber}</span>
+        <div>
+          <Link href={`/purchase-orders/${q.id}`} className="font-mono text-sm font-semibold text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{q.poNumber}</Link>
+          {q.supplierRef && <p className="text-xs text-muted-foreground font-mono">Their ref {q.supplierRef}</p>}
+        </div>
       ),
     },
     {
       key: "vendor",
-      header: "Supplier / VendorName",
-      render: (q: POWithVendor) => (
-        <span className="font-medium">{q.vendor?.name || "Unknown Vendor"}</span>
-      ),
-    },
-    {
-      key: "totalAmount",
-      header: "Total Cost Value",
-      render: (q: POWithVendor) => (
-        <span className="font-mono font-medium">{formatCurrency(q.totalAmount)}</span>
-      ),
-    },
-    {
-      key: "expectedDelivery",
-      header: "Expected Delivery",
-      render: (q: POWithVendor) => (
-        <span className="text-muted-foreground text-sm">
-          {q.expectedDelivery ? new Date(q.expectedDelivery).toLocaleDateString() : "Immediate"}
-        </span>
-      ),
+      header: "Vendor",
+      priority: 2 as const,
+      cardRender: (q: POWithVendor) => {
+        const due = dueDay(q);
+        return (
+          <span className="truncate">
+            {q.vendor?.name || "Unknown vendor"}
+            {due ? ` · ${new Date(`${due}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}
+          </span>
+        );
+      },
+      render: (q: POWithVendor) => <span className="font-medium">{q.vendor?.name || "Unknown vendor"}</span>,
     },
     {
       key: "status",
       header: "Status",
+      priority: 2 as const,
       render: (q: POWithVendor) => getStatusBadge(q.status),
     },
     {
-      key: "actions",
-      header: "Actions",
-      render: (q: POWithVendor) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setSelectedPOId(q.id);
-            setIsDetailsOpen(true);
-          }}
-        >
-          Manage Order
-        </Button>
-      ),
+      key: "expectedDelivery",
+      header: "Expected",
+      render: (q: POWithVendor) => {
+        const due = dueDay(q);
+        if (!due) return <span className="text-muted-foreground text-sm">No date set</span>;
+        const late = daysLate(q, localToday);
+        return (
+          <div className="text-sm">
+            <p className={late !== null && late >= 0 ? "text-amber-700 dark:text-amber-400" : ""}>
+              {new Date(`${due}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+            </p>
+            {late !== null && late >= 0 && (
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                {late === 0 ? "Due today" : `${late} day${late === 1 ? "" : "s"} late`}
+              </p>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: "totalAmount",
+      header: "Total",
+      priority: 1 as const,
+      render: (q: POWithVendor) => <span className="font-semibold tabular-nums block text-right">{formatCurrency(q.totalAmount)}</span>,
     },
   ];
 
@@ -396,9 +298,44 @@ export default function PurchaseOrdersPage() {
   }
 
   // Procurement metrics
+  const now = new Date();
+  const inThisMonth = (d?: Date | string | null) => {
+    if (!d) return false;
+    const x = new Date(d);
+    return x.getFullYear() === now.getFullYear() && x.getMonth() === now.getMonth();
+  };
   const totalPOVal = purchaseOrders.reduce((sum, po) => sum + po.totalAmount, 0);
-  const orderedCount = purchaseOrders.filter(po => po.status === "ordered" || po.status === "partially_received").length;
+  const awaiting = purchaseOrders.filter(isAwaiting);
+  const orderedCount = awaiting.length;
+  const awaitingValue = awaiting.reduce((sum, po) => sum + po.totalAmount, 0);
+  const overdue = awaiting
+    .map((po) => ({ po, late: daysLate(po, localToday) }))
+    .filter((x): x is { po: POWithVendor; late: number } => x.late !== null && x.late >= 0)
+    .sort((a, b) => b.late - a.late);
+  const receivedThisMonth = purchaseOrders.filter((po) => po.status === "received" && inThisMonth(po.updatedAt));
+  const receivedValue = receivedThisMonth.reduce((sum, po) => sum + po.totalAmount, 0);
+  const orderedThisMonth = purchaseOrders.filter(
+    (po) => po.status !== "draft" && po.status !== "cancelled" && inThisMonth(po.placedAt ?? po.createdAt),
+  );
+  const orderedMonthValue = orderedThisMonth.reduce((sum, po) => sum + po.totalAmount, 0);
+  const orderedMonthVendors = new Set(orderedThisMonth.map((po) => po.vendorId)).size;
   const fulfilledCount = purchaseOrders.filter(po => po.status === "received").length;
+  const searchedOrders = purchaseOrders.filter((po) => poMatchesSearch(po, poSearch));
+  const visibleOrders = sortPos(
+    searchedOrders.filter((po) => poMatchesFilters(po, poFilters, localToday)),
+    poSort,
+  );
+  const poVendorOptions = Array.from(
+    new Map(purchaseOrders.map((po) => [po.vendorId, po.vendor?.name ?? "Unknown vendor"])).entries(),
+  ).map(([id, name]) => ({ id, name }));
+  const poCurrencySymbol = getCurrencyByCode(storeCurrency)?.symbol ?? storeCurrency;
+  const activePoFilterCount = countActivePoFilters(poFilters);
+  const poFilterChips = buildPoFilterChips(
+    poFilters,
+    (id) => poVendorOptions.find((v) => v.id === id)?.name ?? "Vendor",
+    poCurrencySymbol,
+  );
+  const hasPoFiltersOrSort = activePoFilterCount > 0 || poSort !== null;
   const outstandingPayable = vendorBills
     .filter(b => b.status !== "paid")
     .reduce((sum, b) => sum + (Number(b.amount) - Number(b.amountPaid || 0)), 0);
@@ -441,22 +378,24 @@ export default function PurchaseOrdersPage() {
     });
   };
 
-  const poFilterConfigs: TableFilterConfig[] = [
-    { key: "status", label: "Status", type: "select" },
-    { key: "vendor.name", label: "Vendor", type: "select" },
-    { key: "createdAt", label: "Order Date", type: "date-range" },
-    { key: "totalAmount", label: "Amount", type: "range", currencySymbol: storeCurrency === "USD" ? "$" : "₦" },
-  ];
+
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <PageHeader
         compact
-        title="Purchase Orders (PO)"
-        description="procure stock from external suppliers, track shipments, and automatically reconcile pricing cost bases."
+        title="Purchase orders"
+        description={`Order stock from vendors and receive it into ${currentStore.name}.`}
         actions={
           activeTab === "list" && (
             <>
+              {isManagerOrOwner && (
+                <Button size="sm" className="gap-1" onClick={() => setLocation("/purchase-orders/new")} data-testid="button-new-po">
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden sm:inline">New purchase order</span>
+                  <span className="sm:hidden">New</span>
+                </Button>
+              )}
               <div className="lg:hidden">
                 <BulkOperations
                   entityConfig={PURCHASE_ORDER_BULK_CONFIG}
@@ -487,91 +426,132 @@ export default function PurchaseOrdersPage() {
         }
       />
 
-      <MetricGrid>
-        {activeTab === "bills" ? (
-          <>
-            <MetricCard
-              title="Accounts Payable (Outstanding)"
-              value={formatCurrency(outstandingPayable)}
-              compactValue={formatCompact(outstandingPayable)}
-              icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
-              isLoading={isLoadingBills}
-            />
-            <MetricCard
-              title="Paid Liabilities (This Month)"
-              value={formatCurrency(paidLiabilities)}
-              compactValue={formatCompact(paidLiabilities)}
-              icon={<CheckSquare className="h-4 w-4 text-emerald-500" />}
-              isLoading={isLoadingBills}
-            />
-            <MetricCard
-              title="Active Invoices"
-              value={vendorBills.filter(b => b.status !== "paid").length}
-              icon={<FileText className="h-4 w-4 text-blue-500" />}
-              isLoading={isLoadingBills}
-            />
-          </>
-        ) : (
-          <>
-            <MetricCard
-              title="Procurement Volume"
-              value={formatCurrency(totalPOVal)}
-              compactValue={formatCompact(totalPOVal)}
-              icon={<Truck className="h-4 w-4 text-blue-500" />}
-              isLoading={isLoadingPOs}
-            />
-            <MetricCard
-              title="Orders In Transit"
-              value={orderedCount}
-              icon={<Clock className="h-4 w-4 text-amber-500" />}
-              isLoading={isLoadingPOs}
-            />
-            <MetricCard
-              title="Fulfilled Receipts"
-              value={fulfilledCount}
-              icon={<CheckSquare className="h-4 w-4 text-emerald-500" />}
-              isLoading={isLoadingPOs}
-            />
-          </>
-        )}
-      </MetricGrid>
-
+      <MetricRow
+        metrics={
+          activeTab === "bills"
+            ? [
+                {
+                  title: "Accounts Payable (Outstanding)",
+                  value: formatCurrency(outstandingPayable),
+                  compactValue: formatCompact(outstandingPayable),
+                  icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
+                  isLoading: isLoadingBills,
+                },
+                {
+                  title: "Paid Liabilities (This Month)",
+                  value: formatCurrency(paidLiabilities),
+                  compactValue: formatCompact(paidLiabilities),
+                  icon: <CheckSquare className="h-4 w-4 text-emerald-500" />,
+                  isLoading: isLoadingBills,
+                },
+                {
+                  title: "Active Invoices",
+                  value: vendorBills.filter((b) => b.status !== "paid").length,
+                  icon: <FileText className="h-4 w-4 text-blue-500" />,
+                  isLoading: isLoadingBills,
+                },
+              ]
+            : [
+                {
+                  title: "Awaiting delivery",
+                  value: orderedCount,
+                  description: orderedCount ? `${formatCompact(awaitingValue)} on order` : "Nothing on order",
+                  isLoading: isLoadingPOs,
+                  onClick: () => setPoFilters((f) => ({ ...f, status: "awaiting" })),
+                },
+                {
+                  title: "Received this month",
+                  value: receivedThisMonth.length,
+                  description: receivedThisMonth.length ? `${formatCompact(receivedValue)} into stock` : "Nothing received yet",
+                  isLoading: isLoadingPOs,
+                  onClick: () => setPoFilters((f) => ({ ...f, status: "received" })),
+                },
+                {
+                  title: "Ordered this month",
+                  value: formatCurrency(orderedMonthValue),
+                  compactValue: formatCompact(orderedMonthValue),
+                  description: `${orderedThisMonth.length} order${orderedThisMonth.length === 1 ? "" : "s"}, ${orderedMonthVendors} vendor${orderedMonthVendors === 1 ? "" : "s"}`,
+                  isLoading: isLoadingPOs,
+                },
+                {
+                  title: "Due today or late",
+                  value: overdue.length,
+                  tone: overdue.length ? "amber" : "default",
+                  description: overdue.length
+                    ? `${overdue[0].po.poNumber}, ${overdue[0].late === 0 ? "due today" : `${overdue[0].late} day${overdue[0].late === 1 ? "" : "s"} late`}`
+                    : "All on schedule",
+                  isLoading: isLoadingPOs,
+                  onClick: () => setPoFilters((f) => ({ ...f, status: "awaiting" })),
+                },
+              ]
+        }
+      />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <PolymorphicTabsList
           tabs={[
-            { value: "list", label: "Transit Registry", icon: <FileText className="h-4 w-4" /> },
-            { value: "bills", label: "Vendor Bills & Payables", icon: <Coins className="h-4 w-4" /> },
+            { value: "list", label: "Orders", icon: <FileText className="h-4 w-4" /> },
+            { value: "bills", label: "Vendor bills", icon: <Coins className="h-4 w-4" /> },
           ]}
-          variant="default"
-          className="mb-4"
+          variant="bordered"
         />
 
-        <TabsContent value="list" className="space-y-6">
-          <Card className="border border-border/40 bg-background/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle>Procurement Transit Tracker</CardTitle>
-              <CardDescription>Monitor outstanding purchase orders, arrival dates, and supply logs.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <DataTable
-                data={purchaseOrders}
-                columns={columns}
-                searchable
-                searchPlaceholder="Search PO references..."
-                searchKeys={["poNumber"]}
-                filterConfigs={poFilterConfigs}
-                isLoading={isLoadingPOs}
-                emptyMessage="No procurement transactions found. Initialize a new order."
-                multiselect={isManagerOrOwner}
-                selectedIds={selectedIds}
-                onSelectedIdsChange={setSelectedIds}
-                bulkActions={isManagerOrOwner ? poBulkActions : undefined}
-                entityNoun={{ singular: "purchase order", plural: "purchase orders" }}
-                urlKey="orders"
+        <TabsContent value="list" className="mt-4 space-y-3">
+          <ListControls
+            testIdPrefix="po"
+            placeholder="Search orders"
+            search={poSearch}
+            onSearchChange={setPoSearch}
+            filterCount={activePoFilterCount}
+            filters={(trigger) => (
+              <PoFilterSheet
+                filters={poFilters}
+                vendors={poVendorOptions}
+                currencySymbol={poCurrencySymbol}
+                resultCountFor={(draft) => searchedOrders.filter((po) => poMatchesFilters(po, draft, localToday)).length}
+                onApply={(next) => { setPoFilters(next); setSelectedIds([]); }}
+                trigger={trigger}
               />
-            </CardContent>
-          </Card>
+            )}
+            sortLabel={PO_SORT_LABELS[poSort ?? "newest"]}
+            sort={(trigger) => <PoSortSheet sort={poSort} onChange={setPoSort} trigger={trigger} />}
+            chips={poFilterChips}
+            onRemoveChip={(key) => setPoFilters((f) => clearPoFilterChip(f, key as Parameters<typeof clearPoFilterChip>[1]))}
+            hasSort={poSort !== null}
+            onClearAll={() => { setPoFilters(EMPTY_PO_FILTERS); setPoSort(null); }}
+            visibleCount={visibleOrders.length}
+            noun="order"
+          />
+
+          <DataTable
+            data={visibleOrders}
+            columns={columns}
+            hideToolbar
+            isLoading={isLoadingPOs}
+            onRowClick={(po) => setLocation(`/purchase-orders/${po.id}`)}
+            showCardChevron
+            cardLayout="compact-grid"
+            cardAvatar={() => (
+              <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 flex items-center justify-center">
+                <FileText className="h-5 w-5" />
+              </div>
+            )}
+            emptyTitle={!poSearch && !hasPoFiltersOrSort ? "No purchase orders yet" : "Nothing matches"}
+            emptyMessage={
+              !poSearch && !hasPoFiltersOrSort
+                ? "Create your first order to restock from a vendor."
+                : "Try a different search or filter."
+            }
+            emptyAction={!poSearch && !hasPoFiltersOrSort && isManagerOrOwner ? (
+              <Button onClick={() => setLocation("/purchase-orders/new")}><Plus className="h-4 w-4 mr-1" /> New purchase order</Button>
+            ) : undefined}
+            multiselect={isManagerOrOwner}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            bulkActions={isManagerOrOwner ? poBulkActions : undefined}
+            entityNoun={{ singular: "purchase order", plural: "purchase orders" }}
+            urlKey="orders"
+          />
         </TabsContent>
 
         <TabsContent value="bills" className="space-y-6">
@@ -694,191 +674,6 @@ export default function PurchaseOrdersPage() {
       </Tabs>
 
       {/* PO Details Modal */}
-      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-w-3xl border border-border bg-background/90 backdrop-blur-lg">
-          <DialogHeader>
-            <DialogTitle className="flex justify-between items-center w-full pr-6">
-              <span>Purchase Order Details</span>
-              <div className="flex gap-2">
-                {fullPO && ["ordered", "partially_received"].includes(fullPO.status) && (
-                  <Button variant="outline" size="sm" onClick={openReceiveFulfillment} className="bg-indigo-600 text-white hover:bg-indigo-700 gap-1">
-                    <Inbox className="h-4 w-4" /> Fulfill & Receive Stock
-                  </Button>
-                )}
-                {fullPO && fullPO.status === "draft" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-blue-500 hover:text-blue-700"
-                    onClick={() => updateStatusMutation.mutate({ id: fullPO.id, status: "ordered" })}
-                  >
-                    Confirm & Ship Order
-                  </Button>
-                )}
-              </div>
-            </DialogTitle>
-          </DialogHeader>
-
-          {isLoadingDetails ? (
-            <div className="py-12 flex justify-center items-center">
-              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : !fullPO ? (
-            <p className="text-center text-muted-foreground py-8">Purchase Order not found.</p>
-          ) : (
-            <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-2">
-              <div className="bg-card rounded-lg border p-6 space-y-4">
-                <div className="flex justify-between items-start pb-4 border-b">
-                  <div>
-                    <h3 className="text-xl font-bold font-mono">{fullPO.poNumber}</h3>
-                    <p className="text-xs text-muted-foreground mt-1">Vendor: {fullPO.vendor?.name}</p>
-                    <p className="text-xs text-muted-foreground">Supplier Corporate ID: {fullPO.vendorId?.substring(0, 8).toUpperCase()}</p>
-                  </div>
-                  <div className="text-right">
-                    {getStatusBadge(fullPO.status)}
-                    <p className="text-xs text-muted-foreground mt-2">Placed: {new Date(fullPO.createdAt).toLocaleDateString()}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase font-semibold">Vendor Info</p>
-                    <p className="font-bold">{fullPO.vendor?.companyName || fullPO.vendor?.name}</p>
-                    <p className="text-xs">{fullPO.vendor?.phoneNumber || "No Phone Contact"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase font-semibold">Expected Arrival</p>
-                    <p className="font-bold">
-                      {fullPO.expectedDelivery ? new Date(fullPO.expectedDelivery).toLocaleDateString() : "Immediate"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto my-6">
-                <table className="w-full min-w-[640px] text-left text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b bg-muted/50 font-semibold text-muted-foreground">
-                      <th className="py-2 px-3">Product Description</th>
-                      <th className="py-2 px-3 text-right">Expected Qty</th>
-                      <th className="py-2 px-3 text-right">Received Qty</th>
-                      <th className="py-2 px-3 text-right">Procuring Rate</th>
-                      <th className="py-2 px-3 text-right">Aggregated Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fullPO.items.map((item, idx) => (
-                      <tr key={idx} className="border-b">
-                        <td className="py-3 px-3">
-                          <p className="font-medium">{item.inventory.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{item.inventory.id.substring(0, 8).toUpperCase()}</p>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono">{item.quantity}</td>
-                        <td className="py-3 px-3 text-right font-mono text-emerald-500 font-bold">
-                          {item.receivedQuantity || 0}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono">{formatCurrency(item.unitCost)}</td>
-                        <td className="py-3 px-3 text-right font-mono font-semibold">{formatCurrency(item.totalCost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-
-                <div className="flex justify-between items-center pt-4 border-t">
-                  <span className="text-sm text-muted-foreground">Aggregated PO cost:</span>
-                  <span className="text-2xl font-bold font-mono text-primary">{formatCurrency(fullPO.totalAmount)}</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Receive Stock Fulfillment Modal */}
-      <Dialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen}>
-        <DialogContent className="max-w-2xl border border-border bg-background/95 backdrop-blur-lg">
-          <DialogHeader>
-            <DialogTitle>Procurement Fulfillment Intake</DialogTitle>
-            <DialogDescription>Mark quantities received at branch loading bay. Automatically adjusts inventory levels and records liabilities.</DialogDescription>
-          </DialogHeader>
-
-          {fullPO && (
-            <div className="space-y-6 pt-4">
-              <div className="space-y-2">
-                <Label htmlFor="receiveStaff">Receiving Staff / Registrar</Label>
-                <Select value={receiveStaffId} onValueChange={setReceiveStaffId}>
-                  <SelectTrigger id="receiveStaff">
-                    <SelectValue placeholder="Choose register operator" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffList.map((st) => (
-                      <SelectItem key={st.id} value={st.id}>{st.name} ({st.staffNumber})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-4">
-                <Label>Incoming Stock Checklist</Label>
-                <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
-                  {fullPO.items.map((item, idx) => {
-                    const receivedNow = itemsToReceive.find(i => i.inventoryId === item.inventoryId)?.quantity || 0;
-                    const maxAllowed = item.quantity - (item.receivedQuantity || 0);
-
-                    return (
-                      <div key={idx} className="flex justify-between items-center p-3 rounded-lg border bg-muted/30">
-                        <div>
-                          <p className="font-semibold text-sm">{item.inventory.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Expected: {item.quantity} | Already Received: {item.receivedQuantity || 0}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Label className="text-xs text-muted-foreground">
-                            Receive Now{inventoryItems.find(i => i.id === item.inventoryId)?.unit ? ` (${inventoryItems.find(i => i.id === item.inventoryId)?.unit})` : ""}:
-                          </Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step={inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional ? "0.01" : "1"}
-                            max={maxAllowed}
-                            className="w-24 text-right"
-                            value={receivedNow}
-                            onChange={(e) => {
-                              const isFrac = inventoryItems.find(i => i.id === item.inventoryId)?.allowFractional;
-                              const parsed = isFrac ? parseFloat(e.target.value) : parseInt(e.target.value);
-                              const val = Math.min(maxAllowed, Math.max(0, parsed || 0));
-                              setItemsToReceive(
-                                itemsToReceive.map(itr =>
-                                  itr.inventoryId === item.inventoryId ? { ...itr, quantity: val } : itr
-                                )
-                              );
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex gap-2 justify-end">
-                <Button variant="ghost" onClick={() => {
-                  setIsReceiveOpen(false);
-                  setIsDetailsOpen(true);
-                }}>Cancel</Button>
-                <Button
-                  onClick={() => receivePOMutation.mutate()}
-                  disabled={receivePOMutation.isPending}
-                  className="bg-emerald-600 text-white hover:bg-emerald-700"
-                >
-                  Confirm Intake & Restock
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
       {/* Record Payment Dialog */}
       <Dialog open={isPayDialogOpen} onOpenChange={setIsPayDialogOpen}>
         <DialogContent className="max-w-md border border-border bg-background/95 backdrop-blur-lg text-foreground">

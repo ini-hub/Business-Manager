@@ -124,6 +124,7 @@ export default function MyPayrollDetailPage() {
         takeHomePay={takeHomePay}
         shortfall={shortfall}
         totalDeductions={totalDeductions}
+        deductionsCount={activeDeductions.length}
         isPeriodOngoing={isPeriodOngoing}
         fmtCur={fmtCur}
         fmtCompact={fmtCompact}
@@ -140,7 +141,7 @@ export default function MyPayrollDetailPage() {
         readOnly
       />
 
-      <PayrollFormulaBreakdown calculationDetails={entry?.calculationDetails} fmtCur={fmtCur} />
+      <PayrollFormulaBreakdown calculationDetails={entry?.calculationDetails} explanation={commissionExplanation} fmtCur={fmtCur} />
 
       {period?.status === "paid" && (
         <Alert>

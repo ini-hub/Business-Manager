@@ -304,6 +304,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
   if (location.startsWith("/bookings/")) guidePath = "/bookings";
   if (location.startsWith("/inventory/")) guidePath = "/inventory";
   if (location.startsWith("/payroll/")) guidePath = "/payroll";
+  if (location.startsWith("/stock-transfers/")) guidePath = "/stock-transfers";
   if (location.startsWith("/sales/new")) guidePath = "/new-sale";
   if (location.startsWith("/settings/stores")) guidePath = "/settings-stores";
   if (location.startsWith("/settings/roles")) guidePath = "/settings-stores";

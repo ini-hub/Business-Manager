@@ -605,3 +605,69 @@ export async function sendEmailVerificationOtpEmail(
     html,
   });
 }
+
+
+export interface PurchaseOrderEmailInput {
+  to: string;
+  businessName: string;
+  vendorName: string;
+  poNumber: string;
+  supplierRef?: string | null;
+  notes?: string | null;
+  expectedDelivery?: Date | null;
+  currency: string;
+  lines: { name: string; quantity: number; unit?: string | null; unitCost: number }[];
+  replyTo?: string;
+}
+
+/** Tells a supplier a purchase order has been placed. Throws only if queueing fails. */
+export async function sendPurchaseOrderEmail(input: PurchaseOrderEmailInput): Promise<void> {
+  const money = (n: number) => {
+    try {
+      return new Intl.NumberFormat("en", { style: "currency", currency: input.currency }).format(n);
+    } catch {
+      return n.toFixed(2);
+    }
+  };
+  const total = input.lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+  const rows = input.lines.map((l) => `
+    <tr>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #eee;">${escapeHtml(l.name)}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align: right;">${l.quantity}${l.unit ? " " + escapeHtml(l.unit) : ""}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align: right;">${escapeHtml(money(l.unitCost))}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align: right;">${escapeHtml(money(l.quantity * l.unitCost))}</td>
+    </tr>`).join("");
+  const safeBusiness = escapeHtml(input.businessName);
+  const arrival = input.expectedDelivery ? input.expectedDelivery.toDateString() : null;
+
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 640px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #4f46e5; margin-bottom: 20px;">Purchase order ${escapeHtml(input.poNumber)}</h2>
+      <p>Hello ${escapeHtml(input.vendorName)},</p>
+      <p><strong>${safeBusiness}</strong> has placed the order below with you.${input.supplierRef ? ` Your reference: <strong>${escapeHtml(input.supplierRef)}</strong>.` : ""}${arrival ? ` Expected arrival: <strong>${escapeHtml(arrival)}</strong>.` : ""}</p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0;">
+        <thead>
+          <tr style="background: #f9fafb; text-align: left;">
+            <th style="padding: 6px 8px;">Item</th>
+            <th style="padding: 6px 8px; text-align: right;">Qty</th>
+            <th style="padding: 6px 8px; text-align: right;">Unit cost</th>
+            <th style="padding: 6px 8px; text-align: right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${input.notes ? `<p style="background: #f9fafb; border-radius: 6px; padding: 10px 12px; font-size: 14px;"><strong>Note from ${safeBusiness}:</strong><br/>${escapeHtml(input.notes).replace(/\n/g, "<br/>")}</p>` : ""}
+      <p style="text-align: right; font-weight: bold;">Order total: ${escapeHtml(money(total))}</p>
+      <p style="color: #6b7280; font-size: 13px;">Please quote ${escapeHtml(input.poNumber)} on your delivery note and invoice. Reply to this email if anything cannot be supplied as ordered.</p>
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— ${safeBusiness}</p>
+    </div>
+  `;
+
+  await enqueueEmail({
+    to: input.to,
+    subject: `Purchase order ${sanitizeHeaderValue(input.poNumber)} from ${sanitizeHeaderValue(input.businessName)}`,
+    html,
+    replyTo: input.replyTo,
+  });
+}
