@@ -24,7 +24,7 @@ import { PageHeader } from "@/components/page-header";
 import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
-import type { ExpenseCategory, Inventory } from "@shared/schema";
+import type { ExpenseCategory } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 
 const expenseSchema = z.object({
@@ -112,29 +112,6 @@ export default function AddExpensePage() {
         return responses.flat();
       }
       const res = await apiRequest("GET", `/api/expense-categories?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
-  });
-
-  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(",")],
-    queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/inventory?storeId=${s.id}`);
-              if (!res.ok) return [];
-              return await res.json() as Inventory[];
-            } catch {
-              return [];
-            }
-          })
-        );
-        return responses.flat();
-      }
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
       return res.json();
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,

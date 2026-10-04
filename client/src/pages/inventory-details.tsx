@@ -37,8 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -48,25 +46,9 @@ import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { ConsumablesRecipeCard } from "@/components/consumables-recipe-card";
 import { SupplyCostingCard } from "@/components/supply-costing-card";
 import { format } from "date-fns";
-import { getUserFriendlyError } from "@/lib/error-utils";
-import { insertInventorySchema, type Inventory, type RestockEvent, type Staff, type User as UserType, type InsertInventory } from "@shared/schema";
+import { type Inventory, type RestockEvent, type Staff, type User as UserType } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { AddVariantsSheet } from "@/components/add-variants-sheet";
-
-const inventoryEditFormSchema = insertInventorySchema.refine(
-  (data) => data.costPrice > 0,
-  { message: "Cost price must be greater than zero.", path: ["costPrice"] }
-).refine(data => {
-  if (data.commissionSplitOverride) {
-    const businessShare = data.commissionSplitBusinessShare ?? 0;
-    const staffShare = data.commissionSplitStaffShare ?? 0;
-    return businessShare + staffShare === 100;
-  }
-  return true;
-}, {
-  message: "Override split percentages must sum to exactly 100%",
-  path: ["commissionSplitStaffShare"]
-});
 
 type RestockEventWithStaff = RestockEvent & {
   staff?: Staff | null;
@@ -143,9 +125,6 @@ export default function InventoryDetails() {
     },
     enabled: !!activeVariantId && canViewActivity,
   });
-
-
-
 
   // --- COMPOSITE / BUNDLES ---
   const { data: bundleComponents = [], isLoading: bundleLoading } = useQuery<any[]>({
@@ -268,10 +247,6 @@ export default function InventoryDetails() {
     },
   });
 
-
-
-
-
   const openEditDialog = () => setLocation(`/inventory/${inventoryId}/edit`);
 
   const { data: settingsData } = useQuery<any>({
@@ -311,8 +286,6 @@ export default function InventoryDetails() {
     queryFn: () => inventoryApi.getRestockHistory(activeVariantId!),
     enabled: !!activeVariantId,
   });
-
-
 
   const storeCurrency = currentStore?.currency || "NGN";
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
@@ -1610,7 +1583,6 @@ export default function InventoryDetails() {
           </Dialog>
         )
       )}
-
 
       {/* Add Variants Sheet */}
       {inventory && (

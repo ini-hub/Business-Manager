@@ -326,7 +326,7 @@ class PayrollService {
 
     // Group checkouts by receipt to distribute discounts correctly
     const effectivePrices = new Map<string, number>();
-    for (const [dateStr, dayCheckouts] of Array.from(checkoutsByDate.entries())) {
+    for (const [, dayCheckouts] of Array.from(checkoutsByDate.entries())) {
       const checkoutsByReceipt = new Map<string, typeof dayCheckouts>();
       for (const row of dayCheckouts) {
         if (!checkoutsByReceipt.has(row.checkout.receiptNumber)) {
@@ -335,7 +335,7 @@ class PayrollService {
         checkoutsByReceipt.get(row.checkout.receiptNumber)!.push(row);
       }
 
-      for (const [receiptNo, rows] of Array.from(checkoutsByReceipt.entries())) {
+      for (const [, rows] of Array.from(checkoutsByReceipt.entries())) {
         const firstRow = rows[0];
         const totalDiscount = firstRow.checkout.discountAmount || 0;
         const subtotal = firstRow.checkout.subtotal || 1;
@@ -852,7 +852,7 @@ class PayrollService {
 
     // Group checkouts by receipt to distribute discounts correctly
     const effectivePrices = new Map<string, number>();
-    for (const [dateStr, dayCheckouts] of Array.from(checkoutsByDate.entries())) {
+    for (const [, dayCheckouts] of Array.from(checkoutsByDate.entries())) {
       const checkoutsByReceipt = new Map<string, typeof dayCheckouts>();
       for (const row of dayCheckouts) {
         if (!checkoutsByReceipt.has(row.checkout.receiptNumber)) {
@@ -861,7 +861,7 @@ class PayrollService {
         checkoutsByReceipt.get(row.checkout.receiptNumber)!.push(row);
       }
 
-      for (const [receiptNo, rows] of Array.from(checkoutsByReceipt.entries())) {
+      for (const [, rows] of Array.from(checkoutsByReceipt.entries())) {
         const firstRow = rows[0];
         const totalDiscount = firstRow.checkout.discountAmount || 0;
         const subtotal = firstRow.checkout.subtotal || 1;

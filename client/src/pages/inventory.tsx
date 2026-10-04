@@ -71,11 +71,10 @@ import { buildSlug } from "@/lib/slug";
 import { appendReturnTo } from "@/lib/return-to";
 import { useUrlState } from "@/hooks/use-url-state";
 import {
-  calculateProjectedGrossMargin,
   formatProjectedGrossMargin,
   isOutOfStock,
   isAtOrBelowReorderPoint,
-  formatStockAlertCopy,
+  formatStockAlertCopy
 } from "@/lib/inventory-metrics";
 
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
@@ -465,7 +464,7 @@ export default function InventoryPage() {
     const retail = item.variants?.reduce((sum: number, v: any) => sum + (v.sellingPrice * v.quantity), 0) ?? 0;
     return acc + retail;
   }, 0);
-  const projectedGrossMargin = calculateProjectedGrossMargin(totalCostValue, totalRetailValue);
+
   const projectedGrossMarginDisplay = formatProjectedGrossMargin(totalCostValue, totalRetailValue);
 
   const stockStatusTone = (status: string): ReportStatusTone => {

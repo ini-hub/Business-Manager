@@ -666,9 +666,7 @@ export default function NewSale() {
     staleTime: STALE_TIMES.reference,
   });
 
-  const availableInventory = inventory.filter(
-    (item) => item.type === "service" || item.quantity > 0
-  );
+
 
   // Reset active draft link when cart is manually emptied so the next save creates a fresh draft
   useEffect(() => {

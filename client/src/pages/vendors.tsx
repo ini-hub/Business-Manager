@@ -51,15 +51,6 @@ type VendorWithStats = Vendor & {
   lastOrderAt?: string | null;
 };
 
-const emptyForm = {
-  name: "",
-  contactName: "",
-  email: "",
-  phone: "",
-  address: "",
-  notes: "",
-};
-
 export default function VendorsPage() {
   const { currentStore, business } = useStore();
   const { user } = useAuth();
@@ -70,14 +61,7 @@ export default function VendorsPage() {
   const formatCurrency = (v: number) => formatCurrencyUtil(v, storeCurrency);
   const formatCompact = (v: number) => formatCurrencyCompact(v, storeCurrency);
 
-
-
-
-
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
-
-
-
 
   const [activeTab, setActiveTab] = useUrlState<"active" | "archived">("tab", "active");
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
@@ -135,8 +119,6 @@ export default function VendorsPage() {
   });
 
   const selectedVendorBills = bills.filter((b) => b.vendorId === selectedVendorId);
-
-
 
   const archiveMutation = useMutation({
     mutationFn: (vendorId: string) => apiRequest("PATCH", `/api/vendors/${vendorId}/archive`, {}),
@@ -248,10 +230,6 @@ export default function VendorsPage() {
       },
     },
   ];
-
-
-
-
 
   if (!currentStore) return <div className="space-y-6"><PageHeader title="Vendors" description="Manage suppliers and outstanding bills" /><StoreRequiredAlert title="Store Required" /></div>;
 

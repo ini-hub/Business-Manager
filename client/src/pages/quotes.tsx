@@ -77,40 +77,7 @@ export default function QuotesPage() {
     enabled: !!currentStore?.id,
   });
 
-  // Fetch Customers
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/customers?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: !!currentStore?.id,
-  });
 
-  // Fetch Inventory items. Unlike /api/products (manager/owner only, used by the
-  // POS's variant-grouped picker), this endpoint is open to any authenticated
-  // staff member, which the quote builder needs to keep — quoting isn't a
-  // manager-only action today and this rebuild must not make it one.
-  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: !!currentStore?.id,
-  });
-
-  // ProductGrid expects variant-grouped products; without the manager-gated
-  // /api/products endpoint, each inventory row becomes its own single-variant
-  // group so the same tile/search/popover UI still works for every role.
-  const productGroups = inventoryItems
-    .filter((inv) => inv.type !== "supply")
-    .map((inv) => ({
-      id: inv.id,
-      name: inv.name,
-      type: (inv.type === "service" ? "service" : "product") as "product" | "service",
-      variants: [inv],
-    }));
 
   // Fetch Single Quote details
   const { data: fullQuote, isLoading: isLoadingDetails } = useQuery<FullQuote>({

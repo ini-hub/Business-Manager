@@ -347,8 +347,6 @@ export default function ServiceProfitabilityPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
           <div className="space-y-3">
             <ListControls
               testIdPrefix="profitability"
@@ -388,8 +386,6 @@ export default function ServiceProfitabilityPage() {
               cardAvatar={itemCardAvatar}
             />
           </div>
-        </CardContent>
-      </Card>
     </PageContainer>
   );
 }

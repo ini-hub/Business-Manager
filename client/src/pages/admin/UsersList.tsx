@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +30,6 @@ import {
 } from "@/components/ui/dialog";
 
 export default function UsersList() {
-  const { admin } = useAdminAuth();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("all");

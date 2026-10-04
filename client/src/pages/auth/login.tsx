@@ -106,9 +106,7 @@ export default function Login() {
     .refine((val) => /[^A-Za-z0-9]/.test(val), "Must include at least one special character")
     .refine((val) => !/\s/.test(val), "Password cannot contain spaces");
 
-  const activationCodeFormSchema = z.object({
-    activationCode: z.string().min(1, "Activation code is required"),
-  });
+
 
   const createPasswordFormSchema = z.object({
     password: actPasswordSchema,

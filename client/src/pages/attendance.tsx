@@ -194,7 +194,6 @@ export default function AttendancePage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>("present");
 
-  const today = format(new Date(), "yyyy-MM-dd");
   const dailyDate = format(currentDate, "yyyy-MM-dd");
 
   const { data: staffList = [] } = useQuery<Staff[]>({

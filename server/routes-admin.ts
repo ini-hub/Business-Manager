@@ -2105,7 +2105,7 @@ adminRouter.get("/transactions/analytics", isAdminAuthenticated, async (req: Req
   try {
     const allOrgs = await db.select().from(organisations);
     const freeTrial = allOrgs.filter(o => o.status === "trialing").length;
-    const suspendedCount = allOrgs.filter(o => o.status === "suspended").length;
+
 
     const allSubscriptions = await db.select().from(subscriptions);
     const allPlans = await db.select().from(plans);

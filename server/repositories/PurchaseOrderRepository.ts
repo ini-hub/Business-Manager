@@ -281,7 +281,7 @@ export class PurchaseOrderRepository extends BaseRepository<typeof purchaseOrder
         const newCostPrice = newQuantity > 0 ? (totalOldValue + totalNewValue) / newQuantity : poItem.unitCost;
 
         // 3. Update Inventory item
-        const [updatedInv] = await tx
+        await tx
           .update(inventory)
           .set({
             quantity: newQuantity,

@@ -69,7 +69,7 @@ export default function PayrollPeriodPage() {
   const { backHref } = useReturnTo("/payroll");
   const [periodToDelete, setPeriodToDelete] = useState<string | null>(null);
 
-  const [entriesPage, setEntriesPage] = useUrlState("entriesPage", 1, Number);
+  const [, setEntriesPage] = useUrlState("entriesPage", 1, Number);
   const [staffSearch, setStaffSearch] = useState("");
 
   const storeCurrency = currentStore?.currency || "NGN";

@@ -145,7 +145,7 @@ export function StepCustomer({ form }: StepCustomerProps) {
     },
   });
 
-  const watchType = form.watch("type");
+
   const watchCustomerId = form.watch("customerId");
   const selectedCustomer = customers.find((c) => c.id === watchCustomerId);
 

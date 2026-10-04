@@ -106,16 +106,6 @@ export default function StockTransfersPage() {
     },
   });
 
-  // Fetch Inventory items in current store (source stock)
-  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: !!currentStore?.id && currentStore?.id !== "all",
-  });
-
   // Fetch Full Transfer Details
   const { data: fullTransfer, isLoading: isLoadingDetails } = useQuery<FullTransfer>({
     queryKey: ["/api/stock-transfers", selectedTransferId],
@@ -358,8 +348,7 @@ export default function StockTransfersPage() {
     );
   }
 
-  // Filter destination stores to exclude origin and archived stores
-  const otherStores = stores.filter(s => s.id !== currentStore.id && s.isActive !== false);
+
 
   // Aggregates
   const outgoingCount = transfers.filter(t => t.fromStoreId === currentStore.id).length;

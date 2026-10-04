@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { formatCurrency as fmt, formatCurrencyCompact } from "@/lib/currency-utils";
+import { formatCurrency as fmt } from "@/lib/currency-utils";
 import { splitPay } from "@shared/payroll-take-home";
 import { WRITE_OFF_REASONS } from "@shared/schema";
 import { explainCommission, commissionHeadline } from "@shared/commission-explainer";

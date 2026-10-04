@@ -21,7 +21,7 @@ import { useStore } from "@/lib/store-context";
 import { apiRequest } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
-import type { ExpenseCategory, Inventory } from "@shared/schema";
+import type { ExpenseCategory } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { useReturnTo } from "@/lib/return-to";
 
@@ -78,15 +78,6 @@ export default function ExpenseEditPage() {
     queryKey: ["/api/expense-categories", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/expense-categories?storeId=${currentStore!.id}`);
-      return res.json();
-    },
-    enabled: !!currentStore?.id,
-  });
-
-  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
-    queryKey: ["/api/inventory", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
       return res.json();
     },
     enabled: !!currentStore?.id,

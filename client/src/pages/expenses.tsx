@@ -113,12 +113,12 @@ export default function ExpensesPage() {
   const search = useSearch();
   const storeCurrency = currentStore?.currency || "NGN";
 
-  const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
+  const [, setIsEditExpenseOpen] = useState(false);
 
 
   const [isEditNewCategoryMode, setIsEditNewCategoryMode] = useState(false);
   const [editCustomCategoryName, setEditCustomCategoryName] = useState("");
-  const [expenseToEdit, setExpenseToEdit] = useState<ExpenseWithCategory | null>(null);
+  const [, setExpenseToEdit] = useState<ExpenseWithCategory | null>(null);
   const [expenseSearchTerm, setExpenseSearchTerm] = useState("");
   // The date range lives in the Filters sheet and is the server-side scope; it opens on today.
   const [expenseFilters, setExpenseFilters] = useState<ExpenseFilterState>(() => {
@@ -219,22 +219,6 @@ export default function ExpensesPage() {
     staleTime: STALE_TIMES.reference,
   });
 
-  const form = useForm<ExpenseFormValues>({
-    resolver: zodResolver(expenseSchema),
-    defaultValues: {
-      title: "",
-      amount: 0,
-      categoryId: "",
-      date: format(new Date(), "yyyy-MM-dd"),
-      notes: "",
-      inventoryId: null,
-      paymentMethod: "cash",
-      splitCash: 0,
-      splitTransfer: 0,
-      splitPos: 0,
-    },
-  });
-
   const editForm = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseSchema),
     defaultValues: {
@@ -251,10 +235,10 @@ export default function ExpensesPage() {
     },
   });
 
-  const selectedInventoryId = form.watch("inventoryId");
+
   const editSelectedInventoryId = editForm.watch("inventoryId");
 
-  const [newCategoryName, setNewCategoryName] = useState("");
+  const [, setNewCategoryName] = useState("");
 
 
 

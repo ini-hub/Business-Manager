@@ -30,9 +30,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BulkOperations } from "@/components/bulk-operations";
 import { CUSTOMER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { useToast } from "@/hooks/use-toast";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { insertCustomerSchema, type Customer, type InsertCustomer } from "@shared/schema";
+import { type Customer } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -44,14 +42,8 @@ import { buildSlug } from "@/lib/slug";
 import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
 import { MetricRow } from "@/components/metric-row";
 import { exportReportToPDF } from "@/lib/export-utils";
-import { validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
-import { z } from "zod";
+import { formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 import { Badge } from "@/components/ui/badge";
-
-const customerFormSchema = insertCustomerSchema.extend({
-  mobileNumber: z.string().optional().default(""),
-  customerNumber: z.string().optional().default(""),
-});
 
 // Row cells live at module level: defined inside the page they were new component types
 // on every render, which remounted every row on each keystroke in the search box.
@@ -109,8 +101,6 @@ export default function Customers() {
   useEffect(() => {
     if (activeTab === "analytics") setLocation("/customers/insights", { replace: true });
   }, [activeTab, setLocation]);
-
-
 
   const [customerSearchTerm, setCustomerSearchTerm] = useState("");
   const [customerFilters, setCustomerFilters] = useState<CustomerFilterState>(EMPTY_CUSTOMER_FILTERS);
@@ -223,29 +213,11 @@ export default function Customers() {
     setLocation(appendReturnTo(`/customers/${buildSlug(customer.name, customer.id)}`, location, search));
   };
 
-  const form = useForm<InsertCustomer>({
-    resolver: zodResolver(customerFormSchema),
-    defaultValues: {
-      storeId: currentStore?.id || "",
-      name: "",
-      customerNumber: "",
-      countryCode: "NG",
-      mobileNumber: "",
-      address: "",
-    },
-  });
-
-  const selectedCountryCode = form.watch("countryCode");
-
   // Everything under /api/customers (list, summary, single records) plus the dashboard counts.
   const refreshCustomers = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
     queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
   };
-
-
-
-
 
   const archiveMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/customers/${selectedCustomer?.id}`),
@@ -296,10 +268,6 @@ export default function Customers() {
 
   const openCreateForm = () => setLocation("/customers/new");
   const openEditForm = (customer: Customer) => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`);
-
-
-
-
 
   type CustomerRow = Customer & { totalSpend: number; lastVisited: string | null };
 

@@ -3,13 +3,11 @@ import { bookings, customers, stores } from "@shared/schema";
 import { eq, and, gte, lt, isNull, inArray } from "drizzle-orm";
 import { sendSMS } from "../email";
 import { sendTemplateMessage } from "./WhatsAppService";
-import { getAppUrl } from "../lib/appUrl";
 
 const WHATSAPP_REMINDER_TEMPLATE = process.env.WHATSAPP_REMINDER_TEMPLATE_NAME || "booking_reminder";
 const WHATSAPP_REMINDER_TEMPLATE_LANGUAGE = process.env.WHATSAPP_REMINDER_TEMPLATE_LANGUAGE || "en_US";
 
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Excellent Bolujo";
-const APP_URL = getAppUrl();
 
 // Check every 15 minutes, remind 24 h before the booking
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
@@ -55,7 +53,6 @@ async function sendBookingReminders(): Promise<void> {
     const { booking, customer, store } = row;
     const scheduledFormatted = formatDate(new Date(booking.scheduledAt));
     const businessName = store.name || BUSINESS_NAME;
-
 
     const pref = booking.reminderPreference ?? "whatsapp";
 

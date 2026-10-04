@@ -558,7 +558,6 @@ export default function CreditSalesPage() {
 
   const generatePreview = (entry: any, channel: "whatsapp" | "sms") => {
     if (!entry) return "";
-    const isOverdue = entry.status === "overdue" || (entry.dueDate && new Date(entry.dueDate) < new Date());
     const formattedAmt = formatCurrency(entry.outstandingBalance);
     const formattedDate = entry.dueDate ? new Date(entry.dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" }) : "";
     const storeName = currentStore?.name || "Our Store";

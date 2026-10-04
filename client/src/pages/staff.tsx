@@ -107,7 +107,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { fetchAllStaff } from "@/lib/staff-api";
-import { formatCurrency as formatCurrencyUtil, getCurrencyByCode } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { exportReportToPDF } from "@/lib/export-utils";
 
 export default function StaffPage() {
@@ -268,7 +268,7 @@ export default function StaffPage() {
 
   const otherStores = stores.filter(s => s.id !== currentStore?.id);
   const storeCurrency = currentStore?.currency || "NGN";
-  const currencyInfo = getCurrencyByCode(storeCurrency);
+
   
   const formatCurrency = (value: number) => {
     return formatCurrencyUtil(value, storeCurrency);

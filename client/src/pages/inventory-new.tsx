@@ -291,11 +291,7 @@ export default function InventoryNewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [usesVariants, sellsItem, selectedCombos, variantDetails, costPrice, sellingPrice]
   );
-  const optionsOk =
-    !usesVariants ||
-    (attributes.some((a) => a.values.length > 0) &&
-      selectedCombos.length > 0 &&
-      selectedCombos.length <= MAX_VARIANTS_PER_PRODUCT);
+
   const splitOk = !isService || !commissionOverride || bizShare + staffShare === 100;
 
   // The first thing blocking submission, in reading order. Shown under the button.
