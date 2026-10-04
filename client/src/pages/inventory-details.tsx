@@ -144,17 +144,8 @@ export default function InventoryDetails() {
     enabled: !!activeVariantId && canViewActivity,
   });
 
-  const [isRestockOpen, setIsRestockOpen] = useState(false);
-  const [restockData, setRestockData] = useState({
-    quantity: 1,
-    unitCost: 0,
-    costStrategy: "keep" as "keep" | "last" | "weighted" | "override",
-    newSellingPrice: undefined as number | undefined,
-    updateSellingPrice: false,
-    notes: "",
-    reason: "Restock" as "Restock" | "Return" | "Adjustment",
-    receiptUrl: "",
-  });
+
+
 
   // --- COMPOSITE / BUNDLES ---
   const { data: bundleComponents = [], isLoading: bundleLoading } = useQuery<any[]>({
@@ -277,33 +268,9 @@ export default function InventoryDetails() {
     },
   });
 
-  const form = useForm<InsertInventory>({
-    resolver: zodResolver(inventoryEditFormSchema),
-    defaultValues: {
-      storeId: currentStore?.id || "",
-      name: "",
-      type: "product",
-      costPrice: 0,
-      sellingPrice: 0,
-      quantity: 0,
-      commissionSplitOverride: false,
-      commissionSplitBusinessShare: 80,
-      commissionSplitStaffShare: 20,
-    },
-  });
 
-  const updateMutation = useMutation({
-    mutationFn: (data: InsertInventory) =>
-      apiRequest("PATCH", `/api/inventory/${inventoryId}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
-      toast({ title: "Item updated successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Couldn't Update Item", description: getUserFriendlyError(error, "updating this item"), variant: "destructive" });
-    },
-  });
+
+
 
   const openEditDialog = () => setLocation(`/inventory/${inventoryId}/edit`);
 
@@ -345,29 +312,7 @@ export default function InventoryDetails() {
     enabled: !!activeVariantId,
   });
 
-  const restockMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("POST", `/api/inventory/${inventoryId}/restock`, {
-        quantityAdded: restockData.quantity,
-        unitCost: restockData.unitCost,
-        costStrategy: restockData.costStrategy,
-        newSellingPrice: restockData.updateSellingPrice ? restockData.newSellingPrice : undefined,
-        notes: restockData.notes || undefined,
-        reason: restockData.reason,
-        receiptUrl: restockData.receiptUrl || undefined,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory-detail", inventoryId] });
-      queryClient.invalidateQueries({ queryKey: ["inventory-restock-history", inventoryId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory", currentStore?.id] });
-      toast({ title: "Stock updated successfully" });
-      setIsRestockOpen(false);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Couldn't Update Stock", description: getUserFriendlyError(error), variant: "destructive" });
-    },
-  });
+
 
   const storeCurrency = currentStore?.currency || "NGN";
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);

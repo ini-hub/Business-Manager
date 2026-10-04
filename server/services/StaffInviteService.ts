@@ -167,7 +167,7 @@ export class StaffInviteService {
   // ─── The write path ───────────────────────────────────────────────────────
 
   async inviteStaff(params: InviteParams): Promise<InviteOutcome> {
-    const { staff, businessId, email, role, reason, respectCooldown, allowRelink } = params;
+    const { staff, businessId, email, allowRelink } = params;
 
     if (!email) return { kind: "skipped", reason: "no_email" };
     if (!businessId) return { kind: "skipped", reason: "no_business" };

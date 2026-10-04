@@ -43,7 +43,7 @@ export default function PayrollDetailPage() {
   const qc = useQueryClient();
   const currency = currentStore?.currency || "NGN";
   const fmtCur = (v: number) => fmt(v, currency);
-  const fmtCompact = (v: number) => formatCurrencyCompact(v, currency);
+
 
   const [showTransactions, setShowTransactions] = useState(false);
   const [showAddDeduction, setShowAddDeduction] = useState(false);

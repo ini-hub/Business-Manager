@@ -184,15 +184,7 @@ export default function CustomerDetails() {
     }).format(value);
   };
 
-  const formatDate = (date: string | Date) => {
-    return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(date));
-  };
+
 
   const totalSpent = transactions.reduce(
     (sum, tx) => sum + (tx.checkout?.totalPrice ?? 0),

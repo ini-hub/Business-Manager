@@ -977,7 +977,7 @@ export default function NewSale() {
   const finalCartTotal = Math.max(0, cartTotal - promoDiscount);
 
   const bookingDepositAmount = bookingDetails?.depositAmount || 0;
-  const bookingDepositMethod = bookingDetails?.depositPaymentMethod || "";
+
 
   // Dynamic tax rate from fetched rates
   const defaultTaxRate = taxRates?.find((r: any) => r.isDefault);

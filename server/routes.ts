@@ -188,27 +188,9 @@ export async function registerRoutes(
     return checkStoreAccessHelper(storeId, req, res);
   }
 
-  async function checkBusinessAccess(businessId: string, req: Request, res: Response): Promise<boolean> {
-    const userId = req.user?.userId;
-    if (!userId) {
-      res.status(401).json({ error: "Authentication required." });
-      return false;
-    }
-    const member = await storage.getOrganisationMember(userId, businessId);
-    if (!member) {
-      res.status(403).json({ error: "Unauthorized access to business data." });
-      return false;
-    }
-    return true;
-  }
 
-  async function getUserStores(req: Request): Promise<any[]> {
-    const userId = req.user?.userId;
-    if (!userId) return [];
-    const user = await storage.getUser(userId);
-    if (!user || !user.businessId) return [];
-    return await storage.getStores(user.businessId);
-  }
+
+
 
   // ========== CUSTOM AUTH ROUTES ==========
 
@@ -1752,30 +1734,9 @@ export async function registerRoutes(
     next();
   };
 
-  // Helper to verify store belongs to user's business
-  const verifyStoreAccess = async (req: any, storeId: string): Promise<boolean> => {
-    const user = req.user;
-    if (!user?.businessId) return false;
 
-    const store = await storage.getStore(storeId);
-    if (!store) return false;
-    if (store.businessId !== user.businessId) return false;
 
-    // Strict isolation: if role is staff, restrict to their assigned storeId
-    // branch. Scoping the lookup (rather than fetching one arbitrary row and
-    // comparing) is what makes this correct for a staff record linked to rows
-    // in more than one store.
-    if (user.role === "staff") {
-      const staffRecord = await storage.getStaffByUserId(user.id, storeId);
-      if (!staffRecord) return false;
-    }
-    return true;
-  };
 
-  // Helper to verify a record's storeId belongs to user's business
-  const verifyRecordStoreAccess = async (req: any, recordStoreId: string): Promise<boolean> => {
-    return verifyStoreAccess(req, recordStoreId);
-  };
 
   // ─── Register domain-specific route modules ─────────────────────────────
   const routeMiddlewares = {

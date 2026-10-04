@@ -150,7 +150,7 @@ export default function InventoryNewPage() {
   // Errors only show after the first failed submit, so a fresh form isn't covered in red.
   const [showErrors, setShowErrors] = useState(false);
 
-  const isProduct = type === "product";
+
   const isService = type === "service";
   const isSupply = type === "supply";
   const canHaveVariants = !isSupply;

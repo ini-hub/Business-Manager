@@ -32,7 +32,7 @@ export default function VendorFormPage() {
     () => deduplicatedCountryCodes.find(c => c.code === getDefaultCountryCode(currentStore?.currency))?.dialCode ?? "+234"
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isPending, setIsPending] = useState(false);
+
 
   const { data: vendor } = useQuery<any>({
     queryKey: ["/api/vendors", id],

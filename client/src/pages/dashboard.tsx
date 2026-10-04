@@ -86,7 +86,7 @@ function getPreviousPeriod(preset: DatePreset, from: Date, to: Date): DateRange 
 export default function Dashboard() {
   const { currentStore, business, stores } = useStore();
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
+
   const [location] = useLocation();
   const search = useSearch();
 

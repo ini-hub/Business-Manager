@@ -91,7 +91,7 @@ export default function QuotesPage() {
   // POS's variant-grouped picker), this endpoint is open to any authenticated
   // staff member, which the quote builder needs to keep — quoting isn't a
   // manager-only action today and this rebuild must not make it one.
-  const { data: inventoryItems = [], isLoading: isLoadingInventory } = useQuery<Inventory[]>({
+  const { data: inventoryItems = [] } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);

@@ -112,11 +112,10 @@ export default function ExpensesPage() {
   const [location, setLocation] = useLocation();
   const search = useSearch();
   const storeCurrency = currentStore?.currency || "NGN";
-  
-  const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+
   const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
-  const [isNewCategoryMode, setIsNewCategoryMode] = useState(false);
-  const [customCategoryName, setCustomCategoryName] = useState("");
+
+
   const [isEditNewCategoryMode, setIsEditNewCategoryMode] = useState(false);
   const [editCustomCategoryName, setEditCustomCategoryName] = useState("");
   const [expenseToEdit, setExpenseToEdit] = useState<ExpenseWithCategory | null>(null);
@@ -128,11 +127,11 @@ export default function ExpensesPage() {
   });
   const dateRange = { from: expenseFilters.dateFrom, to: expenseFilters.dateTo };
   const [expenseSort, setExpenseSort] = useState<ExpenseSortState | null>(null);
-  const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
+
   const [categoryToDelete, setCategoryToDelete] = useState<ExpenseCategory | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<ExpenseWithCategory | null>(null);
-  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
-  const [editCategoryNameInput, setEditCategoryNameInput] = useState("");
+
+
 
   const { data: expenses = [], isLoading: isLoadingExpenses } = useQuery<ExpenseWithCategory[]>({
     queryKey: [
@@ -257,57 +256,7 @@ export default function ExpensesPage() {
 
   const [newCategoryName, setNewCategoryName] = useState("");
 
-  const addExpenseMutation = useMutation({
-    mutationFn: async (data: ExpenseFormValues) => {
-      const isLinked = data.inventoryId && data.inventoryId !== "none";
-      let catId = data.categoryId;
 
-      if (!isLinked && isNewCategoryMode) {
-        if (!customCategoryName.trim()) {
-          throw new Error("Please enter a category name.");
-        }
-        const existingCat = categories.find(
-          c => c.name.toLowerCase() === customCategoryName.trim().toLowerCase()
-        );
-        if (existingCat) {
-          catId = existingCat.id;
-        } else {
-          const newCat = await addCategoryMutation.mutateAsync(customCategoryName.trim());
-          catId = newCat.id;
-        }
-      } else if (isLinked) {
-        catId = categories.find(c => !c.isSystem)?.id || categories[0]?.id || "";
-      }
-
-      const splitPayments = data.paymentMethod === "split" ? [
-        { method: "cash", amount: data.splitCash || 0 },
-        { method: "transfer", amount: data.splitTransfer || 0 },
-        { method: "pos", amount: data.splitPos || 0 },
-      ].filter(p => p.amount > 0) : null;
-
-      const submissionData = {
-        title: data.title,
-        amount: data.amount,
-        categoryId: catId,
-        date: data.date,
-        notes: data.notes,
-        inventoryId: data.inventoryId === "none" ? null : data.inventoryId,
-        storeId: data.storeId || currentStore!.id,
-        paymentMethod: data.paymentMethod,
-        splitPayments
-      };
-      await apiRequest("POST", "/api/expenses", submissionData);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/profit-loss/summary"] });
-      setIsAddExpenseOpen(false);
-      setIsNewCategoryMode(false);
-      setCustomCategoryName("");
-      form.reset();
-      toast({ title: "Success", description: "Expense added successfully." });
-    },
-  });
 
   const updateExpenseMutation = useMutation({
     mutationFn: async (data: ExpenseFormValues & { id: string }) => {
@@ -375,21 +324,7 @@ export default function ExpensesPage() {
     },
   });
 
-  const updateCategoryMutation = useMutation({
-    mutationFn: async (data: { id: string, name: string }) => {
-      const res = await apiRequest("PATCH", `/api/expense-categories/${data.id}`, { name: data.name });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/expense-categories"] });
-      setEditingCategoryId(null);
-      setEditCategoryNameInput("");
-      toast({ title: "Success", description: "Category updated." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Could not update category.", variant: "destructive" });
-    }
-  });
+
 
   const deleteExpenseMutation = useMutation({
     mutationFn: async (id: string) => {

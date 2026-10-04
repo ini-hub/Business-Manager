@@ -235,11 +235,7 @@ export function AddVariantsSheet({
     [allCombos, existingComboKeys, deselected]
   );
 
-  // All combos the user hasn't manually deselected (used for the grid)
-  const selectedCombos = useMemo(
-    () => allCombos.filter((c) => !deselected.has(comboKey(c))),
-    [allCombos, deselected]
-  );
+
 
   const pricingValid = useMemo(() => {
     const cost = Number(defaultCost);

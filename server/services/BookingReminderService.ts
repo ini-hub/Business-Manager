@@ -55,7 +55,7 @@ async function sendBookingReminders(): Promise<void> {
     const { booking, customer, store } = row;
     const scheduledFormatted = formatDate(new Date(booking.scheduledAt));
     const businessName = store.name || BUSINESS_NAME;
-    const bookingUrl = `${APP_URL}/bookings/${booking.id}`;
+
 
     const pref = booking.reminderPreference ?? "whatsapp";
 

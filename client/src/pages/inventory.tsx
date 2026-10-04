@@ -125,7 +125,7 @@ export default function InventoryPage() {
   const search = useSearch();
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteBlockedBySales, setDeleteBlockedBySales] = useState(false);
-  const [isRestockOpen, setIsRestockOpen] = useState(false);
+
   const [selectedItem, setSelectedItem] = useState<ProductWithVariants | null>(null);
   const [viewParam, setViewParam] = useUrlState<string>("view", "items");
   const filterType: FilterType = viewParam === "archived" || viewParam === "drafts" ? viewParam : "items";
@@ -140,16 +140,7 @@ export default function InventoryPage() {
   const [inventorySort, setInventorySort] = useState<InventorySortState | null>(null);
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
-  const [restockData, setRestockData] = useState({
-    quantity: 1,
-    unitCost: 0,
-    costStrategy: "keep" as "keep" | "last" | "weighted" | "override",
-    newSellingPrice: undefined as number | undefined,
-    updateSellingPrice: false,
-    notes: "",
-    reason: "Restock" as "Restock" | "Return" | "Adjustment",
-    receiptUrl: "",
-  });
+
 
   // Bulk action dialogs (Adjust stock / Change category / Update prices / Create PO) —
   // each snapshots the selection it was opened with, since the live selection clears
@@ -450,45 +441,7 @@ export default function InventoryPage() {
     },
   });
 
-  const restockMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedItem) return;
 
-      return apiRequest("POST", `/api/inventory/${selectedItem.id}/restock`, {
-        quantityAdded: restockData.quantity,
-        unitCost: restockData.unitCost || selectedItem.costPrice,
-        costStrategy: restockData.costStrategy,
-        newSellingPrice: restockData.updateSellingPrice ? restockData.newSellingPrice : undefined,
-        notes: restockData.notes || undefined,
-        reason: restockData.reason,
-        receiptUrl: restockData.receiptUrl || undefined,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Stock updated successfully" });
-      setIsRestockOpen(false);
-      setSelectedItem(null);
-      setRestockData({ 
-        quantity: 1, 
-        unitCost: 0, 
-        costStrategy: "keep", 
-        newSellingPrice: undefined,
-        updateSellingPrice: false,
-        notes: "",
-        reason: "Restock",
-        receiptUrl: "",
-      });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Update Stock", 
-        description: getUserFriendlyError(error), 
-        variant: "destructive" 
-      });
-    },
-  });
 
   const storeCurrency = currentStore?.currency || "NGN";
   const currencyInfo = getCurrencyByCode(storeCurrency);

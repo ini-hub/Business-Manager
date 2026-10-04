@@ -96,11 +96,11 @@ export default function Customers() {
   // Spend and visit history are money figures: owner/manager, or a custom role with the
   // Customers module. The built-in staff role holds that module too but never sees spend
   // (the server enforces the same rule on /api/customers/summary).
-  const { hasPermission: hasCustomersModule, isLoading: isLoadingPermission } = useHasPermission("Customers");
+  const { hasPermission: hasCustomersModule } = useHasPermission("Customers");
   const canSeeSpend = user?.role === "owner" || user?.role === "manager" || (user?.role !== "staff" && hasCustomersModule);
   const [location, setLocation] = useLocation();
   const search = useSearch();
-  const [isFormOpen, setIsFormOpen] = useState(false);
+
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<Customer | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -109,9 +109,9 @@ export default function Customers() {
   useEffect(() => {
     if (activeTab === "analytics") setLocation("/customers/insights", { replace: true });
   }, [activeTab, setLocation]);
-  const [duplicateCustomer, setDuplicateCustomer] = useState<any | null>(null);
-  const [isDuplicateOpen, setIsDuplicateOpen] = useState(false);
-  const [pendingSubmitValues, setPendingSubmitValues] = useState<any | null>(null);
+
+
+
   const [customerSearchTerm, setCustomerSearchTerm] = useState("");
   const [customerFilters, setCustomerFilters] = useState<CustomerFilterState>(EMPTY_CUSTOMER_FILTERS);
   const [customerSort, setCustomerSort] = useState<CustomerSortState | null>(null);
@@ -243,36 +243,9 @@ export default function Customers() {
     queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
   };
 
-  const createMutation = useMutation({
-    mutationFn: (data: InsertCustomer) => apiRequest("POST", "/api/customers", data),
-    onSuccess: () => {
-      refreshCustomers();
-      toast({ title: "Customer created successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Add Customer", 
-        description: getUserFriendlyError(error, "customer"), 
-        variant: "destructive" 
-      });
-    },
-  });
 
-  const updateMutation = useMutation({
-    mutationFn: (data: InsertCustomer) =>
-      apiRequest("PATCH", `/api/customers/${selectedCustomer?.id}`, data),
-    onSuccess: () => {
-      refreshCustomers();
-      toast({ title: "Customer updated successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ 
-        title: "Couldn't Update Customer", 
-        description: getUserFriendlyError(error, "customer"), 
-        variant: "destructive" 
-      });
-    },
-  });
+
+
 
   const archiveMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/customers/${selectedCustomer?.id}`),
@@ -324,49 +297,9 @@ export default function Customers() {
   const openCreateForm = () => setLocation("/customers/new");
   const openEditForm = (customer: Customer) => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`);
 
-  const handleForceCreate = () => {
-    if (pendingSubmitValues) {
-      createMutation.mutate({
-        ...pendingSubmitValues,
-        allowDuplicatePhone: true,
-      } as any);
-      setIsDuplicateOpen(false);
-      setPendingSubmitValues(null);
-      setDuplicateCustomer(null);
-    }
-  };
 
-  const onSubmit = async (data: InsertCustomer) => {
-    const countryCode = data.countryCode || "NG";
-    // Only validate phone if provided
-    if (data.mobileNumber && data.mobileNumber.trim()) {
-      const validation = validatePhoneNumber(data.mobileNumber, countryCode);
-      if (!validation.valid) {
-        form.setError("mobileNumber", { message: validation.error });
-        return;
-      }
-    }
-    
-    if (selectedCustomer) {
-      updateMutation.mutate(data);
-    } else {
-      if (data.mobileNumber && data.mobileNumber.trim()) {
-        try {
-          const res = await fetch(`/api/customers/check-duplicate?phone=${data.mobileNumber}&storeId=${currentStore?.id}`);
-          if (res.status === 409) {
-            const result = await res.json();
-            setDuplicateCustomer(result.existingCustomer);
-            setPendingSubmitValues(data);
-            setIsDuplicateOpen(true);
-            return;
-          }
-        } catch (err) {
-          console.error("Duplicate check failed:", err);
-        }
-      }
-      createMutation.mutate(data);
-    }
-  };
+
+
 
   type CustomerRow = Customer & { totalSpend: number; lastVisited: string | null };
 

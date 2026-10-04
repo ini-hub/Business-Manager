@@ -87,7 +87,7 @@ export default function StoreFormPage() {
     },
   });
 
-  const { data: staffList = [], isLoading: isLoadingStaff } = useQuery<Staff[]>({
+  const { data: staffList = [] } = useQuery<Staff[]>({
     queryKey: ["/api/staff", storeId],
     enabled: !!storeId,
     queryFn: () => fetchAllStaff(storeId!),

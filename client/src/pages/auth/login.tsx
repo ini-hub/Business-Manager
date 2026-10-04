@@ -133,10 +133,7 @@ export default function Login() {
     defaultValues: { password: "" },
   });
 
-  const actCodeForm = useForm({
-    resolver: zodResolver(activationCodeFormSchema),
-    defaultValues: { activationCode: "" },
-  });
+
 
   const createPassForm = useForm({
     resolver: zodResolver(createPasswordFormSchema),
@@ -695,9 +692,7 @@ export default function Login() {
     loginMutation.mutate(data.password);
   };
 
-  const onVerifyCodeSubmit = (data: { activationCode: string }) => {
-    verifyCodeMutation.mutate(data.activationCode);
-  };
+
 
   const onCreatePasswordSubmit = (data: z.infer<typeof createPasswordFormSchema>) => {
     if (!isPasswordValid) {

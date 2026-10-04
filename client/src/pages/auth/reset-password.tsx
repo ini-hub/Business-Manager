@@ -29,7 +29,7 @@ type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>;
 
 export default function ResetPassword() {
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+
   const searchParams = new URLSearchParams(useSearch());
   const emailOrPhone = searchParams.get("emailOrPhone") || searchParams.get("email") || "";
   const [resetSuccess, setResetSuccess] = useState(false);

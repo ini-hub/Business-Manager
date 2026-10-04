@@ -113,7 +113,7 @@ export default function CreditSalesPage() {
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
-  const { data: summary, isLoading: isSummaryLoading } = useQuery({
+  const { data: summary } = useQuery({
     queryKey: ["/api/credit/summary", storeId],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/credit/summary?storeId=${storeId}`);
@@ -131,7 +131,7 @@ export default function CreditSalesPage() {
     enabled: !!storeId,
   });
 
-  const { data: repaymentsList = [], refetch: refetchRepayments } = useQuery({
+  const { data: repaymentsList = [] } = useQuery({
     queryKey: ["/api/credit/entries", selectedEntry?.id, "repayments"],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/credit/entries/${selectedEntry.id}/repayments`);
@@ -140,7 +140,7 @@ export default function CreditSalesPage() {
     enabled: !!selectedEntry?.id && historyOpen,
   });
 
-  const { data: reminderLogs = [], refetch: refetchReminders } = useQuery({
+  const { data: reminderLogs = [] } = useQuery({
     queryKey: ["/api/credit/entries", selectedEntry?.id, "reminders"],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/credit/entries/${selectedEntry.id}/reminders`);

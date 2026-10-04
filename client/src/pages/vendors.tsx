@@ -70,15 +70,15 @@ export default function VendorsPage() {
   const formatCurrency = (v: number) => formatCurrencyUtil(v, storeCurrency);
   const formatCompact = (v: number) => formatCurrencyCompact(v, storeCurrency);
 
-  const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
-  const [billDialogOpen, setBillDialogOpen] = useState(false);
-  const [payDialogOpen, setPayDialogOpen] = useState(false);
-  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
+
+
+
+
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
-  const [selectedBill, setSelectedBill] = useState<VendorBill | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [billForm, setBillForm] = useState({ amount: "", dueDate: "", notes: "" });
-  const [payAmount, setPayAmount] = useState("");
+
+
+
+
   const [activeTab, setActiveTab] = useUrlState<"active" | "archived">("tab", "active");
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [archivedSelectedIds, setArchivedSelectedIds] = useState<(string | number)[]>([]);
@@ -136,26 +136,7 @@ export default function VendorsPage() {
 
   const selectedVendorBills = bills.filter((b) => b.vendorId === selectedVendorId);
 
-  // Mutations
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (!form.name.trim()) throw new Error("Vendor name is required.");
-      const payload = { ...form, storeId: currentStore!.id };
-      const res = editingVendor
-        ? await apiRequest("PATCH", `/api/vendors/${editingVendor.id}`, payload)
-        : await apiRequest("POST", "/api/vendors", payload);
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message ?? "Failed to save vendor"); }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors", currentStore?.id] });
-      toast({ title: editingVendor ? "Vendor updated" : "Vendor added" });
-      setVendorDialogOpen(false);
-      setEditingVendor(null);
-      setForm(emptyForm);
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
+
 
   const archiveMutation = useMutation({
     mutationFn: (vendorId: string) => apiRequest("PATCH", `/api/vendors/${vendorId}/archive`, {}),
@@ -268,46 +249,9 @@ export default function VendorsPage() {
     },
   ];
 
-  const addBillMutation = useMutation({
-    mutationFn: async () => {
-      if (!billForm.amount || Number(billForm.amount) <= 0) throw new Error("Valid amount is required.");
-      const res = await apiRequest("POST", "/api/vendors/bills", {
-        storeId: currentStore!.id,
-        vendorId: selectedVendorId,
-        amount: Number(billForm.amount),
-        dueDate: billForm.dueDate || undefined,
-        notes: billForm.notes || undefined,
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message ?? "Failed to add bill"); }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors/bills", currentStore?.id] });
-      toast({ title: "Bill recorded" });
-      setBillDialogOpen(false);
-      setBillForm({ amount: "", dueDate: "", notes: "" });
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
 
-  const payBillMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedBill || !payAmount || Number(payAmount) <= 0) throw new Error("Valid payment amount is required.");
-      const res = await apiRequest("PATCH", `/api/vendors/bills/${selectedBill.id}`, {
-        amountPaid: Number(selectedBill.amountPaid ?? 0) + Number(payAmount),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message ?? "Failed to record payment"); }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors/bills", currentStore?.id] });
-      toast({ title: "Payment recorded" });
-      setPayDialogOpen(false);
-      setPayAmount("");
-      setSelectedBill(null);
-    },
-    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
+
+
 
   if (!currentStore) return <div className="space-y-6"><PageHeader title="Vendors" description="Manage suppliers and outstanding bills" /><StoreRequiredAlert title="Store Required" /></div>;
 

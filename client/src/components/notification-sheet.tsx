@@ -53,7 +53,7 @@ export function NotificationSheet() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: notifications = [], isLoading } = useQuery<any[]>({
+  const { data: notifications = [] } = useQuery<any[]>({
     queryKey: ["/api/notifications"],
     enabled: !!user,
     refetchInterval: 60000, // 1-min fallback poll; live updates come via the shared WS in useRealtimeSync

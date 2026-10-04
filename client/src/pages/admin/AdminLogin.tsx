@@ -9,7 +9,7 @@ import { Shield, KeyRound, ArrowRight, RefreshCw } from "lucide-react";
 import { validateEmail } from "@/lib/validation-utils";
 
 export default function AdminLogin() {
-  const [, setLocation] = useLocation();
+
   const { toast } = useToast();
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);

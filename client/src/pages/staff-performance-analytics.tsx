@@ -79,7 +79,7 @@ export default function StaffPerformanceAnalyticsPage() {
   const storeCurrency = currentStore?.currency || "NGN";
 
   // Same persisted range as the directory, so both pages always describe the same period.
-  const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
+  const [dateRange] = usePersistedDateRange<DateRange>(
     "staff_performance_date_range",
     () => {
       const params = new URLSearchParams(window.location.search);
@@ -167,16 +167,7 @@ export default function StaffPerformanceAnalyticsPage() {
   const toggleSort = (key: MetricKey) =>
     setTableSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
 
-  const exportColumns = [
-    { key: "name", header: "Staff Name" },
-    { key: "role", header: "Role" },
-    { key: "revenue", header: "Revenue" },
-    { key: "services", header: "Services" },
-    { key: "products", header: "Products" },
-    { key: "perDay", header: "Revenue per day present" },
-    { key: "present", header: "Days Present" },
-    { key: "absent", header: "Days Absent" },
-  ];
+
 
   const statusChip = (r: StaffRow) => {
     if (r.isNew) {

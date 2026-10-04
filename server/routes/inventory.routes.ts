@@ -99,7 +99,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       const type = sanitizedBody.type;
       const quantity = sanitizedBody.quantity;
       const costPrice = sanitizedBody.costPrice;
-      const sellingPrice = sanitizedBody.sellingPrice;
+
       const stock = normaliseItemStock(type, quantity);
       if (stock.error) return res.status(400).json({ error: stock.error });
       sanitizedBody.quantity = stock.quantity;

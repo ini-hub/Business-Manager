@@ -175,18 +175,7 @@ export default function BookingDetailsPage() {
     );
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pending": return "bg-yellow-500/20 text-yellow-700";
-      case "confirmed": return "bg-blue-500/20 text-blue-700";
-      case "in_progress": return "bg-purple-500/20 text-purple-700";
-      case "completed": return "bg-green-500/20 text-green-700";
-      case "cancelled": return "bg-red-500/20 text-red-700";
-      case "no_show": return "bg-orange-500/20 text-orange-700";
-      case "rescheduled": return "bg-indigo-500/20 text-indigo-700";
-      default: return "bg-gray-500/20 text-gray-700";
-    }
-  };
+
 
   const handleStatusChange = (status: string) => {
     if (status === "completed") {

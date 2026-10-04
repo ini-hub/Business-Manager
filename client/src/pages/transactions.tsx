@@ -464,7 +464,7 @@ export default function Transactions() {
     getCurrencyByCode(storeCurrency)?.symbol ?? "₦",
     (staffId) => staffOptions.find((s) => s.id === staffId)?.name ?? "Staff"
   );
-  const hasSaleFiltersOrQuickChips = saleFilterCount > 0 || saleFilters.returnsOnly || saleFilters.creditOnly || saleFilters.staffPurchasesOnly;
+
   // "Filters" button badge counts sort as one more active thing, since sort now lives
   // inside the same sheet instead of a separate button.
 
