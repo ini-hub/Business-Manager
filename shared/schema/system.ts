@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, jsonb, primaryKey } from "drizzle-orm/pg-core";
 
 // ── Persistent Email Queue ──────────────────────────────────────────────────
 export const pendingEmails = pgTable("pending_emails", {
@@ -102,3 +102,18 @@ export const auditLogBatches = pgTable("audit_log_batches", {
 
 export type AuditLogBatch = typeof auditLogBatches.$inferSelect;
 export type InsertAuditLogBatch = typeof auditLogBatches.$inferInsert;
+
+// ── System Health: hourly request telemetry ─────────────────────────────────
+// One row per (hour, server instance). latency_hist is counts per fixed latency
+// bucket (see server/lib/healthMetrics.ts), which merges across instances.
+export const healthMetricsHourly = pgTable(
+  "health_metrics_hourly",
+  {
+    hour: timestamp("hour").notNull(),
+    instanceId: text("instance_id").notNull(),
+    requests: integer("requests").notNull().default(0),
+    serverErrors: integer("server_errors").notNull().default(0),
+    latencyHist: jsonb("latency_hist").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  },
+  (table) => [primaryKey({ columns: [table.hour, table.instanceId] })],
+);

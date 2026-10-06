@@ -29,6 +29,9 @@ export const organisations = pgTable("organisations", {
   suspendedAt: timestamp("suspended_at"),
   deletedAt: timestamp("deleted_at"), // Soft-delete 30-day grace period
   deletionReason: text("deletion_reason"),
+  // End of the grace window after a failed renewal (null otherwise). A trial's own grace is
+  // derived from trialEndsAt + the configured grace days. See server/lib/trial.ts getOrgLifecycle.
+  graceEndsAt: timestamp("grace_ends_at"),
   trialEndsAt: timestamp("trial_ends_at"), // null for orgs created before trials existed (grandfathered, never gated)
   // Set once the owner clicks through the blocking "your 14-day free trial
   // starts now" notice shown right after signup (client/src/components/

@@ -38,6 +38,7 @@ export const featureCatalog = pgTable("feature_catalog", {
   currency: text("currency").notNull().default("NGN"),
   parentFeatureId: varchar("parent_feature_id").references((): any => featureCatalog.id), // set only for tierType='bundle_child'
   freeLimit: integer("free_limit"), // only for tierType='paid_metered_limit': 1 (staff), 50 (customers)
+  tierCapacity: integer("tier_capacity"), // paid_metered_limit only: the most this tier allows in total; null is unlimited
   limitType: text("limit_type"), // symbolic key checkAndReserveCountLimit switches on: 'staff_seats' | 'customer_count'
   // The feature's own flag (name = key); status 'off' is the platform-wide kill-switch.
   // Created together with the row (see server/lib/featureSync.ts); never set by hand.
@@ -45,6 +46,10 @@ export const featureCatalog = pgTable("feature_catalog", {
   // The Settings > Roles module this feature sits under (shared/permissionModules.ts);
   // null for a feature that has not been placed in one.
   permissionModule: text("permission_module"),
+  // Product tree (shared/features.ts): top-level section and the feature this one nests
+  // under. Display only, never grants; null until the registry sync has run.
+  section: text("section"), // 'management' | 'sales' | 'settings_business' | 'settings_store'
+  groupParentFeatureId: varchar("group_parent_feature_id").references((): any => featureCatalog.id),
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -67,6 +72,7 @@ export const insertFeatureCatalogSchema = createInsertSchema(featureCatalog)
     name: z.string().trim().min(1, "Feature name is required"),
     category: z.enum(["vendor_mgmt", "staff_mgmt", "customer_mgmt", "financial_mgmt", "tax_compliance", "inventory_mgmt", "analytics", "business_settings"]),
     tierType: z.enum(["free", "paid_flat", "paid_metered_limit", "bundle_parent", "bundle_child"]),
+    section: z.enum(["management", "sales", "settings_business", "settings_store"]).nullable().optional(),
     permissionModule: z.enum(PERMISSION_MODULES).nullable().optional(),
     priceMonthly: z.number().nonnegative().nullable().optional(),
     priceAnnual: z.number().nonnegative().nullable().optional(),
@@ -180,3 +186,29 @@ export const featureGateRuleEvents = pgTable("feature_gate_rule_events", {
 ]);
 
 export type FeatureGateRuleEvent = typeof featureGateRuleEvents.$inferSelect;
+
+// Admin-managed pricing bundles (see shared/bundles.ts for the pricing rule).
+// A bundle is a convenience grouping over the catalog, never a granted or sold
+// thing: it owns no entitlement, only "this set of features, discounted while
+// all of it is held". Deleting one therefore never touches anyone's access -
+// it just stops the discount (and the landing card) from existing.
+export const pricingBundles = pgTable("pricing_bundles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(), // url-safe slug, stable once created
+  name: text("name").notNull(),
+  tagline: text("tagline").notNull().default(""),
+  // feature_catalog.key values. No FK on purpose: a jsonb list can't have one,
+  // so every write is validated in server/lib/pricing.ts instead.
+  featureKeys: jsonb("feature_keys").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  discountPct: numeric("discount_pct", { precision: 5, scale: 2 }).$type<number>().notNull().default(sql`0`),
+  // Optional hand-written landing bullets; empty means derive them from the members.
+  bullets: jsonb("bullets").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  featured: boolean("featured").notNull().default(false),
+  showOnLanding: boolean("show_on_landing").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type PricingBundleRow = typeof pricingBundles.$inferSelect;
