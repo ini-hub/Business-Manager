@@ -56,7 +56,7 @@ describe("validateGateRule: safeguards", () => {
   });
 
   it("flags when a rule would restrict a free area", () => {
-    expect(freeDomainsTouched("/api/vendors")).toEqual(["vendors"]);
+    expect(freeDomainsTouched("/api/customers")).toEqual(["customers"]);
     expect(freeDomainsTouched("/api/credit/entries")).toEqual([]);
   });
 });

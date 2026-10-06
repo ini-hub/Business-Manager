@@ -518,7 +518,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       const usesCredit = data.paymentMethod === "credit" || !!data.splitPayments?.some((p) => p.method === "credit");
       const orgId = (req as any).user?.businessId;
       if (usesCredit && orgId && !(await getRequestEntitlements(res, orgId)).has("credit_sale")) {
-        return res.status(402).json(await featureNotPurchasedBody("credit_sale"));
+        return res.status(402).json(await featureNotPurchasedBody("credit_sale", orgId));
       }
 
       // Staff with a linked profile can only ring up sales under their own name;

@@ -1,7 +1,8 @@
 import type { RequestHandler } from "express";
-import { sql, eq, and, or, lte } from "drizzle-orm";
+import { sql, eq, and, or, lte, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
+  inventory,
   featureCatalog,
   featureDependencies,
   orgFeatureEntitlements,
@@ -12,8 +13,9 @@ import {
   organisations,
   type FeatureCatalog,
 } from "@shared/schema";
-import { isOrgTrialing } from "./trial";
-import { FREE_FEATURE_KEYS } from "@shared/features";
+import { getOrgLifecycle } from "./trial";
+import { getConfiguredGraceDays } from "./platformConfig";
+import { FREE_FEATURE_KEYS, getFeatureDef, resolveCountLimit, tiersNotAbove, type LimitTier } from "@shared/features";
 
 /**
  * Pay-per-feature entitlement resolution. Deliberately request-scoped, no
@@ -79,14 +81,46 @@ function sweepExpiredEntitlements(organisationId: string): void {
     .catch((error) => console.error(`sweepExpiredEntitlements failed for org ${organisationId}:`, error));
 }
 
-/** Feature keys currently killed platform-wide: the feature's own flag (feature_catalog.flag_id) has status='off'. */
-async function loadDisabledFlagKeys(conn: DbOrTx): Promise<Set<string>> {
+/**
+ * Feature keys switched off by their flag for this org: status 'off' (platform
+ * kill-switch) or 'scoped' with the org outside scopedOrgIds. Off means HIDDEN
+ * (client) and unusable (server), distinct from "on but unpaid".
+ */
+async function loadDisabledFlagKeys(conn: DbOrTx, organisationId?: string): Promise<Set<string>> {
   const rows = await conn
-    .select({ key: featureCatalog.key })
+    .select({ key: featureCatalog.key, status: featureFlags.status, scopedOrgIds: featureFlags.scopedOrgIds })
     .from(featureCatalog)
     .innerJoin(featureFlags, eq(featureFlags.id, featureCatalog.flagId))
-    .where(eq(featureFlags.status, "off"));
-  return new Set(rows.map((r) => r.key));
+    .where(or(eq(featureFlags.status, "off"), eq(featureFlags.status, "scoped")));
+  return new Set(
+    rows
+      .filter((r) => {
+        if (r.status === "off") return true;
+        const ids = Array.isArray(r.scopedOrgIds) ? (r.scopedOrgIds as unknown[]) : [];
+        return !organisationId || !ids.includes(organisationId);
+      })
+      .map((r) => r.key)
+  );
+}
+
+/**
+ * Request-time module integration: a feature is only usable while every
+ * feature it dependsOn (shared/features.ts) is also granted, so e.g. the credit
+ * reminders follow Credit Sale. Purchase-time validation still exists too.
+ */
+function applyDependencies(granted: Set<string>): Set<string> {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const key of Array.from(granted)) {
+      const deps = getFeatureDef(key)?.dependsOn ?? [];
+      if (deps.some((d) => !granted.has(d))) {
+        granted.delete(key);
+        changed = true;
+      }
+    }
+  }
+  return granted;
 }
 
 /**
@@ -96,13 +130,32 @@ async function loadDisabledFlagKeys(conn: DbOrTx): Promise<Set<string>> {
  * "not locked out" - getOrgEntitlements/checkCountLimit/getCountLimitStatus
  * all short-circuit on this rather than resolving purchases as normal.
  */
-async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
-  const [org] = await db
-    .select({ status: organisations.status, trialEndsAt: organisations.trialEndsAt })
+async function loadLifecycle(conn: Pick<typeof db, "select">, organisationId: string) {
+  const [org] = await conn
+    .select({ status: organisations.status, trialEndsAt: organisations.trialEndsAt, graceEndsAt: organisations.graceEndsAt })
     .from(organisations)
     .where(eq(organisations.id, organisationId))
     .limit(1);
-  return org ? isOrgTrialing(org) : false;
+  if (!org) return null;
+  return { org, ...getOrgLifecycle(org, await getConfiguredGraceDays()) };
+}
+
+/**
+ * Full access means the blanket grant: inside the trial, or in the grace window
+ * right after it. (A failed renewal's grace keeps what the org already paid for
+ * but does not blanket-grant everything, see below.)
+ */
+async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
+  const life = await loadLifecycle(db, organisationId);
+  if (!life) return false;
+  if (life.state === "trialing") return true;
+  return life.state === "grace" && life.org.status === "trialing" && !life.org.graceEndsAt;
+}
+
+/** True once a failed renewal's grace has run out: purchased add-ons stop counting until the org pays again. */
+async function isRenewalSoftLocked(organisationId: string): Promise<boolean> {
+  const life = await loadLifecycle(db, organisationId);
+  return life?.state === "soft_locked" && !!life.org.graceEndsAt;
 }
 
 async function loadActiveEntitlementRows(organisationId: string) {
@@ -119,7 +172,7 @@ async function loadActiveEntitlementRows(organisationId: string) {
  * an actually-purchased add-on apart from one that only looks active because
  * the org is still trialing (see purchasedFeatures on GET /api/entitlements).
  */
-function computePurchasedGrant(
+export function computePurchasedGrant(
   catalog: FeatureCatalog[],
   activeRows: { featureId: string; status: string; removalEffectiveAt: Date | null }[],
   disabledFlags: Set<string>
@@ -143,9 +196,18 @@ function computePurchasedGrant(
   for (const feature of catalog) {
     if (purchasedFeatureIds.has(feature.id)) {
       granted.add(feature.key);
-      if (feature.tierType === "bundle_parent") {
+      // A bundle parent, or a capped add-on that carries children (Additional Store), grants its children.
+      if (feature.tierType === "bundle_parent" || feature.tierType === "paid_metered_limit") {
         for (const child of catalog) {
           if (child.parentFeatureId === feature.id) granted.add(child.key);
+        }
+      }
+      // Packs of one limit (up to 3 stores, up to 10, unlimited) all carry what any of them carries: children hang off
+      // one tier in the catalog, and holding any tier of that limit grants them.
+      if (feature.tierType === "paid_metered_limit" && feature.limitType) {
+        const siblingIds = new Set(catalog.filter((t) => t.tierType === "paid_metered_limit" && t.limitType === feature.limitType).map((t) => t.id));
+        for (const child of catalog) {
+          if (child.parentFeatureId && siblingIds.has(child.parentFeatureId)) granted.add(child.key);
         }
       }
     }
@@ -154,17 +216,18 @@ function computePurchasedGrant(
   // Emergency kill-switch beats monetization, never the reverse (§2.5).
   for (const key of Array.from(disabledFlags)) granted.delete(key);
 
-  return granted;
+  return applyDependencies(granted);
 }
 
 export async function getOrgEntitlements(organisationId: string): Promise<Set<string>> {
   sweepExpiredEntitlements(organisationId);
 
-  const [catalog, disabledFlags, activeRows, trialing] = await Promise.all([
+  const [catalog, disabledFlags, loadedRows, trialing, renewalLocked] = await Promise.all([
     loadCatalog(db),
-    loadDisabledFlagKeys(db),
+    loadDisabledFlagKeys(db, organisationId),
     loadActiveEntitlementRows(organisationId),
     isOrgCurrentlyTrialing(organisationId),
+    isRenewalSoftLocked(organisationId),
   ]);
 
   // Blanket grant while trialing: every active catalog feature, full stop -
@@ -173,9 +236,11 @@ export async function getOrgEntitlements(organisationId: string): Promise<Set<st
   if (trialing) {
     const granted = new Set([...FREE_FEATURE_KEYS, ...catalog.map((f) => f.key)]);
     for (const key of Array.from(disabledFlags)) granted.delete(key);
-    return granted;
+    return applyDependencies(granted);
   }
 
+  // Soft lock after a failed renewal: nothing is deleted, but until the org pays again it has the free tier.
+  const activeRows = renewalLocked ? [] : loadedRows;
   return computePurchasedGrant(catalog, activeRows, disabledFlags);
 }
 
@@ -189,7 +254,7 @@ export async function getOrgEntitlements(organisationId: string): Promise<Set<st
 export async function getOrgPurchasedFeatures(organisationId: string): Promise<Set<string>> {
   const [catalog, disabledFlags, activeRows] = await Promise.all([
     loadCatalog(db),
-    loadDisabledFlagKeys(db),
+    loadDisabledFlagKeys(db, organisationId),
     loadActiveEntitlementRows(organisationId),
   ]);
   return computePurchasedGrant(catalog, activeRows, disabledFlags);
@@ -211,23 +276,143 @@ export function getRequestEntitlements(res: { locals: Record<string, any> }, org
   return res.locals.__orgEntitlements;
 }
 
-/** The standard 402 body for a paid feature the org doesn't have. */
-export async function featureNotPurchasedBody(featureKey: string) {
-  const feature = await getFeatureByKey(featureKey);
+export type FeaturePrice = { name: string; monthly: number | null; annual: number | null; currency: string; viaFeatureKey?: string };
+
+function priceOf(row: FeatureCatalog): { monthly: number | null; annual: number | null } {
+  const m = row.priceMonthly == null ? null : Number(row.priceMonthly);
+  const a = row.priceAnnual == null ? null : Number(row.priceAnnual);
+  return { monthly: Number.isFinite(m as number) ? m : null, annual: Number.isFinite(a as number) ? a : null };
+}
+
+/** "₦2,000/month" (or null when the feature has no price yet). */
+export function formatFeaturePrice(price: { monthly: number | null; currency: string }): string | null {
+  if (price.monthly == null) return null;
+  const symbol = price.currency === "NGN" ? "₦" : `${price.currency} `;
+  return `${symbol}${price.monthly.toLocaleString("en-NG")}/month`;
+}
+
+/** What a bundle child costs is its parent's price (it is only sold through the parent). */
+export function resolveFeaturePrice(feature: FeatureCatalog, catalog: FeatureCatalog[]): FeaturePrice {
+  const parent = feature.parentFeatureId ? catalog.find((c) => c.id === feature.parentFeatureId) : undefined;
+  let source = parent ?? feature;
+  // A child of a capped add-on comes with every pack of that limit, so quote the cheapest pack that includes it.
+  if (parent?.tierType === "paid_metered_limit" && parent.limitType) {
+    const packs = catalog.filter((c) => c.isActive && c.tierType === "paid_metered_limit" && c.limitType === parent.limitType && priceOf(c).monthly != null);
+    const cheapest = packs.sort((a, b) => (priceOf(a).monthly ?? Infinity) - (priceOf(b).monthly ?? Infinity))[0];
+    if (cheapest) source = cheapest;
+  }
+  return { name: feature.name, ...priceOf(source), currency: source.currency, viaFeatureKey: source === feature ? undefined : source.key };
+}
+
+/**
+ * The standard 402 body for a feature the org can't use: "<Name> costs
+ * ₦X/month" when it is on but unpaid, "feature_disabled" when its flag is off.
+ */
+export async function featureNotPurchasedBody(featureKey: string, organisationId?: string) {
+  const catalog = await db.select().from(featureCatalog);
+  const feature = catalog.find((f) => f.key === featureKey);
+  if (!feature) return { error: "feature_not_purchased", featureKey, featureName: featureKey, message: "This feature isn't included in your plan yet." };
+
+  if (!feature.isActive || (await loadDisabledFlagKeys(db, organisationId)).has(featureKey)) {
+    return { error: "feature_disabled", featureKey, featureName: feature.name, message: `${feature.name} isn't available right now.` };
+  }
+  const price = resolveFeaturePrice(feature, catalog);
+  const label = formatFeaturePrice(price);
+  const via = price.viaFeatureKey ? catalog.find((c) => c.key === price.viaFeatureKey)?.name : undefined;
   return {
     error: "feature_not_purchased",
     featureKey,
-    featureName: feature?.name ?? featureKey,
-    message: feature ? `This needs the "${feature.name}" add-on. Add it from Settings > Billing to continue.` : "This feature isn't included in your plan yet.",
+    featureName: feature.name,
+    priceMonthly: price.monthly,
+    priceAnnual: price.annual,
+    currency: price.currency,
+    message: label
+      ? `${feature.name} costs ${label}${via ? ` (included in ${via})` : ""}. Add it from Settings > Billing to continue.`
+      : `This needs the "${feature.name}" add-on. Add it from Settings > Billing to continue.`,
   };
 }
 
-export type CountLimitType = "staff_seats" | "customer_count" | "store_count";
+/**
+ * For an inline gate: true when the org holds the feature; otherwise sends the
+ * standard 402 and returns false, so the caller just `return`s.
+ */
+export async function ensureFeatureOrReply(
+  res: { locals: Record<string, any>; status(code: number): { json(body: unknown): unknown } },
+  organisationId: string | undefined,
+  featureKey: string,
+): Promise<boolean> {
+  if (!organisationId) { res.status(401).json({ error: "Authentication required." }); return false; }
+  if ((await getRequestEntitlements(res, organisationId)).has(featureKey)) return true;
+  res.status(402).json(await featureNotPurchasedBody(featureKey, organisationId));
+  return false;
+}
+
+/**
+ * Per-org picture for the client: which features are HIDDEN (flag off,
+ * deactivated, or a dependency/bundle parent hidden) and what each locked
+ * (visible, unpaid) feature costs.
+ */
+/** Trial/grace/soft-lock state for the banner and usage meters. */
+export async function getOrgLifecycleView(organisationId: string): Promise<{ state: string; graceEndsAt: string | null; trialEndsAt: string | null; graceDays: number }> {
+  const life = await loadLifecycle(db, organisationId);
+  const graceDays = await getConfiguredGraceDays();
+  if (!life) return { state: "ok", graceEndsAt: null, trialEndsAt: null, graceDays };
+  return { state: life.state, graceEndsAt: life.graceEndsAt?.toISOString() ?? null, trialEndsAt: life.org.trialEndsAt ? new Date(life.org.trialEndsAt).toISOString() : null, graceDays };
+}
+
+/** Hidden features: flag off, deactivated, or whose bundle parent / dependency is hidden. */
+function computeDisabledKeys(catalog: FeatureCatalog[], flagOff: Set<string>): Set<string> {
+  const byId = new Map(catalog.map((f) => [f.id, f]));
+  const disabled = new Set<string>(flagOff);
+  for (const f of catalog) if (!f.isActive) disabled.add(f.key);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of catalog) {
+      if (disabled.has(f.key)) continue;
+      const parent = f.parentFeatureId ? byId.get(f.parentFeatureId) : undefined;
+      const deps = getFeatureDef(f.key)?.dependsOn ?? [];
+      if ((parent && disabled.has(parent.key)) || deps.some((d) => disabled.has(d))) {
+        disabled.add(f.key);
+        changed = true;
+      }
+    }
+  }
+  return disabled;
+}
+
+/** Request-scoped, like getRequestEntitlements: the hidden features for this org, queried at most once per request. */
+export function getRequestDisabledFeatures(res: { locals: Record<string, any> }, organisationId: string): Promise<Set<string>> {
+  if (!res.locals.__orgDisabledFeatures) {
+    res.locals.__orgDisabledFeatures = Promise.all([db.select().from(featureCatalog), loadDisabledFlagKeys(db, organisationId)]).then(([catalog, flagOff]) =>
+      computeDisabledKeys(catalog, flagOff),
+    );
+  }
+  return res.locals.__orgDisabledFeatures;
+}
+
+export async function getOrgFeatureView(organisationId: string): Promise<{ disabled: string[]; prices: Record<string, FeaturePrice> }> {
+  const [catalog, flagOff, granted] = await Promise.all([
+    db.select().from(featureCatalog),
+    loadDisabledFlagKeys(db, organisationId),
+    getOrgEntitlements(organisationId),
+  ]);
+  const disabled = computeDisabledKeys(catalog, flagOff);
+  const prices: Record<string, FeaturePrice> = {};
+  for (const f of catalog) {
+    if (f.tierType === "free" || granted.has(f.key) || disabled.has(f.key)) continue;
+    prices[f.key] = resolveFeaturePrice(f, catalog);
+  }
+  return { disabled: Array.from(disabled), prices };
+}
+
+export type CountLimitType = "staff_seats" | "customer_count" | "store_count" | "item_count";
 
 const LIMIT_FEATURE_KEY: Record<CountLimitType, string> = {
   staff_seats: "staff_seats_addon",
   customer_count: "customer_capacity_addon",
   store_count: "store_addon",
+  item_count: "item_capacity_addon",
 };
 
 /**
@@ -235,9 +420,9 @@ const LIMIT_FEATURE_KEY: Record<CountLimitType, string> = {
  * clearing the field): the documented free tier, never 0. A 0 would block the
  * very first store/staff/customer and lock a post-trial org out of setup.
  */
-const DEFAULT_FREE_LIMIT: Record<CountLimitType, number> = { staff_seats: 1, customer_count: 50, store_count: 1 };
+const DEFAULT_FREE_LIMIT: Record<CountLimitType, number> = { staff_seats: 2, customer_count: 30, store_count: 1, item_count: 50 };
 
-const LIMIT_NOUN: Record<CountLimitType, string> = { staff_seats: "staff member", customer_count: "customer", store_count: "store" };
+const LIMIT_NOUN: Record<CountLimitType, string> = { staff_seats: "staff member", customer_count: "customer", store_count: "store", item_count: "item" };
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -252,18 +437,28 @@ export class CountLimitError extends Error {
   readonly status = 402;
   readonly code = "count_limit_reached";
   readonly featureKey: string;
-  constructor(readonly limitType: CountLimitType, readonly limit: number, readonly used: number, readonly adding = 1) {
+  constructor(readonly limitType: CountLimitType, readonly limit: number, readonly used: number, readonly adding = 1, readonly tiered = false, readonly trial = false) {
+    // Seats are per store and never include the owner, so say so wherever the number is quoted.
     const noun = LIMIT_NOUN[limitType];
+    const scope = limitType === "staff_seats" ? " per store (the owner doesn't count)" : "";
     super(
-      adding > 1
-        ? `Importing ${adding} ${noun}s would exceed your free-tier limit of ${limit} (${used} in use). Add the ${noun} add-on to import more.`
-        : `You're on the free tier of ${limit} ${noun}${limit === 1 ? "" : "s"}. Add the ${noun} add-on to add more.`
+      trial
+        ? adding > 1
+          ? `You're on the free trial, which includes ${limit} ${noun}s${scope} (${used} in use). Importing ${adding} more would go over it - upgrade to get more.`
+          : `You're on the free trial, which includes ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Upgrade to get more.`
+        : tiered
+        ? adding > 1
+          ? `Importing ${adding} ${noun}s would exceed the ${limit}${scope} your plan covers (${used} in use). Move up to a bigger plan to import more.`
+          : `Your plan covers up to ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Move up to a bigger plan to add more.`
+        : adding > 1
+        ? `Importing ${adding} ${noun}s would exceed your free-tier limit of ${limit}${scope} (${used} in use). Add the ${noun} add-on to import more.`
+        : `You're on the free tier of ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Add the ${noun} add-on to add more.`
     );
     this.name = "CountLimitError";
     this.featureKey = LIMIT_FEATURE_KEY[limitType];
   }
   toBody() {
-    return { error: "count_limit_reached", limitType: this.limitType, limit: this.limit, used: this.used, featureKey: this.featureKey, message: this.message };
+    return { error: "count_limit_reached", limitType: this.limitType, limit: this.limit, used: this.used, featureKey: this.featureKey, tiered: this.tiered, trial: this.trial, message: this.message };
   }
 }
 
@@ -278,53 +473,97 @@ export function sendPlanLimitError(res: { status(code: number): { json(body: unk
   return true;
 }
 
+type CountConn = Pick<typeof db, "select">;
+
+/**
+ * Live usage for one cap. Only live records count: archived staff/customers, inactive stores and deleted items don't.
+ * Two rules treat "the same person" once:
+ *  - staff are counted per store and never include the owner, so an owner who has a record in each store (one
+ *    staff code per store) uses no seat, and a team's seats don't pool across branches;
+ *  - customers are counted per person across the business: profiles sharing a global id or phone number in
+ *    several stores are one customer, not several.
+ * For staff, `storeId` picks the store to count; without it the busiest store is returned.
+ */
+async function countUsed(conn: CountConn, organisationId: string, limitType: CountLimitType, storeId?: string): Promise<number> {
+  if (limitType === "staff_seats") {
+    const perStore = await staffUsedByStore(conn, organisationId);
+    if (storeId) return perStore.get(storeId) ?? 0;
+    return Math.max(0, ...Array.from(perStore.values()));
+  }
+  if (limitType === "customer_count") {
+    const [row] = await conn
+      .select({ c: sql<number>`count(distinct coalesce(${customers.globalCustomerId}, nullif(${customers.mobileNumber}, ''), ${customers.id}))::int` })
+      .from(customers)
+      .innerJoin(stores, eq(customers.storeId, stores.id))
+      .where(and(eq(customers.isArchived, false), eq(stores.businessId, organisationId)));
+    return row?.c ?? 0;
+  }
+  if (limitType === "item_count") {
+    // Sellable items only: back-bar supplies (type 'supply') are consumables, not catalogue items.
+    const [row] = await conn.select({ c: sql<number>`count(*)::int` }).from(inventory).innerJoin(stores, eq(inventory.storeId, stores.id)).where(and(eq(stores.businessId, organisationId), eq(inventory.isDeleted, false), sql`${inventory.type} in ('product','service')`));
+    return row?.c ?? 0;
+  }
+  const [row] = await conn.select({ c: sql<number>`count(*)::int` }).from(stores).where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
+  return row?.c ?? 0;
+}
+
+/** Active non-owner staff per store for one business: the seats each store is using. */
+export async function staffUsedByStore(conn: CountConn, organisationId: string): Promise<Map<string, number>> {
+  const rows = await conn
+    .select({ storeId: staff.storeId, c: sql<number>`count(*)::int` })
+    .from(staff)
+    .innerJoin(stores, eq(staff.storeId, stores.id))
+    .where(and(eq(stores.businessId, organisationId), eq(staff.isArchived, false), sql`${staff.role} <> 'owner'`))
+    .groupBy(staff.storeId);
+  const out = new Map<string, number>(rows.map((r) => [r.storeId, r.c]));
+  // A store with no counted staff still has a (zero) entry, so "no store given" is the max over real stores.
+  const all = await conn.select({ id: stores.id }).from(stores).where(eq(stores.businessId, organisationId));
+  for (const st of all) if (!out.has(st.id)) out.set(st.id, 0);
+  return out;
+}
+
+
+/** Every limit tier in the catalog (built-in and admin-created), for the tier-capacity logic in shared/features.ts. */
+export async function loadLimitTiers(conn: DbOrTx | Tx = db): Promise<LimitTier[]> {
+  const rows = await conn
+    .select({ key: featureCatalog.key, tierType: featureCatalog.tierType, limitType: featureCatalog.limitType, tierCapacity: featureCatalog.tierCapacity })
+    .from(featureCatalog)
+    .where(eq(featureCatalog.tierType, "paid_metered_limit"));
+  return rows;
+}
+
+/** Keys of the active limit tiers (seat packs, capacity add-ons) an org holds for one limit type. */
+async function loadOwnedTierKeys(conn: DbOrTx | Tx, organisationId: string, limitType: CountLimitType): Promise<string[]> {
+  const rows = await conn
+    .select({ key: featureCatalog.key })
+    .from(orgFeatureEntitlements)
+    .innerJoin(featureCatalog, eq(orgFeatureEntitlements.featureId, featureCatalog.id))
+    .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.status, "active"), eq(featureCatalog.limitType, limitType)));
+  return rows.map((r) => r.key);
+}
+
 async function evaluateCountLimit(
   tx: Tx,
   organisationId: string,
-  limitType: CountLimitType
-): Promise<{ limit: number; used: number; unlimited: boolean }> {
-  const [org] = await tx
-    .select({ status: organisations.status, trialEndsAt: organisations.trialEndsAt })
-    .from(organisations)
-    .where(eq(organisations.id, organisationId))
-    .limit(1);
-  if (org && isOrgTrialing(org)) return { limit: Infinity, used: 0, unlimited: true };
+  limitType: CountLimitType,
+  storeId?: string
+): Promise<{ limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean }> {
+  // A trial gets the free amount, not unlimited: the cap is the same as the free tier, and packs bought during it still count.
+  const trial = await isOrgCurrentlyTrialing(organisationId);
+  // Stores are the exception: a trial can open extra branches to try multi-store out (the store form promises
+  // "free during your trial"). When it ends, the owner chooses which stores stay active - see choose-active.
+  if (trial && limitType === "store_count") return { limit: Infinity, used: 0, unlimited: true, tiered: false, trial: false };
 
   const [feature] = await tx.select().from(featureCatalog).where(eq(featureCatalog.key, LIMIT_FEATURE_KEY[limitType])).limit(1);
-  const limit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
+  const freeLimit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
 
-  const [entitlement] = feature
-    ? await tx
-        .select({ id: orgFeatureEntitlements.id })
-        .from(orgFeatureEntitlements)
-        .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.featureId, feature.id), eq(orgFeatureEntitlements.status, "active")))
-        .limit(1)
-    : [];
-  if (entitlement) return { limit, used: 0, unlimited: true };
-
-  let used = 0;
-  if (limitType === "staff_seats") {
-    const [row] = await tx
-      .select({ c: sql<number>`count(*)::int` })
-      .from(staff)
-      .innerJoin(stores, eq(staff.storeId, stores.id))
-      .where(and(eq(stores.businessId, organisationId), eq(staff.isArchived, false)));
-    used = row?.c ?? 0;
-  } else if (limitType === "customer_count") {
-    const [row] = await tx
-      .select({ c: sql<number>`count(*)::int` })
-      .from(customers)
-      .innerJoin(stores, eq(customers.storeId, stores.id))
-      .where(and(eq(stores.businessId, organisationId), eq(customers.isArchived, false)));
-    used = row?.c ?? 0;
-  } else {
-    const [row] = await tx
-      .select({ c: sql<number>`count(*)::int` })
-      .from(stores)
-      .where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
-    used = row?.c ?? 0;
-  }
-  return { limit, used, unlimited: false };
+  // A failed renewal drops the org back to the free tier; otherwise the cap is the biggest tier it owns.
+  const owned = (await isRenewalSoftLocked(organisationId)) ? [] : await loadOwnedTierKeys(tx, organisationId, limitType);
+  const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers(tx));
+  if (resolved.unlimited) return { limit: freeLimit, used: 0, unlimited: true, tiered: false, trial: false };
+  const limit = resolved.limit;
+  const used = await countUsed(tx, organisationId, limitType, storeId);
+  return { limit, used, unlimited: false, tiered: limit > freeLimit, trial: trial && limit === freeLimit };
 }
 
 /**
@@ -338,10 +577,10 @@ async function evaluateCountLimit(
  * the storage layer (not per route) so bulk import, restore, link-customer,
  * WhatsApp and onboarding paths are all covered by construction.
  */
-export async function assertWithinCountLimit(tx: Tx, organisationId: string, limitType: CountLimitType, adding = 1): Promise<void> {
+export async function assertWithinCountLimit(tx: Tx, organisationId: string, limitType: CountLimitType, adding = 1, storeId?: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${organisationId + ":" + limitType}))`);
-  const { limit, used, unlimited } = await evaluateCountLimit(tx, organisationId, limitType);
-  if (!unlimited && used + adding > limit) throw new CountLimitError(limitType, limit, used, adding);
+  const { limit, used, unlimited, tiered, trial } = await evaluateCountLimit(tx, organisationId, limitType, storeId);
+  if (!unlimited && used + adding > limit) throw new CountLimitError(limitType, limit, used, adding, tiered, trial);
 }
 
 /** Resolves the owning organisation of a store inside a transaction (undefined if the store doesn't exist). */
@@ -358,12 +597,13 @@ export async function getBusinessIdForStore(tx: Tx, storeId: string): Promise<st
 export async function checkCountLimit(
   organisationId: string,
   limitType: CountLimitType,
-  adding = 1
-): Promise<{ allowed: boolean; limit: number; used: number }> {
+  adding = 1,
+  storeId?: string
+): Promise<{ allowed: boolean; limit: number; used: number; tiered: boolean; trial: boolean }> {
   return db.transaction(async (tx) => {
-    const { limit, used, unlimited } = await evaluateCountLimit(tx, organisationId, limitType);
-    if (unlimited) return { allowed: true, limit, used };
-    return { allowed: used + adding <= limit, limit, used };
+    const { limit, used, unlimited, tiered, trial } = await evaluateCountLimit(tx, organisationId, limitType, storeId);
+    if (unlimited) return { allowed: true, limit, used, tiered, trial };
+    return { allowed: used + adding <= limit, limit, used, tiered, trial };
   });
 }
 
@@ -446,6 +686,22 @@ export async function grantFeatureEntitlement(args: {
       grantedByAdminId: args.grantedByAdminId ?? null,
     });
   }
+
+  // A bigger seat/limit pack replaces the smaller ones, so renewal bills only the tier the org is on.
+  const replaced = tiersNotAbove(args.featureKey, await loadLimitTiers());
+  if (replaced.length) {
+    const replacedRows = await db.select({ id: featureCatalog.id }).from(featureCatalog).where(inArray(featureCatalog.key, replaced));
+    if (replacedRows.length) {
+      await db
+        .update(orgFeatureEntitlements)
+        .set({ status: "removed", updatedAt: new Date() })
+        .where(and(
+          eq(orgFeatureEntitlements.organisationId, args.organisationId),
+          inArray(orgFeatureEntitlements.featureId, replacedRows.map((r) => r.id)),
+          or(eq(orgFeatureEntitlements.status, "active"), eq(orgFeatureEntitlements.status, "pending_removal")),
+        ));
+    }
+  }
 }
 
 /**
@@ -466,6 +722,8 @@ export async function scheduleFeatureRemoval(
   const dependents = await db.select().from(featureDependencies).where(eq(featureDependencies.dependsOnFeatureId, feature.id));
   for (const dep of dependents) {
     const dependentFeature = catalog.find((f) => f.id === dep.featureId);
+    // A bundled child (Stock Transfers under Additional Store) goes with its parent, so it never blocks removing it.
+    if (dependentFeature?.parentFeatureId === feature.id) continue;
     if (dependentFeature && granted.has(dependentFeature.key)) {
       return { ok: false, message: `Remove "${dependentFeature.name}" first - it requires "${feature.name}".` };
     }
@@ -500,26 +758,25 @@ export async function getActiveFeaturePricing(
 }
 
 /** Read-only limit status for GET /api/entitlements - no advisory lock needed, this never gates a write. */
-export async function getCountLimitStatus(organisationId: string, limitType: CountLimitType): Promise<{ limit: number; used: number; unlimited: boolean }> {
+export async function getCountLimitStatus(
+  organisationId: string,
+  limitType: CountLimitType,
+  storeId?: string
+): Promise<{ limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean; usedByStore?: Record<string, number> }> {
   const feature = await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
-  const limit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
-  // Trialing counts as unlimited too (§1) - getOrgEntitlements already grants
-  // the addon key outright while trialing, so this `.has()` check covers both
-  // "purchased" and "still inside the trial" without a separate branch here.
-  const unlimited = feature ? (await getOrgEntitlements(organisationId)).has(feature.key) : false;
+  const freeLimit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
+  // Same rule as evaluateCountLimit: a trial gets the free amount; otherwise the cap is the biggest tier owned.
+  const trialing = await isOrgCurrentlyTrialing(organisationId);
+  const owned = (await isRenewalSoftLocked(organisationId)) ? [] : await loadOwnedTierKeys(db, organisationId, limitType);
+  const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers());
 
-  let used = 0;
-  if (limitType === "staff_seats") {
-    const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(staff).innerJoin(stores, eq(staff.storeId, stores.id)).where(and(eq(stores.businessId, organisationId), eq(staff.isArchived, false)));
-    used = row?.c ?? 0;
-  } else if (limitType === "customer_count") {
-    const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(customers).innerJoin(stores, eq(customers.storeId, stores.id)).where(and(eq(stores.businessId, organisationId), eq(customers.isArchived, false)));
-    used = row?.c ?? 0;
-  } else {
-    const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(stores).where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
-    used = row?.c ?? 0;
-  }
-  return { limit, used, unlimited };
+  const used = await countUsed(db, organisationId, limitType, storeId);
+  // A trial may open extra stores (see evaluateCountLimit); the cap applies once it ends.
+  if (trialing && limitType === "store_count") return { limit: freeLimit, used, unlimited: true, tiered: false, trial: false };
+  // Staff seats are per store, so the client also gets every store's count to pick the one in view.
+  const usedByStore = limitType === "staff_seats" ? Object.fromEntries(await staffUsedByStore(db, organisationId)) : undefined;
+  if (resolved.unlimited) return { limit: freeLimit, used, unlimited: true, tiered: false, trial: false, usedByStore };
+  return { limit: resolved.limit, used, unlimited: false, tiered: resolved.limit > freeLimit, trial: trialing && resolved.limit === freeLimit, usedByStore };
 }
 
 /** Express middleware wrapping checkCountLimit with the standard 402 response shape. */
@@ -528,9 +785,11 @@ export function requireCountLimit(limitType: CountLimitType): RequestHandler {
     const businessId = (req as any).user?.businessId;
     if (!businessId) return res.status(401).json({ error: "Authentication required." });
     try {
-      const outcome = await checkCountLimit(businessId, limitType);
+      // Staff seats are per store: the new member's store is in the body.
+      const storeId = limitType === "staff_seats" && typeof req.body?.storeId === "string" ? req.body.storeId : undefined;
+      const outcome = await checkCountLimit(businessId, limitType, 1, storeId);
       if (outcome.allowed) return next();
-      return res.status(402).json(new CountLimitError(limitType, outcome.limit, outcome.used).toBody());
+      return res.status(402).json(new CountLimitError(limitType, outcome.limit, outcome.used, 1, outcome.tiered, outcome.trial).toBody());
     } catch (error) {
       console.error(`requireCountLimit(${limitType}) error:`, error);
       return res.status(500).json({ error: "We couldn't verify your plan limits. Please try again." });

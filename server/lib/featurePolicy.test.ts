@@ -3,8 +3,10 @@ import fs from "fs";
 import path from "path";
 
 const granted = new Set<string>();
+const disabled = new Set<string>();
 vi.mock("./entitlements", () => ({
   getRequestEntitlements: vi.fn(async () => granted),
+  getRequestDisabledFeatures: vi.fn(async () => disabled),
   featureNotPurchasedBody: vi.fn(async (key: string) => ({ error: "feature_not_purchased", featureKey: key, featureName: key, message: "nope" })),
 }));
 
@@ -24,17 +26,17 @@ function run(method: string, url: string, user: unknown = { businessId: "org-1" 
   return enforceFeaturePolicy(req, res, next).then(() => ({ res, next }));
 }
 
-beforeEach(() => { granted.clear(); adminRules = []; moduleAllowed = true; });
+beforeEach(() => { granted.clear(); disabled.clear(); adminRules = []; moduleAllowed = true; });
 
 describe("matchFeatureRules", () => {
   it("gates writes to expenses (incl. bulk) but not reads", () => {
-    expect(matchFeatureRules("POST", "/api/expenses/bulk").map((r) => r.feature)).toEqual(["financial_management"]);
-    expect(matchFeatureRules("DELETE", "/api/expenses/abc").map((r) => r.feature)).toEqual(["financial_management"]);
+    expect(matchFeatureRules("POST", "/api/expenses/bulk").map((r) => r.feature)).toEqual(["expenses_tracking"]);
+    expect(matchFeatureRules("DELETE", "/api/expenses/abc").map((r) => r.feature)).toEqual(["expenses_tracking"]);
     expect(matchFeatureRules("GET", "/api/expenses")).toEqual([]);
   });
 
   it("gates the P&L for reads as well as writes", () => {
-    expect(matchFeatureRules("GET", "/api/profit-loss/summary").map((r) => r.feature)).toEqual(["financial_management"]);
+    expect(matchFeatureRules("GET", "/api/profit-loss/summary").map((r) => r.feature)).toEqual(["pnl_statement"]);
   });
 
   it("gates self check-in but leaves manager-recorded proxy punches free", () => {
@@ -78,6 +80,22 @@ describe("enforceFeaturePolicy", () => {
   it("ignores unmatched routes and unauthenticated requests", async () => {
     expect((await run("POST", "/api/customers")).next).toHaveBeenCalledOnce();
     expect((await run("POST", "/api/custom-roles", null)).next).toHaveBeenCalledOnce();
+  });
+
+  it("blocks every request to a switched-off feature's API domain, reads and free features included", async () => {
+    disabled.add("customer_management");
+    const read = await run("GET", "/api/customers");
+    expect(read.res.statusCode).toBe(402);
+    expect(read.next).not.toHaveBeenCalled();
+    expect((await run("POST", "/api/customers")).res.statusCode).toBe(402);
+    expect((await run("GET", "/api/products")).next).toHaveBeenCalledOnce();
+    disabled.clear();
+  });
+
+  it("never blocks core_platform, even if it is somehow listed as disabled", async () => {
+    disabled.add("core_platform");
+    expect((await run("GET", "/api/settings")).next).toHaveBeenCalledOnce();
+    disabled.clear();
   });
 
   it("ignores the query string when matching", async () => {

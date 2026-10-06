@@ -10,6 +10,7 @@ import { db } from "../db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { sanitizeString, sanitizeNumber, sanitizeBoolean, toTitleCase } from "../sanitize";
 import { auditLogger } from "../audit";
+import { sendPlanLimitError, ensureFeatureOrReply, checkCountLimit, CountLimitError } from "../lib/entitlements";
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getAuditContext, formatZodErrors, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { withInventoryId } from '../utils/slug-resolver';
@@ -112,6 +113,12 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
 
       const data = insertInventorySchema.parse(sanitizedBody);
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
+      // A new variant of a product that already sells in parts inherits that, so it is not a new use.
+      if (data.allowFractional) {
+        const parent = data.productId ? await storage.getProduct(data.productId) : undefined;
+        const inherited = !!parent?.variants?.some((v: { allowFractional?: boolean | null }) => v.allowFractional);
+        if (!inherited && !(await ensureFeatureOrReply(res, (req as any).user?.businessId, "sell_in_parts"))) return;
+      }
 
       // Scoped by type: retailing "Shampoo" must not block stocking it back-bar.
       const existingItem = await storage.getInventoryItemByName(data.storeId, data.name, data.type);
@@ -130,6 +137,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       res.status(201).json(item);
     } catch (error) {
       auditLogger.logDataModification("inventory", undefined, getUserId(req), "CREATE", false, (error as Error).message);
+      if (sendPlanLimitError(res, error)) return;
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
@@ -234,6 +242,8 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       delete updateBody.storeId;
       const data = insertInventorySchema.partial().parse(updateBody);
       if (data.name) data.name = toTitleCase(data.name);
+      // Only turning it on is gated: re-saving an item that is already fractional is not.
+      if (data.allowFractional && !item.allowFractional && !(await ensureFeatureOrReply(res, (req as any).user?.businessId, "sell_in_parts"))) return;
 
       const finalType = data.type || item.type;
       const finalQuantity = data.quantity !== undefined ? data.quantity : item.quantity;
@@ -381,6 +391,13 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
 
       if (!await verifyStoreAccess(req, storeId)) {
         return res.status(403).json({ error: "You don't have access to this store." });
+      }
+
+      // Reject the whole file up front if it would push the org past its item cap (same rule as the staff and customer imports).
+      const businessId = (req as any).user?.businessId;
+      if (businessId) {
+        const outcome = await checkCountLimit(businessId, "item_count", data.length);
+        if (!outcome.allowed) return res.status(402).json(new CountLimitError("item_count", outcome.limit, outcome.used, data.length, outcome.tiered, outcome.trial).toBody());
       }
 
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };

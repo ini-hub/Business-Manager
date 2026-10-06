@@ -12,7 +12,7 @@ import {
   type Customer,
   type InsertCustomer,
 } from "@shared/schema";
-import { eq, and, or, ilike, inArray, count, asc, sql, gte, lte, desc } from "drizzle-orm";
+import { eq, ne, and, or, ilike, inArray, count, asc, sql, gte, lte, desc } from "drizzle-orm";
 import { normalizePhoneNumber } from "../sanitize";
 import { searchTokens, infix, searchPhoneDigits } from "../lib/searchTerms";
 import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
@@ -159,6 +159,26 @@ export class CustomerRepository {
     return customer;
   }
 
+  /** True when a live (non-archived) profile with this phone or global id exists in any store of the business. */
+  private async personHasLiveProfile(
+    conn: Pick<typeof db, "select">,
+    businessId: string,
+    who: { phone?: string | null; globalId?: string | null; excludeId?: string },
+  ): Promise<boolean> {
+    const same = [
+      who.phone ? eq(customers.mobileNumber, who.phone) : undefined,
+      who.globalId ? eq(customers.globalCustomerId, who.globalId) : undefined,
+    ].filter((c): c is NonNullable<typeof c> => !!c);
+    if (same.length === 0) return false;
+    const rows = await conn
+      .select({ id: customers.id })
+      .from(customers)
+      .innerJoin(stores, eq(customers.storeId, stores.id))
+      .where(and(eq(stores.businessId, businessId), eq(customers.isArchived, false), or(...same), who.excludeId ? ne(customers.id, who.excludeId) : undefined))
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
     const { birthday, ...rest } = customer;
 
@@ -166,8 +186,12 @@ export class CustomerRepository {
 
     const newCustomer = await db.transaction(async (tx) => {
       // Free-tier customer cap, checked under the same lock/transaction as the insert.
+      // A person who already has a live profile in another of the business's stores is the same customer, so a
+      // second profile for them takes no new slot (the cap counts people, not profiles).
       const businessId = await getBusinessIdForStore(tx, customer.storeId);
-      if (businessId) await assertWithinCountLimit(tx, businessId, "customer_count");
+      if (businessId && !(normalizedPhone && (await this.personHasLiveProfile(tx, businessId, { phone: normalizedPhone })))) {
+        await assertWithinCountLimit(tx, businessId, "customer_count");
+      }
 
       const customerNumber = await this.getNextAvailableCustomerNumber(customer.storeId);
       const [inserted] = await tx.insert(customers).values({
@@ -220,11 +244,18 @@ export class CustomerRepository {
 
   async restoreCustomer(id: string): Promise<Customer | undefined> {
     return db.transaction(async (tx) => {
-      const [current] = await tx.select({ storeId: customers.storeId, isArchived: customers.isArchived }).from(customers).where(eq(customers.id, id)).limit(1);
-      // Un-archiving takes a slot back, so it's subject to the same free-tier cap as a new customer.
+      const [current] = await tx
+        .select({ storeId: customers.storeId, isArchived: customers.isArchived, globalCustomerId: customers.globalCustomerId, mobileNumber: customers.mobileNumber })
+        .from(customers)
+        .where(eq(customers.id, id))
+        .limit(1);
+      // Un-archiving takes a slot back, so it's subject to the same free-tier cap as a new customer - unless the
+      // same person already has a live profile elsewhere in the business, in which case they're already counted.
       if (current?.isArchived) {
         const businessId = await getBusinessIdForStore(tx, current.storeId);
-        if (businessId) await assertWithinCountLimit(tx, businessId, "customer_count");
+        if (businessId && !(await this.personHasLiveProfile(tx, businessId, { phone: current.mobileNumber, globalId: current.globalCustomerId, excludeId: id }))) {
+          await assertWithinCountLimit(tx, businessId, "customer_count");
+        }
       }
       const [updated] = await tx.update(customers).set({ isArchived: false, updatedAt: new Date() }).where(eq(customers.id, id)).returning();
       return updated;

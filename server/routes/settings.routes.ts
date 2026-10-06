@@ -28,6 +28,41 @@ const GATED_SETTINGS_FIELDS: Record<string, string> = {
   loyaltyPointValue: "loyalty_program",
 };
 
+// Fields that feed payroll maths. Saving anything else (receipts, attendance,
+// reminders...) has no reason to recalculate the open pay period.
+const PAYROLL_SETTINGS_FIELDS = new Set([
+  "defaultPaymentMethod", "commissionType", "commissionFixedAmount", "commissionFormula", "commissionRate",
+  "fixedBaseAmount", "activeDayTransport", "passiveDayTransport", "defaultPayrollPeriod", "maxAssistingStaff",
+  "leaveDayRate", "payLeaveDays", "holidayDayRate", "payHolidayDays", "offDayRate", "payOffDays",
+  "leadSplit2", "asstSplit2", "leadSplit3", "asst1Split3", "asst2Split3",
+  "lateDeductionEnabled", "lateDeductionAmount", "lateGraceMinutes", "openingTime", "defaultWeeklyOffDays",
+]);
+
+// Per-section write endpoints (PUT /api/settings/:section). Each section has its
+// own URL so a gate rule can target one tab (receipts, loyalty...) without
+// catching the rest, and its own field allowlist so a section can never write
+// another section's columns. PUT /api/settings stays for older clients.
+const SETTINGS_SECTIONS: Record<string, readonly string[]> = {
+  attendance: [
+    "clockInEnabled", "geofenceLatitude", "geofenceLongitude", "geofencePlaceLabel", "geofenceRadiusMeters",
+    "geofenceMaxAccuracyMeters", "openingTime", "lateGraceMinutes", "lateDeductionEnabled", "lateDeductionAmount",
+    "maxOfflinePunchAgeMinutes", "retroRequestMaxAgeDays", "defaultWeeklyOffDays",
+  ],
+  receipts: ["receiptPrefix", "receiptThankYouMessage"],
+  stock: ["lowStockThreshold"],
+  loyalty: ["loyaltyPointsPerCurrency", "loyaltyPointValue"],
+  reminders: [
+    "borrowBookReminderDaysBefore", "borrowBookReminderOnDueDate", "borrowBookReminderDaysAfter",
+    "borrowBookReminderRepeatDays", "borrowBookReminderStopDays", "borrowBookReminderLanguage",
+  ],
+  payroll: [
+    "defaultPaymentMethod", "commissionType", "commissionFixedAmount", "commissionFormula", "commissionRate",
+    "fixedBaseAmount", "activeDayTransport", "passiveDayTransport", "defaultPayrollPeriod", "maxAssistingStaff",
+    "leaveDayRate", "payLeaveDays", "holidayDayRate", "payHolidayDays", "offDayRate", "payOffDays",
+    "leadSplit2", "asstSplit2", "leadSplit3", "asst1Split3", "asst2Split3",
+  ],
+};
+
 const clampInt = (value: unknown, min: number, max: number): number =>
   Math.min(max, Math.max(min, Math.round(sanitizeNumber(value))));
 
@@ -103,10 +138,16 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.put("/api/settings", isAuthenticated, async (req, res) => {
+  const handleSettingsUpdate = async (req: Request, res: Response, section?: string) => {
     try {
       const { storeId, ...data } = req.body;
       if (!storeId) return res.status(400).json({ error: "storeId is required." });
+
+      if (section) {
+        const allowed = SETTINGS_SECTIONS[section];
+        const stray = Object.keys(data).filter((k) => !allowed.includes(k));
+        if (stray.length > 0) return res.status(400).json({ error: `These fields don't belong to ${section} settings: ${stray.join(", ")}.` });
+      }
 
       // Only owner/manager can edit settings
       const role = (req as any).user?.role;
@@ -234,10 +275,10 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
         // 2. Update all stores under this business with the thank you message and low stock threshold
         const storesList = await storage.getStores(businessId);
         for (const s of storesList) {
-          await storage.upsertSettings(s.id, {
-            receiptThankYouMessage: sanitizedData.receiptThankYouMessage,
-            lowStockThreshold: sanitizedData.lowStockThreshold,
-          });
+          const shared: Record<string, unknown> = {};
+          if (sanitizedData.receiptThankYouMessage !== undefined) shared.receiptThankYouMessage = sanitizedData.receiptThankYouMessage;
+          if (sanitizedData.lowStockThreshold !== undefined) shared.lowStockThreshold = sanitizedData.lowStockThreshold;
+          if (Object.keys(shared).length > 0) await storage.upsertSettings(s.id, shared);
           
           // Auto-recalculate payroll for each store to match new thresholds/settings
           const todayStr = new Date().toISOString().split("T")[0];
@@ -260,14 +301,26 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       const updated = await storage.upsertSettings(storeId, sanitizedData);
 
       // Auto-recalculate any active period to immediately reflect updated default rates
-      const todayStr = new Date().toISOString().split("T")[0];
-      triggerAutoRecalculate(storeId, todayStr).catch(console.error);
+      if (Object.keys(sanitizedData).some((k) => PAYROLL_SETTINGS_FIELDS.has(k))) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        triggerAutoRecalculate(storeId, todayStr).catch(console.error);
+      }
 
       auditLogger.log({ action: "SETTINGS_UPDATE", resource: "settings", resourceId: storeId, userId: (req as any).user?.id, ip: getClientIp(req), status: "success", details: { storeId } });
-      res.json(updated);
+      // Echo back only what was written: clients merge it into their cached row.
+      const changed: Record<string, unknown> = { id: updated.id, storeId: updated.storeId, updatedAt: updated.updatedAt };
+      for (const key of Object.keys(sanitizedData)) changed[key] = (updated as any)[key];
+      res.json(changed);
     } catch (error) {
       res.status(500).json({ error: "Could not update settings." });
     }
+  };
+
+  app.put("/api/settings", isAuthenticated, (req, res) => handleSettingsUpdate(req, res));
+  app.put("/api/settings/:section", isAuthenticated, (req, res) => {
+    const section = String(req.params.section);
+    if (!Object.prototype.hasOwnProperty.call(SETTINGS_SECTIONS, section)) return res.status(404).json({ error: "Unknown settings section." });
+    return handleSettingsUpdate(req, res, section);
   });
   // ========== PROMOTIONS ==========
   app.get("/api/promotions", isAuthenticated, async (req, res) => {

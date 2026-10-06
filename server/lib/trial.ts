@@ -30,6 +30,37 @@ export function isTrialExpired(org: Pick<Organisation, "status" | "trialEndsAt">
   return org.status === "trialing" && !!org.trialEndsAt && new Date(org.trialEndsAt) <= new Date();
 }
 
+/** Days of full access after a trial (or a failed renewal) before the soft lock. Admin-configurable (platform_config "grace_days"). */
+export const GRACE_DAYS = 7;
+
+export type OrgLifecycle = "trialing" | "grace" | "soft_locked" | "ok" | "suspended";
+
+type LifecycleOrg = Pick<Organisation, "status" | "trialEndsAt"> & { graceEndsAt?: Date | string | null };
+
+/**
+ * Where an org is in trial -> grace -> soft lock. Derived from timestamps, so it
+ * needs no cron:
+ *   trialing    inside the trial window
+ *   grace       trial ended (or a renewal failed) less than `graceDays` ago: full access, countdown banner
+ *   soft_locked grace is over: free tier only, nothing deleted, checkout/exports stay open
+ *   suspended   admin suspension (fraud/ToS)
+ * Anything else is "ok" (including grandfathered orgs with no trial).
+ */
+export function getOrgLifecycle(org: LifecycleOrg, graceDays: number = GRACE_DAYS, now: Date = new Date()): { state: OrgLifecycle; graceEndsAt: Date | null } {
+  if (org.status === "suspended") return { state: "suspended", graceEndsAt: null };
+  if (org.graceEndsAt) {
+    const end = new Date(org.graceEndsAt);
+    return { state: end > now ? "grace" : "soft_locked", graceEndsAt: end };
+  }
+  if (org.status === "trialing" && org.trialEndsAt) {
+    const trialEnd = new Date(org.trialEndsAt);
+    if (trialEnd > now) return { state: "trialing", graceEndsAt: null };
+    const end = new Date(trialEnd.getTime() + graceDays * 24 * 60 * 60 * 1000);
+    return { state: end > now ? "grace" : "soft_locked", graceEndsAt: end };
+  }
+  return { state: "ok", graceEndsAt: null };
+}
+
 /**
  * Whether the org can use the app normally right now. Only an admin-suspended
  * org (fraud/ToS/non-payment - see server/lib/billing.ts's

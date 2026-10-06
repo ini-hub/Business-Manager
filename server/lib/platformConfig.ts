@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { platformConfig } from "@shared/schema";
-import { TRIAL_DAYS } from "./trial";
+import { TRIAL_DAYS, GRACE_DAYS } from "./trial";
 import { encryptSecret, decryptSecret } from "./credentialEncryption";
 
 /**
@@ -39,6 +39,12 @@ export async function getConfiguredTrialDays(): Promise<number> {
   const value = await getPlatformConfigValue<number>("trial_days");
   const days = typeof value === "number" && value > 0 ? value : TRIAL_DAYS;
   return days;
+}
+
+/** Days of full access after a trial/failed renewal before the soft lock (default 7). */
+export async function getConfiguredGraceDays(): Promise<number> {
+  const value = await getPlatformConfigValue<number>("grace_days");
+  return typeof value === "number" && value >= 0 ? value : GRACE_DAYS;
 }
 
 export async function getSmsConfig(): Promise<{ smsEnabled: boolean; whatsappEnabled: boolean }> {

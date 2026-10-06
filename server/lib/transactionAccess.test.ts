@@ -9,6 +9,9 @@ vi.mock("../storage", () => ({
   },
 }));
 
+let hasVisibilityFeature = true;
+vi.mock("./entitlements", () => ({ hasFeature: vi.fn(async (_org: string, key: string) => key === "staff_sales_visibility" && hasVisibilityFeature) }));
+
 let customRoleHasCustomers = false;
 vi.mock("./permissions", () => ({ hasModulePermission: vi.fn(async () => customRoleHasCustomers) }));
 
@@ -20,6 +23,7 @@ beforeEach(() => {
   business = { staffOwnTransactionsOnly: true };
   for (const k of Object.keys(staffByStore)) delete staffByStore[k];
   customRoleHasCustomers = false;
+  hasVisibilityFeature = true;
 });
 
 describe("canViewCustomerSpend", () => {
@@ -100,9 +104,16 @@ describe("resolveTransactionScope", () => {
     expect(Array.from(scope!)).toEqual(["s1"]);
   });
 
-  it("is unrestricted when the business turned the setting off", async () => {
+  it("is unrestricted when the business turned the setting off and holds the feature", async () => {
     business = { staffOwnTransactionsOnly: false };
     expect(await resolveTransactionScope({ id: "u1", role: "staff", businessId: "b1" }, ["st1"])).toBeNull();
+  });
+
+  it("keeps the restriction when the setting is off but the feature is not held", async () => {
+    business = { staffOwnTransactionsOnly: false };
+    hasVisibilityFeature = false;
+    staffByStore.st1 = "s1";
+    expect(Array.from((await resolveTransactionScope({ id: "u1", role: "staff", businessId: "b1" }, ["st1"]))!)).toEqual(["s1"]);
   });
 
   it("fails closed: no staff record or no user id means seeing nothing", async () => {

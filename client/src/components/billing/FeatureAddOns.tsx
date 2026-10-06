@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -7,20 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Search } from "lucide-react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import type { FeatureCatalog, Subscription } from "@shared/schema";
-
-const CATEGORY_LABELS: Record<string, string> = {
-  vendor_mgmt: "Vendor Management",
-  staff_mgmt: "Staff Management",
-  customer_mgmt: "Customer Management",
-  financial_mgmt: "Financial Management",
-  tax_compliance: "Tax, Compliance & Audit",
-  inventory_mgmt: "Inventory Management",
-  analytics: "Analytics",
-  business_settings: "Business & Settings",
-};
+import { priceIncrement } from "@shared/bundles";
+import { keepBiggestTiers, otherTiers } from "@shared/features";
+import { CATEGORY_LABELS, formatMoney, readPlanChoice, savePlanChoice, usePublicPricing } from "@/lib/pricing";
 
 const RETURN_TO_KEY = "billing_return_to";
 
@@ -44,6 +37,7 @@ const RETURN_TO_KEY = "billing_return_to";
 export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   const { toast } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
   const [cycle, setCycle] = useState<"monthly" | "annual">("monthly");
   // Sticky once true - a redirect to Paystack can take a few seconds, and
   // letting the button re-enable in that gap is what let a slow connection
@@ -61,6 +55,11 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
     queryKey: ["/api/billing/subscription"],
   });
   const { entitledKeys, purchasedKeys, isLoading: entitlementsLoading } = useEntitlements();
+  // Bundles are shortcuts over the same checkboxes, not a second checkout: they
+  // only ever fill in `selected`, and the discount is the same rule the server
+  // charges by (shared/bundles.ts priceIncrement).
+  const { data: pricing, isLoading: pricingLoading } = usePublicPricing();
+  const bundles = pricing?.bundles ?? [];
 
   const purchasable = catalog.filter((f) => f.tierType === "paid_flat" || f.tierType === "paid_metered_limit" || f.tierType === "bundle_parent");
   // Only these keys are ever checkboxes here, so only these ever belong in a
@@ -71,22 +70,53 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   const purchasedSet = new Set(purchasedKeys.filter((k) => purchasableKeys.has(k)));
 
   useEffect(() => {
-    if (seeded.current || catalogLoading || entitlementsLoading) return;
+    if (seeded.current || catalogLoading || entitlementsLoading || pricingLoading) return;
     seeded.current = true;
-    setSelected(new Set(entitledKeys.filter((k) => purchasableKeys.has(k))));
+    // Someone who picked a bundle or modules on the landing page opens on that
+    // pick. Only before they have bought anything - an existing customer's
+    // checkout always opens on what they currently have.
+    const choice = readPlanChoice();
+    const chosen = purchasedKeys.length === 0 && choice
+      ? choice.bundle ? bundles.find((b) => b.key === choice.bundle)?.featureKeys : choice.features
+      : undefined;
+    const keys = chosen ? chosen.filter((k) => purchasableKeys.has(k)) : [];
+    setSelected(new Set(keys.length > 0 ? keys : entitledKeys.filter((k) => purchasableKeys.has(k))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogLoading, entitlementsLoading]);
+  }, [catalogLoading, entitlementsLoading, pricingLoading]);
 
   // A subscription already commits to a cycle - renewals bill everything on
   // it together (§2.6), so there's no per-purchase cycle choice once one
   // exists. Only a first-time subscriber picks one, via the toggle below.
   const effectiveCycle = (subscription?.billingCycle as "monthly" | "annual" | undefined) ?? cycle;
 
+  const addBundle = (featureKeys: string[]) => {
+    setSelected((prev) => new Set([...Array.from(prev), ...featureKeys.filter((k) => purchasableKeys.has(k))]));
+  };
+
+  // Search only narrows what is listed - `selected` is untouched, so ticks made
+  // under one search survive the next, and "select all" acts on what is shown.
+  const query = search.trim().toLowerCase();
+  const visible = query
+    ? purchasable.filter((f) => `${f.name} ${f.description ?? ""} ${CATEGORY_LABELS[f.category] ?? f.category}`.toLowerCase().includes(query))
+    : purchasable;
+  const limitTiers = useMemo(() => catalog.map((f) => ({ key: f.key, tierType: f.tierType, limitType: f.limitType, tierCapacity: f.tierCapacity })), [catalog]);
+  const allSelected = visible.length > 0 && visible.every((f) => selected.has(f.key));
+  const noneSelected = visible.every((f) => !selected.has(f.key));
+  const toggleAll = () => setSelected((prev) => {
+    const next = new Set(prev);
+    visible.forEach((f) => (allSelected ? next.delete(f.key) : next.add(f.key)));
+    // Seat packs are one-of: select-all keeps only the biggest of each kind.
+    return allSelected ? next : keepBiggestTiers(next, limitTiers);
+  });
+
   const toggle = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
-      else next.add(key);
+      else {
+        next.add(key);
+        otherTiers(key, limitTiers).forEach((other) => next.delete(other)); // a seat pack replaces the others
+      }
       return next;
     });
   };
@@ -103,7 +133,9 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   // already purchased, or unchecked that was never purchased, is unchanged.
   const toAdd = Array.from(selected).filter((k) => !purchasedSet.has(k));
   const toRemove = Array.from(purchasedSet).filter((k) => !selected.has(k));
-  const addTotal = toAdd.reduce((sum, k) => sum + priceOf(k), 0);
+  const increment = priceIncrement(purchasedSet, toAdd, priceOf, bundles);
+  const addTotal = increment.total;
+  const appliedBundle = bundles.find((b) => b.key === increment.bundleKey);
   const hasChanges = toAdd.length > 0 || toRemove.length > 0;
 
   const proceedMutation = useMutation({
@@ -150,6 +182,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
         } catch {
           // ignore
         }
+        savePlanChoice(null);
         window.location.href = result.authorizationUrl;
         return;
       }
@@ -161,7 +194,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
     },
   });
 
-  if (catalogLoading || entitlementsLoading) {
+  if (catalogLoading || entitlementsLoading || pricingLoading) {
     return (
       <div className="flex items-center justify-center py-8">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -169,7 +202,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
     );
   }
 
-  const byCategory = purchasable.reduce<Record<string, FeatureCatalog[]>>((acc, f) => {
+  const byCategory = visible.reduce<Record<string, FeatureCatalog[]>>((acc, f) => {
     (acc[f.category] ??= []).push(f);
     return acc;
   }, {});
@@ -187,6 +220,51 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
             </TabsList>
           </Tabs>
         </div>
+      )}
+
+      {bundles.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Bundles - a shortcut, add or remove anything below</h3>
+          <div className="flex flex-wrap gap-2">
+            {bundles.map((b) => {
+              const price = effectiveCycle === "annual" ? b.priceAnnual : b.priceMonthly;
+              return (
+                <Button key={b.key} type="button" variant="outline" size="sm" onClick={() => addBundle(b.featureKeys)} data-testid={`button-bundle-${b.key}`}>
+                  Add {b.name} · {formatMoney(price, currency)} /{effectiveCycle}
+                  {b.discountPct > 0 && <Badge variant="secondary" className="ml-2">Save {b.discountPct}%</Badge>}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {purchasable.length > 0 && (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search features"
+            className="pl-9"
+            data-testid="input-search-features"
+          />
+        </div>
+      )}
+
+      {visible.length > 0 && (
+        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer w-fit">
+          <Checkbox
+            checked={allSelected ? true : noneSelected ? false : "indeterminate"}
+            onCheckedChange={toggleAll}
+            data-testid="checkbox-select-all-features"
+          />
+          {allSelected ? "Unselect all features" : "Select all features"}{query && " shown"}
+        </label>
+      )}
+
+      {query && visible.length === 0 && (
+        <p className="text-sm text-muted-foreground" data-testid="text-no-feature-match">No features match "{search.trim()}".</p>
       )}
 
       {Object.entries(byCategory).map(([category, features]) => (
@@ -240,7 +318,12 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
             {!hasChanges && "No changes to your subscription"}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {appliedBundle && increment.discount > 0 && (
+            <p className="text-sm text-primary" data-testid="text-bundle-discount">
+              {appliedBundle.name} bundle applied: you save {currency} {increment.discount.toLocaleString()}. Remove any of its modules and the discount no longer applies.
+            </p>
+          )}
           <Button onClick={() => proceedMutation.mutate()} disabled={busy || !hasChanges}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {redirecting ? "Redirecting to secure checkout…" : proceedMutation.isPending ? "Updating…" : "Proceed"}

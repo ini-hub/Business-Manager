@@ -1077,8 +1077,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // Reject the whole file up front if it would push the org past its seat cap.
       const businessId = (req as any).user?.businessId;
       if (businessId) {
-        const outcome = await checkCountLimit(businessId, "staff_seats", data.length);
-        if (!outcome.allowed) return res.status(402).json(new CountLimitError("staff_seats", outcome.limit, outcome.used, data.length).toBody());
+        const outcome = await checkCountLimit(businessId, "staff_seats", data.length, storeId);
+        if (!outcome.allowed) return res.status(402).json(new CountLimitError("staff_seats", outcome.limit, outcome.used, data.length, outcome.tiered, outcome.trial).toBody());
       }
 
       const result = await bulkUploadService.importStaff(data, storeId, getUserId(req));

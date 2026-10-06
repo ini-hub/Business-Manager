@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express";
-import { featureNotPurchasedBody, getRequestEntitlements } from "./entitlements";
+import { featureNotPurchasedBody, getRequestDisabledFeatures, getRequestEntitlements } from "./entitlements";
 import { matchDynamicRouteRules } from "./gateRules";
 import { hasModulePermission } from "./permissions";
 import { FEATURE_ROUTE_RULES, API_DOMAIN_OWNERS, type HttpMethod } from "@shared/features";
@@ -74,6 +74,13 @@ export const enforceFeaturePolicy: RequestHandler = async (req, res, next) => {
   const rules = matchFeatureRules(req.method, fullPath);
 
   try {
+    // A switched-off feature is off for its API too, not just its pages. core_platform is never switchable.
+    const domain = /^\/api\/([^/]+)/.exec(fullPath)?.[1];
+    const domainOwner = domain ? API_DOMAIN_OWNERS.get(domain) : undefined;
+    if (domainOwner && domainOwner !== "core_platform" && (await getRequestDisabledFeatures(res, businessId)).has(domainOwner)) {
+      return res.status(402).json(await featureNotPurchasedBody(domainOwner, businessId));
+    }
+
     // Admin-defined rules (Feature Catalog > Gate rules) on top of the code baseline.
     const adminRules = await matchDynamicRouteRules(req.method, fullPath);
     if (rules.length === 0 && adminRules.length === 0) return next();
@@ -81,12 +88,12 @@ export const enforceFeaturePolicy: RequestHandler = async (req, res, next) => {
     const granted = await getRequestEntitlements(res, businessId);
     for (const rule of rules) {
       if (!granted.has(rule.feature)) {
-        return res.status(402).json(await featureNotPurchasedBody(rule.feature));
+        return res.status(402).json(await featureNotPurchasedBody(rule.feature, businessId));
       }
     }
     for (const rule of adminRules) {
       if (!granted.has(rule.featureKey)) {
-        return res.status(402).json(await featureNotPurchasedBody(rule.featureKey));
+        return res.status(402).json(await featureNotPurchasedBody(rule.featureKey, businessId));
       }
       // Having the feature is not enough: a custom role also needs the Settings > Roles
       // module the feature sits under. owner/manager always pass.

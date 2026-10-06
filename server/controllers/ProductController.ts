@@ -9,6 +9,7 @@ import { withProductId } from "../utils/slug-resolver";
 import { toTitleCase, sanitizeString } from "../sanitize";
 import { broadcastChange, getAuditContext } from "../routes/helpers";
 import { auditLogger } from "../audit";
+import { ensureFeatureOrReply, sendPlanLimitError } from "../lib/entitlements";
 
 /** Quick-pick strip defaults. 30 days keeps the ranking current enough to follow
  *  a seasonal swing without a slow week emptying the strip. */
@@ -291,7 +292,8 @@ export class ProductController extends BaseController {
       await storage.restoreProduct(req.params.id);
       broadcastChange(req, "inventory", product.storeId, "restored");
       return this.ok(res, { success: true });
-    } catch {
+    } catch (error) {
+      if (sendPlanLimitError(res, error)) return res;
       return this.error(res, "We couldn't restore this item. Please try again.");
     }
   }
@@ -352,6 +354,12 @@ export class ProductController extends BaseController {
       };
 
       const data = insertInventorySchema.parse(sanitizedBody);
+
+      // Selling in parts is the paid "Sell In Parts" feature; a variant of a product that
+      // already sells in parts inherits that, so it is not a new use.
+      if (data.allowFractional && !product.variants?.some((v: { allowFractional?: boolean | null }) => v.allowFractional)) {
+        if (!(await ensureFeatureOrReply(res, (req as any).user?.businessId, "sell_in_parts"))) return res;
+      }
 
       const existing = await storage.getInventoryItemByName(product.storeId, data.name, data.type);
       if (existing) {

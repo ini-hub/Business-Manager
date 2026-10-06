@@ -8,7 +8,8 @@ import type { NextFunction, Request, Response } from "express";
  *    module too (STAFF_BASE_MODULES) but is deliberately excluded here.
  *  - Transactions: owner and manager see everything. Everyone else sees only the
  *    checkouts they took part in, unless the business turned
- *    organisations.staff_own_transactions_only off.
+ *    organisations.staff_own_transactions_only off AND holds the paid
+ *    "staff_sales_visibility" feature (unpaid, the default applies).
  *
  * The pure helpers carry no database import so they can be unit tested; the
  * async ones load storage lazily for the same reason.
@@ -70,7 +71,13 @@ export async function resolveTransactionScope(user: AccessUser, storeIds: string
 
   const { storage } = await import("../storage");
   const business = user?.businessId ? await storage.getBusinessById(user.businessId) : undefined;
-  if (business && business.staffOwnTransactionsOnly === false) return null;
+  // Seeing every sale is the paid "Staff Sales Visibility" feature. The stored value is
+  // left alone, so it takes effect again as soon as the business is entitled; until then
+  // the default (own sales only) applies. Any lookup failure keeps the restriction on.
+  if (business && business.staffOwnTransactionsOnly === false && user?.businessId) {
+    const { hasFeature } = await import("./entitlements");
+    if (await hasFeature(user.businessId, "staff_sales_visibility").catch(() => false)) return null;
+  }
 
   const scope = new Set<string>();
   const userId = user?.id ?? user?.userId;

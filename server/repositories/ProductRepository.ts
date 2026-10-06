@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository";
+import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
 import { db } from "../db";
 import {
   products,
@@ -196,14 +197,27 @@ export class ProductRepository extends BaseRepository<typeof products> {
 
   async restoreProduct(id: string): Promise<boolean> {
     const now = new Date();
-    await db.update(inventory)
-      .set({ isDeleted: false, deletedAt: null })
-      .where(eq(inventory.productId, id));
-    const result = await db.update(products)
-      .set({ isDeleted: false, deletedAt: null, updatedAt: now })
-      .where(eq(products.id, id))
-      .returning();
-    return result.length > 0;
+    return db.transaction(async (tx) => {
+      // Un-archiving takes item slots back, so it is held to the same cap as adding them: every archived
+      // sellable row this restore brings back counts, and an org at its cap has to free room first.
+      const [product] = await tx.select({ storeId: products.storeId }).from(products).where(eq(products.id, id)).limit(1);
+      if (product) {
+        const [{ n }] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(inventory)
+          .where(and(eq(inventory.productId, id), eq(inventory.isDeleted, true), sql`${inventory.type} in ('product','service')`));
+        const businessId = await getBusinessIdForStore(tx, product.storeId);
+        if (businessId && n > 0) await assertWithinCountLimit(tx, businessId, "item_count", n);
+      }
+      await tx.update(inventory)
+        .set({ isDeleted: false, deletedAt: null })
+        .where(eq(inventory.productId, id));
+      const result = await tx.update(products)
+        .set({ isDeleted: false, deletedAt: null, updatedAt: now })
+        .where(eq(products.id, id))
+        .returning();
+      return result.length > 0;
+    });
   }
 
   async deleteProduct(id: string): Promise<boolean> {

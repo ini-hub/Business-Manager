@@ -4,6 +4,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useEntitlements, formatPrice } from "@/hooks/useEntitlements";
 import { openBilling, subscribeToPlanLimit, upgradeTitle, type PlanLimitDetails } from "@/lib/upgrade-prompt";
 
 /**
@@ -15,6 +16,11 @@ import { openBilling, subscribeToPlanLimit, upgradeTitle, type PlanLimitDetails 
 export function UpgradePromptDialog() {
   const [details, setDetails] = useState<PlanLimitDetails | null>(null);
   const [, navigate] = useLocation();
+  const { priceFor } = useEntitlements();
+
+  // Count-limit 402s name the add-on, not its price: look it up from the catalog prices.
+  const price = details?.featureKey ? formatPrice(priceFor(details.featureKey)) : null;
+  const showPrice = !!price && !details?.message.includes(price);
 
   useEffect(() => subscribeToPlanLimit(setDetails), []);
 
@@ -23,7 +29,10 @@ export function UpgradePromptDialog() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{details ? upgradeTitle(details) : ""}</AlertDialogTitle>
-          <AlertDialogDescription>{details?.message}</AlertDialogDescription>
+          <AlertDialogDescription>
+            {details?.message}
+            {showPrice && <span className="mt-2 block font-medium text-foreground">Add-on price: {price}</span>}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Not now</AlertDialogCancel>

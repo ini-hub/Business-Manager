@@ -1,6 +1,6 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db";
-import { featureCatalog, featureDependencies, featureFlags, type FeatureCatalog } from "@shared/schema";
+import { featureCatalog, featureDependencies, featureFlags, organisations, orgFeatureEntitlements, type FeatureCatalog } from "@shared/schema";
 import { FEATURES, type FeatureDef } from "@shared/features";
 
 /**
@@ -19,20 +19,26 @@ import { FEATURES, type FeatureDef } from "@shared/features";
  * cannot exist without its flag.
  */
 
-type DbOrTx = Pick<typeof db, "select" | "insert" | "update">;
+type DbOrTx = Pick<typeof db, "select" | "insert" | "update" | "delete">;
 
 export interface SyncReport {
   createdFeatures: string[];
   createdFlags: string[];
   updatedFeatures: { key: string; fields: string[] }[];
   createdDependencies: string[];
+  /** Edges from a bundled child to its own parent: redundant (the parent grants it) and they would block cancelling the parent. */
+  removedDependencies: string[];
+  /** Newly created paid features granted for free to the organisations that already existed. */
+  grandfathered: { key: string; organisations: number }[];
+  /** A new bundle granted to the organisations that held one of the features it now contains. */
+  absorbed: { key: string; organisations: number }[];
   /** In the database but not in the registry (left alone; e.g. a stray test row). */
   dbOnlyFeatures: string[];
 }
 
 type StructuralFields = Pick<
   FeatureCatalog,
-  "name" | "description" | "category" | "tierType" | "freeLimit" | "limitType" | "sortOrder" | "permissionModule"
+  "name" | "description" | "category" | "tierType" | "freeLimit" | "limitType" | "tierCapacity" | "sortOrder" | "permissionModule" | "section"
 >;
 
 function structuralFields(def: FeatureDef): StructuralFields {
@@ -43,8 +49,10 @@ function structuralFields(def: FeatureDef): StructuralFields {
     tierType: def.tier,
     freeLimit: def.freeLimit ?? null,
     limitType: def.limitType ?? null,
+    tierCapacity: def.tierCapacity ?? null,
     sortOrder: def.sortOrder,
     permissionModule: def.module,
+    section: def.section,
   };
 }
 
@@ -59,7 +67,7 @@ export async function syncFeatureRegistry(
 ): Promise<SyncReport> {
   const features = options.features ?? (FEATURES as readonly FeatureDef[]);
   const report: SyncReport = {
-    createdFeatures: [], createdFlags: [], updatedFeatures: [], createdDependencies: [], dbOnlyFeatures: [],
+    createdFeatures: [], createdFlags: [], updatedFeatures: [], createdDependencies: [], removedDependencies: [], grandfathered: [], absorbed: [], dbOnlyFeatures: [],
   };
 
   // A dry run still goes through a transaction, and rolls it back at the end.
@@ -98,11 +106,39 @@ export async function syncFeatureRegistry(
         idByKey.set(def.key, created.id);
         existing.set(def.key, created);
         report.createdFeatures.push(def.key);
+        // A module that used to be free is now paid: organisations that already exist keep
+        // it (source 'grandfathered'); the super admin can later schedule a sunset.
+        if (def.grandfather && def.active && def.tier !== "free" && def.tier !== "bundle_child") {
+          const orgs = await tx.select({ id: organisations.id }).from(organisations);
+          if (orgs.length > 0) {
+            await tx
+              .insert(orgFeatureEntitlements)
+              .values(orgs.map((o) => ({ organisationId: o.id, featureId: created.id, status: "active", source: "grandfathered" })))
+              .onConflictDoNothing();
+          }
+          report.grandfathered.push({ key: def.key, organisations: orgs.length });
+        }
         continue;
       }
 
       idByKey.set(def.key, row.id);
       const fields = diffStructure(def, row);
+      // A feature that was free and is now paid: organisations that exist right now keep it.
+      if (def.grandfather && def.active && row.tierType === "free" && def.tier !== "free" && def.tier !== "bundle_child") {
+        const orgs = await tx.select({ id: organisations.id }).from(organisations);
+        if (orgs.length > 0) {
+          await tx
+            .insert(orgFeatureEntitlements)
+            .values(orgs.map((o) => ({ organisationId: o.id, featureId: row.id, status: "active", source: "grandfathered" })))
+            .onConflictDoNothing();
+        }
+        report.grandfathered.push({ key: def.key, organisations: orgs.length });
+      }
+      // The registry only fills a MISSING price (a free feature that just became paid); it never overwrites an admin's.
+      if (def.price && row.priceMonthly == null && row.priceAnnual == null && def.tier !== "free") {
+        await tx.update(featureCatalog).set({ priceMonthly: def.price.monthly, priceAnnual: def.price.annual, updatedAt: new Date() }).where(eq(featureCatalog.id, row.id));
+        fields.push("price (filled)");
+      }
       if (fields.length > 0) {
         await tx
           .update(featureCatalog)
@@ -113,14 +149,72 @@ export async function syncFeatureRegistry(
     }
 
     // Bundle parents (needs every id to exist first).
+    const reparented: FeatureDef[] = [];
     for (const def of features) {
       const row = existing.get(def.key)!;
       const wantParent = def.parent ? idByKey.get(def.parent) ?? null : null;
       if ((row.parentFeatureId ?? null) !== wantParent) {
+        if (wantParent) reparented.push(def);
         await tx.update(featureCatalog).set({ parentFeatureId: wantParent, updatedAt: new Date() }).where(eq(featureCatalog.id, row.id));
         const prior = report.updatedFeatures.find((u) => u.key === def.key);
         if (prior) prior.fields.push("parentFeatureId");
         else if (!report.createdFeatures.includes(def.key)) report.updatedFeatures.push({ key: def.key, fields: ["parentFeatureId"] });
+      }
+    }
+
+    // A feature that just became a child of a parent (Stock Transfers under Additional Store) is granted by that
+    // parent now, so a separate row an organisation still holds for it would bill twice. For organisations that
+    // hold the parent, retire the child's own rows; anyone holding only the child keeps it as it was.
+    for (const def of reparented) {
+      const parentId = idByKey.get(def.parent!)!;
+      const childId = idByKey.get(def.key)!;
+      const holders = (await tx.select({ org: orgFeatureEntitlements.organisationId }).from(orgFeatureEntitlements)
+        .where(and(eq(orgFeatureEntitlements.featureId, parentId), inArray(orgFeatureEntitlements.status, ["active", "pending_removal"])))).map((r) => r.org);
+      if (holders.length === 0) continue;
+      const own = await tx.select({ id: orgFeatureEntitlements.id }).from(orgFeatureEntitlements)
+        .where(and(eq(orgFeatureEntitlements.featureId, childId), inArray(orgFeatureEntitlements.organisationId, holders), inArray(orgFeatureEntitlements.status, ["active", "pending_removal"])));
+      if (own.length > 0) {
+        await tx.update(orgFeatureEntitlements).set({ status: "removed", updatedAt: new Date() }).where(inArray(orgFeatureEntitlements.id, own.map((r) => r.id)));
+        report.absorbed.push({ key: `${def.key} -> ${def.parent}`, organisations: own.length });
+      }
+    }
+
+    // A bundle created this run that swallows features once sold alone: whoever held any of
+    // them gets the bundle, and the old rows are retired (the bundle grants the children).
+    for (const def of features) {
+      if (!def.absorbs?.length || !report.createdFeatures.includes(def.key)) continue;
+      const bundleId = idByKey.get(def.key)!;
+      const childIds = def.absorbs.map((k) => idByKey.get(k)).filter((id): id is string => !!id);
+      const held = childIds.length
+        ? await tx.select().from(orgFeatureEntitlements).where(and(inArray(orgFeatureEntitlements.featureId, childIds), inArray(orgFeatureEntitlements.status, ["active", "pending_removal"])))
+        : [];
+      const best = new Map<string, (typeof held)[number]>();
+      // Keep the most generous row per organisation: active over pending removal, then paid over comped.
+      const rank = (r: (typeof held)[number]) => (r.status === "active" ? 2 : 0) + (r.source === "purchased" ? 1 : 0);
+      for (const row of held) {
+        const cur = best.get(row.organisationId);
+        if (!cur || rank(row) > rank(cur) || (rank(row) === rank(cur) && (row.removalEffectiveAt?.getTime() ?? Infinity) > (cur.removalEffectiveAt?.getTime() ?? Infinity))) best.set(row.organisationId, row);
+      }
+      if (best.size > 0) {
+        await tx.insert(orgFeatureEntitlements).values(Array.from(best.values()).map((r) => ({
+          organisationId: r.organisationId, featureId: bundleId, status: r.status, source: r.source,
+          effectiveFrom: r.effectiveFrom, removalEffectiveAt: r.removalEffectiveAt,
+          subscriptionPaymentId: r.subscriptionPaymentId, grantedByAdminId: r.grantedByAdminId,
+        }))).onConflictDoNothing();
+        await tx.update(orgFeatureEntitlements).set({ status: "removed", updatedAt: new Date() }).where(inArray(orgFeatureEntitlements.id, held.map((r) => r.id)));
+      }
+      report.absorbed.push({ key: def.key, organisations: best.size });
+    }
+
+    // Product-tree nesting (display only), same two-pass shape as bundle parents.
+    for (const def of features) {
+      const row = existing.get(def.key)!;
+      const want = def.groupParent ? idByKey.get(def.groupParent) ?? null : null;
+      if ((row.groupParentFeatureId ?? null) !== want) {
+        await tx.update(featureCatalog).set({ groupParentFeatureId: want, updatedAt: new Date() }).where(eq(featureCatalog.id, row.id));
+        const prior = report.updatedFeatures.find((u) => u.key === def.key);
+        if (prior) prior.fields.push("groupParentFeatureId");
+        else if (!report.createdFeatures.includes(def.key)) report.updatedFeatures.push({ key: def.key, fields: ["groupParentFeatureId"] });
       }
     }
 
@@ -136,6 +230,17 @@ export async function syncFeatureRegistry(
         await tx.insert(featureDependencies).values({ featureId: from, dependsOnFeatureId: to }).onConflictDoNothing();
         report.createdDependencies.push(`${def.key} -> ${dep}`);
       }
+    }
+
+    // A child that "depends on" the parent granting it (old Stock Transfers -> Additional Store) is redundant now and
+    // would stop an owner cancelling the parent while the child is granted. Drop just those edges; others stay.
+    for (const def of features) {
+      if (!def.parent) continue;
+      const childId = idByKey.get(def.key);
+      const parentId = idByKey.get(def.parent);
+      if (!childId || !parentId || !haveEdge.has(`${childId}>${parentId}`)) continue;
+      await tx.delete(featureDependencies).where(and(eq(featureDependencies.featureId, childId), eq(featureDependencies.dependsOnFeatureId, parentId)));
+      report.removedDependencies.push(`${def.key} -> ${def.parent}`);
     }
 
     const registryKeys = new Set(features.map((f) => f.key));
@@ -160,11 +265,14 @@ export function formatSyncReport(r: SyncReport): string {
     `created flags:        ${r.createdFlags.length ? r.createdFlags.join(", ") : "none"}`,
     `updated features:     ${r.updatedFeatures.length ? r.updatedFeatures.map((u) => `${u.key} (${u.fields.join(", ")})`).join("; ") : "none"}`,
     `created dependencies: ${r.createdDependencies.length ? r.createdDependencies.join(", ") : "none"}`,
+    `removed dependencies: ${r.removedDependencies.length ? r.removedDependencies.join(", ") : "none"}`,
+    `grandfathered:        ${r.grandfathered.length ? r.grandfathered.map((g) => `${g.key} (${g.organisations} orgs)`).join(", ") : "none"}`,
+    `absorbed into bundles: ${r.absorbed.length ? r.absorbed.map((g) => `${g.key} (${g.organisations} orgs)`).join(", ") : "none"}`,
     `in DB, not in registry (left alone): ${r.dbOnlyFeatures.length ? r.dbOnlyFeatures.join(", ") : "none"}`,
   ];
   return lines.join("\n");
 }
 
 export function syncReportIsClean(r: SyncReport): boolean {
-  return !r.createdFeatures.length && !r.createdFlags.length && !r.updatedFeatures.length && !r.createdDependencies.length;
+  return !r.createdFeatures.length && !r.createdFlags.length && !r.updatedFeatures.length && !r.createdDependencies.length && !r.removedDependencies.length;
 }

@@ -10,6 +10,7 @@ const LABELS = {
   staff_seats: { plural: "staff", short: "Staff" },
   customer_count: { plural: "customers", short: "Customers" },
   store_count: { plural: "stores", short: "Stores" },
+  item_count: { plural: "items", short: "Items" },
 } as const;
 
 /**
@@ -20,11 +21,11 @@ const LABELS = {
  * (assertWithinCountLimit) stays the source of truth; this is the courtesy layer.
  */
 export function LimitGate({ limitType, children }: { limitType: keyof typeof LABELS; children: ReactNode }) {
-  const { staffSeats, customerCount, storeCount, isLoading } = useEntitlements();
+  const { staffSeats, customerCount, storeCount, itemCount, isLoading } = useEntitlements();
   const [, navigate] = useLocation();
 
   if (isLoading) return null;
-  const status = { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount }[limitType];
+  const status = { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount }[limitType];
   if (!status || status.unlimited || status.used < status.limit) return <>{children}</>;
 
   const label = LABELS[limitType];
@@ -36,7 +37,7 @@ export function LimitGate({ limitType, children }: { limitType: keyof typeof LAB
           <p className="font-medium">
             {label.short} limit reached ({status.used} of {status.limit})
           </p>
-          <p className="text-sm text-muted-foreground">{countLimitMessage(limitType, status.limit)}</p>
+          <p className="text-sm text-muted-foreground">{countLimitMessage(limitType, status.limit, status.tiered, status.trial)}</p>
         </div>
         <Button size="sm" onClick={() => openBilling(navigate)}>
           View plans &amp; add-ons

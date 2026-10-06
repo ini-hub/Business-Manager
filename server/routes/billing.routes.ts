@@ -1,4 +1,5 @@
 import { listScreenGates } from "../lib/gateRules";
+import { tiersNotAbove, validateTierSelection } from "@shared/features";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { db } from "../db";
@@ -12,8 +13,10 @@ import {
   verifyWebhookSignature,
 } from "../lib/paystack";
 import { createPendingPayment, activateSuccessfulPayment, planPrice } from "../lib/billing";
-import { getOrgEntitlements, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, getCountLimitStatus } from "../lib/entitlements";
+import { getActiveFeaturePricing, getOrgEntitlements, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, getCountLimitStatus, loadLimitTiers, getOrgFeatureView, getOrgLifecycleView } from "../lib/entitlements";
 import { featureCatalog } from "@shared/schema";
+import { priceIncrement } from "@shared/bundles";
+import { getPricingBundles, getPublicPricing, discountBreakdownLine, catalogPrice } from "../lib/pricing";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -49,6 +52,19 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
     } catch (error) {
       console.error("GET /api/billing/plans error:", error);
       res.status(500).json({ error: "We couldn't load plans. Please try again." });
+    }
+  });
+
+  // ========== PUBLIC PRICING (landing page + custom builder) ==========
+  // Public for the same reason /plans is: the landing page prices bundles and
+  // the build-your-own picker from the live catalog, so a price change is made
+  // once, in the catalog, and shows up everywhere.
+  app.get("/api/billing/pricing", async (_req, res) => {
+    try {
+      res.json(await getPublicPricing());
+    } catch (error) {
+      console.error("GET /api/billing/pricing error:", error);
+      res.status(500).json({ error: "We couldn't load pricing. Please try again." });
     }
   });
 
@@ -176,7 +192,7 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         if (!depsCheck.ok) return res.status(400).json({ error: depsCheck.message });
 
         const rows = await db.select().from(featureCatalog).where(inArray(featureCatalog.key, data.featureKeys));
-        if (rows.length !== data.featureKeys.length) {
+        if (rows.length !== new Set(data.featureKeys).size) {
           return res.status(404).json({ error: "One or more selected features are no longer available." });
         }
         for (const row of rows) {
@@ -184,9 +200,40 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
             return res.status(400).json({ error: `"${row.name}" is only available as part of its bundle - purchase the bundle instead.` });
           }
           if (!row.isActive) return res.status(404).json({ error: `"${row.name}" isn't available for purchase right now.` });
-          const price = Number(data.billingCycle === "annual" ? row.priceAnnual : row.priceMonthly) || 0;
-          addOnTotal += price;
-          featureBreakdown.push({ key: row.key, name: row.name, price });
+        }
+
+        // One seat/limit pack per limit type, and never one the org has already outgrown.
+        const limitTiers = await loadLimitTiers();
+        const heldTierKeys = Array.from(await getOrgPurchasedFeatures(user.businessId));
+        const tierProblem = validateTierSelection(data.featureKeys, heldTierKeys, limitTiers);
+        if (tierProblem) return res.status(400).json({ error: tierProblem });
+
+        // Price what is being added against what is already held, so finishing
+        // a bundle by adding its last missing piece still earns the discount.
+        const held = await getActiveFeaturePricing(user.businessId, data.billingCycle);
+        const heldKeys = held.map((h) => h.featureKey);
+        const priceByKey = new Map<string, number>(held.map((h) => [h.featureKey, h.price]));
+        for (const row of rows) priceByKey.set(row.key, catalogPrice(row, data.billingCycle));
+        const bundles = await getPricingBundles();
+        const increment = priceIncrement(heldKeys, data.featureKeys, (k) => priceByKey.get(k) ?? 0, bundles);
+
+        const heldSet = new Set(heldKeys);
+        for (const row of rows) {
+          if (heldSet.has(row.key)) continue;
+          featureBreakdown.push({ key: row.key, name: row.name, price: priceByKey.get(row.key) ?? 0 });
+        }
+        const discountLine = discountBreakdownLine(bundles, increment);
+        if (discountLine) featureBreakdown.push(discountLine);
+        addOnTotal = increment.total;
+
+        // Moving up a seat/limit pack retires the smaller one the org is paying for, so credit its price
+        // against this charge (renewals then bill only the new tier).
+        const replaced = new Set(data.featureKeys.flatMap((k) => tiersNotAbove(k, limitTiers)));
+        const credit = heldKeys.filter((k) => replaced.has(k)).reduce((sum, k) => sum + (priceByKey.get(k) ?? 0), 0);
+        if (credit > 0) {
+          const applied = Math.min(credit, addOnTotal);
+          addOnTotal -= applied;
+          featureBreakdown.push({ key: "tier_credit", name: "Credit for the plan this replaces", price: -applied });
         }
       }
 
@@ -278,14 +325,16 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
       const user = (req as any).user;
       if (!user?.businessId) return res.status(401).json({ error: "Authentication required." });
 
-      const [granted, purchased, staffSeats, customerCount, storeCount] = await Promise.all([
+      const [granted, purchased, staffSeats, customerCount, storeCount, itemCount] = await Promise.all([
         getOrgEntitlements(user.businessId),
         getOrgPurchasedFeatures(user.businessId),
-        getCountLimitStatus(user.businessId, "staff_seats"),
+        getCountLimitStatus(user.businessId, "staff_seats", typeof req.query.storeId === "string" ? req.query.storeId : undefined),
         getCountLimitStatus(user.businessId, "customer_count"),
         getCountLimitStatus(user.businessId, "store_count"),
+        getCountLimitStatus(user.businessId, "item_count"),
       ]);
 
+      const [featureView, lifecycle] = await Promise.all([getOrgFeatureView(user.businessId), getOrgLifecycleView(user.businessId)]);
       const screenGates = (await listScreenGates()).map(({ pattern, featureKey, module, source }) => ({ pattern, featureKey, module, source }));
 
       res.json({
@@ -296,7 +345,12 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         // Subset of `features` that's actually been purchased (or is free),
         // never inflated by the trial blanket grant - see getOrgPurchasedFeatures.
         purchasedFeatures: Array.from(purchased),
-        limits: { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount },
+        // Flag off / deactivated: the client HIDES these. Everything else not in
+        // `features` is on-but-unpaid: shown locked, priced via featurePrices.
+        lifecycle,
+        disabledFeatures: featureView.disabled,
+        featurePrices: featureView.prices,
+        limits: { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount },
       });
     } catch (error) {
       console.error("GET /api/entitlements error:", error);

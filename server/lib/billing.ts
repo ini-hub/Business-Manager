@@ -13,7 +13,10 @@ import {
   type Plan,
 } from "@shared/schema";
 import { chargeAuthorization } from "./paystack";
+import { getConfiguredGraceDays } from "./platformConfig";
 import { grantFeatureEntitlement, getActiveFeaturePricing } from "./entitlements";
+import { priceSelection } from "@shared/bundles";
+import { getPricingBundles, discountBreakdownLine } from "./pricing";
 
 /** The account owner's name + email on file for an org - used to attribute renewal charges and send owner-facing notices. */
 export async function getOwnerContact(organisationId: string): Promise<{ name: string | null; email: string } | undefined> {
@@ -184,6 +187,7 @@ export async function activateSuccessfulPayment(
         // Only ever clear a non_payment suspension - never touch other suspension
         // reasons (fraud/ToS/etc), which still require an admin to lift.
         suspensionReason: org.suspensionReason === "non_payment" ? null : org.suspensionReason,
+        graceEndsAt: null,
         updatedAt: now,
       })
       .where(eq(organisations.id, org.id));
@@ -242,7 +246,13 @@ export async function maybeProcessDueRenewal(
   // never a separate billing date per feature (§2.6, decision 1).
   const cycle = claimed.billingCycle as "monthly" | "annual";
   const addOns = await getActiveFeaturePricing(claimed.organisationId, cycle);
-  const amount = planPrice(plan, cycle) + addOns.reduce((sum, a) => sum + a.price, 0);
+  // Same bundle rule as checkout: the discount rides along only while the
+  // org still holds every feature in a bundle, so removing one drops it here.
+  const bundles = await getPricingBundles();
+  const addOnPrice = new Map(addOns.map((a) => [a.featureKey, a.price]));
+  const renewal = priceSelection(addOnPrice.keys(), (k) => addOnPrice.get(k) ?? 0, bundles);
+  const discountLine = discountBreakdownLine(bundles, renewal);
+  const amount = planPrice(plan, cycle) + renewal.total;
   const payment = await createPendingPayment({
     organisationId: claimed.organisationId,
     planId: claimed.planId,
@@ -254,7 +264,7 @@ export async function maybeProcessDueRenewal(
     subscriptionId: claimed.id,
     featureKeys: addOns.map((a) => a.featureKey),
     planSnapshot: { name: plan.name, price: planPrice(plan, cycle) },
-    featureBreakdown: addOns.map((a) => ({ key: a.featureKey, name: a.name, price: a.price })),
+    featureBreakdown: [...addOns.map((a) => ({ key: a.featureKey, name: a.name, price: a.price })), ...(discountLine ? [discountLine] : [])],
   });
 
   try {
@@ -280,12 +290,14 @@ export async function maybeProcessDueRenewal(
       .update(subscriptions)
       .set({ status: "past_due", updatedAt: new Date() })
       .where(eq(subscriptions.id, claimed.id));
+    // A failed renewal starts the grace window (full access + countdown) instead of an
+    // instant suspension; after it the org is soft-locked to the free tier, never deleted.
+    // Only set once, so retries don't keep extending it.
+    const graceDays = await getConfiguredGraceDays();
     await db
       .update(organisations)
       .set({
-        status: "suspended",
-        suspensionReason: "non_payment",
-        suspendedAt: new Date(),
+        graceEndsAt: org.graceEndsAt ?? new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000),
         updatedAt: new Date(),
       })
       .where(eq(organisations.id, org.id));

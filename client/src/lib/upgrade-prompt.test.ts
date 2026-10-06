@@ -14,7 +14,8 @@ describe("toPlanLimitDetails", () => {
 
   it("parses a count_limit_reached 402", () => {
     expect(toPlanLimitDetails({ error: "count_limit_reached", limitType: "staff_seats", limit: 1, used: 1, featureKey: "staff_seats_addon", message: "Free tier of 1." }))
-      .toEqual({ kind: "count", message: "Free tier of 1.", featureKey: "staff_seats_addon", limitType: "staff_seats", limit: 1, used: 1 });
+      .toEqual({ kind: "count", message: "Free tier of 1.", featureKey: "staff_seats_addon", limitType: "staff_seats", limit: 1, used: 1, tiered: false, trial: false });
+    expect(toPlanLimitDetails({ error: "count_limit_reached", limitType: "staff_seats", limit: 5, used: 5, tiered: true, message: "Full." })?.tiered).toBe(true);
   });
 
   it("returns null for anything else so unrelated 402s aren't mislabelled", () => {
@@ -35,10 +36,10 @@ describe("announcePlanLimit", () => {
   });
 
   it("flags only a matching, recent toast as a duplicate", () => {
-    announcePlanLimit({ kind: "count", message: "You're on the free tier of 1 staff member." });
-    expect(isDuplicatePlanLimitToast("You're on the free tier of 1 staff member.")).toBe(true);
+    announcePlanLimit({ kind: "count", message: "You're on the free tier of 1 staff member per store (the owner doesn't count)." });
+    expect(isDuplicatePlanLimitToast("You're on the free tier of 1 staff member per store (the owner doesn't count).")).toBe(true);
     expect(isDuplicatePlanLimitToast("Something else failed.")).toBe(false);
-    expect(isDuplicatePlanLimitToast("You're on the free tier of 1 staff member.", Date.now() + 10_000)).toBe(false);
+    expect(isDuplicatePlanLimitToast("You're on the free tier of 1 staff member per store (the owner doesn't count).", Date.now() + 10_000)).toBe(false);
   });
 });
 
@@ -51,9 +52,20 @@ describe("upgradeTitle", () => {
 });
 
 describe("countLimitMessage", () => {
+  it("names the plan, not the free tier, for a paid pack", async () => {
+    const { countLimitMessage } = await import("./upgrade-prompt");
+    expect(countLimitMessage("staff_seats", 5, true)).toBe("Your plan covers up to 5 staff members per store (the owner doesn't count). Move up to a bigger plan to add more.");
+  });
+
+  it("tells a trial it is a trial and to upgrade", async () => {
+    const { countLimitMessage } = await import("./upgrade-prompt");
+    expect(countLimitMessage("staff_seats", 2, false, true)).toBe("You're on the free trial, which includes 2 staff members per store (the owner doesn't count). Upgrade to get more.");
+    expect(toPlanLimitDetails({ error: "count_limit_reached", limitType: "customer_count", limit: 30, used: 30, trial: true, message: "x" })?.trial).toBe(true);
+  });
+
   it("matches the server's wording, singular and plural", async () => {
     const { countLimitMessage } = await import("./upgrade-prompt");
-    expect(countLimitMessage("staff_seats", 1)).toBe("You're on the free tier of 1 staff member. Add the staff member add-on to add more.");
+    expect(countLimitMessage("staff_seats", 1)).toBe("You're on the free tier of 1 staff member per store (the owner doesn't count). Add the staff member add-on to add more.");
     expect(countLimitMessage("customer_count", 50)).toBe("You're on the free tier of 50 customers. Add the customer add-on to add more.");
   });
 });

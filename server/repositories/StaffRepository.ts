@@ -278,7 +278,9 @@ export class StaffRepository {
     return db.transaction(async (tx) => {
       // Free-tier seat cap, checked under the same lock/transaction as the insert.
       const businessId = await getBusinessIdForStore(tx, staffMember.storeId);
-      if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats");
+      // Seats are per store and the owner never uses one (they hold a record in every store), so an owner
+      // record is exempt and everyone else is counted against their own store.
+      if (businessId && staffMember.role !== "owner") await assertWithinCountLimit(tx, businessId, "staff_seats", 1, staffMember.storeId);
 
       const staffNumber = await this.getNextAvailableStaffNumber(staffMember.storeId);
       const [newStaff] = await tx.insert(staff).values({
@@ -393,11 +395,11 @@ export class StaffRepository {
 
   async restoreStaff(id: string): Promise<Staff | undefined> {
     return db.transaction(async (tx) => {
-      const [current] = await tx.select({ storeId: staff.storeId, isArchived: staff.isArchived }).from(staff).where(eq(staff.id, id)).limit(1);
-      // Un-archiving takes a seat back, so it's subject to the same free-tier cap as a new hire.
-      if (current?.isArchived) {
+      const [current] = await tx.select({ storeId: staff.storeId, isArchived: staff.isArchived, role: staff.role }).from(staff).where(eq(staff.id, id)).limit(1);
+      // Un-archiving takes a seat back in that store, so it's held to the same cap as a new hire (owners use no seat).
+      if (current?.isArchived && current.role !== "owner") {
         const businessId = await getBusinessIdForStore(tx, current.storeId);
-        if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats");
+        if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats", 1, current.storeId);
       }
       const [updated] = await tx.update(staff).set({ isArchived: false }).where(eq(staff.id, id)).returning();
       return updated;

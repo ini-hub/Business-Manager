@@ -22,8 +22,23 @@ describe("CountLimitError", () => {
       limit: 1,
       used: 1,
       featureKey: "staff_seats_addon",
-      message: "You're on the free tier of 1 staff member. Add the staff member add-on to add more.",
+      tiered: false,
+      trial: false,
+      message: "You're on the free tier of 1 staff member per store (the owner doesn't count). Add the staff member add-on to add more.",
     });
+  });
+
+  it("tells a trial it is a trial and to upgrade", () => {
+    const err = new CountLimitError("staff_seats", 2, 2, 1, false, true);
+    expect(err.message).toBe("You're on the free trial, which includes 2 staff members per store (the owner doesn't count). Upgrade to get more.");
+    expect(err.toBody().trial).toBe(true);
+    expect(new CountLimitError("customer_count", 30, 28, 5, false, true).message).toMatch(/free trial, which includes 30 customers \(28 in use\)/);
+  });
+
+  it("talks about the plan, not the free tier, once the org is on a paid pack", () => {
+    expect(new CountLimitError("staff_seats", 5, 5, 1, true).message).toBe("Your plan covers up to 5 staff members per store (the owner doesn't count). Move up to a bigger plan to add more.");
+    expect(new CountLimitError("staff_seats", 5, 4, 3, true).message).toContain("exceed the 5 per store (the owner doesn't count) your plan covers");
+    expect(new CountLimitError("staff_seats", 5, 5, 1, true).toBody().tiered).toBe(true);
   });
 
   it("explains bulk imports that would overshoot the cap", () => {

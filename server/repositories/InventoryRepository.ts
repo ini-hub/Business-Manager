@@ -20,6 +20,7 @@ import {
 } from "@shared/schema";
 import { eq, and, or, ilike, asc, desc, sql, count, gt, inArray } from "drizzle-orm";
 import { searchTokens, infix } from "../lib/searchTerms";
+import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
 
 export interface PaginationOptions {
   page: number;
@@ -134,8 +135,16 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
   }
 
   async createInventoryItem(item: InsertInventory): Promise<Inventory> {
-    const [newItem] = await db.insert(inventory).values(item).returning();
-    return newItem;
+    // Free-tier item cap, checked under the same lock/transaction as the insert. Supplies
+    // (consumables) are not catalogue items, so they neither count nor get blocked.
+    return db.transaction(async (tx) => {
+      if (item.type === "product" || item.type === "service") {
+        const businessId = await getBusinessIdForStore(tx, item.storeId);
+        if (businessId) await assertWithinCountLimit(tx, businessId, "item_count");
+      }
+      const [newItem] = await tx.insert(inventory).values(item).returning();
+      return newItem;
+    });
   }
 
   async updateInventoryItem(id: string, itemData: Partial<InsertInventory>): Promise<Inventory | undefined> {

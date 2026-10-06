@@ -13,9 +13,15 @@ export type PlanLimitDetails = {
   message: string;
   featureKey?: string;
   featureName?: string;
-  limitType?: "staff_seats" | "customer_count" | "store_count";
+  priceMonthly?: number | null;
+  currency?: string;
+  limitType?: "staff_seats" | "customer_count" | "store_count" | "item_count";
   limit?: number;
   used?: number;
+  /** The org is on a paid pack that is full, not on the free tier. */
+  tiered?: boolean;
+  /** The org is on its free trial, which is held to the free amount. */
+  trial?: boolean;
 };
 
 /** Parses a 402 response body; null when it isn't a plan-limit error (e.g. some other 402). */
@@ -29,6 +35,8 @@ export function toPlanLimitDetails(body: unknown): PlanLimitDetails | null {
       message: message ?? "This isn't included in your plan yet.",
       featureKey: typeof b.featureKey === "string" ? b.featureKey : undefined,
       featureName: typeof b.featureName === "string" ? b.featureName : undefined,
+      priceMonthly: typeof b.priceMonthly === "number" ? b.priceMonthly : undefined,
+      currency: typeof b.currency === "string" ? b.currency : undefined,
     };
   }
   if (b.error === "count_limit_reached") {
@@ -39,6 +47,8 @@ export function toPlanLimitDetails(body: unknown): PlanLimitDetails | null {
       limitType: b.limitType as PlanLimitDetails["limitType"],
       limit: typeof b.limit === "number" ? b.limit : undefined,
       used: typeof b.used === "number" ? b.used : undefined,
+      tiered: b.tiered === true,
+      trial: b.trial === true,
     };
   }
   return null;
@@ -71,19 +81,24 @@ export function isDuplicatePlanLimitToast(description: unknown, now: number = Da
   return description === lastAnnounced.message && now - lastAnnounced.at < DUPLICATE_TOAST_WINDOW_MS;
 }
 
-const LIMIT_NOUN = { staff_seats: "staff member", customer_count: "customer", store_count: "store" } as const;
+const LIMIT_NOUN = { staff_seats: "staff member", customer_count: "customer", store_count: "store", item_count: "item" } as const;
 
 /** Same wording as the server's CountLimitError, for gates that know they're at the cap before any request is sent. */
-export function countLimitMessage(limitType: keyof typeof LIMIT_NOUN, limit: number): string {
+export function countLimitMessage(limitType: keyof typeof LIMIT_NOUN, limit: number, tiered = false, trial = false): string {
   const noun = LIMIT_NOUN[limitType];
-  return `You're on the free tier of ${limit} ${noun}${limit === 1 ? "" : "s"}. Add the ${noun} add-on to add more.`;
+  // Same wording as the server: seats are per store and the owner never uses one.
+  const scope = limitType === "staff_seats" ? " per store (the owner doesn't count)" : "";
+  if (trial) return `You're on the free trial, which includes ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Upgrade to get more.`;
+  if (tiered) return `Your plan covers up to ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Move up to a bigger plan to add more.`;
+  return `You're on the free tier of ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Add the ${noun} add-on to add more.`;
 }
 
 /** Title for the dialog: names the feature, or the cap that was hit. */
 export function upgradeTitle(details: PlanLimitDetails): string {
   if (details.kind === "feature") return `Unlock ${details.featureName ?? "this feature"}`;
-  const noun = details.limitType === "staff_seats" ? "staff" : details.limitType === "store_count" ? "stores" : "customers";
-  return `You've reached your free ${noun} limit`;
+  const noun = details.limitType === "staff_seats" ? "staff" : details.limitType === "store_count" ? "stores" : details.limitType === "item_count" ? "items" : "customers";
+  if (details.trial) return `You've reached your free trial's ${noun} limit`;
+  return details.tiered ? `You've reached your plan's ${noun} limit` : `You've reached your free ${noun} limit`;
 }
 
 /**
