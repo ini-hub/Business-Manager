@@ -1,5 +1,5 @@
 import { checkCatalogHealth } from "./lib/entitlements";
-import { checkStoreAccessHelper } from "./routes/helpers";
+import { checkStoreAccessHelper, getClientIp, formatZodErrors } from "./routes/helpers";
 import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import crypto from "crypto";
@@ -31,7 +31,6 @@ import {
 } from "./email";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
-import { serveOgImage } from "./og-image";
 import {
   signupSchema,
   loginSchema, resetPasswordSchema,
@@ -45,9 +44,10 @@ import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
 import { getConfiguredTrialDays, getSmsConfig } from "./lib/platformConfig";
 import { logFunnelEvent } from "./lib/funnel";
-import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "./lib/otp-cooldown";
+import { checkResendCooldown, checkSubmittedOtp, resendWaitSeconds, MAX_OTP_ATTEMPTS, OTP_TTL_MS, OTP_RESEND_MIN_GAP_MS } from "./lib/otp-cooldown";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
 import { isManagerEmailChangePending } from "./lib/email-change-gate";
+import { checkSignupEmailChange } from "./lib/signup-email-change";
 import { initWebSocketServer, broadcastDataChange } from "./websocket";
 import { RouterRegistry } from "./controllers/RouterRegistry";
 import { AuthController } from "./controllers/AuthController";
@@ -82,14 +82,6 @@ import { assertBindingsComplete } from "./analytics/sql";
 
 const SALT_ROUNDS = 12;
 
-function getClientIp(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.socket?.remoteAddress || "unknown";
-}
-
 function getUserAgent(req: Request): string {
   const ua = req.headers["user-agent"];
   return typeof ua === "string" ? ua : "unknown";
@@ -112,15 +104,6 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-
-function formatZodErrors(errors: z.ZodIssue[]): string {
-  const messages = errors.map((err) => {
-    const field = err.path[0] || "field";
-    const fieldName = String(field).charAt(0).toUpperCase() + String(field).slice(1).replace(/([A-Z])/g, " $1");
-    return `${fieldName}: ${err.message}`;
-  });
-  return messages.join(". ");
-}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -155,16 +138,6 @@ export async function registerRoutes(
       uptime: process.uptime(),
     });
   });
-
-  // Temporary email queue debug — remove after confirming delivery works
-  app.get("/api/debug/email-queue", async (_req, res) => {
-    const { getQueueStats } = await import("./services/EmailQueue");
-    const stats = await getQueueStats();
-    res.json({ ...stats, gmail_user_set: !!process.env.NODEMAILER_AUTH_USER, gmail_app_password_set: !!process.env.NODEMAILER_AUTH_PASS });
-  });
-
-  // Public: OG social share image — no auth required
-  app.get("/og-image.png", serveOgImage);
 
   // Blocks API access for suspended/trial-expired orgs, not just the SPA
   // shell's paywall screen — see server/auth.ts for the exempt paths.
@@ -271,10 +244,16 @@ export async function registerRoutes(
         // hitting /continue must not be a way to bypass the resend-otp rate
         // limit. If on cooldown, fall through with whatever code is already
         // pending (the user can use "Resend" once the cooldown clears).
+        // A code that is still live (unexpired, not locked) is reused: logging in
+        // again before activating must not mail another one. Only an expired or
+        // locked code is replaced.
         const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
-        if (cooldown.allowed) {
+        const hasLiveOtp = !!user.otpCode && !!user.otpExpiry &&
+          new Date(user.otpExpiry).getTime() > Date.now() &&
+          (user.otpAttempts ?? 0) < MAX_OTP_ATTEMPTS;
+        if (cooldown.allowed && !hasLiveOtp) {
           const otpCode = crypto.randomInt(100000, 1000000).toString();
-          const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+          const otpExpiry = new Date(Date.now() + OTP_TTL_MS);
           await storage.updateUser(user.id, {
             otpCode,
             otpExpiry,
@@ -573,6 +552,11 @@ export async function registerRoutes(
         return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
+      // Enforce the minimum gap server-side, with the same generic body.
+      if (resendWaitSeconds(user) > 0) {
+        return res.json({ message: "If account exists, an OTP code has been sent." });
+      }
+
       const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
       if (!cooldown.allowed) {
         // Same generic response as the "no such account" branch above - a
@@ -635,6 +619,11 @@ export async function registerRoutes(
 
       // See the same gate in /forgot-password: same generic body, deliberately.
       if (isManagerEmailChangePending(user)) {
+        return res.json({ message: "If account exists, an OTP code has been sent." });
+      }
+
+      // Enforce the minimum gap server-side, with the same generic body.
+      if (resendWaitSeconds(user) > 0) {
         return res.json({ message: "If account exists, an OTP code has been sent." });
       }
 
@@ -1301,23 +1290,21 @@ export async function registerRoutes(
       }
 
       if (!user.isEmailVerified) {
-        if (!user.otpCode) {
-          return res.status(400).json({ error: "Invalid verification code." });
-        }
-
-        if ((user.otpAttempts ?? 0) >= MAX_OTP_ATTEMPTS) {
-          return res.status(429).json({ error: "Too many incorrect attempts. Please request a new code." });
-        }
-
-        const verifyMatch = otp?.length === user.otpCode.length &&
+        const matches = typeof otp === "string" && !!user.otpCode && otp.length === user.otpCode.length &&
           crypto.timingSafeEqual(Buffer.from(user.otpCode), Buffer.from(otp));
-        if (!verifyMatch) {
-          await storage.updateUser(user.id, { otpAttempts: (user.otpAttempts ?? 0) + 1 });
-          return res.status(400).json({ error: "Invalid verification code." });
-        }
-
-        if (user.otpExpiry && new Date() > new Date(user.otpExpiry)) {
-          return res.status(400).json({ error: "Verification code has expired." });
+        const check = checkSubmittedOtp(user, String(otp), matches);
+        if (!check.ok) {
+          if (check.code === "OTP_INVALID" || (check.code === "OTP_LOCKED" && (user.otpAttempts ?? 0) < MAX_OTP_ATTEMPTS)) {
+            await storage.updateUser(user.id, { otpAttempts: (user.otpAttempts ?? 0) + 1 });
+          }
+          const messages = {
+            OTP_INVALID: "Invalid verification code.",
+            OTP_EXPIRED: "Verification code has expired.",
+            OTP_LOCKED: "Too many incorrect attempts. Please request a new code.",
+          } as const;
+          return res.status(check.code === "OTP_LOCKED" ? 429 : 400).json({
+            error: { message: messages[check.code], code: check.code, attemptsLeft: check.attemptsLeft },
+          });
         }
 
         // Mark email as verified
@@ -1422,6 +1409,13 @@ export async function registerRoutes(
         return res.status(400).json({ error: "User not found." });
       }
 
+      const wait = resendWaitSeconds(user);
+      if (wait > 0) {
+        return res.status(429).json({
+          error: { message: `Please wait ${wait} seconds before requesting another code.`, code: "OTP_RESEND_TOO_SOON", retryAfterSeconds: wait },
+        });
+      }
+
       const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
       if (!cooldown.allowed) {
         return res.status(429).json({
@@ -1430,7 +1424,7 @@ export async function registerRoutes(
       }
 
       const otpCode = crypto.randomInt(100000, 1000000).toString();
-      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const otpExpiry = new Date(Date.now() + OTP_TTL_MS);
 
       await storage.updateUser(user.id, {
         otpCode,
@@ -1447,10 +1441,74 @@ export async function registerRoutes(
       res.json({
         success: true,
         message: "Verification code resent successfully.",
+        expiresInSeconds: OTP_TTL_MS / 1000,
+        retryAfterSeconds: OTP_RESEND_MIN_GAP_MS / 1000,
       });
     } catch (error) {
       console.error("Resend verification OTP error:", error);
       res.status(500).json({ error: "Failed to resend verification code." });
+    }
+  });
+
+  // Owner onboarding: fix a mistyped email before it has been verified. There is
+  // no session yet, so the account password stands in for one. Sends a fresh code
+  // to the new address and spends one of the hourly resend allowances.
+  app.post("/api/auth/change-signup-email", async (req: Request, res: Response) => {
+    try {
+      const parsed = z.object({
+        currentEmail: z.string().email(),
+        newEmail: z.string().email(),
+        password: z.string().min(1),
+      }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: { message: "Enter a valid email address.", code: "INVALID_EMAIL" } });
+      }
+      const currentEmail = parsed.data.currentEmail.toLowerCase();
+      const newEmail = parsed.data.newEmail.toLowerCase();
+
+      const user = await storage.getUserByIdentifier(currentEmail);
+      const verdict = checkSignupEmailChange(user, currentEmail, newEmail);
+      if (verdict === "same_email") {
+        return res.status(400).json({ error: { message: "That is the email we already have. Enter a different one.", code: "SAME_EMAIL" } });
+      }
+      if (verdict !== "ok" || !user) {
+        return res.status(400).json({ error: { message: "This email cannot be changed here. Log in instead.", code: "NOT_ELIGIBLE" } });
+      }
+
+      const hash = user.passwordHash ?? user.password;
+      if (!hash || !(await bcrypt.compare(parsed.data.password, hash))) {
+        auditLogger.logAuthAttempt(user.id, getClientIp(req), false, "signup_email_change_bad_password");
+        return res.status(401).json({ error: { message: "Incorrect password.", code: "INVALID_PASSWORD" } });
+      }
+
+      if (await storage.getUserByIdentifier(newEmail)) {
+        return res.status(409).json({ error: { message: "That email is already registered. Use a different one or log in.", code: "EMAIL_TAKEN" } });
+      }
+
+      const cooldown = checkResendCooldown(user.otpResendAttempts, user.otpResendWindowStart);
+      if (!cooldown.allowed) {
+        return res.status(429).json({
+          error: { message: `Too many requests. Please try again in ${cooldown.retryAfterMinutes} minutes.`, code: "OTP_RESEND_LIMIT" },
+        });
+      }
+
+      const otpCode = crypto.randomInt(100000, 1000000).toString();
+      await storage.updateUser(user.id, {
+        email: newEmail,
+        isEmailVerified: false,
+        otpCode,
+        otpExpiry: new Date(Date.now() + OTP_TTL_MS),
+        otpAttempts: 0,
+        otpResendAttempts: cooldown.nextAttempts,
+        otpResendWindowStart: cooldown.nextWindowStart,
+      });
+      await sendEmailVerificationOtpEmail(newEmail, user.name || newEmail, otpCode);
+      auditLogger.logAuthAttempt(user.id, getClientIp(req), true, "signup_email_changed");
+
+      res.json({ success: true, email: newEmail, expiresInSeconds: OTP_TTL_MS / 1000 });
+    } catch (error) {
+      console.error("Change signup email error:", error);
+      res.status(500).json({ error: "Failed to change email." });
     }
   });
 

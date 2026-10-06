@@ -1,5 +1,10 @@
 export function getUserFriendlyError(error: Error | unknown, context?: string): string {
   const message = error instanceof Error ? error.message : String(error);
+
+  // The server's own wording for a switched-off, unpaid or at-cap feature is already the useful one ("Customers isn't
+  // available right now"); a generic "try again" would send people into a retry that can never work.
+  const code = (error as { code?: string } | null)?.code;
+  if (code === "feature_disabled" || code === "feature_not_purchased" || code === "count_limit_reached") return message;
   
   if (
     message.toLowerCase().includes("store creation failed") ||

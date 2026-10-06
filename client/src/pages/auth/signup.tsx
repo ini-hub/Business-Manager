@@ -1,4 +1,5 @@
-import { KowopeBrand } from "@/components/kowope-brand";
+import { AuthShell } from "@/components/auth-shell";
+import { ChangeEmailForm, EmailOtpForm, otpIssueFromCode, type OtpIssue } from "@/components/email-otp-form";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -82,7 +83,6 @@ export default function Signup() {
   });
 
   const [verifyEmail, setVerifyEmail] = useState<string | null>(null);
-  const [otp, setOtp] = useState("");
 
   // Whatever documents currently exist - the three seeded defaults, plus
   // any section a super admin has added since (LegalDocuments.tsx). One
@@ -150,6 +150,9 @@ export default function Signup() {
     },
   });
 
+  const [otpIssue, setOtpIssue] = useState<{ kind: OtpIssue; message: string; attemptsLeft?: number } | null>(null);
+  const [verified, setVerified] = useState(false);
+
   const verifyOtpMutation = useMutation({
     mutationFn: async (otpVal: string) => {
       const response = await apiRequest("POST", "/api/auth/verify-signup-email", {
@@ -158,21 +161,29 @@ export default function Signup() {
       });
       return response.json();
     },
-    onSuccess: () => {
-      toast({
-        title: "Email verified!",
-        description: "Welcome to Kowope.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      setLocation("/");
-    },
+    // The session is already set; the user query is refreshed on "Go to my
+    // dashboard" so the verified screen isn't replaced by the app first.
+    onSuccess: () => setVerified(true),
     onError: (error: any) => {
-      const errorData = error.response?.data || error;
-      toast({
-        title: "Verification failed",
-        description: errorData.error || "Unable to verify email.",
-        variant: "destructive",
+      const message = error?.message || "Unable to verify email.";
+      setOtpIssue({ kind: otpIssueFromCode(error?.code), message, attemptsLeft: error?.attemptsLeft });
+    },
+  });
+
+  const [changingEmail, setChangingEmail] = useState(false);
+  const changeEmailMutation = useMutation({
+    mutationFn: async (vars: { newEmail: string; password: string }) => {
+      const response = await apiRequest("POST", "/api/auth/change-signup-email", {
+        currentEmail: verifyEmail,
+        ...vars,
       });
+      return response.json() as Promise<{ email: string }>;
+    },
+    onSuccess: (data) => {
+      setOtpIssue(null);
+      setChangingEmail(false);
+      setVerifyEmail(data.email);
+      toast({ title: "Code sent", description: `We sent a new code to ${data.email}.` });
     },
   });
 
@@ -184,6 +195,7 @@ export default function Signup() {
       return response.json();
     },
     onSuccess: () => {
+      setOtpIssue(null);
       toast({
         title: "Code sent!",
         description: "A fresh verification code has been sent to your email.",
@@ -219,119 +231,68 @@ export default function Signup() {
     signupMutation.mutate({ ...data, acceptedDocumentTypes });
   };
 
-  const handleVerifyOtpSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otp.trim() || otp.trim().length !== 6) {
-      toast({
-        title: "Invalid code",
-        description: "Please enter a valid 6-digit OTP code.",
-        variant: "destructive",
-      });
-      return;
-    }
-    verifyOtpMutation.mutate(otp.trim());
-  };
-
   if (verifyEmail) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] p-4 gap-5">
-        <Card className="w-full max-w-md relative">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="absolute left-4 top-4"
-            onClick={() => setVerifyEmail(null)}
-            data-testid="button-back-signup"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <CardHeader className="text-center pt-12">
-            <CardTitle className="text-lg">Verify your email</CardTitle>
-            <CardDescription>
-              We've sent a 6-digit OTP code to <strong className="text-foreground">{verifyEmail}</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <label htmlFor="otp-input" className="text-sm font-medium text-foreground">
-                  Verification Code
-                </label>
-                <Input
-                  id="otp-input"
-                  placeholder="Enter 6-digit OTP"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
-                  data-testid="input-otp"
-                  className="text-center text-lg tracking-widest font-mono"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={verifyOtpMutation.isPending}
-                data-testid="button-verify-otp"
-              >
-                {verifyOtpMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  "Verify Code"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4 text-center">
-            <div className="text-sm text-muted-foreground text-center w-full">
-              Didn't receive the code?{" "}
-              <button
-                type="button"
-                className="p-0 h-auto font-normal text-primary hover:underline bg-transparent border-0 cursor-pointer"
-                onClick={() => resendOtpMutation.mutate()}
-                disabled={resendOtpMutation.isPending}
-                data-testid="button-resend-otp"
-              >
-                {resendOtpMutation.isPending ? "Sending..." : "Resend code"}
-              </button>
-            </div>
-          </CardFooter>
-        </Card>
-      </div>
+      <AuthShell variant="signup">
+        <div className="ks-card">
+          {!verified && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setVerifyEmail(null)}
+              data-testid="button-back-signup"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+          )}
+          {changingEmail ? (
+            <ChangeEmailForm
+              currentEmail={verifyEmail}
+              busy={changeEmailMutation.isPending}
+              error={changeEmailMutation.error ? (changeEmailMutation.error as Error).message : null}
+              onSubmit={(newEmail, password) => changeEmailMutation.mutate({ newEmail, password })}
+              onCancel={() => { changeEmailMutation.reset(); setChangingEmail(false); }}
+            />
+          ) : (
+          <EmailOtpForm
+            key={verifyEmail}
+            email={verifyEmail}
+            verifying={verifyOtpMutation.isPending}
+            resending={resendOtpMutation.isPending}
+            issue={otpIssue?.kind ?? null}
+            issueMessage={otpIssue?.message}
+            attemptsLeft={otpIssue?.attemptsLeft}
+            verified={verified}
+            onSubmit={(code) => verifyOtpMutation.mutate(code)}
+            onResend={() => resendOtpMutation.mutate()}
+            onEdit={() => setOtpIssue(null)}
+            onExpired={() => setOtpIssue((cur) => cur ?? { kind: "expired", message: "" })}
+            onChangeEmail={() => setChangingEmail(true)}
+            onContinue={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+              setLocation("/");
+            }}
+          />
+          )}
+        </div>
+      </AuthShell>
     );
   }
 
   return (
-    // h-screen + overflow-hidden, not min-h-screen: the whole point is to
-    // fit on one screen without scrolling. max-h-full overflow-y-auto on
-    // the Card below is a pure safety net for viewports too short even for
-    // the compact layout (e.g. a narrow browser window with dev tools open)
-    // - it shouldn't ever trigger on a normal desktop/laptop viewport.
-    <div className="h-screen overflow-hidden flex items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] p-3">
-      <Card className="w-full max-w-2xl relative max-h-full overflow-y-auto">
-        <Link href="/" className="absolute left-3 top-3 z-10">
-          <Button variant="ghost" size="sm" data-testid="button-back">
-            <ArrowLeft className="h-4 w-4 mr-1.5" />
-            Back
-          </Button>
-        </Link>
-        <CardHeader className="text-center pt-8 pb-2 space-y-2">
-          <div className="flex justify-center">
-            <KowopeBrand />
-          </div>
-          <CardTitle className="text-lg">Create your account</CardTitle>
-          <CardDescription className="text-xs">
-            Kowope Business Management System — set up your business and start managing everything in one place
+    <AuthShell variant="signup">
+      <Card className="ks-card">
+        <CardHeader className="ks-head p-0">
+          <CardTitle className="ks-title">Create your account</CardTitle>
+          <CardDescription className="ks-sub">
+            Set up your business and start managing everything in one place.
           </CardDescription>
         </CardHeader>
-        <CardContent className="pb-2">
+        <CardContent className="ks-content p-0">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="ks-form space-y-3">
+              <div className="ks-stack">
                 <FormField
                   control={form.control}
                   name="ownerName"
@@ -370,7 +331,7 @@ export default function Signup() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="ks-stack">
                 <FormField
                   control={form.control}
                   name="email"
@@ -395,7 +356,7 @@ export default function Signup() {
                   control={form.control}
                   name="address"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="ks-address">
                       <FormLabel>Business Address (Optional)</FormLabel>
                       <FormControl>
                         <Input
@@ -410,7 +371,7 @@ export default function Signup() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="ks-phone">
                 <FormField
                   control={form.control}
                   name="phoneCountryCode"
@@ -456,12 +417,12 @@ export default function Signup() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="ks-stack">
                 <FormField
                   control={form.control}
                   name="password"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="ks-late">
                       <FormLabel>Password</FormLabel>
                       <FormControl>
                         <PasswordInput
@@ -480,7 +441,7 @@ export default function Signup() {
                   control={form.control}
                   name="confirmPassword"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="ks-late">
                       <FormLabel>Confirm Password</FormLabel>
                       <FormControl>
                         <PasswordInput
@@ -572,15 +533,15 @@ export default function Signup() {
             </form>
           </Form>
         </CardContent>
-        <CardFooter className="pt-0 pb-4">
-          <p className="text-xs text-center text-muted-foreground w-full">
+        <CardFooter className="ks-foot p-0">
+          <p className="text-sm text-center text-muted-foreground w-full">
             Already have an account?{" "}
-            <Link href="/auth/login" className="text-primary hover:underline" data-testid="link-login">
-              Sign in
+            <Link href="/auth/login" data-testid="link-login">
+              Log in
             </Link>
           </p>
         </CardFooter>
       </Card>
-    </div>
+    </AuthShell>
   );
 }

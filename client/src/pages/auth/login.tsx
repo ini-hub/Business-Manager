@@ -1,4 +1,5 @@
-import { KowopeBrand } from "@/components/kowope-brand";
+import { AuthShell } from "@/components/auth-shell";
+import { ChangeEmailForm, EmailOtpForm, otpIssueFromCode, type OtpIssue } from "@/components/email-otp-form";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,7 +17,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LegalFooter } from "@/components/legal-footer";
 import { legalDocHref } from "@/lib/legal-docs";
 import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 
@@ -28,10 +28,14 @@ export default function Login() {
   >("identifier");
   const [identifier, setIdentifier] = useState("");
   const [identifierDisplay, setIdentifierDisplay] = useState("");
-  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
+  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("phone");
   const [isPasswordValid, setIsPasswordValid] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
+  // Email-verification step (account exists but its email was never verified).
+  const [verifyEmail, setVerifyEmail] = useState("");
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [otpIssue, setOtpIssue] = useState<{ kind: OtpIssue; message: string; attemptsLeft?: number } | null>(null);
   
   // Custom activation code states
   // The invitation email links to /activate?code=XXXX-XXXX. Seed the field
@@ -162,6 +166,7 @@ export default function Login() {
           variant: "destructive",
         });
       } else if (data.status === "email_verification_required") {
+        setVerifyEmail(data.email ?? "");
         setStep("verify_otp");
         toast({
           title: "Email verification required",
@@ -221,6 +226,7 @@ export default function Login() {
           description: "Your email was updated. Enter the 6-digit code we sent to your new address.",
         });
       } else if (data.status === "email_verification_required") {
+        setVerifyEmail(data.email ?? "");
         setStep("verify_otp");
         toast({
           title: "Email verification required",
@@ -553,7 +559,7 @@ export default function Login() {
   const verifyEmailChangeMutation = useMutation({
     mutationFn: async (otpVal: string) => {
       const response = await apiRequest("POST", "/api/auth/verify-manager-email-change", {
-        emailOrPhone: identifier,
+        emailOrPhone: verifyEmail || identifier,
         otp: otpVal,
       });
       return response.json();
@@ -604,11 +610,11 @@ export default function Login() {
       queryClient.resetQueries({ queryKey: ["/api/business"] });
       setLocation("/");
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Verification failed",
-        description: error.message || "Invalid OTP code",
-        variant: "destructive",
+    onError: (error: Error & { code?: string; attemptsLeft?: number }) => {
+      setOtpIssue({
+        kind: otpIssueFromCode(error.code),
+        message: error.message || "Unable to verify email.",
+        attemptsLeft: error.attemptsLeft,
       });
     },
   });
@@ -617,11 +623,12 @@ export default function Login() {
   const resendOtpMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/auth/resend-verification-otp", {
-        emailOrPhone: identifier,
+        emailOrPhone: verifyEmail || identifier,
       });
       return response.json();
     },
     onSuccess: () => {
+      setOtpIssue(null);
       toast({
         title: "Code Sent!",
         description: "A fresh verification code has been sent to your email.",
@@ -633,6 +640,22 @@ export default function Login() {
         description: error.message || "Unable to resend code.",
         variant: "destructive",
       });
+    },
+  });
+
+  const changeEmailMutation = useMutation({
+    mutationFn: async (vars: { newEmail: string; password: string }) => {
+      const response = await apiRequest("POST", "/api/auth/change-signup-email", {
+        currentEmail: verifyEmail,
+        ...vars,
+      });
+      return response.json() as Promise<{ email: string }>;
+    },
+    onSuccess: (data) => {
+      setOtpIssue(null);
+      setChangingEmail(false);
+      setVerifyEmail(data.email);
+      toast({ title: "Code sent", description: `We sent a new code to ${data.email}.` });
     },
   });
 
@@ -704,23 +727,10 @@ export default function Login() {
     setPasswordMutation.mutate({ password: data.password });
   };
 
-  const handleVerifyOtpSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otp.trim() || otp.trim().length !== 6) {
-      toast({
-        title: "Invalid code",
-        description: "Please enter a valid 6-digit OTP code.",
-        variant: "destructive",
-      });
-      return;
-    }
-    verifyOtpMutation.mutate(otp.trim());
-  };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[hsl(214,25%,96%)] to-[hsl(210,15%,92%)] dark:from-[hsl(214,22%,6%)] dark:to-[hsl(214,22%,9%)] p-4 gap-5">
-      <KowopeBrand />
-      <Card className="w-full max-w-md relative">
+    <AuthShell variant="login">
+      <Card className="ks-card">
         {step !== "identifier" && (
           <Button
             variant="ghost"
@@ -737,16 +747,14 @@ export default function Login() {
           </Button>
         )}
 
-        <CardHeader className="text-center pt-12">
-          <CardTitle className="text-lg">
-            {step === "identifier" ? "Sign in to Kowope" : "Welcome back"}
+        {step !== "verify_otp" && (
+        <CardHeader className="ks-head p-0">
+          <CardTitle className="ks-title">
+            {step === "identifier" ? "Log in to Kowope" : "Welcome back"}
           </CardTitle>
-          <CardDescription>
-            {step === "identifier" && (loginMethod === "email"
-              ? "Kowope Business Management System — sign in with your email"
-              : "Kowope Business Management System — sign in with your phone number")}
+          <CardDescription className="ks-sub">
+            {step === "identifier" && "Use the phone number or email on your account."}
             {step === "password" && `Enter your password for ${identifierDisplay}`}
-            {step === "verify_otp" && `Verify your email address for ${identifierDisplay}`}
             {step === "verify_email_change" && "Confirm your new email address"}
             {step === "activation_code" && `Activate your staff invitation for ${identifierDisplay}`}
             {step === "create_password" && `Create a password for ${identifierDisplay}`}
@@ -756,8 +764,9 @@ export default function Login() {
             {step === "org_select" && "Select the business workspace you want to access"}
           </CardDescription>
         </CardHeader>
+        )}
 
-        <CardContent className="space-y-4">
+        <CardContent className="ks-content space-y-4 p-0">
           {/* Identity Step */}
           {step === "identifier" && (
             <>
@@ -766,8 +775,8 @@ export default function Login() {
                 onValueChange={(v) => setLoginMethod(v as "email" | "phone")}
               >
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="email" data-testid="tab-login-email">Email</TabsTrigger>
                   <TabsTrigger value="phone" data-testid="tab-login-phone">Phone</TabsTrigger>
+                  <TabsTrigger value="email" data-testid="tab-login-email">Email</TabsTrigger>
                 </TabsList>
               </Tabs>
 
@@ -1413,68 +1422,45 @@ export default function Login() {
             </div>
           )}
 
-          {step === "verify_otp" && (
-            <div className="space-y-4">
-              <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="otp-input" className="text-sm font-medium text-foreground">
-                    Verification Code
-                  </label>
-                  <Input
-                    id="otp-input"
-                    placeholder="Enter 6-digit OTP"
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
-                    data-testid="input-otp"
-                    className="text-center text-lg tracking-widest font-mono"
-                  />
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={verifyOtpMutation.isPending}
-                  data-testid="button-verify-otp"
-                >
-                  {verifyOtpMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Verifying...
-                    </>
-                  ) : (
-                    "Verify Code"
-                  )}
-                </Button>
-              </form>
-              <div className="text-sm text-muted-foreground text-center">
-                Didn't receive the code?{" "}
-                <button
-                  type="button"
-                  className="p-0 h-auto font-normal text-primary hover:underline bg-transparent border-0 cursor-pointer"
-                  onClick={() => resendOtpMutation.mutate()}
-                  disabled={resendOtpMutation.isPending}
-                  data-testid="button-resend-otp"
-                >
-                  {resendOtpMutation.isPending ? "Sending..." : "Resend code"}
-                </button>
-              </div>
-            </div>
-          )}
+          {step === "verify_otp" && (changingEmail ? (
+            <ChangeEmailForm
+              currentEmail={verifyEmail}
+              busy={changeEmailMutation.isPending}
+              error={changeEmailMutation.error ? (changeEmailMutation.error as Error).message : null}
+              onSubmit={(newEmail, password) => changeEmailMutation.mutate({ newEmail, password })}
+              onCancel={() => { changeEmailMutation.reset(); setChangingEmail(false); }}
+            />
+          ) : (
+            <EmailOtpForm
+              key={verifyEmail}
+              email={verifyEmail || identifierDisplay}
+              verifying={verifyOtpMutation.isPending}
+              resending={resendOtpMutation.isPending}
+              issue={otpIssue?.kind ?? null}
+              issueMessage={otpIssue?.message}
+              attemptsLeft={otpIssue?.attemptsLeft}
+              verified={false}
+              onSubmit={(code) => verifyOtpMutation.mutate(code)}
+              onResend={() => resendOtpMutation.mutate()}
+              onEdit={() => setOtpIssue(null)}
+              onExpired={() => setOtpIssue((cur) => cur ?? { kind: "expired", message: "" })}
+              onChangeEmail={() => setChangingEmail(true)}
+              onContinue={() => undefined}
+            />
+          ))}
         </CardContent>
 
         {step === "identifier" && (
-          <CardFooter className="flex flex-col gap-2 pb-10">
+          <CardFooter className="ks-foot flex flex-col gap-2 p-0">
             <p className="text-sm text-muted-foreground text-center">
-              Don't have an account?{" "}
-              <Link href="/auth/signup" className="text-blue-500 hover:underline" data-testid="link-signup">
-                Sign up
+              New to Kowope?{" "}
+              <Link href="/auth/signup" data-testid="link-signup">
+                Create an account
               </Link>
             </p>
           </CardFooter>
         )}
       </Card>
-      <LegalFooter />
-    </div>
+    </AuthShell>
   );
 }
