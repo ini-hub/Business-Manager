@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Search,
@@ -31,9 +32,9 @@ import {
 
 export default function UsersList() {
   const { toast } = useToast();
-  const [search, setSearch] = useState("");
-  const [role, setRole] = useState("all");
-  const [status, setStatus] = useState("all");
+  const [search, setSearch] = useUrlState<string>("q", "");
+  const [role, setRole] = useUrlState<string>("role", "all");
+  const [status, setStatus] = useUrlState<string>("status", "all");
 
   // Overrides State
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);

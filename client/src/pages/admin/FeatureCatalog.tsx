@@ -1,33 +1,50 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSessionSet } from "@/hooks/use-session-state";
+import { useUrlState } from "@/hooks/use-url-state";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Tag, Plus, Edit2, Loader2, AlertCircle, Lock, Sunset } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Plus, Edit2, Loader2, AlertCircle, Lock, Sunset, Search, ChevronRight, ChevronDown, Package } from "lucide-react";
+import { FEATURE_SECTION_LABELS, getFeatureDef } from "@shared/features";
+import { buildFeatureTree, filterFeatureTree, subtreeKeys, type TreeNode, type TreeInput } from "@shared/featureTree";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GateRulesDialog } from "./GateRulesDialog";
-import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
-const CATEGORIES = ["vendor_mgmt", "staff_mgmt", "customer_mgmt", "financial_mgmt", "tax_compliance", "inventory_mgmt", "analytics", "business_settings"] as const;
-const CATEGORY_LABELS: Record<string, string> = {
-  vendor_mgmt: "Vendor Management",
-  staff_mgmt: "Staff Management",
-  customer_mgmt: "Customer Management",
-  financial_mgmt: "Financial Management",
-  tax_compliance: "Tax, Compliance & Audit",
-  inventory_mgmt: "Inventory Management",
-  analytics: "Analytics",
-  business_settings: "Business & Settings",
-};
 const TIER_TYPES = ["free", "paid_flat", "paid_metered_limit", "bundle_parent", "bundle_child"] as const;
+const TIER_LABEL: Record<string, string> = {
+  free: "Free",
+  paid_flat: "Paid",
+  paid_metered_limit: "Capped add-on",
+  bundle_parent: "Bundle",
+  bundle_child: "In bundle",
+};
+const TIER_STYLE: Record<string, string> = {
+  free: "bg-muted text-muted-foreground",
+  paid_flat: "bg-primary/10 text-primary",
+  paid_metered_limit: "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400",
+  bundle_parent: "bg-primary/10 text-primary",
+  bundle_child: "bg-muted text-muted-foreground",
+};
+
+type SortMode = "default" | "name" | "price_desc" | "price_asc";
+
+interface CatalogItem extends TreeInput {
+  row: any;
+  name: string;
+  description: string;
+  tier: string;
+  price: number;
+  active: boolean;
+}
+
+const isPriced = (tier: string) => tier !== "free" && tier !== "bundle_child";
 
 /**
  * The monetization catalog super admins price - a separate concern from
@@ -38,64 +55,16 @@ const TIER_TYPES = ["free", "paid_flat", "paid_metered_limit", "bundle_parent", 
 export default function FeatureCatalog() {
   const { admin } = useAdminAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const isSuperAdmin = admin?.role === "super_admin";
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [editing, setEditing] = useState<any>(null);
   const [sunsetting, setSunsetting] = useState<any>(null);
   const [sunsetDate, setSunsetDate] = useState("");
   const [gating, setGating] = useState<any>(null);
 
-  const [form, setForm] = useState({
-    key: "",
-    name: "",
-    description: "",
-    category: "staff_mgmt" as string,
-    tierType: "paid_flat" as string,
-    priceMonthly: "",
-    priceAnnual: "",
-    freeLimit: "",
-    permissionModule: "none" as string,
-    isActive: true,
-  });
-
-  const resetForm = () =>
-    setForm({ key: "", name: "", description: "", category: "staff_mgmt", tierType: "paid_flat", priceMonthly: "", priceAnnual: "", freeLimit: "", permissionModule: "none", isActive: true });
-
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/admin/feature-catalog"],
     queryFn: async () => (await apiRequest("GET", "/api/admin/feature-catalog")).json(),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (payload: any) => {
-      const res = await apiRequest("POST", "/api/admin/feature-catalog", payload);
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Failed to create feature");
-      return body;
-    },
-    onSuccess: () => {
-      toast({ title: "Feature added to the catalog" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/feature-catalog"] });
-      setShowCreate(false);
-      resetForm();
-    },
-    onError: (err: Error) => toast({ title: "Couldn't create this feature", description: err.message, variant: "destructive" }),
-  });
-
-  const editMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: any }) => {
-      const res = await apiRequest("PUT", `/api/admin/feature-catalog/${id}`, patch);
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Failed to update feature");
-      return body;
-    },
-    onSuccess: () => {
-      toast({ title: "Feature updated" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/feature-catalog"] });
-      setEditing(null);
-    },
-    onError: (err: Error) => toast({ title: "Couldn't update this feature", description: err.message, variant: "destructive" }),
   });
 
   const sunsetMutation = useMutation({
@@ -113,40 +82,149 @@ export default function FeatureCatalog() {
     onError: (err: Error) => toast({ title: "Couldn't schedule this transition", description: err.message, variant: "destructive" }),
   });
 
-  const openEdit = (f: any) => {
-    setEditing(f);
-    setForm({
-      key: f.key,
-      name: f.name,
-      description: f.description || "",
-      category: f.category,
-      tierType: f.tierType,
-      priceMonthly: f.priceMonthly != null ? String(f.priceMonthly) : "",
-      priceAnnual: f.priceAnnual != null ? String(f.priceAnnual) : "",
-      freeLimit: f.freeLimit != null ? String(f.freeLimit) : "",
-      permissionModule: f.permissionModule ?? "none",
-      isActive: f.isActive,
-    });
-  };
-
-  const buildPayload = () => ({
-    key: form.key.trim().toLowerCase().replace(/\s+/g, "_"),
-    name: form.name.trim(),
-    description: form.description.trim() || undefined,
-    category: form.category,
-    tierType: form.tierType,
-    priceMonthly: form.priceMonthly ? Number(form.priceMonthly) : null,
-    priceAnnual: form.priceAnnual ? Number(form.priceAnnual) : null,
-    freeLimit: form.freeLimit ? Number(form.freeLimit) : null,
-    permissionModule: form.permissionModule === "none" ? null : form.permissionModule,
-    isActive: form.isActive,
-  });
-
   const features = (data?.features ?? []) as any[];
-  const byCategory = features.reduce<Record<string, any[]>>((acc, f) => {
-    (acc[f.category] ??= []).push(f);
-    return acc;
-  }, {});
+
+  const [search, setSearch] = useUrlState<string>("q", "");
+  const [tierFilter, setTierFilter] = useUrlState<string>("tier", "all");
+  const [activeFilter, setActiveFilter] = useUrlState<string>("active", "all");
+  const [sort, setSort] = useUrlState<SortMode>("sort", "default");
+  const [collapsed, setCollapsed] = useSessionSet("admin:feature-catalog:collapsed");
+
+  const tree = useMemo(() => {
+    const keyById = new Map(features.map((r) => [r.id, r.key as string]));
+    const items: CatalogItem[] = features.map((r) => {
+      const def = getFeatureDef(r.key);
+      return {
+        key: r.key,
+        section: r.section ?? def?.section ?? null,
+        groupParent: (r.groupParentFeatureId ? keyById.get(r.groupParentFeatureId) : null) ?? def?.groupParent ?? null,
+        sortOrder: r.sortOrder ?? def?.sortOrder ?? 9999,
+        row: r,
+        name: r.name,
+        description: r.description ?? "",
+        tier: r.tierType,
+        price: Number(r.priceMonthly ?? 0),
+        active: !!r.isActive,
+      };
+    });
+    if (sort !== "default") {
+      // Re-rank siblings by the chosen sort; the tree builder orders by sortOrder.
+      const cmp: Record<Exclude<SortMode, "default">, (a: CatalogItem, b: CatalogItem) => number> = {
+        name: (a, b) => a.name.localeCompare(b.name),
+        price_desc: (a, b) => b.price - a.price || a.name.localeCompare(b.name),
+        price_asc: (a, b) => a.price - b.price || a.name.localeCompare(b.name),
+      };
+      [...items].sort(cmp[sort]).forEach((it, i) => { it.sortOrder = i; });
+    }
+    return buildFeatureTree(items);
+  }, [features, sort]);
+
+  const filtering = search.trim() !== "" || tierFilter !== "all" || activeFilter !== "all";
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!filtering) return tree;
+    return filterFeatureTree(tree, (i) =>
+      (tierFilter === "all" || i.tier === tierFilter) &&
+      (activeFilter === "all" || (activeFilter === "active") === i.active) &&
+      (!q || i.key.includes(q) || i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q)),
+    );
+  }, [tree, search, tierFilter, activeFilter, filtering]);
+
+  const parentKeys = useMemo(() => {
+    const keys: string[] = [];
+    const walk = (n: TreeNode<CatalogItem>) => {
+      if (n.children.length) keys.push(n.item.key);
+      n.children.forEach(walk);
+    };
+    tree.forEach((s) => s.roots.forEach(walk));
+    return keys;
+  }, [tree]);
+
+  const stats = useMemo(() => ({
+    total: features.length,
+    active: features.filter((f) => f.isActive).length,
+    free: features.filter((f) => f.tierType === "free").length,
+    paid: features.filter((f) => isPriced(f.tierType)).length,
+    bundles: features.filter((f) => f.tierType === "bundle_parent").length,
+  }), [features]);
+
+  const toggle = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+
+  const renderNode = (node: TreeNode<CatalogItem>, depth: number): JSX.Element => {
+    const { item } = node;
+    const f = item.row;
+    const hasChildren = node.children.length > 0;
+    const open = filtering || !collapsed.has(item.key);
+    return (
+      <div key={item.key}>
+        <div
+          className={`group flex items-center gap-2 py-2 pr-2 rounded-lg hover:bg-muted/50 ${item.active ? "" : "opacity-60"}`}
+          style={{ paddingLeft: depth * 20 + 8 }}
+          data-testid={`catalog-row-${item.key}`}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggle(item.key)}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={open ? `Collapse ${item.name}` : `Expand ${item.name}`}
+              aria-expanded={open}
+            >
+              {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+          ) : (
+            <span className="shrink-0 w-4 flex justify-center"><span className="h-1.5 w-1.5 rounded-full bg-border" /></span>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {item.tier === "bundle_parent" && <Package className="h-3.5 w-3.5 text-primary shrink-0" />}
+              <span className={`text-sm text-foreground truncate ${hasChildren ? "font-bold" : "font-medium"}`}>{item.name}</span>
+              <code className="text-[11px] font-mono text-muted-foreground">{item.key}</code>
+              {hasChildren && <span className="text-[11px] text-muted-foreground">({subtreeKeys(node).length - 1})</span>}
+              {!item.active && <Badge variant="outline" className="border-none bg-muted text-muted-foreground text-[10px]">Inactive</Badge>}
+            </div>
+            {item.description && <p className="text-xs text-muted-foreground truncate">{item.description}</p>}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isPriced(item.tier) && (
+              <span className="hidden sm:inline text-xs font-semibold tabular-nums text-foreground">
+                {f.currency} {item.price.toLocaleString()}<span className="text-muted-foreground font-normal">/mo</span>
+              </span>
+            )}
+            {f.freeLimit != null && <Badge variant="secondary" className="hidden md:inline-flex text-[11px]">{f.freeLimit} free</Badge>}
+            <Badge variant="outline" className={`border-none text-[11px] font-semibold ${TIER_STYLE[item.tier] ?? TIER_STYLE.free}`}>
+              {TIER_LABEL[item.tier] ?? item.tier}
+            </Badge>
+          </div>
+          {isSuperAdmin && (
+            <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+              <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => navigate(`/super-admin/feature-catalog/${f.id}`)} aria-label={`Edit ${item.key}`}>
+                <Edit2 className="h-3.5 w-3.5" />
+              </Button>
+              {isPriced(item.tier) && (
+                <>
+                  <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => setGating(f)} aria-label={`Gate rules for ${item.key}`}>
+                    <Lock className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => setSunsetting(f)} aria-label={`Sunset ${item.key}`}>
+                    <Sunset className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && open && (
+          <div className="ml-[15px] border-l border-border/60">{node.children.map((c) => renderNode(c, depth + 1))}</div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6 font-sans">
@@ -156,7 +234,7 @@ export default function FeatureCatalog() {
           <p className="text-muted-foreground text-sm mt-1">Price, categorize, and activate every purchasable feature businesses can add to their plan.</p>
         </div>
         {isSuperAdmin && (
-          <Button onClick={() => { resetForm(); setShowCreate(true); }}>
+          <Button onClick={() => navigate("/super-admin/feature-catalog/new")}>
             <Plus className="mr-2 h-4 w-4" /> Add Feature
           </Button>
         )}
@@ -171,87 +249,104 @@ export default function FeatureCatalog() {
           <AlertCircle className="h-5 w-5 shrink-0" /> <span>Couldn't load the feature catalog.</span>
         </div>
       ) : (
-        <div className="space-y-8">
-          {CATEGORIES.filter((c) => byCategory[c]?.length).map((category) => (
-            <div key={category}>
-              <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wide mb-3">{CATEGORY_LABELS[category]}</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {byCategory[category].map((f) => (
-                  <Card key={f.id} className={!f.isActive ? "opacity-60" : undefined}>
-                    <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <CardTitle className="text-sm font-mono truncate">{f.key}</CardTitle>
-                      </div>
-                      {!f.isActive && <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-xs">
-                      <p className="font-medium text-sm">{f.name}</p>
-                      {f.description && <p className="text-muted-foreground">{f.description}</p>}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline">{f.tierType}</Badge>
-                        {f.tierType !== "free" && f.tierType !== "bundle_child" && (
-                          <Badge variant="secondary">
-                            {f.currency} {Number(f.priceMonthly ?? 0).toLocaleString()}/mo
-                          </Badge>
-                        )}
-                        {f.freeLimit != null && <Badge variant="secondary">{f.freeLimit} free</Badge>}
-                      </div>
-                      {isSuperAdmin && (
-                        <div className="flex gap-2 mt-2">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(f)}>
-                            <Edit2 className="mr-1.5 h-3 w-3" /> Edit
-                          </Button>
-                          {f.tierType !== "free" && f.tierType !== "bundle_child" && (
-                            <Button size="sm" variant="outline" onClick={() => setGating(f)}>
-                              <Lock className="mr-1.5 h-3 w-3" /> Gate rules
-                            </Button>
-                          )}
-                          {f.tierType !== "free" && f.tierType !== "bundle_child" && (
-                            <Button size="sm" variant="outline" onClick={() => setSunsetting(f)}>
-                              <Sunset className="mr-1.5 h-3 w-3" /> Sunset
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+        <div className="space-y-4 animate-in fade-in duration-300">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {([
+              ["Features", stats.total],
+              ["Active", stats.active],
+              ["Free", stats.free],
+              ["Paid", stats.paid],
+              ["Bundles", stats.bundles],
+            ] as const).map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-border/80 bg-card/40 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                <p className="text-xl font-bold text-foreground tabular-nums">{value}</p>
               </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col lg:flex-row gap-2 lg:items-center">
+            <div className="relative flex-1 lg:max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9 bg-background border-border rounded-xl"
+                placeholder="Search by name, key or description"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search features"
+              />
             </div>
-          ))}
+            <div className="flex flex-wrap gap-2">
+              <Select value={tierFilter} onValueChange={setTierFilter}>
+                <SelectTrigger className="w-40 bg-background border-border rounded-xl" aria-label="Filter by tier">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All tiers</SelectItem>
+                  {TIER_TYPES.map((t) => <SelectItem key={t} value={t}>{TIER_LABEL[t]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={activeFilter} onValueChange={setActiveFilter}>
+                <SelectTrigger className="w-36 bg-background border-border rounded-xl" aria-label="Filter by status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+                <SelectTrigger className="w-44 bg-background border-border rounded-xl" aria-label="Sort features">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Product order</SelectItem>
+                  <SelectItem value="name">Name A–Z</SelectItem>
+                  <SelectItem value="price_desc">Price high to low</SelectItem>
+                  <SelectItem value="price_asc">Price low to high</SelectItem>
+                </SelectContent>
+              </Select>
+              {filtering && (
+                <Button variant="ghost" size="sm" className="rounded-xl" onClick={() => { setSearch(""); setTierFilter("all"); setActiveFilter("all"); }}>
+                  Clear
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2 lg:ml-auto">
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setCollapsed(new Set())}>Expand all</Button>
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setCollapsed(new Set(parentKeys))}>Collapse all</Button>
+            </div>
+          </div>
+
+          {visible.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">No features match.</p>
+          ) : (
+            visible.map((section) => {
+              const sectionKey = `section:${section.section}`;
+              const open = filtering || !collapsed.has(sectionKey);
+              return (
+                <section key={section.section} className="rounded-2xl border border-border/80 bg-card/40 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggle(sectionKey)}
+                    className="w-full flex items-center gap-2 px-4 py-3 bg-background/40 border-b border-border/40 text-left"
+                    aria-expanded={open}
+                  >
+                    {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                    <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">
+                      {section.section === "other" ? "Other" : FEATURE_SECTION_LABELS[section.section]}
+                    </h2>
+                    <span className="text-xs text-muted-foreground">{section.count} features</span>
+                  </button>
+                  {open && <div className="p-2">{section.roots.map((r) => renderNode(r, 0))}</div>}
+                </section>
+              );
+            })
+          )}
         </div>
       )}
 
-      {/* Create dialog */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add a feature</DialogTitle>
-            <DialogDescription>It becomes purchasable the moment it's active.</DialogDescription>
-          </DialogHeader>
-          <FeatureForm form={form} setForm={setForm} keyEditable />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={() => createMutation.mutate(buildPayload())} disabled={createMutation.isPending}>Create</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit dialog */}
-      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit feature</DialogTitle>
-            <DialogDescription>Pricing and activation changes apply immediately, no deploy needed.</DialogDescription>
-          </DialogHeader>
-          <FeatureForm form={form} setForm={setForm} keyEditable={false} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={() => editing && editMutation.mutate({ id: editing.id, patch: buildPayload() })} disabled={editMutation.isPending}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       {gating && <GateRulesDialog feature={gating} onClose={() => setGating(null)} />}
       {/* Schedule sunset dialog - §2.7 of the pay-per-feature plan */}
       <Dialog open={!!sunsetting} onOpenChange={(open) => !open && setSunsetting(null)}>
@@ -277,74 +372,6 @@ export default function FeatureCatalog() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function FeatureForm({ form, setForm, keyEditable }: { form: any; setForm: (f: any) => void; keyEditable: boolean }) {
-  return (
-    <div className="space-y-3 my-2">
-      <div className="space-y-1">
-        <Label className="text-xs">Key</Label>
-        <Input value={form.key} disabled={!keyEditable} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="e.g. staff_performance_tracking" className="font-mono text-xs" />
-      </div>
-      <div className="space-y-1">
-        <Label className="text-xs">Name</Label>
-        <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-      </div>
-      <div className="space-y-1">
-        <Label className="text-xs">Description</Label>
-        <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="min-h-[60px]" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Category</Label>
-          <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c} value={c}>{CATEGORY_LABELS[c]}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Tier type</Label>
-          <Select value={form.tierType} onValueChange={(v) => setForm({ ...form, tierType: v })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{TIER_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-      </div>
-      {(form.tierType === "paid_flat" || form.tierType === "paid_metered_limit" || form.tierType === "bundle_parent") && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs">Price / month</Label>
-            <Input type="number" value={form.priceMonthly} onChange={(e) => setForm({ ...form, priceMonthly: e.target.value })} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Price / year</Label>
-            <Input type="number" value={form.priceAnnual} onChange={(e) => setForm({ ...form, priceAnnual: e.target.value })} />
-          </div>
-        </div>
-      )}
-      {form.tierType === "paid_metered_limit" && (
-        <div className="space-y-1">
-          <Label className="text-xs">Free limit</Label>
-          <Input type="number" value={form.freeLimit} onChange={(e) => setForm({ ...form, freeLimit: e.target.value })} />
-        </div>
-      )}
-      <div className="space-y-1">
-        <Label className="text-xs">Settings &gt; Roles module</Label>
-        <Select value={form.permissionModule} onValueChange={(v) => setForm({ ...form, permissionModule: v })}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            {PERMISSION_MODULES.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <p className="text-[11px] text-muted-foreground">Where this feature is listed on the business's role form. Custom roles need this module to use its admin-gated pages and routes.</p>
-      </div>
-      <div className="flex items-center justify-between pt-1">
-        <Label className="text-xs">Active (purchasable now)</Label>
-        <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />
-      </div>
     </div>
   );
 }

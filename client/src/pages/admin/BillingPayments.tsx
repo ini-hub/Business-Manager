@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
 import { CreditCard, Eye, Loader2, AlertCircle, Clock, Filter } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -45,8 +46,8 @@ function statusBadgeColor(status: string): string {
 }
 
 export default function BillingPayments() {
-  const [status, setStatus] = useState("all");
-  const [page, setPage] = useState(1);
+  const [status, setStatus] = useUrlState<string>("status", "all");
+  const [page, setPage] = useUrlState<number>("page", 1, (raw) => Number(raw) || 1);
   const [selectedPayment, setSelectedPayment] = useState<BillingPayment | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
 
@@ -99,7 +100,7 @@ export default function BillingPayments() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600 dark:text-indigo-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -132,7 +133,7 @@ export default function BillingPayments() {
                 {payments.map((payment) => (
                   <tr key={payment.id} className="hover:bg-card/30 transition-colors">
                     <td className="px-6 py-4 text-muted-foreground font-mono text-[11px] flex items-center gap-2">
-                      <Clock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
                       {new Date(payment.createdAt).toLocaleString()}
                     </td>
                     <td className="px-6 py-4 text-foreground">{payment.organisationName || "—"}</td>
@@ -151,7 +152,7 @@ export default function BillingPayments() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="hover:bg-muted text-indigo-600 dark:text-indigo-400 hover:text-foreground rounded-lg h-8"
+                        className="hover:bg-muted text-primary hover:text-foreground rounded-lg h-8"
                         onClick={() => {
                           setSelectedPayment(payment);
                           setShowDetailDialog(true);
@@ -197,7 +198,7 @@ export default function BillingPayments() {
         <DialogContent className="bg-card border border-border text-muted-foreground max-w-lg rounded-2xl p-6 font-sans">
           <DialogHeader className="space-y-2">
             <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
-              <CreditCard className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              <CreditCard className="h-5 w-5 text-primary" />
               Payment Detail
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
@@ -228,7 +229,7 @@ export default function BillingPayments() {
 
               <div className="space-y-2">
                 <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Provider Response (JSON)</span>
-                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[280px] font-mono text-[11px] text-indigo-600 dark:text-indigo-400 leading-relaxed shadow-inner">
+                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[280px] font-mono text-[11px] text-primary leading-relaxed shadow-inner">
                   {JSON.stringify(selectedPayment.providerResponse ?? {}, null, 2)}
                 </pre>
               </div>
@@ -237,7 +238,7 @@ export default function BillingPayments() {
 
           <div className="flex justify-end pt-2">
             <Button
-              className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl px-5"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-5"
               onClick={() => setShowDetailDialog(false)}
             >
               Close

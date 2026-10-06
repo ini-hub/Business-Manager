@@ -227,7 +227,7 @@ export default function BusinessDetails() {
           <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden shadow-xl">
             <CardHeader className="bg-muted/40 px-6 py-5 border-b border-border">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-muted border border-border rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                <div className="w-10 h-10 bg-muted border border-border rounded-xl flex items-center justify-center text-primary shrink-0">
                   <Building className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
@@ -347,7 +347,7 @@ export default function BusinessDetails() {
                 <Card className="bg-card border-card-border rounded-2xl hover:border-border transition-colors">
                   <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Checkouts</span>
-                    <Receipt className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    <Receipt className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent className="space-y-1">
                     <span className="text-2xl font-bold text-foreground font-mono">{usageSummary.allTime.transactions}</span>
@@ -388,7 +388,7 @@ export default function BusinessDetails() {
                 <Card className="bg-card border-card-border rounded-2xl overflow-hidden">
                   <CardHeader className="border-b border-border bg-muted/40 px-6 py-4">
                     <CardTitle className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
-                      <Activity className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                      <Activity className="h-4 w-4 text-primary" />
                       Trading Activity (Last 30 Days)
                     </CardTitle>
                   </CardHeader>
@@ -508,7 +508,7 @@ export default function BusinessDetails() {
                     <div key={log.id} className="px-6 py-4 space-y-1 hover:bg-muted/30">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-foreground flex items-center gap-2">
-                          <FileCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                          <FileCheck className="h-4 w-4 text-primary shrink-0" />
                           {log.action.replace("_", " ")}
                         </span>
                         <span className="text-[11px] font-mono text-muted-foreground">{formatDate(log.createdAt)}</span>

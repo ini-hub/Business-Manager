@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -25,26 +26,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+const RANGE_OPTIONS = [
+  { value: "6h", label: "6 hours" },
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+] as const;
+type Range = (typeof RANGE_OPTIONS)[number]["value"];
+
 export default function SystemHealth() {
+  const [range, setRange] = useState<Range>("24h");
+  const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)!.label.toLowerCase();
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
-    queryKey: ["/api/admin/system/health"],
+    queryKey: ["/api/admin/system/health", range],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/admin/system/health");
+      const res = await apiRequest("GET", `/api/admin/system/health?range=${range}`);
       return res.json();
     },
     refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
-
-  // Simulated historical latency trend for rendering the graph
-  const simulatedLatencyData = [
-    { time: "10:00", p50: 120, p95: 280, p99: 410 },
-    { time: "11:00", p50: 135, p95: 295, p99: 420 },
-    { time: "12:00", p50: 145, p95: 350, p99: 490 },
-    { time: "13:00", p50: 160, p95: 410, p99: 580 },
-    { time: "14:00", p50: 142, p95: 310, p99: 430 },
-    { time: "15:00", p50: 138, p95: 290, p99: 405 },
-    { time: "16:00", p50: 140, p95: 285, p99: 395 },
-  ];
 
   if (isLoading) {
     return (
@@ -69,7 +70,8 @@ export default function SystemHealth() {
     );
   }
 
-  const { health, recentErrors } = data;
+  const { health, recentErrors, latencyTimeline } = data;
+  const na = (v: string | number | null | undefined) => (v === null || v === undefined ? "—" : v);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 font-sans">
@@ -77,17 +79,33 @@ export default function SystemHealth() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Diagnostics & Health</h1>
-          <p className="text-muted-foreground text-sm mt-1">Real-time health index, latency telemetry and application level error trackers.</p>
+          <p className="text-muted-foreground text-sm mt-1">Live latency, error and delivery measurements for the selected period. Latency percentiles are approximate (bucketed).</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+        <div className="flex rounded-xl border border-border bg-card/60 p-1" role="group" aria-label="Time period">
+          {RANGE_OPTIONS.map((o) => (
+            <Button
+              key={o.value}
+              size="sm"
+              variant={range === o.value ? "default" : "ghost"}
+              className="rounded-lg font-bold"
+              aria-pressed={range === o.value}
+              onClick={() => setRange(o.value)}
+            >
+              {o.label}
+            </Button>
+          ))}
         </div>
         <Button
           variant="outline"
-          className="border-border bg-card/60 hover:bg-muted text-muted-foreground rounded-xl font-bold self-start sm:self-auto"
+          className="border-border bg-card/60 hover:bg-muted text-muted-foreground rounded-xl font-bold"
           onClick={() => refetch()}
           disabled={isRefetching}
         >
           <RefreshCw className={`mr-2 h-4 w-4 ${isRefetching ? "animate-spin" : ""}`} />
-          Force Recalibrate
+          Refresh
         </Button>
+        </div>
       </div>
 
       {/* Metrics Row */}
@@ -96,16 +114,16 @@ export default function SystemHealth() {
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">API Latency (p50)</CardTitle>
-            <Server className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <Server className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-bold text-foreground font-mono">{health.apiResponseTime}</span>
+              <span className="text-3xl font-bold text-foreground font-mono">{na(health.apiResponseTime)}</span>
               <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-bold text-[11px] uppercase">
                 {health.apiStatus}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground font-semibold">Average server round-trip timing</p>
+            <p className="text-xs text-muted-foreground font-semibold">{`Median request time (last ${rangeLabel})`}</p>
           </CardContent>
         </Card>
 
@@ -117,12 +135,12 @@ export default function SystemHealth() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-bold text-foreground font-mono">{health.databaseQueryTime}</span>
+              <span className="text-3xl font-bold text-foreground font-mono">{na(health.databaseQueryTime)}</span>
               <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-400 border-none font-bold text-[11px] uppercase">
                 {health.databaseStatus}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground font-semibold">Average Drizzle Query Execution</p>
+            <p className="text-xs text-muted-foreground font-semibold">Live SELECT 1 round-trip</p>
           </CardContent>
         </Card>
 
@@ -130,7 +148,7 @@ export default function SystemHealth() {
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active WS Clients</CardTitle>
-            <Users className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+            <Users className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
@@ -139,7 +157,7 @@ export default function SystemHealth() {
                 Live Channels
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground font-semibold">Simultaneous online store systems</p>
+            <p className="text-xs text-muted-foreground font-semibold">Connected notification sockets</p>
           </CardContent>
         </Card>
 
@@ -151,12 +169,12 @@ export default function SystemHealth() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-bold text-foreground font-mono">{health.errorRate}</span>
+              <span className="text-3xl font-bold text-foreground font-mono">{na(health.errorRate)}</span>
               <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none font-bold text-[11px] uppercase">
-                Within Bound
+                {health.errorRateStatus}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground font-semibold">Percent of failing client checkouts</p>
+            <p className="text-xs text-muted-foreground font-semibold">{`Share of requests answered with 5xx (last ${rangeLabel})`}</p>
           </CardContent>
         </Card>
       </div>
@@ -173,7 +191,7 @@ export default function SystemHealth() {
           <CardContent className="pt-6">
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={simulatedLatencyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={latencyTimeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorP50" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#818cf8" stopOpacity={0.2} />
@@ -213,13 +231,13 @@ export default function SystemHealth() {
             <CardContent className="pt-6 space-y-4">
               <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
                 <div className="flex items-center gap-3">
-                  <Mail className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  <Mail className="h-5 w-5 text-primary" />
                   <div>
                     <span className="block text-xs font-bold text-foreground">Email Server Pool</span>
-                    <span className="text-[11px] text-muted-foreground font-semibold">Dynamic SendGrid API Nodes</span>
+                    <span className="text-[11px] text-muted-foreground font-semibold">{`Sent vs failed (last ${rangeLabel})`}</span>
                   </div>
                 </div>
-                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{health.emailDeliveryRate}</span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{na(health.emailDeliveryRate)}</span>
               </div>
 
               <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
@@ -227,26 +245,15 @@ export default function SystemHealth() {
                   <MessageSquare className="h-5 w-5 text-primary" />
                   <div>
                     <span className="block text-xs font-bold text-foreground">SMS Gateway</span>
-                    <span className="text-[11px] text-muted-foreground font-semibold">AfricaTalking API Pool</span>
+                    <span className="text-[11px] text-muted-foreground font-semibold">Not integrated</span>
                   </div>
                 </div>
-                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{health.smsDeliveryRate}</span>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
-                <div className="flex items-center gap-3">
-                  <Server className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                  <div>
-                    <span className="block text-xs font-bold text-foreground">Edge Node Cache</span>
-                    <span className="text-[11px] text-muted-foreground font-semibold">Memcached Key-Store Pool</span>
-                  </div>
-                </div>
-                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">99.8% Hit</span>
+                <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{na(health.smsDeliveryRate)}</span>
               </div>
             </CardContent>
           </div>
           <div className="p-5 border-t border-border/40 bg-background/20 text-center">
-            <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase">Telemetry Stream: Connected</span>
+            <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase">Auto-refreshes every 30s</span>
           </div>
         </Card>
       </div>
@@ -255,13 +262,13 @@ export default function SystemHealth() {
       <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
         <CardHeader className="bg-background/20 p-6 border-b border-border/40 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base font-bold text-foreground">Platform Failure Log (Last 24 Hours)</CardTitle>
+            <CardTitle className="text-base font-bold text-foreground">Server Error Log</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
-              Aggregated uncaught HTTP anomalies and database integrity errors across all organisations.
+              5xx responses across all organisations. The list is held in memory, so it only covers errors since the server last restarted.
             </CardDescription>
           </div>
           <Badge variant="outline" className="bg-rose-100 dark:bg-rose-500/10 border-none text-rose-700 dark:text-rose-600 dark:text-rose-400 text-[11px] font-bold uppercase px-2 py-0.5">
-            {recentErrors.length} Uncaught Issues
+            {recentErrors.length} Server Errors
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
@@ -276,6 +283,11 @@ export default function SystemHealth() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
+                {recentErrors.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">No server errors recorded in this window.</td>
+                  </tr>
+                )}
                 {recentErrors.map((err: any) => (
                   <tr key={err.id} className="hover:bg-card/30 transition-colors">
                     <td className="px-6 py-4 text-muted-foreground font-mono text-[11px] flex items-center gap-2">

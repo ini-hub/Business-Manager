@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -36,10 +37,10 @@ import { Label } from "@/components/ui/label";
 
 export default function BusinessesList() {
   const { toast } = useToast();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<string>("all");
-  const [minGMV, setMinGMV] = useState("");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useUrlState<string>("q", "");
+  const [status, setStatus] = useUrlState<string>("status", "all");
+  const [minGMV, setMinGMV] = useUrlState<string>("minGmv", "");
+  const [page, setPage] = useUrlState<number>("page", 1, (raw) => Number(raw) || 1);
   const limit = 10;
 
   // Suspension Modal State
@@ -259,7 +260,7 @@ export default function BusinessesList() {
                     <tr key={org.id} className="hover:bg-card/20 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center shrink-0 border border-border text-indigo-600 dark:text-indigo-400">
+                          <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center shrink-0 border border-border text-primary">
                             <Building className="h-4 w-4" />
                           </div>
                           <div>

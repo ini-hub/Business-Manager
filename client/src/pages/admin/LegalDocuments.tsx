@@ -483,7 +483,7 @@ export default function LegalDocuments() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-[26px] font-bold text-foreground tracking-tight flex items-center gap-3">
-            <FileText className="h-7 w-7 text-violet-500" />
+            <FileText className="h-7 w-7 text-primary" />
             Legal Documents
           </h1>
           <p className="text-muted-foreground text-sm mt-1 max-w-2xl">
@@ -493,7 +493,7 @@ export default function LegalDocuments() {
           </p>
         </div>
         <Button
-          className="rounded-xl bg-violet-500 hover:bg-violet-600 text-white font-bold self-start"
+          className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold self-start"
           onClick={() => setShowAddSection(true)}
           data-testid="button-add-legal-section"
         >
@@ -504,7 +504,7 @@ export default function LegalDocuments() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-600 dark:text-violet-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -524,7 +524,7 @@ export default function LegalDocuments() {
               <TabsTrigger
                 key={doc.documentType}
                 value={doc.documentType}
-                className="rounded-xl px-4 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white"
+                className="rounded-xl px-4 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 {doc.title}
                 {doc.archivedAt && <span className="ml-1.5 opacity-60">(deactivated)</span>}

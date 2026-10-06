@@ -54,6 +54,29 @@ export default function PlatformSettings() {
     onError: (err: Error) => toast({ title: "Couldn't update trial length", description: err.message, variant: "destructive" }),
   });
 
+  // ---- Grace period ----
+  const { data: graceData, isLoading: graceLoading } = useQuery<{ graceDays: number }>({
+    queryKey: ["/api/admin/platform-config/grace-days"],
+  });
+  const [graceDays, setGraceDays] = useState<string>("");
+  useEffect(() => {
+    if (graceData) setGraceDays(String(graceData.graceDays));
+  }, [graceData]);
+
+  const saveGraceDays = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", "/api/admin/platform-config/grace-days", { graceDays: Number(graceDays) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to update grace period");
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-config/grace-days"] });
+      toast({ title: "Grace period updated", description: "Applies to every business from now on, including ones already past their trial." });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't update grace period", description: err.message, variant: "destructive" }),
+  });
+
   // ---- Payment gateway credentials ----
   const { data: credData, isLoading: credLoading } = useQuery<{ credentials: PlatformCredential[] }>({
     queryKey: ["/api/admin/platform-payment-credentials"],
@@ -194,6 +217,34 @@ export default function PlatformSettings() {
               </div>
               <Button onClick={() => saveTrialDays.mutate()} disabled={saveTrialDays.isPending}>
                 {saveTrialDays.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4" /> Grace Period
+          </CardTitle>
+          <CardDescription>
+            Days of full access after a trial ends or a renewal fails, with a countdown banner, before the business drops to the free
+            tier (soft lock). Nothing is deleted and checkout and exports are never blocked.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-end gap-3">
+          {graceLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="grace-days">Days</Label>
+                <Input id="grace-days" type="number" min={0} max={90} value={graceDays} onChange={(e) => setGraceDays(e.target.value)} className="w-32" />
+              </div>
+              <Button onClick={() => saveGraceDays.mutate()} disabled={saveGraceDays.isPending}>
+                {saveGraceDays.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save
               </Button>
             </>

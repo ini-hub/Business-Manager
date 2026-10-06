@@ -71,7 +71,7 @@ export default function OnboardingPipeline() {
   };
 
   const stages = [
-    { key: "registered", name: "1. Registered", description: "Created Account", color: "text-indigo-800 dark:text-indigo-400", bg: "bg-indigo-100 dark:bg-indigo-950/40" },
+    { key: "registered", name: "1. Registered", description: "Created Account", color: "text-primary", bg: "bg-primary/10" },
     { key: "configured", name: "2. Configured", description: "Added Location", color: "text-blue-800 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-950/40" },
     { key: "staffed", name: "3. Staffed", description: "Uploaded Inventory", color: "text-pink-800 dark:text-pink-400", bg: "bg-pink-100 dark:bg-pink-950/40" },
     { key: "first_sale", name: "4. First Sale", description: "Oboarded Staff", color: "text-amber-800 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-950/40" },

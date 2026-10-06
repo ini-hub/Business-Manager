@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,16 @@ export default function AdminLogin() {
   // MFA setup values (returned if MFA not yet configured)
   const [mfaConfigured, setMfaConfigured] = useState(true);
   const [qrUrl, setQrUrl] = useState("");
+  // Drawn in the browser: the otpauth URL carries the TOTP secret and must never go to a third-party QR service.
+  const [qrImage, setQrImage] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    if (!qrUrl) { setQrImage(""); return; }
+    QRCode.toDataURL(qrUrl, { width: 160, margin: 0 })
+      .then((url) => { if (!cancelled) setQrImage(url); })
+      .catch(() => { if (!cancelled) setQrImage(""); });
+    return () => { cancelled = true; };
+  }, [qrUrl]);
   const [mfaSecret, setMfaSecret] = useState("");
   const [tempToken, setTempToken] = useState("");
 
@@ -201,15 +212,15 @@ export default function AdminLogin() {
                     {/* bg-white is intentional here regardless of theme: it's the physical
                         quiet-zone behind a scanned QR code, not decorative chrome - a dark
                         background would break scanning in dark mode. */}
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrUrl)}`}
+                    {qrImage && <img
+                      src={qrImage}
                       alt="Authenticator QR Code"
                       className="w-full h-full object-contain"
                       onError={(e) => {
-                        // fallback if external API is unreachable
+                        // nothing to show if the code could not be drawn; the text key below still works
                         (e.target as HTMLElement).style.display = "none";
                       }}
-                    />
+                    />}
                   </div>
 
                   <div className="text-center space-y-1 w-full">

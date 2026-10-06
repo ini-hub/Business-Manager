@@ -24,6 +24,7 @@ import {
   MessageSquareWarning,
   CreditCard,
   Tag,
+  Layers,
   Settings,
   FileText,
 } from "lucide-react";
@@ -43,11 +44,23 @@ interface AdminLayoutProps {
 export default function AdminLayout({ children }: AdminLayoutProps) {
   const { admin, isLoading, logout } = useAdminAuth();
   const [location, setLocation] = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("admin-sidebar-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("admin-sidebar-collapsed", collapsed ? "1" : "0");
+    } catch {}
+  }, [collapsed]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(120); // 2 minute countdown warning
 
+  const mainRef = useRef<HTMLElement | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -139,6 +152,43 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     }
   };
 
+  // Remember the content scroll position per route and restore it when returning to a page.
+  // Pages load lazily and fetch data, so retry for a short while until the content is tall enough.
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const key = `admin:scroll:${location}`;
+    let target = 0;
+    try {
+      target = Number(sessionStorage.getItem(key)) || 0;
+    } catch {}
+    el.scrollTop = 0;
+    let frame = 0;
+    let attempts = 0;
+    let restoring = target > 0;
+    const restore = () => {
+      if (!restoring) return;
+      el.scrollTop = target;
+      if (Math.abs(el.scrollTop - target) <= 1 || ++attempts > 40) {
+        restoring = false;
+        return;
+      }
+      frame = requestAnimationFrame(restore);
+    };
+    restore();
+    const onScroll = () => {
+      if (restoring) return;
+      try {
+        sessionStorage.setItem(key, String(el.scrollTop));
+      } catch {}
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [location, admin]);
+
   // Auth Guards: If loading, show spinner. If unauthenticated, redirect.
   useEffect(() => {
     if (!isLoading && !admin && location !== "/super-admin/login") {
@@ -186,6 +236,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       items: [
         { name: "Feature Flags", path: "/super-admin/flags", icon: ToggleLeft, roles: ["super_admin"] },
         { name: "Feature Catalog", path: "/super-admin/feature-catalog", icon: Tag, roles: ["super_admin", "finance_admin"] },
+        { name: "Bundles", path: "/super-admin/bundles", icon: Layers, roles: ["super_admin", "finance_admin"] },
+        { name: "Over-cap businesses", path: "/super-admin/over-cap", icon: Users, roles: ["super_admin", "finance_admin"] },
         { name: "Platform Settings", path: "/super-admin/platform-settings", icon: Settings, roles: ["super_admin"] },
         { name: "Legal Documents", path: "/super-admin/legal-documents", icon: FileText, roles: ["super_admin"] },
         { name: "Announcements", path: "/super-admin/announcements", icon: Megaphone, roles: ["super_admin"] },
@@ -206,7 +258,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     setMobileOpen(false);
   };
 
-  const SidebarContent = () => (
+  const sidebarContent = (
     <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border text-sidebar-foreground font-sans select-none">
       {/* Branding Section */}
       <div className="flex items-center justify-between p-5 border-b border-sidebar-border">
@@ -247,7 +299,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
               )}
               <div className="space-y-1">
                 {filteredItems.map((item) => {
-                  const isActive = location === item.path;
+                  const isActive =
+                    item.path === "/super-admin"
+                      ? location === item.path
+                      : location === item.path || location.startsWith(`${item.path}/`);
                   const Icon = item.icon;
 
                   return (
@@ -310,10 +365,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   );
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground overflow-hidden font-sans">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans">
       {/* Sidebar - Desktop */}
-      <aside className={`hidden md:block shrink-0 transition-all duration-300 ${collapsed ? "w-20" : "w-64"}`}>
-        <SidebarContent />
+      <aside className={`hidden md:block shrink-0 h-full transition-all duration-300 ${collapsed ? "w-20" : "w-64"}`}>
+        {sidebarContent}
       </aside>
 
       {/* Mobile Drawer Navigation */}
@@ -326,7 +381,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
             >
               <X className="h-4 w-4" />
             </button>
-            <SidebarContent />
+            {sidebarContent}
           </div>
         </div>
       </div>
@@ -348,7 +403,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         </header>
 
         {/* Dynamic Inner Panel Viewport */}
-        <main className="flex-1 overflow-y-auto px-4 md:px-8 py-6 md:py-8 bg-background relative">
+        <main ref={mainRef} className="flex-1 overflow-y-auto px-4 md:px-8 py-6 md:py-8 bg-background relative">
           <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
             {children}
           </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search,
@@ -23,8 +23,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function TransactionsMonitor() {
-  const [search, setSearch] = useState("");
-  const [method, setMethod] = useState("all");
+  const [search, setSearch] = useUrlState<string>("q", "");
+  const [method, setMethod] = useUrlState<string>("method", "all");
 
   // Query central ledger stream
   const { data: ledgerData, isLoading: ledgerLoading, error: ledgerError } = useQuery({

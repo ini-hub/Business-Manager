@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
 import {
   ShieldAlert,
@@ -24,8 +25,8 @@ import {
 } from "@/components/ui/dialog";
 
 export default function AuditLogs() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedAction, setSelectedAction] = useState("all");
+  const [searchTerm, setSearchTerm] = useUrlState<string>("q", "");
+  const [selectedAction, setSelectedAction] = useUrlState<string>("action", "all");
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
 
@@ -61,7 +62,7 @@ export default function AuditLogs() {
       case "admin_password_reset":
         return "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-500/20";
       default:
-        return "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/20";
+        return "bg-primary/10 text-primary border-primary/20";
     }
   };
 
@@ -110,7 +111,7 @@ export default function AuditLogs() {
       {/* Audit Log Table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600 dark:text-indigo-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data?.logs ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -141,7 +142,7 @@ export default function AuditLogs() {
                 {data.logs.map((log: any) => (
                   <tr key={log.id} className="hover:bg-card/30 transition-colors">
                     <td className="px-6 py-4 text-muted-foreground font-mono text-[11px] flex items-center gap-2">
-                      <Clock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
                       {new Date(log.createdAt).toLocaleString()}
                     </td>
                     <td className="px-6 py-4">
@@ -162,7 +163,7 @@ export default function AuditLogs() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="hover:bg-muted text-indigo-600 dark:text-indigo-400 hover:text-foreground rounded-lg h-8"
+                          className="hover:bg-muted text-primary hover:text-foreground rounded-lg h-8"
                           onClick={() => {
                             setSelectedLog(log);
                             setShowDetailDialog(true);
@@ -188,7 +189,7 @@ export default function AuditLogs() {
         <DialogContent className="bg-card border border-border text-muted-foreground max-w-lg rounded-2xl p-6 font-sans">
           <DialogHeader className="space-y-2">
             <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
-              <Activity className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              <Activity className="h-5 w-5 text-primary" />
               Audit Payload Inspection
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
@@ -219,7 +220,7 @@ export default function AuditLogs() {
 
               <div className="space-y-2">
                 <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Payload Details (JSON)</span>
-                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[220px] font-mono text-[11px] text-indigo-600 dark:text-indigo-400 leading-relaxed shadow-inner">
+                <pre className="bg-background border border-border rounded-2xl p-4 overflow-auto max-h-[220px] font-mono text-[11px] text-primary leading-relaxed shadow-inner">
                   {JSON.stringify(JSON.parse(selectedLog.details || "{}"), null, 2)}
                 </pre>
               </div>
@@ -228,7 +229,7 @@ export default function AuditLogs() {
 
           <div className="flex justify-end pt-2">
             <Button
-              className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl px-5"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-5"
               onClick={() => setShowDetailDialog(false)}
             >
               Close Inspector

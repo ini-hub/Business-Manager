@@ -102,7 +102,7 @@ export default function Dashboard() {
         <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden hover:border-border transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Registered</CardTitle>
-            <Building className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <Building className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-baseline justify-between">
@@ -230,7 +230,7 @@ export default function Dashboard() {
         <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
             <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
-              <CreditCard className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+              <CreditCard className="h-4 w-4 text-primary" />
               Sales Volume & GMV (Weekly)
             </CardTitle>
           </CardHeader>
@@ -278,7 +278,7 @@ export default function Dashboard() {
                 <div className="p-6 text-center text-muted-foreground text-sm">No transaction activity logged in the last 24 hours.</div>
               ) : (
                 liveActivity.map((activity: any, idx: number) => {
-                  let badgeColor = "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-400";
+                  let badgeColor = "bg-primary/10 text-primary";
                   if (activity.type === "business_suspended") {
                     badgeColor = "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400";
                   } else if (activity.type === "transaction_completed") {

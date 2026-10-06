@@ -416,7 +416,7 @@ export default function SuperAdminAccounts() {
               <div className="space-y-2 text-left bg-background/60 border border-border p-4 rounded-2xl">
                 <span className="block text-[11px] text-muted-foreground uppercase tracking-widest font-bold">Verification Secret Code</span>
                 <div className="flex items-center justify-between gap-3">
-                  <code className="text-indigo-600 dark:text-indigo-400 font-mono text-[11px] select-all truncate">{mfaDetails.mfaSecret}</code>
+                  <code className="text-primary font-mono text-[11px] select-all truncate">{mfaDetails.mfaSecret}</code>
                   <Button
                     size="sm"
                     variant="ghost"

@@ -96,7 +96,7 @@ export default function RevenueAnalytics() {
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Annual Run Rate (ARR)</CardTitle>
-            <TrendingUp className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            <TrendingUp className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent className="space-y-2">
             <span className="text-3xl font-bold text-foreground font-mono">{formatCurrency(revenueSummary.arr)}</span>
@@ -159,7 +159,7 @@ export default function RevenueAnalytics() {
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between">
           <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
             <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
-              <Percent className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+              <Percent className="h-4 w-4 text-primary" />
               Subscriber Split
             </CardTitle>
           </CardHeader>
@@ -197,7 +197,7 @@ export default function RevenueAnalytics() {
               <span className="block text-foreground font-mono text-sm">{revenueSummary.activePaying}</span>
             </div>
             <div className="space-y-1 border-x border-border/60">
-              <span className="block text-indigo-600 dark:text-indigo-400">Free Trial</span>
+              <span className="block text-primary">Free Trial</span>
               <span className="block text-foreground font-mono text-sm">{revenueSummary.freeTrial}</span>
             </div>
             <div className="space-y-1">

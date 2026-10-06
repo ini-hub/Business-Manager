@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useSessionState } from "@/hooks/use-session-state";
+import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Megaphone,
@@ -35,23 +37,23 @@ export default function AnnouncementsManager() {
   const { admin } = useAdminAuth();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState("banners");
+  const [activeTab, setActiveTab] = useUrlState<string>("tab", "banners");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   // Announcement Banner Form
-  const [bannerTitle, setBannerTitle] = useState("");
-  const [bannerMessage, setBannerMessage] = useState("");
-  const [bannerType, setBannerType] = useState("info");
-  const [bannerTarget, setBannerTarget] = useState("all");
-  const [bannerTargetOrgId, setBannerTargetOrgId] = useState("");
-  const [bannerShowFrom, setBannerShowFrom] = useState("");
-  const [bannerShowUntil, setBannerShowUntil] = useState("");
-  const [bannerDismissible, setBannerDismissible] = useState(true);
+  const [bannerTitle, setBannerTitle] = useSessionState("admin:announcements:bannerTitle", "");
+  const [bannerMessage, setBannerMessage] = useSessionState("admin:announcements:bannerMessage", "");
+  const [bannerType, setBannerType] = useSessionState("admin:announcements:bannerType", "info");
+  const [bannerTarget, setBannerTarget] = useSessionState("admin:announcements:bannerTarget", "all");
+  const [bannerTargetOrgId, setBannerTargetOrgId] = useSessionState("admin:announcements:bannerTargetOrgId", "");
+  const [bannerShowFrom, setBannerShowFrom] = useSessionState("admin:announcements:bannerShowFrom", "");
+  const [bannerShowUntil, setBannerShowUntil] = useSessionState("admin:announcements:bannerShowUntil", "");
+  const [bannerDismissible, setBannerDismissible] = useSessionState("admin:announcements:bannerDismissible", true);
 
   // Email Broadcaster Form
-  const [emailTarget, setEmailTarget] = useState("all");
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("");
+  const [emailTarget, setEmailTarget] = useSessionState("admin:announcements:emailTarget", "all");
+  const [emailSubject, setEmailSubject] = useSessionState("admin:announcements:emailSubject", "");
+  const [emailBody, setEmailBody] = useSessionState("admin:announcements:emailBody", "");
 
   // Query Announcements list
   const { data: listData, isLoading, error } = useQuery({
@@ -199,7 +201,7 @@ export default function AnnouncementsManager() {
         </div>
         {canManage && activeTab === "banners" && (
           <Button
-            className="rounded-xl bg-violet-500 hover:bg-violet-600 text-white font-bold self-start sm:self-auto"
+            className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold self-start sm:self-auto"
             onClick={() => {
               resetBannerForm();
               setShowCreateDialog(true);
@@ -213,11 +215,11 @@ export default function AnnouncementsManager() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="bg-background/60 border border-border/80 rounded-2xl p-1 mb-6">
-          <TabsTrigger value="banners" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="banners" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Megaphone className="h-4 w-4 mr-2" />
             Banner Broadcasts
           </TabsTrigger>
-          <TabsTrigger value="email" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-violet-500 data-[state=active]:text-white">
+          <TabsTrigger value="email" className="rounded-xl px-5 py-3 text-xs font-bold text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Mail className="h-4 w-4 mr-2" />
             Simulated Email Broadcaster
           </TabsTrigger>
@@ -227,7 +229,7 @@ export default function AnnouncementsManager() {
         <TabsContent value="banners" className="space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-violet-600 dark:text-violet-400" />
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : error || !listData?.announcements ? (
             <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -359,11 +361,11 @@ export default function AnnouncementsManager() {
 
               <div className="pt-4 border-t border-border/40 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-medium">
-                  <Layers className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                  <Layers className="h-4 w-4 text-primary" />
                   <span>Emails will be logged inside database simulated outputs.</span>
                 </div>
                 <Button
-                  className="bg-violet-500 hover:bg-violet-600 text-white font-bold rounded-xl px-5"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl px-5"
                   onClick={handleEmailSubmit}
                   disabled={emailBroadcastMutation.isPending || !canManage}
                 >
@@ -508,7 +510,7 @@ export default function AnnouncementsManager() {
               Cancel
             </Button>
             <Button
-              className="rounded-xl bg-violet-500 hover:bg-violet-600 text-white font-bold"
+              className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
               onClick={handleBannerSubmit}
               disabled={
                 createBannerMutation.isPending ||

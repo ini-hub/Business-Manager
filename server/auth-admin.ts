@@ -3,6 +3,7 @@ import type { Express, Request, Response, NextFunction, RequestHandler } from "e
 import { db } from "./db";
 import { superAdmins } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { parseCookies } from "./lib/cookies";
 
 const JWT_ADMIN_SECRET = process.env.JWT_ADMIN_SECRET;
 if (!JWT_ADMIN_SECRET) {
@@ -39,16 +40,6 @@ function verifyAdminToken(token: string): AdminJWTPayload | undefined {
   }
 }
 
-// Parse cookies helper
-function parseCookies(cookieHeader?: string): Record<string, string> {
-  const list: Record<string, string> = {};
-  if (!cookieHeader) return list;
-  cookieHeader.split(";").forEach((cookie) => {
-    const parts = cookie.split("=");
-    list[parts.shift()!.trim()] = decodeURI(parts.join("="));
-  });
-  return list;
-}
 
 // Setup Admin Authentication Middleware
 export async function setupAdminAuth(app: Express) {

@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server, IncomingMessage } from "http";
 import { verifyToken } from "./auth";
+import { parseCookies } from "./lib/cookies";
 import { isSessionActive, onSessionRevoked } from "./lib/authSessions";
 
 let wss: WebSocketServer | null = null;
@@ -8,23 +9,15 @@ let wss: WebSocketServer | null = null;
 interface AuthenticatedWebSocket extends WebSocket {
   __businessId: string;
   __sid?: string;
+  isAlive?: boolean;
 }
 
 // Map businessId -> set of authenticated WebSocket connections
 const businessClients = new Map<string, Set<AuthenticatedWebSocket>>();
 
-function parseCookieHeader(cookieHeader: string | undefined): Record<string, string> {
-  const list: Record<string, string> = {};
-  if (!cookieHeader) return list;
-  for (const cookie of cookieHeader.split(";")) {
-    const [key, ...rest] = cookie.trim().split("=");
-    if (key) list[key.trim()] = rest.join("=");
-  }
-  return list;
-}
 
 async function getAuthFromRequest(request: IncomingMessage): Promise<{ businessId: string; sid?: string } | null> {
-  const cookies = parseCookieHeader(request.headers.cookie);
+  const cookies = parseCookies(request.headers.cookie);
   const token = cookies["jwt_token"];
   if (!token) return null;
   const claims = verifyToken(token);
@@ -51,6 +44,17 @@ export function initWebSocketServer(server: Server) {
       }
     }
   });
+
+  const heartbeat = setInterval(() => {
+    wss?.clients.forEach((client) => {
+      const ws = client as AuthenticatedWebSocket;
+      if (ws.isAlive === false) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30_000);
+  heartbeat.unref();
+  wss.on("close", () => clearInterval(heartbeat));
 
   server.on("upgrade", async (request, socket, head) => {
     try {
@@ -83,6 +87,11 @@ export function initWebSocketServer(server: Server) {
     }
     businessClients.get(businessId)!.add(ws);
 
+    // Heartbeat: a socket that misses a pong (dead phone, dropped proxy) is terminated
+    // so it can't linger in businessClients until the OS gives up on the TCP connection.
+    ws.isAlive = true;
+    ws.on("pong", () => { ws.isAlive = true; });
+
     ws.on("close", () => {
       removeSocket(businessId, ws);
     });
@@ -92,6 +101,12 @@ export function initWebSocketServer(server: Server) {
       removeSocket(businessId, ws);
     });
   });
+}
+
+export function getConnectedClientCount(): number {
+  let n = 0;
+  for (const bucket of Array.from(businessClients.values())) n += bucket.size;
+  return n;
 }
 
 function broadcast(businessId: string, payload: object): void {

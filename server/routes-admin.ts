@@ -1,7 +1,12 @@
+import { z } from "zod";
+import { parseCookies } from "./lib/cookies";
+import { invalidateOrgAccess } from "./auth";
+import { getOverCapReport } from "./lib/overCapReport";
+import type { CountLimitType } from "./lib/entitlements";
 import { listApiRoutes } from "./lib/listRoutes";
 import { APP_SCREEN_PATHS } from "@shared/screens";
 import { validateGateRule } from "@shared/gateRules";
-import { FEATURES, type FeatureDef } from "@shared/features";
+import { FEATURES, checkDisableAllowed, type FeatureDef } from "@shared/features";
 import {
   GateRuleError, computeRuleImpact, listRuleEvents as listGateRuleEvents, listRulesWithFeature, revertEvent as revertGateRuleEvent,
   createRule as createGateRule, updateRule as updateGateRule, enableRule as enableGateRule, disableRule as disableGateRule, deleteRule as deleteGateRule,
@@ -18,6 +23,7 @@ import {
   announcements,
   superAdminAuditLogs,
   organisations,
+  pendingEmails,
   users,
   checkouts,
   staff,
@@ -33,7 +39,7 @@ import {
   supportThreadMessages,
   isGenuineSuspensionReason,
   passwordSchema,
-  featureCatalog,
+  featureCatalog, pricingBundles,
   featureDependencies,
   orgFeatureEntitlements,
   insertFeatureCatalogSchema, platformPaymentCredentials,
@@ -42,12 +48,15 @@ import {
 } from "@shared/schema";
 import { grantFeatureEntitlement } from "./lib/entitlements";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
-import { getConfiguredTrialDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
+import { slugifyBundleKey } from "@shared/bundles";
+import { validateBundleMembers } from "./lib/pricing";
+import { getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
 import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./auth-admin";
-import { broadcastDataChange } from "./websocket";
+import { broadcastDataChange, getConnectedClientCount } from "./websocket";
+import { getRangeStats, parseRange, RANGES } from "./lib/healthMetrics";
 import { sendOtpEmail, sendPasswordChangedEmail, sendAdminInviteEmail, sendAdminMfaResetEmail } from "./email";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
 import { checkResendCooldown } from "./lib/otp-cooldown";
@@ -265,18 +274,6 @@ adminRouter.post("/auth/verify-mfa", async (req: Request, res: Response) => {
 // modeled on generateContractPendingToken's contract_pending_token) scopes
 // identity to one adminId across the steps without a full session.
 
-// No cookie-parser middleware is installed anywhere in this app (see the
-// identical helper in server/auth-admin.ts and server/auth.ts) - cookies are
-// read straight off the raw header.
-function parseCookies(cookieHeader?: string): Record<string, string> {
-  const list: Record<string, string> = {};
-  if (!cookieHeader) return list;
-  cookieHeader.split(";").forEach((cookie) => {
-    const parts = cookie.split("=");
-    list[parts.shift()!.trim()] = decodeURI(parts.join("="));
-  });
-  return list;
-}
 
 function generateAdminOnboardingToken(adminId: string, needsPassword: boolean): string {
   return jwt.sign({ adminId, needsPassword, action: "admin_onboarding" }, JWT_TEMP_SECRET, { expiresIn: "1h" });
@@ -1280,6 +1277,7 @@ adminRouter.post("/businesses/:id/suspend", isAdminAuthenticated, requireAdminRo
       })
       .where(eq(organisations.id, org.id));
 
+    invalidateOrgAccess(org.id);
     broadcastDataChange(org.id, "business");
 
     // Log administrative override in operations ledger
@@ -2277,6 +2275,13 @@ adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["s
       return res.status(404).json({ error: "Feature flag not found." });
     }
 
+    // "off" and "scoped" both turn the feature off for businesses outside the list.
+    const turnsOff = (status === "off" || status === "scoped") && flag.status !== "off" && flag.status !== "scoped";
+    if (turnsOff) {
+      const blocked = checkDisableAllowed(flag.name, req.body?.confirmKey);
+      if (blocked) return res.status(400).json({ error: blocked });
+    }
+
     const [updatedFlag] = await db
       .update(featureFlags)
       .set({
@@ -2332,6 +2337,45 @@ adminRouter.delete("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(
 // getOrgEntitlements) rather than merge, since a kill-switch and a price
 // list answer different questions - see shared/schema/entitlements.ts.
 
+// Businesses past a free-tier or plan cap (used > limit), with their owner's contact: the list to work from when
+// deciding who to approach about seats. Read-only; nothing is sent from here.
+adminRouter.get("/over-cap-report", isAdminAuthenticated, requireAdminRole(["super_admin", "finance_admin"]), async (req: Request, res: Response) => {
+  const limitType = String(req.query.limitType ?? "staff_seats");
+  if (!["staff_seats", "customer_count", "store_count", "item_count"].includes(limitType)) {
+    return res.status(400).json({ error: "limitType must be staff_seats, customer_count, store_count or item_count." });
+  }
+  try {
+    const rows = await getOverCapReport(limitType as CountLimitType);
+    return res.json({ limitType, count: rows.length, rows });
+  } catch (error) {
+    console.error("Over-cap report error:", error);
+    return res.status(500).json({ error: "Failed to build the over-cap report." });
+  }
+});
+
+const METERED_LIMIT_TYPES = ["staff_seats", "customer_count", "store_count", "item_count"];
+
+// Tier-specific fields the catalog form can set: a capped add-on needs a limit and the key the
+// enforcement code switches on; a bundle child needs a bundle parent to be granted by.
+async function tierFieldsProblem(row: { key?: string; tierType: string; freeLimit?: number | null; limitType?: string | null; tierCapacity?: number | null; parentFeatureId?: string | null }, opts: { keepUnlimited?: boolean } = {}): Promise<string | null> {
+  if (row.tierType === "paid_metered_limit") {
+    if (row.freeLimit == null || row.freeLimit < 0) return "A capped add-on needs a free limit.";
+    if (!row.limitType || !METERED_LIMIT_TYPES.includes(row.limitType)) return "A capped add-on needs a limit type.";
+    // Unlimited tiers are defined in the registry; the admin can only keep one that already exists.
+    if (row.tierCapacity == null) {
+      if (!opts.keepUnlimited) return "A capped add-on needs a new limit above its free limit.";
+    } else if (row.tierCapacity <= row.freeLimit) {
+      return "The new limit must be above the free limit.";
+    }
+  }
+  if (row.tierType === "bundle_child") {
+    if (!row.parentFeatureId) return "A bundle child needs a parent bundle.";
+    const [parent] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, row.parentFeatureId)).limit(1);
+    if (!parent || (parent.tierType !== "bundle_parent" && parent.tierType !== "paid_metered_limit")) return "The parent must be a bundle or a capped add-on.";
+  }
+  return null;
+}
+
 adminRouter.get("/feature-catalog", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
     const list = await db.select().from(featureCatalog).orderBy(featureCatalog.sortOrder);
@@ -2346,6 +2390,8 @@ adminRouter.post("/feature-catalog", isAdminAuthenticated, requireAdminRole(["su
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.errors.map((e) => e.message).join(", ") });
   }
+  const problem = await tierFieldsProblem(parsed.data);
+  if (problem) return res.status(400).json({ error: problem });
   try {
     const created = await db.transaction(async (tx) => {
       const [flag] = await tx
@@ -2373,6 +2419,18 @@ adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole([
     const patch = insertFeatureCatalogSchema.partial().omit({ key: true }).safeParse(req.body);
     if (!patch.success) {
       return res.status(400).json({ error: patch.error.errors.map((e) => e.message).join(", ") });
+    }
+
+    const tierProblem = await tierFieldsProblem(
+      { ...existing, ...patch.data },
+      { keepUnlimited: existing.tierType === "paid_metered_limit" && existing.tierCapacity == null },
+    );
+    if (tierProblem) return res.status(400).json({ error: tierProblem });
+
+    // Switching a core feature off hits every business at once: refuse it, or ask for the key as confirmation.
+    if (patch.data.isActive === false && existing.isActive) {
+      const blocked = checkDisableAllowed(existing.key, req.body?.confirmKey);
+      if (blocked) return res.status(400).json({ error: blocked });
     }
 
     const [updated] = await db
@@ -2771,24 +2829,79 @@ adminRouter.post("/announcements/broadcast-email", isAdminAuthenticated, require
 // 8. SYSTEM HEALTH ENDPOINTS
 // ----------------------------------------------------
 
+const fmtMs = (ms: number) => `${Math.round(ms)}ms`;
+
 adminRouter.get("/system/health", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
+    const now = Date.now();
+    const range = parseRange(req.query.range);
+    const since = new Date(now - RANGES[range]);
+
+    // Time a real round-trip to the database.
+    const dbStart = process.hrtime.bigint();
+    let dbOk = true;
+    try {
+      await db.execute(sql`SELECT 1`);
+    } catch {
+      dbOk = false;
+    }
+    const dbMs = Number(process.hrtime.bigint() - dbStart) / 1e6;
+
+    const stats = await getRangeStats(range, now);
+    const errorRatePct = stats.total > 0 ? (stats.serverErrors / stats.total) * 100 : null;
+
+    const emailRows = await db
+      .select({ status: pendingEmails.status, n: count() })
+      .from(pendingEmails)
+      .where(gte(pendingEmails.createdAt, since))
+      .groupBy(pendingEmails.status);
+    const emailCount = (st: string) => Number(emailRows.find((r) => r.status === st)?.n ?? 0);
+    const emailSent = emailCount("sent");
+    const emailFailed = emailCount("failed");
+    const emailRate =
+      emailSent + emailFailed > 0 ? (emailSent / (emailSent + emailFailed)) * 100 : null;
+
+    const errorBusinessIds = Array.from(
+      new Set(stats.recentErrors.map((e) => e.businessId).filter((id): id is string => !!id)),
+    );
+    const nameRows = errorBusinessIds.length
+      ? await db
+          .select({ id: organisations.id, name: organisations.name })
+          .from(organisations)
+          .where(inArray(organisations.id, errorBusinessIds))
+      : [];
+    const names = new Map(nameRows.map((r) => [r.id, r.name]));
+
+    const apiStatus = stats.total === 0 ? "No Data" : stats.p95 > 1500 ? "Degraded" : "Normal";
+    const databaseStatus = !dbOk ? "Down" : dbMs > 500 ? "Degraded" : "Normal";
+
     return res.json({
       health: {
-        apiResponseTime: "142ms",
-        apiStatus: "Normal",
-        databaseQueryTime: "38ms",
-        databaseStatus: "Normal",
-        errorRate: "0.04%",
-        activeSessions: 1284,
-        emailDeliveryRate: "98.2%",
-        smsDeliveryRate: "94.1%",
+        apiResponseTime: stats.total ? fmtMs(stats.p50) : null,
+        apiStatus,
+        databaseQueryTime: dbOk ? fmtMs(dbMs) : null,
+        databaseStatus,
+        errorRate: errorRatePct === null ? null : `${errorRatePct.toFixed(2)}%`,
+        errorRateStatus:
+          errorRatePct === null ? "No Data" : errorRatePct >= 5 ? "Critical" : errorRatePct >= 1 ? "Elevated" : "Within Bound",
+        requestCount: stats.total,
+        activeSessions: getConnectedClientCount(),
+        emailDeliveryRate: emailRate === null ? null : `${emailRate.toFixed(1)}%`,
+        emailsSent: emailSent,
+        emailsFailed: emailFailed,
+        // No SMS provider is integrated (see sendSMS in email.ts).
+        smsDeliveryRate: null,
+        range,
       },
-      recentErrors: [
-        { id: "e1", timestamp: new Date(Date.now() - 10 * 60000), endpoint: "POST /api/checkout", status: 500, business: "Excellent Bolujo" },
-        { id: "e2", timestamp: new Date(Date.now() - 2 * 3600000), endpoint: "POST /api/auth/login", status: 400, business: "[Unknown]" },
-        { id: "e3", timestamp: new Date(Date.now() - 6 * 3600000), endpoint: "GET /api/inventory", status: 503, business: "Hair by Amaka" },
-      ],
+      latencyTimeline: stats.timeline,
+      latencyApproximate: true,
+      recentErrors: stats.recentErrors.map((e, i) => ({
+        id: `${e.at}-${i}`,
+        timestamp: new Date(e.at),
+        endpoint: `${e.method} ${e.path}`,
+        status: e.status,
+        business: e.businessId ? names.get(e.businessId) ?? "[Unknown]" : "[Unauthenticated]",
+      })),
     });
   } catch (error) {
     return res.status(500).json({ error: "Failed to fetch health check metrics." });
@@ -3069,6 +3182,117 @@ adminRouter.put("/platform-config/trial-days", isAdminAuthenticated, requireAdmi
   } catch (error) {
     console.error("Update trial-days error:", error);
     return res.status(500).json({ error: "Failed to update trial length." });
+  }
+});
+
+adminRouter.get("/platform-config/grace-days", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    return res.json({ graceDays: await getConfiguredGraceDays() });
+  } catch {
+    return res.status(500).json({ error: "Failed to load grace period." });
+  }
+});
+
+adminRouter.put("/platform-config/grace-days", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const days = Number(req.body?.graceDays);
+  if (!Number.isInteger(days) || days < 0 || days > 90) {
+    return res.status(400).json({ error: "Grace period must be a whole number of days between 0 and 90." });
+  }
+  try {
+    await setPlatformConfigValue("grace_days", days, req.admin!.email);
+    await writeAuditLog(req, "update_grace_days", "platform_config", { graceDays: days });
+    return res.json({ success: true, graceDays: days });
+  } catch (error) {
+    console.error("Update grace-days error:", error);
+    return res.status(500).json({ error: "Failed to update grace period." });
+  }
+});
+
+// ========== PRICING BUNDLES ==========
+// A bundle is a named set of catalog features, discounted while a business holds
+// all of it (shared/bundles.ts). It owns no entitlement, so creating, editing or
+// deleting one never changes anyone's access - only the price a full set costs,
+// at the next checkout or renewal, and what the landing page shows.
+const bundleInputSchema = z.object({
+  name: z.string().trim().min(1, "Name is required.").max(60),
+  tagline: z.string().trim().max(120).default(""),
+  featureKeys: z.array(z.string()).max(100),
+  discountPct: z.coerce.number().min(0, "Discount must be 0-90.").max(90, "Discount must be 0-90."),
+  bullets: z.array(z.string().trim().max(120)).max(8).default([]),
+  featured: z.boolean().default(false),
+  showOnLanding: z.boolean().default(true),
+  isActive: z.boolean().default(true),
+  sortOrder: z.coerce.number().int().default(0),
+});
+
+adminRouter.get("/bundles", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    const list = await db.select().from(pricingBundles).orderBy(pricingBundles.sortOrder);
+    return res.json({ bundles: list });
+  } catch {
+    return res.status(500).json({ error: "Failed to load bundles." });
+  }
+});
+
+adminRouter.post("/bundles", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const parsed = bundleInputSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors.map((e) => e.message).join(", ") });
+  const data = parsed.data;
+  try {
+    const key = slugifyBundleKey(data.name);
+    if (!key) return res.status(400).json({ error: "Name must contain letters or numbers." });
+    const [existing] = await db.select().from(pricingBundles).where(eq(pricingBundles.key, key));
+    if (existing) return res.status(409).json({ error: `A bundle called "${existing.name}" already exists.` });
+    const problems = await validateBundleMembers(data.featureKeys);
+    if (problems.length > 0) return res.status(400).json({ error: problems.join(" ") });
+
+    const [row] = await db.transaction(async (tx) => {
+      if (data.featured) await tx.update(pricingBundles).set({ featured: false });
+      return tx.insert(pricingBundles).values({ ...data, key }).returning();
+    });
+    await writeAuditLog(req, "create_bundle", row.key, { featureKeys: data.featureKeys, discountPct: data.discountPct });
+    return res.json({ success: true, bundle: row });
+  } catch (error) {
+    console.error("Create bundle error:", error);
+    return res.status(500).json({ error: "Failed to create the bundle." });
+  }
+});
+
+adminRouter.put("/bundles/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const parsed = bundleInputSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors.map((e) => e.message).join(", ") });
+  const data = parsed.data;
+  try {
+    const [before] = await db.select().from(pricingBundles).where(eq(pricingBundles.id, req.params.id));
+    if (!before) return res.status(404).json({ error: "Bundle not found." });
+    const problems = await validateBundleMembers(data.featureKeys);
+    if (problems.length > 0) return res.status(400).json({ error: problems.join(" ") });
+
+    // The key stays put on rename: people may have it saved from the landing page.
+    const [row] = await db.transaction(async (tx) => {
+      if (data.featured) await tx.update(pricingBundles).set({ featured: false });
+      return tx.update(pricingBundles).set({ ...data, updatedAt: new Date() }).where(eq(pricingBundles.id, before.id)).returning();
+    });
+    await writeAuditLog(req, "update_bundle", before.key, {
+      before: { featureKeys: before.featureKeys, discountPct: Number(before.discountPct), isActive: before.isActive },
+      after: { featureKeys: data.featureKeys, discountPct: data.discountPct, isActive: data.isActive },
+    });
+    return res.json({ success: true, bundle: row });
+  } catch (error) {
+    console.error("Update bundle error:", error);
+    return res.status(500).json({ error: "Failed to update the bundle." });
+  }
+});
+
+adminRouter.delete("/bundles/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const [row] = await db.delete(pricingBundles).where(eq(pricingBundles.id, req.params.id)).returning();
+    if (!row) return res.status(404).json({ error: "Bundle not found." });
+    await writeAuditLog(req, "delete_bundle", row.key, { name: row.name, featureKeys: row.featureKeys });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Delete bundle error:", error);
+    return res.status(500).json({ error: "Failed to delete the bundle." });
   }
 });
 
