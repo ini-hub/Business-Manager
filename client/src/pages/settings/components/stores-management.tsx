@@ -233,7 +233,7 @@ export function StoresManagementSection() {
         )}
         {extraStorePrice != null && (
           <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">
-            Your first store is included. After your trial, each extra store is {formatCurrency(extraStorePrice, "NGN")} a month.{" "}
+            Your first store is included. After your trial, keeping extra stores needs Additional Store at {formatCurrency(extraStorePrice, "NGN")} a month, which covers all of them. Without it you keep one active store.{" "}
             <Link href="/settings/billing" className="font-medium text-primary underline">See plan</Link>
           </p>
         )}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
 import { UseFormReturn } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Plus, Loader2 } from "lucide-react";
@@ -29,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { useStore } from "@/lib/store-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Customer } from "@shared/schema";
@@ -50,6 +51,7 @@ export function StepCustomer({ form }: StepCustomerProps) {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
+  const guardCustomerCap = useCountLimitGuard("customer_count");
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
@@ -140,7 +142,9 @@ export function StepCustomer({ form }: StepCustomerProps) {
       setNewCustomerDialogOpen(false);
       customerForm.reset();
     },
-    onError: (error: Error) => {
+    onError: (error: ApiError) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if (error.planLimit) return;
       toast({ title: "Couldn't Add Customer", description: error.message, variant: "destructive" });
     },
   });
@@ -324,7 +328,7 @@ export function StepCustomer({ form }: StepCustomerProps) {
                   <IconButton
                     variant="outline"
                     type="button"
-                    onClick={() => setNewCustomerDialogOpen(true)}
+                    onClick={() => guardCustomerCap(() => setNewCustomerDialogOpen(true))}
                     label="Add new customer"
                     id="booking-add-customer-btn"
                   >

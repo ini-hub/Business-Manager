@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, type ApiError } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { insertCustomerSchema, type InsertCustomer } from "@shared/schema";
 import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
@@ -84,8 +84,11 @@ export default function CustomerFormPage() {
       toast({ title: "Customer created" });
       setLocation("/customers");
     },
-    onError: (error: Error) =>
-      toast({ title: "Error", description: getUserFriendlyError(error, "customer"), variant: "destructive" }),
+    onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
+      toast({ title: "Error", description: getUserFriendlyError(error, "customer"), variant: "destructive" });
+    },
   });
 
   const updateMutation = useMutation({

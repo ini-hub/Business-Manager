@@ -1,4 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
+import { LimitNudge } from "@/components/billing/LimitNudge";
+import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
+import { Gated } from "@/components/billing/Gated";
 import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
@@ -32,7 +35,7 @@ import { BulkOperations } from "@/components/bulk-operations";
 import { CUSTOMER_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { useToast } from "@/hooks/use-toast";
 import { type Customer } from "@shared/schema";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
@@ -244,6 +247,8 @@ export default function Customers() {
       toast({ title: "Customer restored successfully" });
     },
     onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
       toast({ 
         title: "Couldn't Restore Customer", 
         description: getUserFriendlyError(error), 
@@ -267,7 +272,8 @@ export default function Customers() {
     },
   });
 
-  const openCreateForm = () => setLocation("/customers/new");
+  const guardCap = useCountLimitGuard("customer_count");
+  const openCreateForm = () => guardCap(() => setLocation("/customers/new"));
   const openEditForm = (customer: Customer) => setLocation(`/customers/${buildSlug(customer.name, customer.id)}/edit`);
 
   type CustomerRow = Customer & { totalSpend: number; lastVisited: string | null };
@@ -374,6 +380,7 @@ export default function Customers() {
     },
     {
       label: "Archive",
+      gate: "customer_archive",
       icon: <Archive className="h-4 w-4" />,
       onClick: () => {
         setSelectedCustomer(customer);
@@ -468,8 +475,9 @@ export default function Customers() {
   const archivedRowActions = (customer: Customer): RowAction[] => [
     {
       label: "Restore",
+      gate: "customer_archive",
       icon: <RotateCcw className="h-4 w-4" />,
-      onClick: () => restoreMutation.mutate(customer.id),
+      onClick: () => guardCap(() => restoreMutation.mutate(customer.id)),
       testId: `button-restore-${customer.id}`,
     },
     {
@@ -561,15 +569,17 @@ export default function Customers() {
         actions={
           <div className="flex items-center gap-2">
             {canSeeSpend && (
-              <Button
-                variant="outline"
-                onClick={() => setLocation("/customers/insights")}
-                aria-label="Insights"
-                data-testid="button-insights"
-              >
-                <BarChart3 className="h-4 w-4 lg:mr-2" />
-                <span className="hidden lg:inline">Insights</span>
-              </Button>
+              <Gated feature="customer_insights">
+                <Button
+                  variant="outline"
+                  onClick={() => setLocation("/customers/insights")}
+                  aria-label="Insights"
+                  data-testid="button-insights"
+                >
+                  <BarChart3 className="h-4 w-4 lg:mr-2" />
+                  <span className="hidden lg:inline">Insights</span>
+                </Button>
+              </Gated>
             )}
             {/* Tablet/mobile: icon-only "..." trigger, matching the mockup's compact header. */}
             <div className="lg:hidden">
@@ -602,11 +612,12 @@ export default function Customers() {
               />
             </div>
             {user?.role !== "staff" && (
-              <AddButton label="Add Customer" onClick={openCreateForm} data-testid="button-add-customer" />
+              <AddButton label="Add Customer" limit="customer_count" onClick={openCreateForm} data-testid="button-add-customer" />
             )}
           </div>
         }
       />
+      <LimitNudge limitType="customer_count" />
 
       {(() => {
         // New-this-month, avg. spend and inactivity all come from the spend summary.

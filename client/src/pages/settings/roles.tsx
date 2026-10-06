@@ -17,7 +17,7 @@ export default function SettingsRolesPage() {
         description="What each role can open. Give someone a role from their staff profile."
         scope="business"
         actions={
-          <AddButton label="Create custom role" onClick={() => setLocation("/settings/roles/new")} data-testid="button-create-role" />
+          <AddButton label="Create custom role" gate="custom_roles_permissions" onClick={() => setLocation("/settings/roles/new")} data-testid="button-create-role" />
         }
       />
       <RolesPermissionsSection />

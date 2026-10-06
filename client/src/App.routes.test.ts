@@ -32,7 +32,7 @@ describe("client routes vs feature registry", () => {
     expect(unowned).toEqual([]);
   });
 
-  it("wraps exactly the registry's gated screens in FeatureGate, with the registry's key", () => {
+  it("wraps pages in FeatureGate with the registry's key, and every gated screen resolves to a feature", () => {
     const gateKeyByComponent = new Map(
       Array.from(src.matchAll(/const (Gated\w+) = withFeatureGate\("(\w+)"/g), (m) => [m[1], m[2]] as const),
     );
@@ -45,8 +45,10 @@ describe("client routes vs feature registry", () => {
 
     for (const [route, key] of wrapped) expect(gatedFeatureForScreen(route), route).toBe(key);
 
+    // Every other gated screen is locked by the router-level ScreenGate, which reads the same
+    // registry (gatedFeatureForScreen), so only the pages that need a bespoke wrapper are listed above.
     const registryGated = FEATURES.flatMap((f) => ((f as { gatedScreens?: readonly string[] }).gatedScreens ?? []).map((s) => s));
-    for (const screen of registryGated) expect(wrapped.has(screen), `${screen} is gated in the registry but not wrapped in App.tsx`).toBe(true);
+    for (const screen of registryGated) expect(gatedFeatureForScreen(screen), screen).not.toBeNull();
   });
 
   it("leaves lists of data an org already owns readable", () => {
@@ -56,7 +58,7 @@ describe("client routes vs feature registry", () => {
   });
 
   it("resolves the most specific owner", () => {
-    expect(featureForScreen("/expenses")).toBe("financial_management");
+    expect(featureForScreen("/expenses")).toBe("expenses_tracking");
     expect(featureForScreen("/staffs/new")).toBe("staff_seats_addon");
     expect(featureForScreen("/staffs/123/edit")).toBe("staff_management");
     expect(featureForScreen("/staffs/attendance")).toBe("attendance_management");

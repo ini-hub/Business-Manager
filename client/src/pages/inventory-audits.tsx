@@ -133,7 +133,7 @@ export default function InventoryAuditsPage() {
         actions={
           <div className="flex items-center gap-2">
             <BackButton label="Inventory" href="/inventory" data-testid="button-back-inventory" />
-            <AddButton label="New Stock Audit" onClick={() => setLocation("/inventory/audits/new")} data-testid="button-new-audit" />
+            <AddButton label="New Stock Audit" gate="inventory_audit" onClick={() => setLocation("/inventory/audits/new")} data-testid="button-new-audit" />
           </div>
         }
       />
@@ -289,7 +289,7 @@ export default function InventoryAuditsPage() {
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6 glassmorphic-dark border-muted/30">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-              <FileText className="h-5 w-5 text-indigo-400" />
+              <FileText className="h-5 w-5 text-primary" />
               Stock Audit Details
             </DialogTitle>
             <DialogDescription>
@@ -299,7 +299,7 @@ export default function InventoryAuditsPage() {
 
           {isLoadingAuditDetail ? (
             <div className="flex-1 flex items-center justify-center py-8">
-              <RefreshCw className="h-8 w-8 animate-spin text-indigo-400" />
+              <RefreshCw className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : auditDetail ? (
             <>

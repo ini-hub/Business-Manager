@@ -415,7 +415,7 @@ export default function StockTransfersPage() {
         description="Shift inventory dynamically across different branch stores, balancing regional demand with atomic logs."
         actions={
           <>
-            <AddButton label="Create request" onClick={() => setLocation("/stock-transfers/new")} data-testid="button-create-transfer" />
+            <AddButton label="Create request" gate="stock_transfer" onClick={() => setLocation("/stock-transfers/new")} data-testid="button-create-transfer" />
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={STOCK_TRANSFER_BULK_CONFIG}

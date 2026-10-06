@@ -77,7 +77,7 @@ export default function BalanceSheetPage() {
           title="Total Equity"
           value={formatCurrency(data?.totalEquity ?? 0)}
           trendValue="Capital invested + Retained earnings"
-          icon={<Wallet className="h-5 w-5 text-violet-600" />}
+          icon={<Wallet className="h-5 w-5 text-primary" />}
           isLoading={isLoading}
         />
         <PolymorphicMetricCard
@@ -97,7 +97,7 @@ export default function BalanceSheetPage() {
         />
       </MetricGrid>
 
-      <Card className="border border-blue-100 bg-gradient-to-br from-blue-50/20 to-indigo-50/25 dark:border-blue-900/20 dark:from-blue-950/10 dark:to-indigo-950/10 shadow-sm">
+      <Card className="border border-blue-100 bg-gradient-to-br from-blue-50/20 to-blue-50/25 dark:border-blue-900/20 dark:from-blue-950/10 dark:to-blue-950/10 shadow-sm">
         <CardContent className="p-4 text-xs md:text-sm text-blue-800 dark:text-blue-200">
           <span className="font-semibold">How this is calculated:</span> Assets and liabilities are what you've recorded in{" "}
           <Link href="/settings/capital-assets" className="underline">Capital &amp; Assets</Link> — they're manually tracked, not

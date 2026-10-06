@@ -4,7 +4,7 @@ import { announcePlanLimit, toPlanLimitDetails, type PlanLimitDetails } from "./
 // Some endpoints return a machine-readable `error.code` alongside the
 // human-readable message (e.g. "SMS_UNAVAILABLE"), so callers can branch on
 // the failure reason instead of pattern-matching the message text.
-export type ApiError = Error & { code?: string; field?: string; planLimit?: PlanLimitDetails };
+export type ApiError = Error & { code?: string; field?: string; planLimit?: PlanLimitDetails; attemptsLeft?: number; retryAfterSeconds?: number };
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -36,6 +36,10 @@ async function throwIfResNotOk(res: Response) {
         // Flat shape: the string `error` field doubles as the machine
         // code precisely when a separate human-readable `message` exists.
         error.code = rawError;
+      }
+      if (rawError !== null && typeof rawError === "object") {
+        if (typeof rawError.attemptsLeft === "number") error.attemptsLeft = rawError.attemptsLeft;
+        if (typeof rawError.retryAfterSeconds === "number") error.retryAfterSeconds = rawError.retryAfterSeconds;
       }
       if (typeof jsonError.field === "string") {
         error.field = jsonError.field;
@@ -82,8 +86,13 @@ export async function apiRequest(
     if (planLimit && method.toUpperCase() !== "GET") announcePlanLimit(planLimit);
     throw error;
   }
+  // Adding, archiving or restoring staff, customers, items or stores changes how much of a cap is used, so the
+  // cached usage behind the Add buttons and banners is refreshed instead of waiting out its stale time.
+  if (method.toUpperCase() !== "GET" && COUNTED_RESOURCE.test(url)) void queryClient.invalidateQueries({ queryKey: ["/api/entitlements"] });
   return res;
 }
+
+const COUNTED_RESOURCE = /^\/api\/(staff|customers|products|inventory|stores)(\/|\?|$)/;
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 const getQueryFn: <T>(options: {

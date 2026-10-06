@@ -32,6 +32,7 @@ import { Link } from "wouter";
 import type { Customer, TransactionWithRelations } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import {
   Table,
@@ -53,6 +54,10 @@ import { useToast } from "@/hooks/use-toast";
 import { CustomerGamificationCard } from "@/components/gamification/CustomerGamificationCard";
 
 export default function CustomerDetails() {
+  // Credit / Booking tabs belong to their modules: hidden unless the module is available to this org.
+  const { hasFeature, isLoading: entitlementsLoading } = useEntitlements();
+  const showCreditTab = entitlementsLoading || hasFeature("credit_sale");
+  const showBookingsTab = entitlementsLoading || hasFeature("booking_management");
   const [location, setLocation] = useLocation();
   const search = useSearch();
   const { backHref } = useReturnTo("/customers");
@@ -166,6 +171,7 @@ export default function CustomerDetails() {
     enabled: !!resolvedCustomerId && !!currentStore?.id,
   });
 
+  const { isDisabled } = useEntitlements();
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery<any[]>({
     queryKey: ["/api/customers", resolvedCustomerId, "bookings"],
     queryFn: async () => {
@@ -174,7 +180,7 @@ export default function CustomerDetails() {
       const json = await res.json();
       return json.data || [];
     },
-    enabled: !!resolvedCustomerId && !!currentStore?.id,
+    enabled: !isDisabled("booking_management") && !!resolvedCustomerId && !!currentStore?.id,
   });
 
   const formatCurrency = (value: number, currency: string = "NGN") => {
@@ -245,7 +251,7 @@ export default function CustomerDetails() {
     );
   }
 
-  const detailTabItems: TabItem[] = [
+  const detailTabItems: TabItem[] = ([
     {
       value: "transactions",
       label: "Transactions",
@@ -264,7 +270,7 @@ export default function CustomerDetails() {
       icon: <Calendar className="h-3.5 w-3.5 text-blue-500" />,
       badge: bookings.length > 0 ? bookings.length : undefined,
     },
-  ];
+  ] as TabItem[]).filter((t) => (t.value === "credit" ? showCreditTab : t.value === "bookings" ? showBookingsTab : true));
 
   const lastVisitDate = transactions.reduce<Date | null>((latest, tx) => {
     const d = new Date(tx.transactionDate);

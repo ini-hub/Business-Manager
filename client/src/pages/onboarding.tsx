@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { z } from "zod";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, type ApiError } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -101,7 +101,11 @@ export default function OnboardingWizard() {
       toast({ title: "Store created!", description: `${store.name} is ready.` });
       setStep(2);
     },
-    onError: (error: Error) => toast({ title: "Failed to create store", description: getUserFriendlyError(error, "store"), variant: "destructive" }),
+    onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
+      toast({ title: "Failed to create store", description: getUserFriendlyError(error, "store"), variant: "destructive" });
+    },
   });
 
   const skipMutation = useMutation({
@@ -150,7 +154,11 @@ export default function OnboardingWizard() {
       toast({ title: "Staff member added!" });
       setStep(3);
     },
-    onError: (error: Error) => toast({ title: "Failed to add staff", description: getUserFriendlyError(error, "staff"), variant: "destructive" }),
+    onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
+      toast({ title: "Failed to add staff", description: getUserFriendlyError(error, "staff"), variant: "destructive" });
+    },
   });
 
   const onStaffSubmit = async (data: z.infer<typeof staffSchema>) => {
@@ -209,7 +217,11 @@ export default function OnboardingWizard() {
       toast({ title: "Item added to inventory!" });
       setStep(4);
     },
-    onError: (error: Error) => toast({ title: "Failed to add item", description: getUserFriendlyError(error, "inventory"), variant: "destructive" }),
+    onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
+      toast({ title: "Failed to add item", description: getUserFriendlyError(error, "inventory"), variant: "destructive" });
+    },
   });
 
   // ── Step 4: Capital ────────────────────────────────────────────────────────

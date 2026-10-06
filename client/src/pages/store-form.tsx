@@ -31,7 +31,7 @@ import { useEffect, useRef } from "react";
 import { useStore } from "@/lib/store-context";
 import { getFeatureDef } from "@shared/features";
 import { formatCurrency } from "@/lib/currency-utils";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { countries, currencies } from "@/lib/currency-utils";
 import { TIMEZONES, TIMEZONE_REGIONS, getTimezoneLabel } from "@/lib/timezones";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -148,6 +148,8 @@ export default function StoreFormPage() {
       setLocation("/settings/stores");
     },
     onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
       toast({ 
         title: "Error Saving Store", 
         description: getUserFriendlyError(error), 
@@ -178,8 +180,8 @@ export default function StoreFormPage() {
   const price = addon?.price?.monthly;
   const priceNote = isExtraStore && price != null
     ? inTrial
-      ? `Free during your trial. After ${trialEnds!.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, each store after the first costs ${formatCurrency(price, "NGN")} a month.`
-      : `Each store after the first costs ${formatCurrency(price, "NGN")} a month.`
+      ? `Free during your trial. After ${trialEnds!.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, keeping extra stores needs Additional Store at ${formatCurrency(price, "NGN")} a month, which covers all of them. Otherwise you choose one store to keep active.`
+      : `Additional Store is ${formatCurrency(price, "NGN")} a month and covers all your stores after the first.`
     : null;
 
   if (storeId && isLoadingStore) {

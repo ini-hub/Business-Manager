@@ -161,7 +161,7 @@ export default function PromotionsPage() {
         title="Promotions"
         description={`Discounts that apply by themselves at ${currentStore.name} checkout.`}
         scope="store"
-        actions={!open && <AddButton label="New promotion" onClick={() => { reset(); setOpen(true); }} data-testid="button-new-promotion" />}
+        actions={!open && <AddButton label="New promotion" gate="promotions" onClick={() => { reset(); setOpen(true); }} data-testid="button-new-promotion" />}
       />
 
       {open && (

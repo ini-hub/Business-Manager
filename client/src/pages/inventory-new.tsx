@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useLocation, useSearch } from "wouter";
+import { useEntitlements } from "@/hooks/useEntitlements";
+import { openBilling } from "@/lib/upgrade-prompt";
 import { buildSlug } from "@/lib/slug";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import {
@@ -32,7 +34,7 @@ import { PageHeader } from "@/components/page-header";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, type ApiError } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { cartesianProduct, comboKey, comboLabel } from "@/lib/variant-combos";
 import { MAX_VARIANTS_PER_PRODUCT } from "@shared/constants";
@@ -102,6 +104,8 @@ function FieldError({ children }: { children: React.ReactNode }) {
 
 export default function InventoryNewPage() {
   const [, setLocation] = useLocation();
+  const { isLocked } = useEntitlements();
+  const partsLocked = isLocked("sell_in_parts");
   const { toast } = useToast();
   const { currentStore, stores } = useStore();
   const queryClient = useQueryClient();
@@ -464,6 +468,8 @@ export default function InventoryNewPage() {
       });
       setLocation(`/inventory/${buildSlug(name.trim(), product.id)}`);
     } catch (err: any) {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((err as ApiError).planLimit) return;
       const msg: string = err.message ?? "";
       if (msg.startsWith("archived:")) {
         toast({
@@ -515,6 +521,8 @@ export default function InventoryNewPage() {
         <Select
           value={allowFractional ? "fraction" : "whole"}
           onValueChange={(v) => {
+            // Selling in parts is the paid "Sell In Parts" add-on.
+            if (v === "fraction" && partsLocked) { openBilling(setLocation); return; }
             setAllowFractional(v === "fraction");
             if (v !== "fraction") setUnit("");
           }}
@@ -524,7 +532,7 @@ export default function InventoryNewPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="whole">Whole units</SelectItem>
-            <SelectItem value="fraction">Parts, like 0.5 kg or 1.25 litres</SelectItem>
+            <SelectItem value="fraction">Parts, like 0.5 kg or 1.25 litres{partsLocked ? " (add-on)" : ""}</SelectItem>
           </SelectContent>
         </Select>
         {allowFractional && (

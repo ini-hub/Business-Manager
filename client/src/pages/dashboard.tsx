@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { Users, UserCog, Package, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon, Trophy } from "lucide-react";
@@ -170,6 +171,7 @@ export default function Dashboard() {
     staleTime: STALE_TIMES.live,
   });
 
+  const { isDisabled } = useEntitlements();
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
     queryKey: ["/api/profit-loss", currentStore?.id, business?.id, deepLinkQuery],
     queryFn: async () => {
@@ -205,7 +207,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
+    enabled: !isDisabled("pnl_statement") && (currentStore?.id === "all" ? !!business?.id : !!currentStore?.id),
     staleTime: STALE_TIMES.live,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
   });
@@ -253,7 +255,7 @@ export default function Dashboard() {
   // "all branches" has no one gamification record to show.
   const { data: businessGamification } = useQuery<any>({
     queryKey: ["/api/gamification/business", currentStore?.id],
-    enabled: !!currentStore?.id && currentStore.id !== "all",
+    enabled: !isDisabled("leaderboards") && !!currentStore?.id && currentStore.id !== "all",
   });
 
   const storeCurrency = currentStore?.currency || "NGN";

@@ -17,7 +17,7 @@ export function StoreRequiredAlert({ title = "Store Setup Required" }: StoreRequ
       <Card className="w-full max-w-md border-primary/10 shadow-xl bg-background/50 backdrop-blur-md relative overflow-hidden">
         {/* Subtle decorative glow circles */}
         <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/10 rounded-full blur-2xl" />
-        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl" />
+        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-primary/10 rounded-full blur-2xl" />
         
         <CardHeader className="flex flex-col items-center text-center pb-2 pt-6">
           <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">

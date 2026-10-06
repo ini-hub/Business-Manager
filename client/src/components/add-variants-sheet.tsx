@@ -10,6 +10,9 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { useLocation } from "wouter";
+import { useEntitlements } from "@/hooks/useEntitlements";
+import { openBilling } from "@/lib/upgrade-prompt";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +99,8 @@ export function AddVariantsSheet({
   const { toast } = useToast();
   const { currentStore } = useStore();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const { isLocked } = useEntitlements();
 
   const { data: settingsData } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
@@ -123,6 +128,8 @@ export function AddVariantsSheet({
   // leftover entry permanently invisible to this cleanup flow.
   const baseItems = existingVariants.filter((v) => hasNoDimensions(v));
   const baseItem = baseItems[0];
+  // Selling in parts is the paid "Sell In Parts" add-on; a product already sold in parts keeps it for new variants.
+  const partsLocked = isLocked("sell_in_parts") && !existingVariants.some((v) => v.allowFractional);
 
   // Existing combo keys (for "already exists" detection)
   const existingComboKeys = useMemo(
@@ -1236,13 +1243,10 @@ export function AddVariantsSheet({
                                   <div className="flex justify-center">
                                     <Switch
                                       checked={d.allowFractional ?? false}
-                                      onCheckedChange={(v) =>
-                                        updateDetail(
-                                          key,
-                                          "allowFractional",
-                                          v
-                                        )
-                                      }
+                                      onCheckedChange={(v) => {
+                                        if (v && partsLocked) { openBilling(setLocation); return; }
+                                        updateDetail(key, "allowFractional", v);
+                                      }}
                                       className="scale-75"
                                     />
                                   </div>

@@ -255,7 +255,7 @@ export default function ServiceProfitabilityPage() {
     <Avatar className="h-10 w-10">
       <AvatarFallback className={`text-sm font-semibold ${
         item.type === "service"
-          ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+          ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400"
           : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"}`}>
         {getCustomerInitials(item.name)}
       </AvatarFallback>
@@ -357,7 +357,7 @@ export default function ServiceProfitabilityPage() {
         />
       </MetricGrid>
 
-      <Card className="border border-blue-100 bg-gradient-to-br from-blue-50/20 to-indigo-50/25 dark:border-blue-900/20 dark:from-blue-950/10 dark:to-indigo-950/10 shadow-sm">
+      <Card className="border border-blue-100 bg-gradient-to-br from-blue-50/20 to-blue-50/25 dark:border-blue-900/20 dark:from-blue-950/10 dark:to-blue-950/10 shadow-sm">
         <CardContent className="p-4 flex gap-3 items-center">
           <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
           <div className="text-xs md:text-sm text-blue-800 dark:text-blue-200">

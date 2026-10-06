@@ -1,3 +1,5 @@
+import { useEntitlements } from "@/hooks/useEntitlements";
+import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
@@ -109,6 +111,9 @@ export default function NewSale() {
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [staffOpen, setStaffOpen] = useState(false);
+  // Credit is an option inside checkout: absent (not locked) unless Credit Sales is paid for. The server still rejects it.
+  const { hasFeature, isDisabled, isLoading: entitlementsLoading } = useEntitlements();
+  const canSellOnCredit = entitlementsLoading || hasFeature("credit_sale");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "flutterwave" | "credit" | "split">("cash");
   const [splitPayments, setSplitPayments] = useState<SplitPayment[]>(defaultSplitPayments);
   const [creditUpfrontPaid, setCreditUpfrontPaid] = useState<number>(0);
@@ -126,6 +131,7 @@ export default function NewSale() {
   };
   const [creditDueDate, setCreditDueDate] = useState<string>("");
   const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false);
+  const guardCustomerCap = useCountLimitGuard("customer_count");
   const [receiptCheckoutId, setReceiptCheckoutId] = useState<string | null>(null);
   
   const [redeemPoints, setRedeemPoints] = useState<boolean>(false);
@@ -224,7 +230,7 @@ export default function NewSale() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!currentStore?.id && currentStore?.id !== "all",
+    enabled: !isDisabled("tax_management") && !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const openRegisterMutation = useMutation({
@@ -557,7 +563,7 @@ export default function NewSale() {
       if (!res.ok) throw new Error("Failed to fetch booking details");
       return res.json();
     },
-    enabled: !!bookingId,
+    enabled: !isDisabled("booking_management") && !!bookingId,
   });
 
   // Discount Module Version 1.2 Option B states
@@ -662,7 +668,7 @@ export default function NewSale() {
       const res = await apiRequest("GET", `/api/promotions?storeId=${currentStore?.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id && currentStore?.id !== "all",
+    enabled: !isDisabled("promotions") && !!currentStore?.id && currentStore?.id !== "all",
     staleTime: STALE_TIMES.reference,
   });
 
@@ -1650,10 +1656,10 @@ export default function NewSale() {
               )}
               {/* Customer Store Credit Panel */}
               {selectedCustomer && customerStoreCredit > 0 && (
-                <div className="w-full border border-indigo-500/10 rounded-lg p-4 bg-indigo-500/5 space-y-3 animate-fade-in">
+                <div className="w-full border border-primary/10 rounded-lg p-4 bg-primary/5 space-y-3 animate-fade-in">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-tight text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-                      <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                    <p className="text-xs font-semibold uppercase tracking-tight text-primary flex items-center gap-2">
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
                       Customer Store Credit
                     </p>
                     <div className="flex items-center gap-2">
@@ -1667,17 +1673,17 @@ export default function NewSale() {
                       />
                     </div>
                   </div>
-                  <div className="pt-2 border-t border-indigo-500/10 text-xs space-y-1">
+                  <div className="pt-2 border-t border-primary/10 text-xs space-y-1">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Available Credit:</span>
-                      <span className="font-semibold font-mono text-indigo-600 dark:text-indigo-400">
+                      <span className="font-semibold font-mono text-primary">
                         {formatCurrency(customerStoreCredit)}
                       </span>
                     </div>
                     {redeemStoreCredit && (
-                      <div className="mt-2 pt-2 border-t border-dashed border-indigo-500/10 flex justify-between items-center text-xs font-semibold bg-indigo-500/10 p-2 rounded">
-                        <span className="text-indigo-800 dark:text-indigo-300">Credit Applied today:</span>
-                        <span className="text-indigo-800 dark:text-indigo-300 font-mono">
+                      <div className="mt-2 pt-2 border-t border-dashed border-primary/10 flex justify-between items-center text-xs font-semibold bg-primary/10 p-2 rounded">
+                        <span className="text-primary">Credit Applied today:</span>
+                        <span className="text-primary font-mono">
                           -{formatCurrency(storeCreditRedeemed)}
                         </span>
                       </div>
@@ -1728,7 +1734,7 @@ export default function NewSale() {
                       <span>Subtotal (incl. Tax)</span>
                       <span className="font-mono">{formatCurrency(totalChargedBeforeCredit)}</span>
                     </div>
-                    <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold animate-fade-in">
+                    <div className="flex justify-between items-center text-primary font-semibold animate-fade-in">
                       <span>Store Credit Applied</span>
                       <span className="font-mono">- {formatCurrency(storeCreditRedeemed)}</span>
                     </div>
@@ -1818,7 +1824,7 @@ export default function NewSale() {
                             <WifiOff className="h-2.5 w-2.5" />Showing cached customers
                           </div>
                         )}
-                        
+                      
                         {!profileCustomerMutation.isPending && (
                           <>
                             {/* Local matches */}
@@ -1895,7 +1901,7 @@ export default function NewSale() {
                     <IconButton
                       label="Add new customer"
                       variant="outline"
-                      onClick={() => setNewCustomerDialogOpen(true)}
+                      onClick={() => guardCustomerCap(() => setNewCustomerDialogOpen(true))}
                     >
                       <Plus className="h-4 w-4" />
                     </IconButton>
@@ -2028,6 +2034,7 @@ export default function NewSale() {
                         <p className="text-xs text-muted-foreground">Generate Flutterwave payment link</p>
                       </div>
                     </label>
+                    {canSellOnCredit && (
                     <label
                       className={cn(
                         "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
@@ -2041,6 +2048,7 @@ export default function NewSale() {
                         <p className="text-xs text-muted-foreground">Credit Sales entry (needs customer)</p>
                       </div>
                     </label>
+                    )}
                     <label
                       className={cn(
                         "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
@@ -2092,7 +2100,7 @@ export default function NewSale() {
                             <SelectContent>
                               <SelectItem value="cash">Cash</SelectItem>
                               <SelectItem value="transfer">Bank Transfer</SelectItem>
-                              <SelectItem value="credit">Credit (Owe)</SelectItem>
+                              {canSellOnCredit && <SelectItem value="credit">Credit (Owe)</SelectItem>}
                             </SelectContent>
                           </Select>
                         </div>

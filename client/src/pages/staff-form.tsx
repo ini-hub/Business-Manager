@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { STALE_TIMES } from "@/lib/queryClient";
 import { useLocation, useParams } from "wouter";
 import { useReturnTo } from "@/lib/return-to";
@@ -27,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { type Staff, type Customer, type StaffInviteStatus, type StaffContractStatus } from "@shared/schema";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { uploadContractFileToStaging } from "@/lib/contract-upload";
 import { useStore } from "@/lib/store-context";
@@ -100,9 +101,10 @@ export default function StaffFormPage() {
     },
   });
 
+  const { isDisabled } = useEntitlements();
   const { data: customerSearchResults = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", staffMember?.storeId, customerSearchQuery],
-    enabled: isLinkDialogOpen && customerSearchQuery.trim().length >= 2 && !!staffMember?.storeId,
+    enabled: !isDisabled("customer_management") && isLinkDialogOpen && customerSearchQuery.trim().length >= 2 && !!staffMember?.storeId,
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/customers?storeId=${staffMember!.storeId}&search=${encodeURIComponent(customerSearchQuery)}&limit=10&page=1`);
       if (!res.ok) return [];
@@ -123,6 +125,8 @@ export default function StaffFormPage() {
       setCustomerSearchQuery("");
     },
     onError: (error: Error) => {
+      // Linking can create a customer, so it can hit the customer cap; the upgrade dialog has already opened.
+      if ((error as ApiError).planLimit) return;
       toast({ title: "Couldn't Link Profile", description: getUserFriendlyError(error), variant: "destructive" });
     },
   });
@@ -243,7 +247,7 @@ export default function StaffFormPage() {
 
   const { data: customRoles = [] } = useQuery<any[]>({
     queryKey: ["/api/custom-roles"],
-    enabled: isOwner,
+    enabled: !isDisabled("custom_roles_permissions") && isOwner,
     staleTime: STALE_TIMES.reference,
   });
 
@@ -355,6 +359,8 @@ export default function StaffFormPage() {
       setLocation(backHref);
     },
     onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
       toast({ title: "Error Saving Staff Member", description: getUserFriendlyError(error, "staff"), variant: "destructive" });
     },
   });
@@ -462,12 +468,12 @@ export default function StaffFormPage() {
 
             {/* Identity banner */}
             <Card className="overflow-hidden border-0 shadow-sm">
-              <div className="h-20 bg-gradient-to-r from-violet-500/20 via-purple-500/10 to-transparent" />
+              <div className="h-20 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
               <CardContent className="-mt-10 pb-5 px-5">
                 <div className="flex items-end gap-4">
-                  <div className="h-16 w-16 rounded-2xl bg-violet-500/10 border-4 border-background flex items-center justify-center shadow-sm">
+                  <div className="h-16 w-16 rounded-2xl bg-primary/10 border-4 border-background flex items-center justify-center shadow-sm">
                     {nameInitials
-                      ? <span className="text-lg font-bold text-violet-600 dark:text-violet-400">{nameInitials}</span>
+                      ? <span className="text-lg font-bold text-primary">{nameInitials}</span>
                       : <User className="h-7 w-7 text-muted-foreground" />
                     }
                   </div>
@@ -856,9 +862,9 @@ export default function StaffFormPage() {
 
                   {/* Payment Method Override */}
                   {form.watch("overridePaymentMethod") && (
-                    <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
+                    <Card className="border-primary/20 bg-primary/5 shadow-none">
                       <CardContent className="p-4 space-y-3">
-                        <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Payment Method &amp; Base Salary</p>
+                        <p className="text-xs font-bold text-primary">Custom Payment Method &amp; Base Salary</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <FormField control={form.control} name="paymentMethod" render={({ field }) => (
                             <FormItem>
@@ -890,9 +896,9 @@ export default function StaffFormPage() {
 
                   {/* Formula Override */}
                   {form.watch("overrideFormula") && (
-                    <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
+                    <Card className="border-primary/20 bg-primary/5 shadow-none">
                       <CardContent className="p-4 space-y-2">
-                        <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Commission Formula</p>
+                        <p className="text-xs font-bold text-primary">Custom Commission Formula</p>
                         <FormField control={form.control} name="commissionFormulaOverride" render={({ field }) => (
                           <FormItem>
                             <Select onValueChange={field.onChange} value={field.value || "formula_b"}>
@@ -913,9 +919,9 @@ export default function StaffFormPage() {
 
                   {/* Commission Rates Override */}
                   {form.watch("overrideCommission") && (
-                    <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
+                    <Card className="border-primary/20 bg-primary/5 shadow-none">
                       <CardContent className="p-4 space-y-3">
-                        <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Commission Payout Model</p>
+                        <p className="text-xs font-bold text-primary">Custom Commission Payout Model</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <FormField control={form.control} name="commissionTypeOverride" render={({ field }) => (
                             <FormItem>
@@ -958,9 +964,9 @@ export default function StaffFormPage() {
 
                   {/* Attendance Rates Override */}
                   {form.watch("overrideAttendanceRates") && (
-                    <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-none">
+                    <Card className="border-primary/20 bg-primary/5 shadow-none">
                       <CardContent className="p-4 space-y-3">
-                        <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300">Custom Roster &amp; Transport Daily Rates</p>
+                        <p className="text-xs font-bold text-primary">Custom Roster &amp; Transport Daily Rates</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {[
                             { name: "activeDayRateOverride", label: "Active Day Transport (₦)" },

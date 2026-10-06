@@ -32,6 +32,8 @@ function firstLateTime(opening: string, graceMinutes: number): string | null {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
+type SettingsSave = { section: "attendance" | "receipts" | "stock" | "loyalty" | "reminders" | "payroll"; body: Record<string, unknown> };
+
 export function AttendanceSettingsSection() {
   const { currentStore } = useStore();
   const { toast } = useToast();
@@ -43,9 +45,14 @@ export function AttendanceSettingsSection() {
   });
 
   const updateSettingsMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("PUT", "/api/settings", { ...data, storeId: currentStore?.id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings", currentStore?.id] });
+    mutationFn: async (saves: SettingsSave | SettingsSave[]) => {
+      const results = await Promise.all([saves].flat().map(async ({ section, body }) =>
+        (await apiRequest("PUT", `/api/settings/${section}`, { ...body, storeId: currentStore?.id })).json()));
+      return Object.assign({}, ...results);
+    },
+    onSuccess: (updated: any) => {
+      // The PUT echoes only the fields it wrote; merge them instead of refetching the whole row.
+      queryClient.setQueryData(["/api/settings", currentStore?.id], (old: any) => (old ? { ...old, ...updated } : old));
       toast({ title: "Attendance settings updated" });
     },
     onError: (err: any) => {
@@ -99,7 +106,7 @@ export function AttendanceSettingsSection() {
     setWeeklyOffDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)));
 
   const handleSave = () =>
-    updateSettingsMutation.mutate({
+    updateSettingsMutation.mutate({ section: "attendance", body: {
       clockInEnabled,
       geofenceLatitude: location.latitude,
       geofenceLongitude: location.longitude,
@@ -113,7 +120,7 @@ export function AttendanceSettingsSection() {
       maxOfflinePunchAgeMinutes: maxOfflineAgeMinutes,
       retroRequestMaxAgeDays: retroMaxAgeDays,
       defaultWeeklyOffDays: weeklyOffDays,
-    });
+    } });
 
   return (
     <div className="space-y-4">

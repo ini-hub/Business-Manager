@@ -15,7 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Database, User, Download, Upload, Coins, Store, UserPlus } from "lucide-react";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
+import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
 
 export function BulkOperationsSection() {
   const { toast } = useToast();
@@ -129,11 +130,22 @@ export function BulkOperationsSection() {
     }
   };
 
+  // At the free-tier cap an import can only fail, so open the upgrade prompt instead of the file picker.
+  const guardStaffCap = useCountLimitGuard("staff_seats");
+  const guardCustomerCap = useCountLimitGuard("customer_count");
+  const guardItemCap = useCountLimitGuard("item_count");
+
   const triggerUpload = (type: string) => {
-    setActiveImportType(type);
-    setTimeout(() => {
-      bulkFileInputRef.current?.click();
-    }, 100);
+    const open = () => {
+      setActiveImportType(type);
+      setTimeout(() => {
+        bulkFileInputRef.current?.click();
+      }, 100);
+    };
+    if (type === "staff") guardStaffCap(open);
+    else if (type === "customers") guardCustomerCap(open);
+    else if (type === "inventory") guardItemCap(open);
+    else open();
   };
 
   const handleBulkFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,15 +197,9 @@ export function BulkOperationsSection() {
           bodyKey = "data";
         }
 
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            storeId: currentStore.id,
-            [bodyKey]: parsed,
-          })
-        });
-
+        // apiRequest throws on a non-2xx reply (and opens the upgrade dialog on a plan-limit 402), so a
+        // rejected file never reaches the results panel as if it were an import summary.
+        const res = await apiRequest("POST", endpoint, { storeId: currentStore.id, [bodyKey]: parsed });
         const resData = await res.json();
         setBulkImportProgress(100);
         setBulkImportResult(resData);
@@ -201,6 +207,8 @@ export function BulkOperationsSection() {
         queryClient.invalidateQueries();
       } catch (err: any) {
         setIsImportingProgressOpen(false);
+        // At the plan cap the upgrade dialog has already opened; a toast saying the same would double up.
+        if ((err as ApiError).planLimit) return;
         toast({
           title: "Import Error",
           description: err.message || "Failed to process import.",

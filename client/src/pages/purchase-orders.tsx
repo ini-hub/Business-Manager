@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Gated } from "@/components/billing/Gated";
 import { AddButton } from "@/components/add-button";
 import { useLocation, Link } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
@@ -390,7 +391,9 @@ export default function PurchaseOrdersPage() {
           activeTab === "list" && (
             <>
               {isManagerOrOwner && (
-                <AddButton label="New purchase order" onClick={() => setLocation("/purchase-orders/new")} data-testid="button-new-po" />
+                <Gated feature="vendor_details">
+                  <AddButton label="New purchase order" gate="purchase_order_tracking" onClick={() => setLocation("/purchase-orders/new")} data-testid="button-new-po" />
+                </Gated>
               )}
               <div className="lg:hidden">
                 <BulkOperations

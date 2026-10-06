@@ -227,7 +227,7 @@ export default function BookingDetailsPage() {
           <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
             <DialogTrigger asChild>
               <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                <ArrowRightLeft className="mr-2 h-4 w-4 text-indigo-500" /> Reschedule
+                <ArrowRightLeft className="mr-2 h-4 w-4 text-primary" /> Reschedule
               </DropdownMenuItem>
             </DialogTrigger>
             <DialogContent>

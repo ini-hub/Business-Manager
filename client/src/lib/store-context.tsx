@@ -173,3 +173,8 @@ export function useStore() {
   }
   return context;
 }
+
+/** Like useStore, but null outside a StoreProvider (admin screens, public pages), for hooks that only refine on the store. */
+export function useOptionalStore() {
+  return useContext(StoreContext) ?? null;
+}

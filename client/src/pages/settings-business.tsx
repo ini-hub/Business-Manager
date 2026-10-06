@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
+import { useEntitlements, formatPrice } from "@/hooks/useEntitlements";
+import { openBilling } from "@/lib/upgrade-prompt";
 import { validatePhoneNumber } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { formatCurrency } from "@/lib/currency-utils";
@@ -64,7 +66,11 @@ export default function SettingsBusinessPage() {
   const storeId = currentStore && currentStore.id !== "all" ? currentStore.id : undefined;
   const { data: storeSettings } = useQuery<any>({ queryKey: ["/api/settings", storeId], enabled: !!storeId });
 
-  const ownOnly = (business as any)?.staffOwnTransactionsOnly !== false;
+  // Choosing what Staff see is the paid "Staff Sales Visibility" feature. Without it the
+  // server applies the default (own sales only), so the switch is shown ON and locked.
+  const { isLocked, priceFor } = useEntitlements();
+  const visibilityLocked = isLocked("staff_sales_visibility");
+  const ownOnly = visibilityLocked || (business as any)?.staffOwnTransactionsOnly !== false;
   const setOwnOnly = async (checked: boolean) => {
     if (!business) return;
     try {
@@ -254,9 +260,15 @@ export default function SettingsBusinessPage() {
               A sale is theirs if they checked it out or were the lead or assistant on it. Customer spend and visit history stay hidden from Staff either way.
             </span>
           </label>
-          <Switch id="staff-own-transactions-only" checked={ownOnly} onCheckedChange={setOwnOnly} disabled={!isOwner} data-testid="switch-staff-own-transactions-only" />
+          <Switch id="staff-own-transactions-only" checked={ownOnly} onCheckedChange={setOwnOnly} disabled={!isOwner || visibilityLocked} data-testid="switch-staff-own-transactions-only" />
         </div>
         {!isOwner && <p className="text-xs text-muted-foreground">Only the owner can change this.</p>}
+        {isOwner && visibilityLocked && (
+          <p className="text-xs text-muted-foreground" data-testid="text-staff-visibility-locked">
+            Letting Staff see every sale is the Staff Sales Visibility add-on{formatPrice(priceFor("staff_sales_visibility")) ? ` (${formatPrice(priceFor("staff_sales_visibility"))})` : ""}.{" "}
+            <button type="button" className="font-semibold text-primary underline" onClick={() => openBilling(setLocation)}>View plans &amp; add-ons</button>
+          </p>
+        )}
       </Card>
 
       {isOwner ? (

@@ -166,7 +166,7 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="pb-3 border-b border-muted/30">
           <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
-            <Undo2 className="h-5 w-5 text-indigo-500" />
+            <Undo2 className="h-5 w-5 text-primary" />
             Process POS Return
           </DialogTitle>
           <DialogDescription className="text-xs">
@@ -262,7 +262,7 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
             </div>
 
             {/* Calculations Summary Panel */}
-            <div className="border border-indigo-500/10 rounded-xl p-4 bg-indigo-500/5 space-y-3">
+            <div className="border border-primary/10 rounded-xl p-4 bg-primary/5 space-y-3">
               <div className="flex justify-between items-center text-xs">
                 <span className="text-muted-foreground">Total items selected:</span>
                 <span className="font-bold text-foreground font-mono">{activeReturnsCount} items</span>
@@ -273,9 +273,9 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
                   <span className="font-mono text-foreground">{formatCurrency(calculatedTaxRefund)}</span>
                 </div>
               )}
-              <div className="flex justify-between items-center pt-2 border-t border-dashed border-indigo-500/15">
+              <div className="flex justify-between items-center pt-2 border-t border-dashed border-primary/15">
                 <span className="text-xs font-bold text-foreground uppercase tracking-wider">Estimated Refund Total</span>
-                <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                <span className="text-lg font-bold text-primary font-mono">
                   {formatCurrency(calculatedRefundAmount)}
                 </span>
               </div>
@@ -292,7 +292,7 @@ export function ReturnDialog({ open, onOpenChange, checkout, onSuccess }: Return
             disabled={activeReturnsCount === 0 || !reason.trim() || returnMutation.isPending}
             onClick={() => returnMutation.mutate()}
             size="sm"
-            className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+            className="text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
           >
             {returnMutation.isPending ? "Processing..." : "Complete Return"}
           </Button>

@@ -1,5 +1,6 @@
 import { useAttendanceTracked } from "@/hooks/useAttendanceTracked";
-import { useEntitlements } from "@/hooks/useEntitlements";
+import { useEntitlements, formatPrice } from "@/hooks/useEntitlements";
+import { featureForScreen } from "@shared/features";
 import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard,
@@ -22,7 +23,6 @@ import {
   Truck,
   FileText,
   Building2,
-  Coins,
   ShieldCheck,
   Compass,
   MessageSquare,
@@ -64,10 +64,12 @@ type UserRole = "owner" | "manager" | "staff";
  * everything.
  */
 function NavLock({ url }: { url: string }) {
-  const { hasFeature, isLoading, isError, gatedFeatureFor } = useEntitlements();
+  const { hasFeature, isLoading, isError, gatedFeatureFor, priceFor } = useEntitlements();
   const feature = gatedFeatureFor(url);
   if (!feature || isLoading || isError || hasFeature(feature)) return null;
-  return <Lock className="h-3 w-3 text-muted-foreground" aria-label="Not included in your plan" />;
+  const price = formatPrice(priceFor(feature));
+  const label = price ? `${priceFor(feature)?.name ?? "This feature"} costs ${price}` : "Not included in your plan";
+  return <Lock className="h-3 w-3 text-muted-foreground" aria-label={label} />;
 }
 
 interface MenuItem {
@@ -289,8 +291,18 @@ export function AppSidebar() {
   
   const userRole = (user?.role as UserRole) || "staff";
   
-  const filterByRole = (items: MenuItem[]) => 
-    items.filter(item => item.allowedRoles.includes(userRole));
+  // Flag off => the item (and the feature behind it) is hidden entirely.
+  const { isDisabled, isLocked, isLoading: entitlementsLoading } = useEntitlements();
+  const filterByRole = (items: MenuItem[]) =>
+    items.filter((item) => {
+      if (!item.allowedRoles.includes(userRole)) return false;
+      const owner = featureForScreen(item.url);
+      // Not shown until we know the feature isn't switched off, so items don't appear and then vanish.
+      if (owner && owner !== "core_platform" && entitlementsLoading) return false;
+      if (owner && isDisabled(owner)) return false;
+      // Credit is part of the checkout flow, so its screens are absent (not teased) until it is paid for.
+      return !(owner === "credit_sale" && isLocked(owner));
+    });
   
   // A store that doesn't keep attendance has nothing to show on that page.
   const { tracked: attendanceTracked } = useAttendanceTracked(userRole === "staff");
@@ -324,7 +336,7 @@ export function AppSidebar() {
       <SidebarHeader className="border-b border-sidebar-border px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-            <Coins className="h-5 w-5" />
+            <span className="text-xl font-bold leading-none" aria-hidden="true">K</span>
           </div>
           <div className="flex flex-col">
             <span className="text-base font-bold tracking-tight leading-tight">

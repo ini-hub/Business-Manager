@@ -595,7 +595,7 @@ export default function ExpensesPage() {
             )}
 
             <Link href="/expenses/new">
-              <AddButton label="Add Expense" data-testid="button-add-expense" />
+              <AddButton label="Add Expense" gate="financial_management" data-testid="button-add-expense" />
             </Link>
           </div>
         }

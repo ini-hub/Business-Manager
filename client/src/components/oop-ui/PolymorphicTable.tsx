@@ -60,6 +60,7 @@ import {
   headerCheckboxState,
   shouldShowSelectAllBanner,
 } from "./table-selection";
+import { useGatedActions } from "@/components/billing/Gated";
 import { BulkActionsBar, type BulkAction, pluralize as pluralizeNoun } from "./BulkActionsBar";
 
 const getNestedValue = (obj: any, path: string): any => {
@@ -148,6 +149,10 @@ export interface RowAction {
   destructive?: boolean;
   disabled?: boolean;
   testId?: string;
+  /** Feature key this action needs: flag off hides it, unpaid shows the price prompt on click. */
+  gate?: string;
+  /** With `gate`: hide the action (instead of teasing it) while the feature is unpaid. */
+  hideWhenLocked?: boolean;
 }
 
 export interface PolymorphicTableProps<T> {
@@ -265,7 +270,8 @@ export interface PolymorphicTableProps<T> {
 }
 
 /** Kebab trigger + dropdown rendered by the auto-generated "actions" column. */
-function RowActionsMenu({ actions }: { actions: RowAction[] }) {
+function RowActionsMenu({ actions: rawActions }: { actions: RowAction[] }) {
+  const actions = useGatedActions(rawActions);
   if (actions.length === 0) return null;
   return (
     <DropdownMenu>

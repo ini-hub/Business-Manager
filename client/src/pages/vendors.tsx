@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { AddButton } from "@/components/add-button";
 import { useLocation, useSearch } from "wouter";
 import { appendReturnTo } from "@/lib/return-to";
@@ -99,13 +100,14 @@ export default function VendorsPage() {
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
+  const { isDisabled } = useEntitlements();
   const { data: vendorPOs = [] } = useQuery<{ vendorId: string; status: string; createdAt: string }[]>({
     queryKey: ["/api/purchase-orders", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/purchase-orders?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id && currentStore.id !== "all",
+    enabled: !isDisabled("purchase_order_tracking") && !!currentStore?.id && currentStore.id !== "all",
   });
 
   // Enrich vendors with bill stats
@@ -393,7 +395,7 @@ export default function VendorsPage() {
               />
             </div>
             {isManagerOrOwner && (
-              <AddButton label="Add Vendor" onClick={openCreate} data-testid="button-add-vendor" />
+              <AddButton label="Add Vendor" gate="vendor_details" onClick={openCreate} data-testid="button-add-vendor" />
             )}
           </div>
         }

@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
+import { LimitNudge } from "@/components/billing/LimitNudge";
+import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
 import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { STALE_TIMES } from "@/lib/queryClient";
+import { STALE_TIMES, type ApiError } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { Plus, UserPlus, UserCheck, UserX, FileSignature, Edit, Trash2, Phone, RotateCcw, Archive, ArrowRightLeft, Users, UserSquare2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
@@ -105,7 +107,6 @@ const staffCardAvatar = (staff: { name: string }) => (
 const StaffCardNameCell = ({ staff }: { staff: { name: string } }) => <span className="truncate">{staff.name}</span>;
 
 import { StoreRequiredAlert } from "@/components/store-required-alert";
-import { Link } from "wouter";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { fetchAllStaff } from "@/lib/staff-api";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
@@ -114,6 +115,7 @@ import { exportReportToPDF } from "@/lib/export-utils";
 export default function StaffPage() {
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
+  const guardCap = useCountLimitGuard("staff_seats");
   const search = useSearch();
   const { currentStore, stores, business } = useStore();
   const { user } = useAuth();
@@ -199,6 +201,8 @@ export default function StaffPage() {
       toast({ title: "Staff member restored successfully" });
     },
     onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
       toast({ 
         title: "Couldn't Restore Staff Member", 
         description: getUserFriendlyError(error), 
@@ -380,6 +384,7 @@ export default function StaffPage() {
       },
       {
         label: "HR Profile",
+        gate: "staff_hr_archive",
         icon: <UserSquare2 className="h-4 w-4" />,
         onClick: () => setLocation(`/staffs/${staff.id}/hr-profile`),
         testId: `button-hr-profile-${staff.id}`,
@@ -403,6 +408,8 @@ export default function StaffPage() {
     if (otherStores.length > 0) {
       actions.push({
         label: "Transfer to another store",
+        gate: "staff_transfer",
+        hideWhenLocked: true,
         icon: <ArrowRightLeft className="h-4 w-4" />,
         onClick: () => {
           setSelectedStaff(staff);
@@ -413,6 +420,7 @@ export default function StaffPage() {
     }
     actions.push({
       label: "Archive",
+      gate: "staff_hr_archive",
       icon: <Archive className="h-4 w-4" />,
       onClick: () => {
         setSelectedStaff(staff);
@@ -475,7 +483,7 @@ export default function StaffPage() {
     {
       label: "Restore",
       icon: <RotateCcw className="h-4 w-4" />,
-      onClick: () => restoreMutation.mutate(staff.id),
+      onClick: () => guardCap(() => restoreMutation.mutate(staff.id)),
     },
     {
       label: "Delete permanently",
@@ -637,13 +645,12 @@ export default function StaffPage() {
               />
             </div>
             {isOwner && (
-              <Link href="/staffs/new">
-                <AddButton label="Add Staff" data-testid="button-add-staff" />
-              </Link>
+              <AddButton label="Add Staff" limit="staff_seats" onClick={() => setLocation("/staffs/new")} data-testid="button-add-staff" />
             )}
           </div>
         }
       />
+      <LimitNudge limitType="staff_seats" />
 
       <MetricRow
         metrics={[
@@ -762,9 +769,7 @@ export default function StaffPage() {
                   emptyMessage="Add your first staff member to start tracking attendance, payroll, and commissions."
                   emptyIcon={<Users className="h-6 w-6" />}
                   emptyAction={
-                    <Link href="/staffs/new">
-                      <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />Add Staff Member</Button>
-                    </Link>
+                    <Button size="sm" className="gap-2" onClick={() => guardCap(() => setLocation("/staffs/new"))}><Plus className="h-4 w-4" />Add Staff Member</Button>
                   }
                   onVisibleDataChange={setVisibleStaffRows}
                   urlKey="active"
@@ -882,7 +887,7 @@ export default function StaffPage() {
             {
               label: "Add Staff",
               icon: <UserPlus className="h-5 w-5" />,
-              onClick: () => setLocation("/staffs/new"),
+              onClick: () => guardCap(() => setLocation("/staffs/new")),
               testId: "fab-add-staff",
             },
           ]}

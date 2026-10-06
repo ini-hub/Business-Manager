@@ -33,7 +33,7 @@ export default function BookingCalendarPage() {
                 <span className="hidden lg:inline">Bookings</span>
               </Link>
             </Button>
-            <AddButton label="New Booking" href="/bookings/new" data-testid="button-new-booking" />
+            <AddButton label="New Booking" gate="booking_management" href="/bookings/new" data-testid="button-new-booking" />
           </div>
         }
       />

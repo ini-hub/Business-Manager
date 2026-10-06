@@ -4,7 +4,7 @@ import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { insertCustomerSchema } from "@shared/schema";
 import type { InsertCustomer } from "@shared/schema";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useStore } from "@/lib/store-context";
@@ -82,7 +82,9 @@ export function NewCustomerDialog({ open, storeId, onClose, onCreated }: NewCust
       onCreated(data.id);
       form.reset();
     },
-    onError: (error: Error) => {
+    onError: (error: ApiError) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if (error.planLimit) return;
       toast({
         title: "Couldn't Add Customer",
         description: getUserFriendlyError(error, "customer"),

@@ -37,6 +37,8 @@ function buildSchedule(daysBefore: number, onDueDate: boolean, daysAfter: number
 
 const DOT = { grey: "bg-slate-500", blue: "bg-primary", red: "bg-red-700" } as const;
 
+type SettingsSave = { section: "attendance" | "receipts" | "stock" | "loyalty" | "reminders" | "payroll"; body: Record<string, unknown> };
+
 export function BorrowBookSettingsSection() {
   const { currentStore } = useStore();
   const { toast } = useToast();
@@ -47,9 +49,14 @@ export function BorrowBookSettingsSection() {
   });
 
   const updateSettingsMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("PUT", "/api/settings", { ...data, storeId: currentStore?.id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings", currentStore?.id] });
+    mutationFn: async (saves: SettingsSave | SettingsSave[]) => {
+      const results = await Promise.all([saves].flat().map(async ({ section, body }) =>
+        (await apiRequest("PUT", `/api/settings/${section}`, { ...body, storeId: currentStore?.id })).json()));
+      return Object.assign({}, ...results);
+    },
+    onSuccess: (updated: any) => {
+      // The PUT echoes only the fields it wrote; merge them instead of refetching the whole row.
+      queryClient.setQueryData(["/api/settings", currentStore?.id], (old: any) => (old ? { ...old, ...updated } : old));
       toast({ title: "Credit sales settings updated successfully" });
     },
   });
@@ -153,14 +160,14 @@ export function BorrowBookSettingsSection() {
         label="Save reminder settings"
         pending={updateSettingsMutation.isPending}
         onSave={() =>
-          updateSettingsMutation.mutate({
+          updateSettingsMutation.mutate({ section: "reminders", body: {
             borrowBookReminderDaysBefore: daysBefore,
             borrowBookReminderOnDueDate: onDueDate,
             borrowBookReminderDaysAfter: daysAfter,
             borrowBookReminderRepeatDays: repeatDays,
             borrowBookReminderStopDays: stopDays,
             borrowBookReminderLanguage: language,
-          })
+          } })
         }
       />
     </div>

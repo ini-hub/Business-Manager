@@ -1,7 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
+import { LimitNudge } from "@/components/billing/LimitNudge";
+import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { AddButton } from "@/components/add-button";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { STALE_TIMES } from "@/lib/queryClient";
+import { STALE_TIMES, type ApiError } from "@/lib/queryClient";
 import type { Product, Settings, Inventory } from "@shared/schema";
 import { Plus, Edit, Trash2, Package, Wrench, Droplets, Coins, Boxes, AlertTriangle, ShoppingCart, RefreshCw, Infinity, BarChart3, ClipboardList, FileText, Archive, RotateCcw, Settings2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -171,6 +174,7 @@ export default function InventoryPage() {
 
   // Saved "New item" wizard sessions. Per-store (the endpoint takes one storeId), and
   // fetched eagerly so the tab can show a count.
+  const { isDisabled } = useEntitlements();
   const draftsStoreId = currentStore?.id && currentStore.id !== "all" ? currentStore.id : null;
   const { data: draftsList = [], isLoading: isLoadingDrafts } = useQuery<any[]>({
     queryKey: ["/api/inventory-drafts", draftsStoreId],
@@ -179,7 +183,7 @@ export default function InventoryPage() {
       if (!res.ok) throw new Error("Failed to load drafts");
       return res.json();
     },
-    enabled: !!draftsStoreId,
+    enabled: !isDisabled("inventory_drafts") && !!draftsStoreId,
   });
   const discardDraft = async (id: string) => {
     const res = await apiRequest("DELETE", `/api/inventory-drafts/${id}`);
@@ -206,7 +210,7 @@ export default function InventoryPage() {
       const res = await apiRequest("GET", `/api/vendors?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id && currentStore.id !== "all",
+    enabled: !isDisabled("vendor_details") && !!currentStore?.id && currentStore.id !== "all",
     staleTime: STALE_TIMES.reference,
   });
 
@@ -281,6 +285,8 @@ export default function InventoryPage() {
       toast({ title: "Item restored", description: "The item is now active in your inventory." });
     },
     onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
       toast({
         title: "Couldn't Restore Item",
         description: getUserFriendlyError(error, "restoring this item"),
@@ -451,8 +457,9 @@ export default function InventoryPage() {
   };
   const formatCompact = (value: number) => formatCurrencyCompact(value, storeCurrency);
 
+  const guardCap = useCountLimitGuard("item_count");
   const openCreateForm = () => {
-    setLocation("/inventory/new");
+    guardCap(() => setLocation("/inventory/new"));
   };
 
   const totalCostValue = filteredInventory.reduce((acc, item) => {
@@ -757,6 +764,7 @@ export default function InventoryPage() {
     });
     actions.push({
       label: item.hasSales ? "Archive item" : "Delete item",
+      gate: "inventory_archive_delete",
       icon: item.hasSales
         ? <Archive className="h-4 w-4 text-amber-500" />
         : <Trash2 className="h-4 w-4" />,
@@ -868,10 +876,11 @@ export default function InventoryPage() {
               storeLabel={currentStore.name}
               businessName={business?.name ?? currentStore.name}
             />
-            <AddButton label="Add Item" onClick={openCreateForm} data-testid="button-add-item" />
+            <AddButton label="Add Item" limit="item_count" onClick={openCreateForm} data-testid="button-add-item" />
           </div>
         }
       />
+      <LimitNudge limitType="item_count" />
 
       <MetricRow
         metrics={[
@@ -1011,7 +1020,7 @@ export default function InventoryPage() {
                       size="sm"
                       className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
                       disabled={restoreMutation.isPending}
-                      onClick={() => restoreMutation.mutate(item.id)}
+                      onClick={() => guardCap(() => restoreMutation.mutate(item.id))}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       Restore

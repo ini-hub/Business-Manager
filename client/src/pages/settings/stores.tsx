@@ -20,7 +20,7 @@ export default function SettingsStoresPage() {
         description="Each store has its own customers, staff and stock."
         scope="business"
         actions={
-          <AddButton label="Add a store" onClick={() => setLocation("/settings/stores/new")} disabled={!business} data-testid="button-add-store" />
+          <AddButton label="Add a store" limit="store_count" onClick={() => setLocation("/settings/stores/new")} disabled={!business} data-testid="button-add-store" />
         }
       />
       <StoresManagementSection />

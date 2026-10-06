@@ -390,7 +390,7 @@ export default function QuotesPage() {
         description="Draft pricing proposals, dispatch proforma receipts, and track pipeline values."
         actions={
           <>
-            <AddButton label="New Quote" onClick={() => setLocation("/quotes/new")} data-testid="button-new-quote" />
+            <AddButton label="New Quote" gate="quotes_management" onClick={() => setLocation("/quotes/new")} data-testid="button-new-quote" />
             <div className="lg:hidden">
               <BulkOperations
                 entityConfig={QUOTE_BULK_CONFIG}
@@ -422,7 +422,7 @@ export default function QuotesPage() {
 
       <MetricRow
         metrics={[
-          { title: "Total Proposal Value", value: formatCurrency(totalVal), compactValue: formatCompact(totalVal), icon: <FileText className="h-4 w-4 text-indigo-500" />, isLoading: isLoadingQuotes },
+          { title: "Total Proposal Value", value: formatCurrency(totalVal), compactValue: formatCompact(totalVal), icon: <FileText className="h-4 w-4 text-primary" />, isLoading: isLoadingQuotes },
           { title: "Draft / Estimates", value: formatCurrency(draftVal), compactValue: formatCompact(draftVal), icon: <Clock className="h-4 w-4 text-slate-500" />, isLoading: isLoadingQuotes },
           { title: "Sent (In Pipeline)", value: formatCurrency(sentVal), compactValue: formatCompact(sentVal), icon: <RefreshCw className="h-4 w-4 text-blue-500 animate-spin-slow" />, isLoading: isLoadingQuotes },
           { title: "Accepted Proposals", value: formatCurrency(acceptedVal), compactValue: formatCompact(acceptedVal), icon: <CheckCircle className="h-4 w-4 text-emerald-500" />, isLoading: isLoadingQuotes },
@@ -561,7 +561,7 @@ export default function QuotesPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-purple-500 hover:text-purple-700 gap-1"
+                    className="text-primary hover:text-primary/80 gap-1"
                     onClick={() => updateStatusMutation.mutate({ id: fullQuote.id, status: "converted" })}
                   >
                     <RefreshCw className="h-4 w-4" /> Convert to Sale
@@ -588,7 +588,7 @@ export default function QuotesPage() {
                     <p className="text-sm font-semibold text-gray-700 mt-2">Ref: {fullQuote.quoteRef}</p>
                   </div>
                   <div className="text-right">
-                    <span className="inline-flex items-center justify-center leading-none px-3 py-2 bg-indigo-50 border text-indigo-700 rounded-full font-bold text-xs uppercase tracking-wide">
+                    <span className="inline-flex items-center justify-center leading-none px-3 py-2 bg-primary/10 border text-primary rounded-full font-bold text-xs uppercase tracking-wide">
                       {fullQuote.status}
                     </span>
                     <p className="text-xs text-gray-400 mt-2">Date: {new Date(fullQuote.createdAt).toLocaleDateString()}</p>
@@ -706,7 +706,7 @@ export default function QuotesPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-400 uppercase font-semibold">Aggregated Quote Value</p>
-                    <h2 className="text-lg font-bold text-indigo-600 font-mono mt-1">
+                    <h2 className="text-lg font-bold text-primary font-mono mt-1">
                       {formatCurrency(fullQuote.totalPrice)}
                     </h2>
                   </div>

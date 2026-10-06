@@ -73,6 +73,8 @@ function SplitRow({ title, hint, labels, values, onChange }: { title: string; hi
   );
 }
 
+type SettingsSave = { section: "attendance" | "receipts" | "stock" | "loyalty" | "reminders" | "payroll"; body: Record<string, unknown> };
+
 export function StoreDetailsSection() {
   const { currentStore, business } = useStore();
   const [tab, setTab] = useState<TabId>("receipts");
@@ -90,9 +92,14 @@ export function StoreDetailsSection() {
   });
 
   const updateSettingsMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("PUT", "/api/settings", { ...data, storeId: currentStore?.id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings", currentStore?.id] });
+    mutationFn: async (saves: SettingsSave | SettingsSave[]) => {
+      const results = await Promise.all([saves].flat().map(async ({ section, body }) =>
+        (await apiRequest("PUT", `/api/settings/${section}`, { ...body, storeId: currentStore?.id })).json()));
+      return Object.assign({}, ...results);
+    },
+    onSuccess: (updated: any) => {
+      // The PUT echoes only the fields it wrote; merge them instead of refetching the whole row.
+      queryClient.setQueryData(["/api/settings", currentStore?.id], (old: any) => (old ? { ...old, ...updated } : old));
       toast({ title: "Settings updated successfully" });
     },
   });
@@ -303,7 +310,10 @@ export function StoreDetailsSection() {
         <SaveBar
           label="Save receipt and stock settings"
           pending={updateSettingsMutation.isPending}
-          onSave={() => updateSettingsMutation.mutate({ receiptPrefix, receiptThankYouMessage: thankYouMessage, lowStockThreshold })}
+          onSave={() => updateSettingsMutation.mutate([
+            { section: "receipts", body: { receiptPrefix, receiptThankYouMessage: thankYouMessage } },
+            { section: "stock", body: { lowStockThreshold } },
+          ])}
         />
       </div>
 
@@ -427,12 +437,12 @@ export function StoreDetailsSection() {
               pending={updateSettingsMutation.isPending}
               disabled={!splitsOk}
               note={splitsOk ? undefined : "Shared service splits must add up to 100%."}
-              onSave={() => updateSettingsMutation.mutate({
+              onSave={() => updateSettingsMutation.mutate({ section: "payroll", body: {
                 defaultPaymentMethod, commissionType, commissionFixedAmount, commissionFormula,
                 activeDayTransport, passiveDayTransport, commissionRate: commissionRate / 100, fixedBaseAmount,
                 leaveDayRate, payLeaveDays, holidayDayRate, payHolidayDays, offDayRate, payOffDays,
                 leadSplit2, asstSplit2, leadSplit3, asst1Split3, asst2Split3,
-              })}
+              } })}
             />
           </div>
           <aside>{estimate}</aside>
@@ -468,7 +478,7 @@ export function StoreDetailsSection() {
         <SaveBar
           label="Save loyalty settings"
           pending={updateSettingsMutation.isPending}
-          onSave={() => updateSettingsMutation.mutate({ loyaltyPointsPerCurrency, loyaltyPointValue })}
+          onSave={() => updateSettingsMutation.mutate({ section: "loyalty", body: { loyaltyPointsPerCurrency, loyaltyPointValue } })}
         />
       </div>
     </div>

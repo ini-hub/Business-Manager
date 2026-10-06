@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useParams, useSearch, Link } from "wouter";
+import { useEntitlements } from "@/hooks/useEntitlements";
+import { openBilling } from "@/lib/upgrade-prompt";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -57,6 +59,8 @@ type EditFormValues = z.infer<typeof editFormSchema>;
 export default function InventoryEditPage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const { isLocked } = useEntitlements();
+  const partsLocked = isLocked("sell_in_parts");
   const { toast } = useToast();
   const { currentStore } = useStore();
   const queryClient = useQueryClient();
@@ -733,7 +737,14 @@ export default function InventoryEditPage() {
                 </FormDescription>
               </div>
               <FormControl>
-                <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
+                <Switch
+                  checked={field.value ?? false}
+                  onCheckedChange={(on) => {
+                    // Turning it on is the paid "Sell In Parts" add-on; an item already in parts can still be edited.
+                    if (on && partsLocked) { openBilling(setLocation); return; }
+                    field.onChange(on);
+                  }}
+                />
               </FormControl>
             </FormItem>
           )}

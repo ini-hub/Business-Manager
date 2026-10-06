@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { useAuth } from "@/hooks/useAuth";
 import { useStore } from "@/lib/store-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +40,7 @@ export default function StaffDashboard() {
     enabled: !!user && !!currentStore?.id,
   });
 
+  const { isDisabled } = useEntitlements();
   const { data: bookingsData, isLoading: isBookingsLoading } = useQuery<any>({
     queryKey: ["/api/bookings", currentStore?.id, "upcoming"],
     queryFn: async () => {
@@ -46,7 +48,7 @@ export default function StaffDashboard() {
       if (!res.ok) return { data: [] };
       return res.json();
     },
-    enabled: !!user && !!currentStore?.id,
+    enabled: !isDisabled("booking_management") && !!user && !!currentStore?.id,
   });
   const upcomingBookings = ((bookingsData?.data || []) as any[])
     .filter((b) => new Date(b.scheduledAt).getTime() >= Date.now())
@@ -54,7 +56,7 @@ export default function StaffDashboard() {
 
   const { data: gamification } = useQuery<any>({
     queryKey: ["/api/gamification/me", currentStore?.id],
-    enabled: !!user && !!currentStore?.id,
+    enabled: !isDisabled("leaderboards") && !!user && !!currentStore?.id,
   });
 
   const { tracked: attendanceTracked } = useAttendanceTracked();

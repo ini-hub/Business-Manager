@@ -287,7 +287,7 @@ export default function CustomerInsights() {
                 <MetricCard
                   title="New Customers (This Month)"
                   value={newThisMonth}
-                  icon={<Users className="h-4 w-4 text-indigo-500" />}
+                  icon={<Users className="h-4 w-4 text-primary" />}
                   trend={acquisitionPercentChange >= 0 ? "up" : "down"}
                   trendValue={`${acquisitionPercentChange >= 0 ? "+" : ""}${acquisitionPercentChange}%`}
                   description="vs last month"
@@ -375,7 +375,7 @@ export default function CustomerInsights() {
                 <Card className="border-primary/10 shadow-sm">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <ArrowUpRight className="h-4 w-4 text-indigo-500" />
+                      <ArrowUpRight className="h-4 w-4 text-primary" />
                       Top Acquisition Drivers
                     </CardTitle>
                     <p className="text-[11px] text-muted-foreground">What services or products bring in customers for their very first checkout</p>
@@ -392,7 +392,7 @@ export default function CustomerInsights() {
                             <div className="flex justify-between text-xs font-medium">
                               <span className="truncate flex items-center gap-2">
                                 {item.type === "service" ? (
-                                  <Wrench className="h-3.5 w-3.5 text-indigo-400" />
+                                  <Wrench className="h-3.5 w-3.5 text-primary" />
                                 ) : (
                                   <ShoppingBag className="h-3.5 w-3.5 text-amber-400" />
                                 )}
@@ -400,8 +400,8 @@ export default function CustomerInsights() {
                               </span>
                               <span className="text-muted-foreground">{item.count} checkouts</span>
                             </div>
-                            <div className="w-full bg-indigo-50 dark:bg-muted/40 rounded-full h-1.5 overflow-hidden">
-                              <div className="bg-indigo-600 h-full rounded-full transition-all" style={{ width: `${percentage}%` }} />
+                            <div className="w-full bg-primary/10 dark:bg-muted/40 rounded-full h-1.5 overflow-hidden">
+                              <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${percentage}%` }} />
                             </div>
                           </div>
                         );

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ChevronLeft, Package, ShoppingCart } from "lucide-react";
@@ -35,13 +36,14 @@ export default function QuoteFormPage() {
   // Mobile-only pane switcher — mirrors the POS builder's Products/Cart tab bar.
   const [builderView, setBuilderView] = useState<"items" | "review">("items");
 
+  const { isDisabled } = useEntitlements();
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/customers?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: !!currentStore?.id,
+    enabled: !isDisabled("customer_management") && !!currentStore?.id,
   });
 
   // Open to any authenticated staff (unlike /api/products), so quoting stays non-manager-only.
@@ -174,6 +176,7 @@ export default function QuoteFormPage() {
         }
       />
   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    {!isDisabled("customer_management") && (
     <div className="space-y-2">
       <Label htmlFor="customer">Customer Link (Optional)</Label>
       <Select value={customerId || "none"} onValueChange={(v) => setCustomerId(v === "none" ? "" : v)}>
@@ -188,6 +191,7 @@ export default function QuoteFormPage() {
         </SelectContent>
       </Select>
     </div>
+    )}
 
     <div className="space-y-2">
       <Label htmlFor="quoteRef">Quote Reference</Label>

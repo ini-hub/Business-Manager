@@ -1,4 +1,4 @@
-import { getFeatureDef, type FeatureKey } from "@shared/features";
+import { getFeatureDef, featureForScreen, type FeatureKey } from "@shared/features";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useEffect, lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { UpgradePromptDialog } from "@/components/billing/UpgradePromptDialog";
 import { FeatureGate } from "@/components/billing/FeatureGate";
 import { LimitGate } from "@/components/billing/LimitGate";
+import { StoreChoice } from "@/components/billing/StoreChoice";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,6 +18,7 @@ import { StoreProvider } from "@/lib/store-context";
 import { StoreSelector } from "@/components/store-selector";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
+import { SeoSync } from "@/components/seo-sync";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { Loader2, Lock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -157,6 +159,10 @@ const RevenueAnalytics = lazy(() => import("@/pages/admin/RevenueAnalytics"));
 const BillingPayments = lazy(() => import("@/pages/admin/BillingPayments"));
 const FeatureFlags = lazy(() => import("@/pages/admin/FeatureFlags"));
 const FeatureCatalog = lazy(() => import("@/pages/admin/FeatureCatalog"));
+const FeatureEditor = lazy(() => import("@/pages/admin/FeatureEditor"));
+const Bundles = lazy(() => import("@/pages/admin/Bundles"));
+const OverCapReport = lazy(() => import("@/pages/admin/OverCapReport"));
+const BundleEditor = lazy(() => import("@/pages/admin/BundleEditor"));
 const PlatformSettings = lazy(() => import("@/pages/admin/PlatformSettings"));
 const LegalDocuments = lazy(() => import("@/pages/admin/LegalDocuments"));
 const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
@@ -228,8 +234,14 @@ function ModuleGate({ module, children }: { module: PermissionModule; children: 
 
 function ScreenGate({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { hasFeature, isLoading, isError, gatedFeatureFor, gatedModuleFor } = useEntitlements();
+  const { hasFeature, isDisabled, isLoading, isError, gatedFeatureFor, gatedModuleFor } = useEntitlements();
   const featureKey = gatedFeatureFor(location);
+  // A page owned by a switched-off feature is not there at all, locked or not.
+  const owner = featureForScreen(location);
+  if (!isLoading && !isError && ((owner && isDisabled(owner)) || (featureKey && isDisabled(featureKey)))) return <NotFound />;
+  // Hold the page until entitlements arrive: rendering it first and then swapping in Not Found or
+  // the lock lets a switched-off or unpaid page flash up. The query is cached, so this is first load only.
+  if (isLoading && (owner || featureKey)) return null;
   if (!featureKey || isLoading || isError) return <>{children}</>;
   if (!hasFeature(featureKey)) return <FeatureGate featureKey={featureKey}>{null}</FeatureGate>;
   const module = gatedModuleFor(location);
@@ -250,6 +262,7 @@ export default function App() {
       <ThemeProvider defaultTheme="light" storageKey="ui-theme">
         <TooltipProvider>
           <ErrorBoundary>
+            <SeoSync />
             <Router />
           </ErrorBoundary>
           <Toaster />
@@ -282,6 +295,12 @@ function SuperAdminRouter() {
               <Route path="/super-admin/billing" component={BillingPayments} />
               <Route path="/super-admin/flags" component={FeatureFlags} />
               <Route path="/super-admin/feature-catalog" component={FeatureCatalog} />
+              <Route path="/super-admin/feature-catalog/new" component={FeatureEditor} />
+              <Route path="/super-admin/feature-catalog/:id" component={FeatureEditor} />
+              <Route path="/super-admin/over-cap" component={OverCapReport} />
+              <Route path="/super-admin/bundles" component={Bundles} />
+              <Route path="/super-admin/bundles/new" component={BundleEditor} />
+              <Route path="/super-admin/bundles/:id" component={BundleEditor} />
               <Route path="/super-admin/platform-settings" component={PlatformSettings} />
               <Route path="/super-admin/legal-documents" component={LegalDocuments} />
               <Route path="/super-admin/announcements" component={AnnouncementsManager} />
@@ -511,6 +530,7 @@ function AuthenticatedLayout() {
               </div>
               <div className="flex items-center gap-2">
                 {user?.role === "owner" && <TrialBanner business={business} />}
+                {user?.role === "owner" && <StoreChoice />}
                 <NotificationSheet />
                 <ThemeToggle />
               </div>
@@ -566,7 +586,9 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformance />}
                   </Route>
                   <Route path="/inventory" component={InventoryPage} />
-                  <Route path="/inventory/new" component={InventoryNewPage} />
+                  <Route path="/inventory/new">
+                    <LimitGate limitType="item_count"><InventoryNewPage /></LimitGate>
+                  </Route>
                   <Route path="/inventory/audits" component={InventoryAuditsPage} />
                   <Route path="/inventory/audits/new" component={InventoryAuditNewPage} />
                   <Route path="/inventory/:id/edit" component={InventoryEditPage} />

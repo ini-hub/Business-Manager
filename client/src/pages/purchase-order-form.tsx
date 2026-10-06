@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ChevronLeft, Minus, Plus, Search, Trash } from "lucide-react";
@@ -45,6 +47,8 @@ export default function PurchaseOrderFormPage() {
   const [, setLocation] = useLocation();
   const { currentStore, stores } = useStore();
   const { toast } = useToast();
+  const { isDisabled } = useEntitlements();
+  const vendorsOff = isDisabled("vendor_details");
   const storeCurrency = currentStore?.currency || "NGN";
 
   // /purchase-orders/:id/edit edits a draft; /purchase-orders/new creates one.
@@ -155,7 +159,7 @@ export default function PurchaseOrderFormPage() {
       const res = await apiRequest("GET", `/api/vendors?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: isEdit ? !!editPO : currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
+    enabled: !vendorsOff && (isEdit ? !!editPO : currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id),
   });
 
   // Fetch Inventory items
@@ -310,6 +314,18 @@ export default function PurchaseOrderFormPage() {
       <div className="flex justify-between text-sm"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(poTotal)}</span></div>
     </>
   );
+
+  // A purchase order is raised against a vendor, so with Vendors switched off there is nothing to build.
+  if (vendorsOff) {
+    return (
+      <Card className="border-dashed max-w-xl mx-auto mt-8">
+        <CardContent className="py-8 text-center space-y-1">
+          <p className="font-medium">Vendors isn't available right now</p>
+          <p className="text-sm text-muted-foreground">Purchase orders need a vendor, so they can't be created or edited until it's back.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto pb-40 lg:pb-8 animate-in fade-in duration-300">
