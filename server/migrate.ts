@@ -34,6 +34,8 @@ async function connectWithRetry(attempts = 4) {
 export async function runMigrations() {
   const client = await connectWithRetry();
   try {
+    // Two instances booting together (rolling deploy) must not apply the same file twice.
+    await client.query("SELECT pg_advisory_lock(hashtext('migrations'))");
     await client.query(`
       CREATE TABLE IF NOT EXISTS _migrations (
         filename TEXT PRIMARY KEY,
@@ -79,6 +81,7 @@ export async function runMigrations() {
       }
     }
   } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtext('migrations'))").catch(() => undefined);
     client.release();
   }
 }

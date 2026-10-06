@@ -7,11 +7,8 @@ export function getUserId(req: Request): string | undefined {
 }
 
 export function getClientIp(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.socket?.remoteAddress || "unknown";
+  // `trust proxy` is set in index.ts, so req.ip is the real client; X-Forwarded-For itself is spoofable.
+  return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
 export function formatZodErrors(errors: any[]): string {

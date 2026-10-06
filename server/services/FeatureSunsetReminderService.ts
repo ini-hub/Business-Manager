@@ -2,6 +2,7 @@ import { db } from "../db";
 import { orgFeatureEntitlements, featureCatalog, featureSunsetReminderLogs, organisationMembers, users, notifications, announcements } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { sendFeatureSunsetReminderEmail } from "../email";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 /**
  * The §2.7 sunset-notice mechanism from the pay-per-feature entitlement
@@ -131,7 +132,7 @@ async function runFeatureSunsetReminders(): Promise<void> {
 export function startFeatureSunsetReminderService(): void {
   // Fire 20 s after startup (staggered after TrialReminderService's 10 s) to
   // process any due reminders from the previous session.
-  setTimeout(() => runFeatureSunsetReminders().catch((e) => console.error("[FeatureSunsetReminder]", e)), 20_000);
-  setInterval(() => runFeatureSunsetReminders().catch((e) => console.error("[FeatureSunsetReminder]", e)), POLL_INTERVAL_MS);
+  setTimeout(() => withAdvisoryLock("feature-sunset-reminders", runFeatureSunsetReminders).catch((e) => console.error("[FeatureSunsetReminder]", e)), 20_000);
+  setInterval(() => withAdvisoryLock("feature-sunset-reminders", runFeatureSunsetReminders).catch((e) => console.error("[FeatureSunsetReminder]", e)), POLL_INTERVAL_MS);
   console.log("[FeatureSunsetReminder] Service started — polling every hour.");
 }

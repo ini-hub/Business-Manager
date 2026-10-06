@@ -1,11 +1,12 @@
+import "./lib/loadEnv";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { recordRequest, startHealthMetricsFlush } from "./lib/healthMetrics";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import helmet from "helmet";
-import fs from "fs";
-import path from "path";
 import { csrfMiddleware } from "./csrf";
+import { buildCspDirectives } from "./csp";
 import { startBookingReminderService } from "./services/BookingReminderService";
 import { startWhatsAppConversationTimeoutSweeper } from "./services/WhatsAppBookingConversationEngine";
 import { startCreditReminderService } from "./services/CreditReminderService";
@@ -16,51 +17,12 @@ import { runMigrations } from "./migrate";
 import { assertCatalogSeeded } from "./lib/entitlements";
 import { formatSyncReport, syncFeatureRegistry } from "./lib/featureSync";
 
-// Manually load .env file if DATABASE_URL is not already in env
-if (!process.env.DATABASE_URL) {
-  try {
-    const envPath = path.resolve(".env");
-    if (fs.existsSync(envPath)) {
-      const envContent = fs.readFileSync(envPath, "utf8");
-      envContent.split(/\r?\n/).forEach((line) => {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith("#")) {
-          const eqIdx = trimmed.indexOf("=");
-          if (eqIdx > 0) {
-            const key = trimmed.slice(0, eqIdx).trim();
-            let val = trimmed.slice(eqIdx + 1).trim();
-            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-              val = val.slice(1, -1);
-            }
-            process.env[key] = val;
-          }
-        }
-      });
-    }
-  } catch (err) {
-    console.warn("Could not load .env manually:", err);
-  }
-}
-
-
 const app = express();
 app.set("trust proxy", 1);
 
 const isDev = process.env.NODE_ENV !== "production";
 app.use(helmet({
-  contentSecurityPolicy: isDev ? false : {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // needed for some UI libs
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'"],
-      frameSrc: ["'none'"],
-      objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  },
+  contentSecurityPolicy: isDev ? false : { directives: buildCspDirectives() },
 }));
 const httpServer = createServer(app);
 
@@ -112,6 +74,16 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
+      if (path !== "/api/admin/system/health") {
+        recordRequest({
+          at: Date.now(),
+          ms: duration,
+          status: res.statusCode,
+          method: req.method,
+          path,
+          businessId: (req as any).user?.businessId,
+        });
+      }
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (isDev && capturedJsonResponse) {
         const body = JSON.stringify(capturedJsonResponse);
@@ -137,6 +109,7 @@ app.use((req, res, next) => {
     }
   }
   await assertCatalogSeeded();
+  startHealthMetricsFlush();
 
   await registerRoutes(httpServer, app);
 

@@ -4,6 +4,11 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { auditLogger } from "../audit";
 import { getClientIp, formatZodErrors } from './helpers';
+import { isValidPaystackSignature } from "../lib/paystack";
+import { isValidFlutterwaveSignature, isValidStripeSignature, parsePaymentReference } from "../lib/webhookSignatures";
+import { db } from "../db";
+import { checkouts } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -26,10 +31,11 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
     provider: z.enum(["flutterwave", "stripe", "paystack"]).default("flutterwave"),
   });
 
-  app.post("/api/payments/create-link", async (req, res) => {
+  app.post("/api/payments/create-link", isAuthenticated, async (req, res) => {
     try {
       const data = paymentLinkSchema.parse(req.body);
       const storeId = data.storeId;
+      if (!(await checkStoreAccess(storeId, req, res))) return;
 
       // 1. Fetch the merchant's custom store integration credentials from DB
       const integration = await storage.getStoreIntegrationByProvider(storeId, data.provider);
@@ -161,19 +167,12 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
         const { event, data } = req.body;
         txRef = data?.tx_ref || "";
         
-        if (txRef && txRef.startsWith("tx-")) {
-          storeId = txRef.split("-")[1];
-        }
-
-        if (storeId) {
-          const integration = await storage.getStoreIntegrationByProvider(storeId, "flutterwave");
-          const signature = req.headers["verif-hash"];
-          const webhookSecret = integration?.webhookSecret || "";
-
-          if (webhookSecret && signature !== webhookSecret) {
-            auditLogger.logSecurityEvent("flutterwave_webhook_invalid_signature", undefined, getClientIp(req), { signature });
-            return res.status(401).json({ error: "Invalid signature" });
-          }
+        storeId = parsePaymentReference(txRef).storeId ?? "";
+        const integration = storeId ? await storage.getStoreIntegrationByProvider(storeId, "flutterwave") : undefined;
+        const fwSignature = req.headers["verif-hash"];
+        if (!isValidFlutterwaveSignature(typeof fwSignature === "string" ? fwSignature : undefined, integration?.webhookSecret || "")) {
+          auditLogger.logSecurityEvent("flutterwave_webhook_invalid_signature", undefined, getClientIp(req), { signature: fwSignature });
+          return res.status(401).json({ error: "Invalid signature" });
         }
 
         if (event === "charge.completed" && data.status === "successful") {
@@ -187,9 +186,12 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
         const { type, data } = req.body;
         const session = data?.object;
         txRef = session?.client_reference_id || "";
-        
-        if (txRef && txRef.startsWith("tx-")) {
-          storeId = txRef.split("-")[1];
+        storeId = parsePaymentReference(txRef).storeId ?? "";
+        const integration = storeId ? await storage.getStoreIntegrationByProvider(storeId, "stripe") : undefined;
+        const stripeSignature = req.headers["stripe-signature"];
+        if (!isValidStripeSignature(req.rawBody as Buffer | undefined, typeof stripeSignature === "string" ? stripeSignature : undefined, integration?.webhookSecret || "")) {
+          auditLogger.logSecurityEvent("stripe_webhook_invalid_signature", undefined, getClientIp(req), { signature: stripeSignature });
+          return res.status(401).json({ error: "Invalid signature" });
         }
 
         if (type === "checkout.session.completed") {
@@ -203,23 +205,13 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
         const { event, data } = req.body;
         txRef = data?.reference || "";
 
-        if (txRef && txRef.startsWith("tx-")) {
-          storeId = txRef.split("-")[1];
-        }
+        storeId = parsePaymentReference(txRef).storeId ?? "";
 
-        if (storeId) {
-          const integration = await storage.getStoreIntegrationByProvider(storeId, "paystack");
-          const signature = req.headers["x-paystack-signature"];
-          const secretKey = integration?.secretKey || "";
-          
-          if (secretKey) {
-            const crypto = require("crypto");
-            const hash = crypto.createHmac("sha512", secretKey).update(JSON.stringify(req.body)).digest("hex");
-            if (signature !== hash) {
-              auditLogger.logSecurityEvent("paystack_webhook_invalid_signature", undefined, getClientIp(req), { signature });
-              return res.status(401).json({ error: "Invalid signature" });
-            }
-          }
+        const integration = storeId ? await storage.getStoreIntegrationByProvider(storeId, "paystack") : undefined;
+        const signature = req.headers["x-paystack-signature"];
+        if (!isValidPaystackSignature(req.rawBody as Buffer | undefined, typeof signature === "string" ? signature : undefined, integration?.secretKey || "")) {
+          auditLogger.logSecurityEvent("paystack_webhook_invalid_signature", undefined, getClientIp(req), { signature });
+          return res.status(401).json({ error: "Invalid signature" });
         }
 
         if (event === "charge.success") {
@@ -232,11 +224,12 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
       if (isSuccess && txRef) {
         auditLogger.logPayment(txRef, email, amount, provider, "success");
 
-        if (txRef.includes("-checkout-")) {
-          const checkoutId = txRef.split("-checkout-")[1]?.split("-")[0];
-          if (checkoutId) {
-            await storage.updateCheckoutPaymentStatus(checkoutId, "completed");
-          }
+        // The signature proves the store; the checkout must also belong to that store.
+        const { checkoutId } = parsePaymentReference(txRef);
+        if (checkoutId && storeId) {
+          const [owned] = await db.select({ id: checkouts.id }).from(checkouts)
+            .where(and(eq(checkouts.id, checkoutId), eq(checkouts.storeId, storeId)));
+          if (owned) await storage.updateCheckoutPaymentStatus(owned.id, "completed");
         }
       }
 

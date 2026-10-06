@@ -3,6 +3,7 @@ import { organisations, trialReminderLogs } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { sendTrialReminderEmail } from "../email";
 import { getOwnerContact } from "../lib/billing";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000; // every hour
 
@@ -72,7 +73,7 @@ async function runTrialReminders(): Promise<void> {
 
 export function startTrialReminderService(): void {
   // Fire 10 s after startup to process any due reminders from the previous session
-  setTimeout(() => runTrialReminders().catch(e => console.error("[TrialReminder]", e)), 10_000);
-  setInterval(() => runTrialReminders().catch(e => console.error("[TrialReminder]", e)), POLL_INTERVAL_MS);
+  setTimeout(() => withAdvisoryLock("trial-reminders", runTrialReminders).catch(e => console.error("[TrialReminder]", e)), 10_000);
+  setInterval(() => withAdvisoryLock("trial-reminders", runTrialReminders).catch(e => console.error("[TrialReminder]", e)), POLL_INTERVAL_MS);
   console.log("[TrialReminder] Service started — polling every hour.");
 }

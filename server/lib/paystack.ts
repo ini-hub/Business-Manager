@@ -122,10 +122,17 @@ export async function chargeAuthorization(args: {
  * of the exact raw request bytes keyed by the secret key. Must be computed
  * over the raw body (req.rawBody, captured by the global express.json
  * `verify` hook in server/index.ts) - hashing JSON.stringify(req.body)
- * instead can silently mismatch on key ordering/whitespace.
+ * instead can silently mismatch on key ordering/whitespace. Shared by the
+ * platform billing webhook (platform key) and merchant store webhooks (the
+ * store's own key).
  */
+export function isValidPaystackSignature(rawBody: Buffer | undefined, signature: string | undefined, secret: string): boolean {
+  if (!rawBody || !signature || !secret) return false;
+  const expected = Buffer.from(crypto.createHmac("sha512", secret).update(rawBody).digest("hex"));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && crypto.timingSafeEqual(expected, given);
+}
+
 export async function verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): Promise<boolean> {
-  if (!signature) return false;
-  const hash = crypto.createHmac("sha512", await getSecretKey()).update(rawBody).digest("hex");
-  return hash === signature;
+  return isValidPaystackSignature(rawBody, signature, await getSecretKey());
 }

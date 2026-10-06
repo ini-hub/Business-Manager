@@ -6,6 +6,7 @@ import { getStoreTimezone, storeLocalDate } from "../lib/dateUtils";
 import { AttendancePunchRepository } from "../repositories/AttendancePunchRepository";
 import { AttendanceRepository } from "../repositories/AttendanceRepository";
 import { buildScheduleResolver, exceptionKey } from "./attendance/scheduleResolver";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 /**
  * Closes out the previous store-local day.
@@ -114,7 +115,7 @@ async function runAttendanceDayClose(): Promise<void> {
 }
 
 export function startAttendanceDayCloseService(): void {
-  setTimeout(() => runAttendanceDayClose().catch(e => console.error("[AttendanceDayClose]", e)), 15_000);
-  setInterval(() => runAttendanceDayClose().catch(e => console.error("[AttendanceDayClose]", e)), POLL_INTERVAL_MS);
+  setTimeout(() => withAdvisoryLock("attendance-day-close", runAttendanceDayClose).catch(e => console.error("[AttendanceDayClose]", e)), 15_000);
+  setInterval(() => withAdvisoryLock("attendance-day-close", runAttendanceDayClose).catch(e => console.error("[AttendanceDayClose]", e)), POLL_INTERVAL_MS);
   console.log("[AttendanceDayClose] Service started — sweeping every 15 minutes.");
 }

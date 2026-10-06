@@ -185,6 +185,85 @@ export class TransactionRepository {
   }
 
   /**
+   * Narrow per-line rows (only what grouping, staff scope and list search read) for
+   * one or more stores, newest first. Lets the paged list decide which receipts
+   * belong on a page without loading every joined relation for every transaction.
+   */
+  async getTransactionIndex(storeIds: string[], filters: TransactionFilters = {}) {
+    if (storeIds.length === 0) return [];
+    const conditions = [inArray(transactions.storeId, storeIds)];
+    if (filters.startDate) conditions.push(gte(transactions.transactionDate, filters.startDate));
+    if (filters.endDate) conditions.push(lte(transactions.transactionDate, filters.endDate));
+
+    const rows = await db
+      .select({
+        id: transactions.id,
+        transactionDate: transactions.transactionDate,
+        checkoutId: transactions.checkoutId,
+        receiptNumber: checkouts.receiptNumber,
+        isAddendum: checkouts.isAddendum,
+        staffId: checkouts.staffId,
+        leadStaffId: checkouts.leadStaffId,
+        assistingStaff1Id: checkouts.assistingStaff1Id,
+        assistingStaff2Id: checkouts.assistingStaff2Id,
+        inventoryName: inventory.name,
+        inventoryType: inventory.type,
+        customerName: customers.name,
+      })
+      .from(transactions)
+      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .innerJoin(inventory, eq(transactions.inventoryId, inventory.id))
+      .innerJoin(customers, eq(transactions.customerId, customers.id))
+      .where(and(...conditions))
+      .orderBy(desc(transactions.transactionDate));
+
+    return rows.map((r) => ({
+      id: r.id,
+      transactionDate: r.transactionDate,
+      checkoutId: r.checkoutId,
+      amount: 0,
+      checkout: {
+        receiptNumber: r.receiptNumber,
+        isAddendum: r.isAddendum,
+        staffId: r.staffId,
+        leadStaffId: r.leadStaffId,
+        assistingStaff1Id: r.assistingStaff1Id,
+        assistingStaff2Id: r.assistingStaff2Id,
+      },
+      inventory: { name: r.inventoryName, type: r.inventoryType },
+      customer: { name: r.customerName },
+    }));
+  }
+
+  /** Full transactions for specific line ids, newest first (same shape as getTransactions). */
+  async getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]> {
+    if (ids.length === 0) return [];
+    const rows = await db
+      .select({
+        tx: transactions,
+        checkout: checkouts,
+        order: orders,
+        inv: inventory,
+        customer: customers,
+        store: stores,
+        staffMember: staff,
+        voidedBy: users,
+      })
+      .from(transactions)
+      .innerJoin(checkouts, eq(transactions.checkoutId, checkouts.id))
+      .leftJoin(orders, eq(checkouts.orderId, orders.id))
+      .innerJoin(inventory, eq(transactions.inventoryId, inventory.id))
+      .innerJoin(customers, eq(transactions.customerId, customers.id))
+      .innerJoin(stores, eq(transactions.storeId, stores.id))
+      .leftJoin(staff, eq(checkouts.staffId, staff.id))
+      .leftJoin(users, eq(checkouts.voidedByUserId, users.id))
+      .where(inArray(transactions.id, ids))
+      .orderBy(desc(transactions.transactionDate));
+
+    return rows.map(buildTransactionFromRow);
+  }
+
+  /**
    * Lifetime spend and first/last visit per customer, computed in SQL so the
    * customer list doesn't have to download every transaction. Each checkout is
    * counted once however many line items it has, and voided checkouts are

@@ -82,6 +82,36 @@ function groupTransactions(txs: any[]): any[] {
   return result;
 }
 
+/**
+ * One page of receipts, newest first. Grouping, staff scope and search run over a
+ * narrow per-line index; only the lines on the requested page are then loaded in
+ * full. Receipts are grouped exactly as before, so the response is unchanged.
+ */
+async function pageOfReceipts(storeIds: string[], filters: { startDate?: Date; endDate?: Date }, scope: Set<string> | null, search: string | undefined, page: number, limit: number) {
+  const index = await storage.getTransactionIndex(storeIds, filters);
+  let groups = filterToScope(groupTransactions(index), scope);
+  if (search) {
+    const sLower = search.toLowerCase();
+    groups = groups.filter(tx =>
+      String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) ||
+      String(tx.id || "").toLowerCase().includes(sLower) ||
+      String(tx.inventory?.name || "").toLowerCase().includes(sLower) ||
+      String(tx.customer?.name || "").toLowerCase().includes(sLower)
+    );
+  }
+  groups.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+  const total = groups.length;
+  const offset = (page - 1) * limit;
+  const pageKeys = new Set(groups.slice(offset, offset + limit).map(g => g.checkout?.receiptNumber || g.checkoutId || g.id));
+  const lineIds = index
+    .filter(t => pageKeys.has(t.checkout?.receiptNumber || t.checkoutId || t.id))
+    .map(t => t.id);
+  const full = groupTransactions(await storage.getTransactionsByIds(lineIds));
+  const byKey = new Map(full.map(g => [g.checkout?.receiptNumber || g.checkoutId || g.id, g]));
+  const data = groups.slice(offset, offset + limit).map(g => byKey.get(g.checkout?.receiptNumber || g.checkoutId || g.id)).filter(Boolean);
+  return { data, total };
+}
+
 export function registerTransactionRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== TRANSACTIONS ==========
 
@@ -106,40 +136,23 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
           return res.json(page > 0 && limit > 0 ? { transactions: [], total: 0, pages: 0 } : []);
         }
 
+        const scope = await resolveTransactionScope((req as any).user, stores.map(s => s.id));
+
+        if (page > 0 && limit > 0) {
+          const { data, total } = await pageOfReceipts(stores.map(s => s.id), filters, scope, req.query.search as string | undefined, page, limit);
+          const totalPages = Math.ceil(total / limit);
+          return res.json({
+            data,
+            pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
+          });
+        }
+
+        // Non-owner/manager users only see their own checkouts (business setting). Filtered
+        // after grouping so a merged multi-service receipt is never cut down to some of its lines.
         const allTxs = await Promise.all(
           stores.map(s => storage.getTransactions(s.id, filters))
         );
-        let merged = allTxs.flat();
-        // Non-owner/manager users only see their own checkouts (business setting). Filtered
-        // after grouping so a merged multi-service receipt is never cut down to some of its lines.
-        const scope = await resolveTransactionScope((req as any).user, stores.map(s => s.id));
-        let grouped = filterToScope(groupTransactions(merged), scope);
-
-        if (page > 0 && limit > 0) {
-          const search = req.query.search as string;
-          if (search) {
-            const sLower = search.toLowerCase();
-            grouped = grouped.filter(tx =>
-              String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) ||
-              String(tx.id || "").toLowerCase().includes(sLower) ||
-              String(tx.inventory?.name || "").toLowerCase().includes(sLower) ||
-              String(tx.customer?.name || "").toLowerCase().includes(sLower)
-            );
-          }
-          grouped.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
-          const start = (page - 1) * limit;
-          const paginated = grouped.slice(start, start + limit);
-          return res.json({
-            data: paginated,
-            pagination: {
-              total: grouped.length,
-              page,
-              limit,
-              totalPages: Math.ceil(grouped.length / limit),
-              hasMore: page < Math.ceil(grouped.length / limit),
-            },
-          });
-        }
+        const grouped = filterToScope(groupTransactions(allTxs.flat()), scope);
 
         grouped.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
         return res.json(grouped);
@@ -147,37 +160,18 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const txs = await storage.getTransactions(storeId, filters);
       const scope = await resolveTransactionScope((req as any).user, [storeId]);
-      let grouped = filterToScope(groupTransactions(txs), scope);
 
       if (page > 0 && limit > 0) {
-        const search = req.query.search as string;
-        if (search) {
-          const sLower = search.toLowerCase();
-          grouped = grouped.filter(tx =>
-            String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) ||
-            String(tx.id || "").toLowerCase().includes(sLower) ||
-            String(tx.inventory?.name || "").toLowerCase().includes(sLower) ||
-            String(tx.customer?.name || "").toLowerCase().includes(sLower)
-          );
-        }
-        const total = grouped.length;
-        const offset = (page - 1) * limit;
-        const paginatedData = grouped.slice(offset, offset + limit);
+        const { data, total } = await pageOfReceipts([storeId], filters, scope, req.query.search as string | undefined, page, limit);
         const totalPages = Math.max(1, Math.ceil(total / limit));
-
         return res.json({
-          data: paginatedData,
-          pagination: {
-            total,
-            page,
-            limit,
-            totalPages,
-            hasMore: page < totalPages,
-          },
+          data,
+          pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
         });
       }
+
+      const grouped = filterToScope(groupTransactions(await storage.getTransactions(storeId, filters)), scope);
 
       res.json(grouped);
     } catch (error) {

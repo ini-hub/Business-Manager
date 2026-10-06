@@ -2,6 +2,7 @@ import { db } from "../db";
 import { creditEntries, reminderLogs, settings, customers, stores } from "@shared/schema";
 import { eq, and, inArray, isNotNull, gte } from "drizzle-orm";
 import { sendSMS } from "../email";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000; // every hour
 
@@ -147,7 +148,7 @@ async function runCreditReminders(): Promise<void> {
 
 export function startCreditReminderService(): void {
   // Fire 10 s after startup to process any due reminders from the previous session
-  setTimeout(() => runCreditReminders().catch(e => console.error("[CreditReminder]", e)), 10_000);
-  setInterval(() => runCreditReminders().catch(e => console.error("[CreditReminder]", e)), POLL_INTERVAL_MS);
+  setTimeout(() => withAdvisoryLock("credit-reminders", runCreditReminders).catch(e => console.error("[CreditReminder]", e)), 10_000);
+  setInterval(() => withAdvisoryLock("credit-reminders", runCreditReminders).catch(e => console.error("[CreditReminder]", e)), POLL_INTERVAL_MS);
   console.log("[CreditReminder] Service started — polling every hour.");
 }

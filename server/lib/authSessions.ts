@@ -11,6 +11,12 @@ const SESSION_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_MS = 15_000;
 const activeCache = new Map<string, number>();
 
+// Entries are otherwise only removed when re-checked after expiry; sweep the ones never seen again.
+setInterval(() => {
+  const now = Date.now();
+  activeCache.forEach((until, sid) => { if (until <= now) activeCache.delete(sid); });
+}, 60_000).unref();
+
 // Lets long-lived connections (WebSocket) drop when their session is revoked
 // without this module importing them.
 const revokeListeners: Array<(sid: string) => void> = [];

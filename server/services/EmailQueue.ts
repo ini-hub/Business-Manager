@@ -1,7 +1,8 @@
 import { Resend } from "resend";
 import { db } from "../db";
 import { pendingEmails } from "@shared/schema";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, lt, inArray } from "drizzle-orm";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "noreply@kowope.bolujo.com";
@@ -34,6 +35,19 @@ function htmlToText(html: string): string {
 }
 
 let flushing = false;
+
+// Sent and failed rows hold the full message (OTPs, activation codes), so they are
+// dropped after a retention window. Delivery webhooks arrive within hours, well inside it.
+const RETENTION_DAYS = 30;
+const PURGE_EVERY_MS = 60 * 60 * 1000;
+let lastPurge = 0;
+
+async function purgeOldEmails(): Promise<void> {
+  if (Date.now() - lastPurge < PURGE_EVERY_MS) return;
+  lastPurge = Date.now();
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  await db.delete(pendingEmails).where(and(inArray(pendingEmails.status, ["sent", "failed"]), lt(pendingEmails.createdAt, cutoff)));
+}
 
 async function flush(): Promise<void> {
   if (flushing || !resend) return;
@@ -81,14 +95,15 @@ async function flush(): Promise<void> {
   } finally {
     flushing = false;
   }
+  await purgeOldEmails().catch((err) => console.error("[EmailQueue] Purge error:", err instanceof Error ? err.message : err));
 }
 
 // Flush every 30 seconds
-setInterval(flush, 30_000);
+setInterval(() => withAdvisoryLock("email-queue", flush).catch(() => undefined), 30_000);
 
 // Call this on server startup to drain emails queued during downtime
 export function flushOnStartup(): void {
-  flush().catch(() => undefined);
+  withAdvisoryLock("email-queue", flush).catch(() => undefined);
 }
 
 export type EmailPayload = { to: string; subject: string; html: string; replyTo?: string };
@@ -110,7 +125,7 @@ export async function enqueueEmail(payload: EmailPayload): Promise<void> {
     html: payload.html,
     replyTo: payload.replyTo,
   });
-  flush().catch(() => undefined);
+  withAdvisoryLock("email-queue", flush).catch(() => undefined);
 }
 
 export function sendEmail(payload: EmailPayload): void {

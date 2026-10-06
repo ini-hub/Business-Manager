@@ -18,6 +18,7 @@ import { getStoreTimezone } from "../lib/dateUtils";
 import { sendFreeTextMessage, sendInteractiveMessage } from "./WhatsAppService";
 import { getAppUrl } from "../lib/appUrl";
 import { CountLimitError } from "../lib/entitlements";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const customerRepository = new CustomerRepository();
 const bookingRepository = new BookingRepository();
@@ -382,5 +383,5 @@ export function startWhatsAppConversationTimeoutSweeper(): void {
         lte(whatsappConversations.expiresAt, new Date()),
       ));
   };
-  setInterval(() => sweep().catch((e) => console.error("[WhatsAppConversationTimeout] Error:", e)), 5 * 60 * 1000);
+  setInterval(() => withAdvisoryLock("whatsapp-conversation-timeout", sweep).catch((e) => console.error("[WhatsAppConversationTimeout] Error:", e)), 5 * 60 * 1000);
 }

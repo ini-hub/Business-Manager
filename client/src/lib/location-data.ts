@@ -31,20 +31,29 @@ export function getStateOptions(countryIsoCode: string | undefined): LocationOpt
 // the country-state-city package has very sparse/inconsistent NG city data.
 // Every other country falls through to the package's real city list.
 //
-// The package's city dataset (city.json) is ~8.5MB uncompressed - dynamically
-// imported here so it only downloads for the (non-Nigerian) forms that
-// actually need it, instead of bloating every bundle that touches location
-// data.
+// Everything else is fetched from /api/geocode/cities: the package's city
+// dataset is ~8.5MB, which the browser should never download.
+const cityCache = new Map<string, LocationOption[]>();
+
 export async function getCityOptions(countryIsoCode: string | undefined, stateIsoCode: string | undefined): Promise<LocationOption[]> {
   if (!countryIsoCode || !stateIsoCode) return [];
   if (countryIsoCode === "NG") {
     const lgas = nigeriaLgasByStateCode[stateIsoCode] ?? [];
     return lgas.map((name) => ({ value: name, label: name })).sort((a, b) => a.label.localeCompare(b.label));
   }
-  const { City } = await import("country-state-city");
-  return City.getCitiesOfState(countryIsoCode, stateIsoCode)
-    .map((c) => ({ value: c.name, label: c.name }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  const key = `${countryIsoCode}:${stateIsoCode}`;
+  const cached = cityCache.get(key);
+  if (cached) return cached;
+  try {
+    const res = await fetch(`/api/geocode/cities?country=${encodeURIComponent(countryIsoCode)}&state=${encodeURIComponent(stateIsoCode)}`);
+    if (!res.ok) return [];
+    const names = (await res.json()) as string[];
+    const options = names.map((name) => ({ value: name, label: name }));
+    cityCache.set(key, options);
+    return options;
+  } catch {
+    return [];
+  }
 }
 
 function isNigeria(countryIsoCode: string | undefined): boolean {

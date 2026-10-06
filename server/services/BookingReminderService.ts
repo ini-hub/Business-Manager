@@ -3,11 +3,12 @@ import { bookings, customers, stores } from "@shared/schema";
 import { eq, and, gte, lt, isNull, inArray } from "drizzle-orm";
 import { sendSMS } from "../email";
 import { sendTemplateMessage } from "./WhatsAppService";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const WHATSAPP_REMINDER_TEMPLATE = process.env.WHATSAPP_REMINDER_TEMPLATE_NAME || "booking_reminder";
 const WHATSAPP_REMINDER_TEMPLATE_LANGUAGE = process.env.WHATSAPP_REMINDER_TEMPLATE_LANGUAGE || "en_US";
 
-const BUSINESS_NAME = process.env.BUSINESS_NAME || "Excellent Bolujo";
+const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
 
 // Check every 15 minutes, remind 24 h before the booking
 const POLL_INTERVAL_MS = 15 * 60 * 1000;
@@ -102,7 +103,7 @@ async function sendBookingReminders(): Promise<void> {
 
 export function startBookingReminderService(): void {
   // Fire once shortly after startup to catch any missed reminders
-  setTimeout(() => sendBookingReminders().catch((e) => console.error("[BookingReminder] Error:", e)), 5_000);
-  setInterval(() => sendBookingReminders().catch((e) => console.error("[BookingReminder] Error:", e)), POLL_INTERVAL_MS);
+  setTimeout(() => withAdvisoryLock("booking-reminders", sendBookingReminders).catch((e) => console.error("[BookingReminder] Error:", e)), 5_000);
+  setInterval(() => withAdvisoryLock("booking-reminders", sendBookingReminders).catch((e) => console.error("[BookingReminder] Error:", e)), POLL_INTERVAL_MS);
   console.log("[BookingReminder] Service started — polling every 15 minutes.");
 }

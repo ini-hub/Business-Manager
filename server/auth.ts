@@ -8,6 +8,7 @@ import { subscriptions } from "@shared/schema";
 import { getOrgAccessState } from "./lib/trial";
 import { maybeProcessDueRenewal } from "./lib/billing";
 import { isSessionActive } from "./lib/authSessions";
+import { parseCookies } from "./lib/cookies";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -143,15 +144,6 @@ function verifyGuarantorSigningToken(token: string): { guarantorFormId: string }
   }
 }
 
-function parseCookies(cookieHeader?: string): Record<string, string> {
-  const list: Record<string, string> = {};
-  if (!cookieHeader) return list;
-  cookieHeader.split(";").forEach((cookie) => {
-    const parts = cookie.split("=");
-    list[parts.shift()!.trim()] = decodeURI(parts.join("="));
-  });
-  return list;
-}
 
 export async function setupAuth(app: Express) {
   // Setup JWT middleware to parse httpOnly cookie 'jwt_token'
@@ -311,6 +303,35 @@ function isOrgLockExempt(path: string): boolean {
  * this just enforces it server-side, since a valid JWT alone used to be
  * enough to keep transacting after suspension.
  */
+// The business + subscription rows are read on every API call; a short TTL keeps
+// that to one lookup per org per window instead of two per request. A suspension
+// or billing change takes effect within the TTL (same trade-off as isSessionActive).
+const ORG_ACCESS_TTL_MS = 15_000;
+const orgAccessCache = new Map<string, { at: number; value: { business: NonNullable<Awaited<ReturnType<typeof storage.getBusinessById>>>; subscription: typeof subscriptions.$inferSelect | null } | null }>();
+
+async function loadOrgAccessRecord(orgId: string) {
+  const hit = orgAccessCache.get(orgId);
+  if (hit && Date.now() - hit.at < ORG_ACCESS_TTL_MS) return hit.value;
+  const business = await storage.getBusinessById(orgId);
+  let value: NonNullable<typeof hit>["value"] = null;
+  if (business) {
+    const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.organisationId, business.id));
+    value = { business, subscription: subscription ?? null };
+  }
+  orgAccessCache.set(orgId, { at: Date.now(), value });
+  return value;
+}
+
+/** Drops a cached org so the next request re-reads it (call after suspending or changing billing). */
+export function invalidateOrgAccess(orgId: string): void {
+  orgAccessCache.delete(orgId);
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - ORG_ACCESS_TTL_MS;
+  orgAccessCache.forEach((v, k) => { if (v.at < cutoff) orgAccessCache.delete(k); });
+}, 60_000).unref();
+
 export const enforceOrgAccess: RequestHandler = async (req, res, next) => {
   const user = (req as any).user;
   // req.path is relative to this middleware's mount point ("/api"), so
@@ -322,22 +343,18 @@ export const enforceOrgAccess: RequestHandler = async (req, res, next) => {
   }
 
   try {
-    const business = await storage.getBusinessById(user.businessId);
-    if (!business) return next();
-
-    const [subscription] = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.organisationId, business.id));
+    const loaded = await loadOrgAccessRecord(user.businessId);
+    if (!loaded) return next();
+    const { business, subscription } = loaded;
 
     // Lazy renewal charge, same "check on request, no cron" philosophy as
     // trial expiry above. Fire-and-forget: never delays this request, the
     // next request just observes the renewed (or, on failure, locked) state.
-    maybeProcessDueRenewal(business, subscription ?? null).catch((error) => {
+    maybeProcessDueRenewal(business, subscription).catch((error) => {
       console.error(`enforceOrgAccess: renewal check failed for org ${business.id}:`, error);
     });
 
-    if (getOrgAccessState(business, subscription ?? null) === "locked") {
+    if (getOrgAccessState(business, subscription) === "locked") {
       return res.status(403).json({
         error: "This business account is locked. An owner needs to resolve billing or contact support if it was suspended.",
         locked: true,

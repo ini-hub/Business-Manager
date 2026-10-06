@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { planStoreChoice } from "../lib/storeChoice";
 import { requireCustomerSpendAccess } from "../lib/transactionAccess";
 import { invalidateStoreTimezone } from "../lib/dateUtils";
 import { storage } from "../storage";
@@ -23,7 +24,7 @@ import { isTrialExpired } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getAuditContext, formatZodErrors, getUserStores, verifyStoreAccess, verifyRecordStoreAccess } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
-import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
+import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError, ensureFeatureOrReply, getCountLimitStatus } from "../lib/entitlements";
 import { splitNormalizedPhone } from "@shared/phone-utils";
 import { splitFullName } from "@shared/name-utils";
 
@@ -52,6 +53,33 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
   });
   const geocodeCache = new Map<string, { at: number; results: { label: string; lat: number; lng: number }[] }>();
   const GEOCODE_TTL_MS = 10 * 60_000;
+
+  // City lists come from the server so the browser never downloads the ~8 MB
+  // world-cities dataset. Public on purpose: the guarantor signing page has no session.
+  const citiesLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip ?? ""),
+    message: { error: "Too many requests. Please wait a moment." },
+  });
+  const cityCache = new Map<string, string[]>();
+
+  app.get("/api/geocode/cities", citiesLimiter, async (req, res) => {
+    const country = typeof req.query.country === "string" ? req.query.country.trim().toUpperCase() : "";
+    const state = typeof req.query.state === "string" ? req.query.state.trim().toUpperCase() : "";
+    if (!/^[A-Z]{2}$/.test(country) || !/^[A-Z0-9-]{1,6}$/.test(state)) return res.json([]);
+    const key = `${country}:${state}`;
+    let names = cityCache.get(key);
+    if (!names) {
+      const { City } = await import("country-state-city");
+      names = Array.from(new Set(City.getCitiesOfState(country, state).map((c) => c.name))).sort((a, b) => a.localeCompare(b));
+      cityCache.set(key, names);
+    }
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json(names);
+  });
 
   app.get("/api/geocode", isAuthenticated, geocodeLimiter, async (req, res) => {
     const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
@@ -233,6 +261,11 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(403).json({ error: "Unauthorized access to business data." });
       }
       const data = insertBusinessSchema.partial().parse(req.body);
+      // Choosing what Staff see is the paid "Staff Sales Visibility" feature; an
+      // unpaid business keeps the default (own sales only), so the write is refused.
+      if ("staffOwnTransactionsOnly" in data) {
+        if (!(await ensureFeatureOrReply(res, req.params.id, "staff_sales_visibility"))) return;
+      }
       if ("logoUrl" in data) {
         const logo = await persistableLogo(req.params.id, data.logoUrl);
         if (logo === undefined) delete data.logoUrl;
@@ -539,6 +572,35 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
 
   // Designates this store as the business's main store, unsetting the
   // previous one atomically (BusinessRepository.setMainStore).
+  // After a trial that opened extra stores, the owner picks which ones stay active (the rest are archived, never
+  // deleted, and can be restored by buying Additional Store). Only valid while more stores are active than the plan covers.
+  app.post("/api/stores/choose-active", requireRole("owner"), async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId as string | undefined;
+      if (!businessId) return res.status(401).json({ error: "Authentication required." });
+      const keepIds = z.object({ keepStoreIds: z.array(z.string()) }).parse(req.body).keepStoreIds;
+
+      const status = await getCountLimitStatus(businessId, "store_count");
+      if (status.unlimited) return res.status(400).json({ error: "Your plan has no store limit, so there is nothing to choose." });
+
+      const active = (await storage.getStores(businessId)).filter((st) => st.isActive);
+      const plan = planStoreChoice(active.map((st) => ({ id: st.id, isMain: !!st.isMain })), keepIds, status.limit);
+      if (!plan.ok) return res.status(400).json({ error: plan.error });
+
+      if (plan.newMainId) await storage.setMainStore(businessId, plan.newMainId);
+      for (const id of plan.archiveIds) {
+        const archived = await storage.archiveStore(id);
+        const ctx = await getAuditContext(req, { storeId: id });
+        auditLogger.logEvent(ctx, "ARCHIVE", "store", id, "success", { newValues: archived, details: { action: "choose_active_after_trial" } });
+      }
+      res.json({ kept: keepIds.length, archived: plan.archiveIds.length });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("POST /api/stores/choose-active error:", error);
+      res.status(500).json({ error: "We couldn't update your stores. Please try again." });
+    }
+  });
+
   app.post("/api/stores/:id/set-main", requireRole("owner"), async (req, res) => {
     try {
       const store = await storage.getStore(req.params.id);
@@ -1181,7 +1243,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       const businessId = (req as any).user?.businessId;
       if (businessId) {
         const outcome = await checkCountLimit(businessId, "customer_count", data.length);
-        if (!outcome.allowed) return res.status(402).json(new CountLimitError("customer_count", outcome.limit, outcome.used, data.length).toBody());
+        if (!outcome.allowed) return res.status(402).json(new CountLimitError("customer_count", outcome.limit, outcome.used, data.length, outcome.tiered, outcome.trial).toBody());
       }
 
       const result = { success: 0, failed: 0, errors: [] as { row: number; message: string }[] };

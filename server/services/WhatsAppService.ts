@@ -2,6 +2,7 @@ import { db } from "../db";
 import { whatsappNumbers, whatsappMessages, whatsappBroadcastRecipients, whatsappBroadcasts } from "@shared/schema";
 import { eq, and, lte, sql } from "drizzle-orm";
 import { decryptSecret } from "../lib/credentialEncryption";
+import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_GRAPH_API_VERSION || "v21.0";
 const RETRY_DELAYS_MS = [60_000, 300_000, 900_000]; // 1 min, 5 min, 15 min
@@ -87,7 +88,7 @@ async function enqueue(entry: QueueEntry): Promise<string> {
     payload: entry.graphBody,
     status: "queued",
   }).returning({ id: whatsappMessages.id });
-  flush().catch(() => undefined);
+  withAdvisoryLock("whatsapp-queue", flush).catch(() => undefined);
   return row.id;
 }
 
@@ -172,10 +173,10 @@ async function flush(): Promise<void> {
 }
 
 // Flush every 30 seconds, same cadence as EmailQueue
-setInterval(flush, 30_000);
+setInterval(() => withAdvisoryLock("whatsapp-queue", flush).catch(() => undefined), 30_000);
 
 export function flushOnStartup(): void {
-  flush().catch(() => undefined);
+  withAdvisoryLock("whatsapp-queue", flush).catch(() => undefined);
 }
 
 /**

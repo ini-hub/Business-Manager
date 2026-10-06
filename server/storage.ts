@@ -251,6 +251,8 @@ interface IStorage {
 
   // Transactions
   getTransactions(storeId: string, filters?: TransactionFilters): Promise<TransactionWithRelations[]>;
+  getTransactionIndex(storeIds: string[], filters?: TransactionFilters): Promise<any[]>;
+  getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]>;
   getTransactionById(id: string): Promise<TransactionWithRelations | null>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
 
@@ -978,6 +980,14 @@ class DatabaseStorage implements IStorage {
 
   async updateCheckoutPaymentStatus(id: string, status: "pending" | "completed" | "failed"): Promise<Checkout | undefined> {
     return this.transactionRepo.updateCheckoutPaymentStatus(id, status);
+  }
+
+  async getTransactionIndex(storeIds: string[], filters?: TransactionFilters): Promise<any[]> {
+    return this.transactionRepo.getTransactionIndex(storeIds, filters);
+  }
+
+  async getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]> {
+    return this.transactionRepo.getTransactionsByIds(ids);
   }
 
   async getTransactions(storeId: string, filters?: TransactionFilters): Promise<TransactionWithRelations[]> {
