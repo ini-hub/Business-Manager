@@ -106,6 +106,31 @@ function jsonLdFor(page: SeoPage, site: SiteConfig): object | null {
   return null;
 }
 
+type ShareInput = { title: string; description: string; image: string; alt: string; url?: string };
+
+/** Open Graph and X card tags. WhatsApp, Facebook, LinkedIn, Slack and X build link previews from these. */
+function shareTags(site: SiteConfig, share: ShareInput): HeadTag[] {
+  const image = `${site.siteUrl}/og/${share.image}?v=${OG_IMAGE_VERSION}`;
+  return [
+    meta("property", "og:type", "website"),
+    meta("property", "og:site_name", "Kowope"),
+    meta("property", "og:locale", "en_NG"),
+    meta("property", "og:url", share.url ?? `${site.siteUrl}/`),
+    meta("property", "og:title", share.title),
+    meta("property", "og:description", share.description),
+    meta("property", "og:image", image),
+    meta("property", "og:image:width", "1200"),
+    meta("property", "og:image:height", "630"),
+    meta("property", "og:image:alt", share.alt),
+    meta("name", "twitter:card", "summary_large_image"),
+    ...(site.twitterHandle ? [meta("name", "twitter:site", site.twitterHandle)] : []),
+    meta("name", "twitter:title", share.title),
+    meta("name", "twitter:description", share.description),
+    meta("name", "twitter:image", image),
+    meta("name", "twitter:image:alt", share.alt),
+  ];
+}
+
 function publicTags(page: SeoPage, site: SiteConfig): HeadTag[] {
   const canonical = absoluteUrl(site, page.path);
   const tags: HeadTag[] = [
@@ -115,35 +140,19 @@ function publicTags(page: SeoPage, site: SiteConfig): HeadTag[] {
     meta("name", "robots", page.robots),
   ];
 
-  // Noindex pages get no share image, so there is nothing to build a card from.
-  if (!page.ogImage) return tags;
-
   const isIndustry = Boolean(page.industry);
-  const ogTitle = page.ogTitle ?? (isIndustry ? page.h1 : DEFAULT_SHARE.title);
-  const ogDescription = page.ogDescription ?? (isIndustry ? page.description : DEFAULT_SHARE.description);
-  const image = `${site.siteUrl}/og/${page.ogImage}?v=${OG_IMAGE_VERSION}`;
-  const alt = isIndustry
-    ? `Kowope app on a phone next to the headline ${page.h1}`
-    : DEFAULT_SHARE.imageAlt;
-
-  tags.push(
-    meta("property", "og:type", "website"),
-    meta("property", "og:site_name", "Kowope"),
-    meta("property", "og:locale", "en_NG"),
-    meta("property", "og:url", canonical),
-    meta("property", "og:title", ogTitle),
-    meta("property", "og:description", ogDescription),
-    meta("property", "og:image", image),
-    meta("property", "og:image:width", "1200"),
-    meta("property", "og:image:height", "630"),
-    meta("property", "og:image:alt", alt),
-    meta("name", "twitter:card", "summary_large_image"),
-    ...(site.twitterHandle ? [meta("name", "twitter:site", site.twitterHandle)] : []),
-    meta("name", "twitter:title", ogTitle),
-    meta("name", "twitter:description", ogDescription),
-    meta("name", "twitter:image", image),
-    meta("name", "twitter:image:alt", alt),
-  );
+  const share = shareTags(site, {
+    title: page.ogTitle ?? (isIndustry ? page.h1 : DEFAULT_SHARE.title),
+    description: page.ogDescription ?? (isIndustry ? page.description : DEFAULT_SHARE.description),
+    image: page.ogImage ?? DEFAULT_SHARE.image,
+    alt: isIndustry
+      ? `Kowope app on a phone next to the headline ${page.h1}`
+      : DEFAULT_SHARE.imageAlt,
+    url: canonical,
+  });
+  // Pages without their own share image (login, legal) still get the default card: WhatsApp and
+  // friends only preview a link that carries Open Graph tags, and robots already controls indexing.
+  tags.push(...share);
 
   const ld = jsonLdFor(page, site);
   if (ld) {
@@ -155,10 +164,22 @@ function publicTags(page: SeoPage, site: SiteConfig): HeadTag[] {
 
 export function headTagsFor(resolved: ResolvedSeo, site: SiteConfig): HeadTag[] {
   if (resolved.kind === "public") return publicTags(resolved.page, site);
-  return [
+  const tags: HeadTag[] = [
     { tag: "title", attrs: {}, text: resolved.title },
     meta("name", "robots", resolved.kind === "notfound" ? "noindex" : PRIVATE_ROBOTS),
   ];
+  // App and token screens (invites, booking and signing links) are shared over WhatsApp too. They get
+  // the generic brand card only: no og:url and no page content, so nothing private can leak into a
+  // preview, and robots keeps them out of search results.
+  if (resolved.kind !== "notfound") {
+    tags.push(...shareTags(site, {
+      title: resolved.title,
+      description: DEFAULT_SHARE.description,
+      image: DEFAULT_SHARE.image,
+      alt: DEFAULT_SHARE.imageAlt,
+    }));
+  }
+  return tags;
 }
 
 export function headTagsForPath(pathname: string, site: SiteConfig): HeadTag[] {

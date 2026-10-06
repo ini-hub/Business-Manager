@@ -17,3 +17,10 @@
 .bm-word { font-family: "Instrument Sans", system-ui, sans-serif; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-size: 22px; color: var(--kp-ink, hsl(var(--foreground))); }
 .dark .bm-word, .ks-side .bm-word, .kp-sheet .bm-word, .kp-dark .bm-word { color: #fff; }
 @media (min-width: 1024px) { .bm-word { font-size: 26px; } }
+
+/* The landing page (.kp) and auth shell (.ks) are light-only, so a dark system theme must not flip the
+   logo to white on a light surface. Their dark panels (sheet, side column) keep the white version. */
+.kp .bm, .ks .bm { --bm-awning: #216AC7; --bm-stripe: #5B93DE; --bm-body: #1A549F; --bm-bars: #FFFFFF; }
+.kp .bm-word, .ks .bm-word { color: var(--kp-ink); }
+.kp .kp-sheet .bm, .kp .kp-dark .bm, .ks .ks-side .bm { --bm-awning: #FFFFFF; --bm-body: #FFFFFF; --bm-bars: #14202B; }
+.kp .kp-sheet .bm-word, .kp .kp-dark .bm-word, .ks .ks-side .bm-word { color: #fff; }

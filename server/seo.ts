@@ -7,14 +7,16 @@ export const SEO_MARKER = "<!--seo-head-->";
 const clean = (v: string | undefined) => v?.trim() || undefined;
 
 /**
- * SITE_URL is the canonical origin (www or bare, whichever is primary). The social handle and
+ * SITE_URL is the canonical origin (www or bare, whichever is primary). It defaults to APP_URL, the
+ * app's public URL, so one variable covers emails, canonicals, the sitemap and share previews; set
+ * SITE_URL only if the marketing origin differs from the app's. The social handle and
  * profile URLs are optional: while unset, the tags that need them are left out rather than
  * emitted as placeholders.
  */
 export function siteConfigFromEnv(env: NodeJS.ProcessEnv = process.env): SiteConfig {
   const handle = clean(env.SEO_TWITTER_HANDLE);
   return {
-    siteUrl: (clean(env.SITE_URL) ?? DEFAULT_SITE_URL).replace(/\/+$/, ""),
+    siteUrl: (clean(env.SITE_URL) ?? clean(env.APP_URL) ?? DEFAULT_SITE_URL).replace(/\/+$/, ""),
     twitterHandle: handle ? (handle.startsWith("@") ? handle : `@${handle}`) : undefined,
     sameAs: (env.SEO_SAME_AS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   };

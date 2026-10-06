@@ -92,10 +92,15 @@ describe("seo head rendering", () => {
     expect(html("/auth/signup?ref=x")).toContain('href="https://kowope.com/auth/signup"');
   });
 
-  it("noindexes login, app screens and unknown routes, with no share image", () => {
+  it("noindexes login, app screens and unknown routes; real routes keep a generic share card, 404s get none", () => {
     expect(html("/auth/login")).toContain('content="noindex, follow"');
-    expect(html("/auth/login")).not.toContain("og:image");
+    expect(html("/auth/login")).toContain('property="og:image" content="https://kowope.com/og/og-home.jpg?v=');
     expect(html("/customers/12")).toContain('content="noindex, nofollow"');
+    // App screens carry the brand card only; og:url is the site root, so an id or token in the path never reaches a preview.
+    expect(html("/customers/12")).toContain('property="og:image"');
+    expect(html("/customers/12")).toContain('property="og:url" content="https://kowope.com/"');
+    expect(html("/customers/12")).not.toContain("customers/12");
+    expect(html("/nope")).not.toContain("og:image");
     expect(html("/customers/12")).toContain("Customers | Kowope");
     expect(html("/auth/verify-otp")).toContain("Verify Your Email | Kowope");
     expect(html("/nope")).toContain("Page Not Found | Kowope");

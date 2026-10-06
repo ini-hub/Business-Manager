@@ -29,6 +29,11 @@ describe("renderDocument", () => {
 });
 
 describe("siteConfigFromEnv", () => {
+  it("falls back to APP_URL, and SITE_URL wins when both are set", () => {
+    expect(siteConfigFromEnv({ APP_URL: "https://www.kowope.bolujo.com/" }).siteUrl).toBe("https://www.kowope.bolujo.com");
+    expect(siteConfigFromEnv({ APP_URL: "https://app.example.com", SITE_URL: "https://example.com" }).siteUrl).toBe("https://example.com");
+  });
+
   it("defaults the origin and drops unset social fields", () => {
     expect(siteConfigFromEnv({})).toEqual({ siteUrl: "https://kowope.com", twitterHandle: undefined, sameAs: [] });
   });
