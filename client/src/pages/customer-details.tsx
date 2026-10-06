@@ -4,7 +4,7 @@ import { useReturnTo, appendReturnTo } from "@/lib/return-to";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation, useSearch } from "wouter";
-import { ArrowLeft, Phone, MapPin, Calendar, Coins, Receipt, AlertCircle, BookOpen, MoreVertical, Edit, Archive, RotateCcw, PhoneCall, MessageCircle, ShoppingCart, GitMerge, ArrowLeftRight } from "lucide-react";
+import { ArrowLeft, Phone, MapPin, Calendar, Coins, Receipt, AlertCircle, BookOpen, MoreVertical, Edit, Archive, RotateCcw, PhoneCall, MessageCircle, ShoppingCart, GitMerge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { CustomerPhonesCard } from "@/components/CustomerPhonesCard";
+import { MergeProfilesDialog } from "@/components/MergeProfilesDialog";
 import { CustomerGamificationCard } from "@/components/gamification/CustomerGamificationCard";
 
 export default function CustomerDetails() {
@@ -803,149 +804,29 @@ export default function CustomerDetails() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isMergeWizardOpen} onOpenChange={setIsMergeWizardOpen}>
-        <DialogContent className="max-w-2xl bg-slate-900 border border-slate-800 text-white rounded-2xl p-6">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2 text-white">
-              Merge Customer Profiles
-            </DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">
-              Combine transactions, bookings, credit ledgers, and loyalty points. This action is permanent.
-            </DialogDescription>
-          </DialogHeader>
-
-          {mergeTarget && mergeDuplicate && (
-            <div className="space-y-6 pt-4">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                <table className="w-full text-xs text-slate-300">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 font-bold uppercase tracking-widest text-[11px]">
-                      <th className="text-left pb-2 w-1/3">Field</th>
-                      <th className="text-left pb-2 w-1/3">Surviving Profile (Target)</th>
-                      <th className="text-left pb-2 w-1/3">Duplicate Profile (Retired)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-900 font-medium">
-                    <tr className="h-10">
-                      <td className="text-slate-400">Name</td>
-                      <td className={cn(mergeNameChoice === mergeTarget.name ? "text-primary font-bold" : "")}>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="mergeName"
-                            checked={mergeNameChoice === mergeTarget.name}
-                            onChange={() => setMergeNameChoice(mergeTarget.name)}
-                            className="accent-primary text-primary"
-                          />
-                          {mergeTarget.name}
-                        </label>
-                      </td>
-                      <td className={cn(mergeNameChoice === mergeDuplicate.name ? "text-primary font-bold" : "")}>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="mergeName"
-                            checked={mergeNameChoice === mergeDuplicate.name}
-                            onChange={() => setMergeNameChoice(mergeDuplicate.name)}
-                            className="accent-primary text-primary"
-                          />
-                          {mergeDuplicate.name}
-                        </label>
-                      </td>
-                    </tr>
-                    <tr className="h-10">
-                      <td className="text-slate-400">Phone</td>
-                      <td>{mergeTarget.mobileNumber ? mergeTargetPhones.map(p => p.number).join(", ") || mergeTarget.mobileNumber : "—"}</td>
-                      <td>{mergeDuplicate.mobileNumber ? mergeDuplicatePhones.map(p => p.number).join(", ") || mergeDuplicate.mobileNumber : "—"}</td>
-                    </tr>
-                    <tr className="h-10">
-                      <td className="text-slate-400">Address</td>
-                      <td className={cn(mergeAddressChoice === mergeTarget.address ? "text-primary font-bold" : "")}>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="mergeAddress"
-                            checked={mergeAddressChoice === mergeTarget.address}
-                            onChange={() => setMergeAddressChoice(mergeTarget.address || "")}
-                            className="accent-primary text-primary"
-                          />
-                          <span className="truncate max-w-[150px] inline-block align-middle" title={mergeTarget.address}>{mergeTarget.address || "—"}</span>
-                        </label>
-                      </td>
-                      <td className={cn(mergeAddressChoice === mergeDuplicate.address ? "text-primary font-bold" : "")}>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="mergeAddress"
-                            checked={mergeAddressChoice === mergeDuplicate.address}
-                            onChange={() => setMergeAddressChoice(mergeDuplicate.address || "")}
-                            className="accent-primary text-primary"
-                          />
-                          <span className="truncate max-w-[150px] inline-block align-middle" title={mergeDuplicate.address}>{mergeDuplicate.address || "—"}</span>
-                        </label>
-                      </td>
-                    </tr>
-                    <tr className="h-10">
-                      <td className="text-slate-400">Loyalty Points</td>
-                      <td className="text-emerald-500 font-bold">{mergeTarget.loyaltyPoints} pts</td>
-                      <td className="text-emerald-500 font-bold">{mergeDuplicate.loyaltyPoints} pts</td>
-                    </tr>
-                    <tr className="h-10">
-                      <td className="text-slate-400">Store credit</td>
-                      <td>{formatCurrency(Number(mergeTarget.storeCreditBalance || 0), currentStore?.currency || "NGN")}</td>
-                      <td>{formatCurrency(Number(mergeDuplicate.storeCreditBalance || 0), currentStore?.currency || "NGN")}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div className="mt-4 pt-3 border-t border-slate-800 text-xs text-emerald-400 font-bold flex justify-between">
-                  <span>Points Consolidated Result:</span>
-                  <span>{Number(mergeTarget.loyaltyPoints || 0) + Number(mergeDuplicate.loyaltyPoints || 0)} pts</span>
-                </div>
-              </div>
-
-              <div className="rounded-2xl bg-amber-500/10 border border-amber-500/25 p-4 space-y-2">
-                <p className="text-xs font-bold text-amber-500 uppercase tracking-wider">⚠️ Important Merge Implications:</p>
-                <ul className="text-xs text-slate-200 list-disc pl-4 space-y-1">
-                  <li>All appointment/order bookings will be transferred to the Surviving Profile.</li>
-                  <li>All POS sales ledgers and transaction history will be consolidated.</li>
-                  <li>Any active Credit Sales outstanding debt ledger records will be unified.</li>
-                  <li>Store credit and loyalty points are added together, and every phone number from both profiles is kept on the Surviving Profile.</li>
-                  <li>The Duplicate Profile will be archived/retired and cannot be logged into.</li>
-                </ul>
-              </div>
-
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="ghost" className="rounded-full text-slate-400 hover:text-white mr-auto" onClick={swapMergeSides}>
-                  <ArrowLeftRight className="mr-1 h-4 w-4" /> Keep the other profile instead
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="rounded-full text-slate-400 hover:text-white"
-                  onClick={() => setIsMergeWizardOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="rounded-full font-bold shadow-md"
-                  onClick={() => {
-                    mergeMutation.mutate({
-                      targetId: mergeTarget.id,
-                      duplicateId: mergeDuplicate.id,
-                      customFields: {
-                        name: mergeNameChoice,
-                        address: mergeAddressChoice,
-                      }
-                    });
-                  }}
-                  disabled={mergeMutation.isPending}
-                >
-                  {mergeMutation.isPending ? "Merging..." : "Confirm & Merge"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <MergeProfilesDialog
+        open={isMergeWizardOpen}
+        onOpenChange={setIsMergeWizardOpen}
+        target={mergeTarget}
+        duplicate={mergeDuplicate}
+        targetPhones={mergeTargetPhones}
+        duplicatePhones={mergeDuplicatePhones}
+        nameChoice={mergeNameChoice}
+        onNameChoice={setMergeNameChoice}
+        addressChoice={mergeAddressChoice}
+        onAddressChoice={setMergeAddressChoice}
+        formatMoney={(n) => formatCurrency(n, currentStore?.currency || "NGN")}
+        onSwap={swapMergeSides}
+        isPending={mergeMutation.isPending}
+        onConfirm={() => {
+          if (!mergeTarget || !mergeDuplicate) return;
+          mergeMutation.mutate({
+            targetId: mergeTarget.id,
+            duplicateId: mergeDuplicate.id,
+            customFields: { name: mergeNameChoice, address: mergeAddressChoice },
+          });
+        }}
+      />
     </div>
   );
 }
