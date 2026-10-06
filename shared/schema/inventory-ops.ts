@@ -19,14 +19,14 @@ export const inventoryRestockEvents = pgTable("inventory_restock_events", {
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
   staffId: varchar("staff_id").references(() => staff.id), // Who performed the restock
   userId: varchar("user_id").references(() => users.id), // Alternative: owner/manager without staff record
-  quantityAdded: numeric("quantity_added", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  previousQuantity: numeric("previous_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  newQuantity: numeric("new_quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(), // Cost per unit for this restock
-  previousCostPrice: numeric("previous_cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  newCostPrice: numeric("new_cost_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  previousSellingPrice: numeric("previous_selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  newSellingPrice: numeric("new_selling_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  quantityAdded: numeric("quantity_added", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  previousQuantity: numeric("previous_quantity", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  newQuantity: numeric("new_quantity", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 2, mode: "number" }).notNull(), // Cost per unit for this restock
+  previousCostPrice: numeric("previous_cost_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  newCostPrice: numeric("new_cost_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  previousSellingPrice: numeric("previous_selling_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  newSellingPrice: numeric("new_selling_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
   costStrategy: text("cost_strategy").notNull().default("keep"), // keep, last, weighted, override
   notes: text("notes"), // Optional notes for this restock
   reason: text("reason").notNull().default("Regular Restock"), // Regular Restock, Returned Stock, Correction, Opening Stock
@@ -79,7 +79,7 @@ export const bundleComponents = pgTable("bundle_components", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   parentInventoryId: varchar("parent_inventory_id").notNull().references(() => inventory.id),
   componentInventoryId: varchar("component_inventory_id").notNull().references(() => inventory.id),
-  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(1),
+  quantity: numeric("quantity", { precision: 12, scale: 2, mode: "number" }).notNull().default(1),
 });
 
 export const bundleComponentsRelations = relations(bundleComponents, ({ one }) => ({
@@ -106,9 +106,9 @@ export const stockAuditItems = pgTable("stock_audit_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   auditId: varchar("audit_id").notNull().references(() => stockAudits.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  systemQuantity: numeric("system_quantity", { precision: 14, scale: 4 }).$type<number>().notNull(),
-  physicalQuantity: numeric("physical_quantity", { precision: 14, scale: 4 }).$type<number>().notNull(),
-  variance: numeric("variance", { precision: 14, scale: 4 }).$type<number>().notNull(),
+  systemQuantity: numeric("system_quantity", { precision: 14, scale: 4, mode: "number" }).notNull(),
+  physicalQuantity: numeric("physical_quantity", { precision: 14, scale: 4, mode: "number" }).notNull(),
+  variance: numeric("variance", { precision: 14, scale: 4, mode: "number" }).notNull(),
   reason: text("reason"),
 });
 
@@ -159,7 +159,7 @@ export const promotions = pgTable("promotions", {
   buyQuantity: integer("buy_quantity"),
   getItemId: varchar("get_item_id").references(() => inventory.id),
   getQuantity: integer("get_quantity"),
-  spendAmount: numeric("spend_amount", { precision: 12, scale: 2 }).$type<number>(),
+  spendAmount: numeric("spend_amount", { precision: 12, scale: 2, mode: "number" }),
   isActive: boolean("is_active").notNull().default(true),
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
@@ -201,7 +201,7 @@ export const taxRates = pgTable("tax_rates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
-  rate: numeric("rate", { precision: 5, scale: 2 }).$type<number>().notNull(),
+  rate: numeric("rate", { precision: 5, scale: 2, mode: "number" }).notNull(),
   isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

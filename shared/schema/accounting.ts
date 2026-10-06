@@ -14,7 +14,7 @@ export const capitalContributions = pgTable("capital_contributions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   type: text("type").notNull(), // capital_injection | withdrawal
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   description: text("description"),
   date: date("date").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -44,7 +44,7 @@ export const assets = pgTable("assets", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
   category: text("category").notNull(), // cash | fixed | other
-  value: numeric("value", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  value: numeric("value", { precision: 12, scale: 2, mode: "number" }).notNull(),
   acquiredDate: date("acquired_date"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -74,7 +74,7 @@ export const liabilities = pgTable("liabilities", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   name: text("name").notNull(),
   category: text("category").notNull(), // loan | payable | other
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   dueDate: date("due_date"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

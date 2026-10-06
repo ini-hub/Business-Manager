@@ -27,8 +27,8 @@ export const vendorBills = pgTable("vendor_bills", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  amountPaid: numeric("amount_paid", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   status: text("status").notNull().default("unpaid"), // unpaid, partial, paid
   dueDate: timestamp("due_date"),
   billDate: timestamp("bill_date").notNull().defaultNow(),
@@ -69,7 +69,7 @@ export const quotes = pgTable("quotes", {
   customerId: varchar("customer_id").references(() => customers.id),
   quoteRef: text("quote_ref").notNull().unique(),
   status: text("status").notNull().default("draft"),
-  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   notes: text("notes"),
   validUntil: timestamp("valid_until"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -82,9 +82,9 @@ export const quoteItems = pgTable("quote_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   quoteId: varchar("quote_id").notNull().references(() => quotes.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(1),
-  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  quantity: numeric("quantity", { precision: 12, scale: 2, mode: "number" }).notNull().default(1),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
 });
 
 export const quotesRelations = relations(quotes, ({ one, many }) => ({
@@ -117,7 +117,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
   vendorId: varchar("vendor_id").notNull().references(() => vendors.id),
   poNumber: text("po_number").notNull(),
   status: text("status").notNull().default("draft"),
-  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   expectedDelivery: timestamp("expected_delivery"),
   supplierRef: text("supplier_ref"),
   placedAt: timestamp("placed_at"),
@@ -136,10 +136,10 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   poId: varchar("po_id").notNull().references(() => purchaseOrders.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  receivedQuantity: numeric("received_quantity", { precision: 12, scale: 4 }).$type<number>().notNull().default(0),
-  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  totalCost: numeric("total_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  receivedQuantity: numeric("received_quantity", { precision: 12, scale: 4, mode: "number" }).notNull().default(0),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  totalCost: numeric("total_cost", { precision: 12, scale: 2, mode: "number" }).notNull(),
 });
 
 export const purchaseOrderDeliveryReceipts = pgTable("purchase_order_delivery_receipts", {
@@ -213,7 +213,7 @@ export const stockTransferItems = pgTable("stock_transfer_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   transferId: varchar("transfer_id").notNull().references(() => stockTransfers.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 2, mode: "number" }).notNull(),
 });
 
 export const stockTransferRelations = relations(stockTransfers, ({ one, many }) => ({

@@ -158,12 +158,12 @@ export default function Transactions() {
   }, [filteredTransactions]);
 
   const totalAmount = uniqueReceipts.reduce(
-    (sum, tx) => sum + (!tx.checkout?.isVoided ? (tx.checkout?.totalCharged ?? tx.checkout?.totalPrice ?? 0) : 0),
+    (sum, tx) => sum + (!tx.checkout?.isVoided ? Number(tx.checkout?.totalCharged ?? tx.checkout?.totalPrice ?? 0) || 0 : 0),
     0
   );
 
   const totalRefunded = uniqueReceipts.reduce(
-    (sum, tx) => sum + (!tx.checkout?.isVoided ? (tx.checkout?.refundedAmount ?? 0) : 0),
+    (sum, tx) => sum + (!tx.checkout?.isVoided ? Number(tx.checkout?.refundedAmount ?? 0) || 0 : 0),
     0
   );
 

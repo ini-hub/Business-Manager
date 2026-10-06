@@ -18,9 +18,9 @@ export const hrTimeOffBalances = pgTable("hr_time_off_balances", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   leaveType: text("leave_type").notNull(), // hrLeaveTypeEnum
-  available: numeric("available", { precision: 8, scale: 2 }).$type<number>().notNull().default(0),
-  used: numeric("used", { precision: 8, scale: 2 }).$type<number>().notNull().default(0),
-  earned: numeric("earned", { precision: 8, scale: 2 }).$type<number>().notNull().default(0),
+  available: numeric("available", { precision: 8, scale: 2, mode: "number" }).notNull().default(0),
+  used: numeric("used", { precision: 8, scale: 2, mode: "number" }).notNull().default(0),
+  earned: numeric("earned", { precision: 8, scale: 2, mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   unique("hr_time_off_balances_staff_leave_type_unique").on(table.staffId, table.leaveType),
@@ -32,7 +32,7 @@ export const hrTimeOffRequests = pgTable("hr_time_off_requests", {
   leaveType: text("leave_type").notNull(), // hrLeaveTypeEnum
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
-  daysRequested: numeric("days_requested", { precision: 8, scale: 2 }).$type<number>().notNull(),
+  daysRequested: numeric("days_requested", { precision: 8, scale: 2, mode: "number" }).notNull(),
   reason: text("reason"),
   status: text("status").notNull().default("pending"), // hrTimeOffRequestStatusEnum
   reviewedByUserId: varchar("reviewed_by_user_id").references(() => users.id),
@@ -50,9 +50,9 @@ export const hrTimeOffHistory = pgTable("hr_time_off_history", {
   leaveType: text("leave_type").notNull(), // hrLeaveTypeEnum
   date: date("date").notNull(),
   description: text("description").notNull(),
-  usedDays: numeric("used_days", { precision: 8, scale: 2 }).$type<number>().notNull().default(0),
-  earnedDays: numeric("earned_days", { precision: 8, scale: 2 }).$type<number>().notNull().default(0),
-  balanceAfter: numeric("balance_after", { precision: 8, scale: 2 }).$type<number>().notNull(),
+  usedDays: numeric("used_days", { precision: 8, scale: 2, mode: "number" }).notNull().default(0),
+  earnedDays: numeric("earned_days", { precision: 8, scale: 2, mode: "number" }).notNull().default(0),
+  balanceAfter: numeric("balance_after", { precision: 8, scale: 2, mode: "number" }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_hr_time_off_history_staff_type").on(table.staffId, table.leaveType, table.date),

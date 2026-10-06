@@ -34,10 +34,10 @@ export const attendancePunches = pgTable("attendance_punches", {
   clockSkewSeconds: integer("clock_skew_seconds"),
   // A flagged punch may never clear a late flag on its own — only a manager can.
   timeDivergenceFlagged: boolean("time_divergence_flagged").notNull().default(false),
-  latitude: numeric("latitude", { precision: 9, scale: 6 }).$type<number>(),
-  longitude: numeric("longitude", { precision: 9, scale: 6 }).$type<number>(),
-  accuracyMeters: numeric("accuracy_meters", { precision: 8, scale: 2 }).$type<number>(),
-  distanceMeters: numeric("distance_meters", { precision: 10, scale: 2 }).$type<number>(),
+  latitude: numeric("latitude", { precision: 9, scale: 6, mode: "number" }),
+  longitude: numeric("longitude", { precision: 9, scale: 6, mode: "number" }),
+  accuracyMeters: numeric("accuracy_meters", { precision: 8, scale: 2, mode: "number" }),
+  distanceMeters: numeric("distance_meters", { precision: 10, scale: 2, mode: "number" }),
   withinGeofence: boolean("within_geofence"),
   // The geofence cannot tell five arrivals from one person holding five logins,
   // because both are inside it. The device identity can.

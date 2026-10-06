@@ -18,7 +18,7 @@ export const customers = pgTable("customers", {
   address: text("address").notNull(),
   birthday: timestamp("birthday"),
   loyaltyPoints: integer("loyalty_points").notNull().default(0),
-  storeCreditBalance: numeric("store_credit_balance", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  storeCreditBalance: numeric("store_credit_balance", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   isArchived: boolean("is_archived").notNull().default(false),
   globalCustomerId: varchar("global_customer_id"), // Links local profiles sharing same phone
   isConfirmedDistinct: boolean("is_confirmed_distinct").notNull().default(false),

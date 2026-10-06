@@ -22,7 +22,7 @@ export const serviceConsumables = pgTable("service_consumables", {
   // >= 0.01 (enforced by CHECK): inventory.quantity is numeric(12,2), so a smaller
   // recipe would round to zero on the stock column and stock would never move while
   // cost accrued. Stock supplies in ml/g/ea rather than bottles.
-  quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4 }).$type<number>().notNull(),
+  quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4, mode: "number" }).notNull(),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -64,9 +64,9 @@ export const orderConsumables = pgTable("order_consumables", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   orderId: varchar("order_id").notNull().references(() => orders.id),
   supplyInventoryId: varchar("supply_inventory_id").notNull().references(() => inventory.id),
-  quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).$type<number>().notNull(),
-  unitCostAtSale: numeric("unit_cost_at_sale", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  totalCost: numeric("total_cost", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  quantityUsed: numeric("quantity_used", { precision: 12, scale: 4, mode: "number" }).notNull(),
+  unitCostAtSale: numeric("unit_cost_at_sale", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  totalCost: numeric("total_cost", { precision: 12, scale: 2, mode: "number" }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   unique("order_consumables_order_supply_unique").on(table.orderId, table.supplyInventoryId),

@@ -31,7 +31,7 @@ export const expenses = pgTable("expenses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   title: text("title").notNull(),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   categoryId: varchar("category_id").notNull().references(() => expenseCategories.id),
   inventoryId: varchar("inventory_id").references(() => inventory.id), // legacy single-link — superseded by expense_linked_items
   allocationDriver: text("allocation_driver").notNull().default("count"), // 'count' | 'revenue'

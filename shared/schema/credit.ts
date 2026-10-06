@@ -13,9 +13,9 @@ export const creditEntries = pgTable("credit_entries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
-  amountOwed: numeric("amount_owed", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  amountPaidUpfront: numeric("amount_paid_upfront", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amountOwed: numeric("amount_owed", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  amountPaidUpfront: numeric("amount_paid_upfront", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2, mode: "number" }).notNull(),
   dueDate: timestamp("due_date"),
   description: text("description"),
   linkedTransactionId: varchar("linked_transaction_id").references(() => checkouts.id),
@@ -55,7 +55,7 @@ export const WRITE_OFF_REASONS = [
 export const repayments = pgTable("repayments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   creditEntryId: varchar("credit_entry_id").notNull().references(() => creditEntries.id),
-  amountReceived: numeric("amount_received", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amountReceived: numeric("amount_received", { precision: 12, scale: 2, mode: "number" }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // see repaymentMethodEnum
   notes: text("notes"),
   recordedByStaffId: varchar("recorded_by_staff_id").references(() => staff.id),

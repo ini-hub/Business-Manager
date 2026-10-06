@@ -31,7 +31,7 @@ export const hrEstateBeneficiaries = pgTable("hr_estate_beneficiaries", {
   relationship: text("relationship"),
   address: text("address"),
   phone: text("phone"),
-  percentage: numeric("percentage", { precision: 5, scale: 2 }).$type<number>().notNull(),
+  percentage: numeric("percentage", { precision: 5, scale: 2, mode: "number" }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [

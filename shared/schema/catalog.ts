@@ -44,8 +44,8 @@ export const inventory = pgTable("inventory", {
   // delivering it, EXCLUDING anything covered by a service_consumables recipe — those
   // are costed from the supply's own cost price when the service is sold. A service
   // carrying both a cost price and a recipe would count its consumables twice.
-  costPrice: numeric("cost_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).$type<number>().notNull().default(0), // always 0 for supplies — they are never sold
+  costPrice: numeric("cost_price", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  sellingPrice: numeric("selling_price", { precision: 12, scale: 2, mode: "number" }).notNull().default(0), // always 0 for supplies — they are never sold
   // Supplies only. 'expensed' charges the purchase straight to Direct Supplies and
   // never meters it per service — the honest default when nobody knows the rate.
   // 'metered' capitalises the purchase and releases cost via a recipe, with a
@@ -55,10 +55,10 @@ export const inventory = pgTable("inventory", {
   // 4dp because a supply recipe can legitimately be a few ten-thousandths of a
   // unit (a bottle covering 300 services is 0.0033 per service). At 2dp that
   // deduction rounded to zero and stock never moved.
-  quantity: numeric("quantity", { precision: 14, scale: 4 }).$type<number>().notNull().default(0), // Supports fractional quantities (e.g. 1.5 kg)
+  quantity: numeric("quantity", { precision: 14, scale: 4, mode: "number" }).notNull().default(0), // Supports fractional quantities (e.g. 1.5 kg)
   allowFractional: boolean("allow_fractional").notNull().default(false), // When true, quantity can be a decimal
   unit: text("unit"), // Optional unit label shown in UI and on receipts (e.g. 'kg', 'litre', 'm')
-  reorderPoint: numeric("reorder_point", { precision: 12, scale: 2 }).$type<number>(), // Per-item low-stock threshold (null = use global setting)
+  reorderPoint: numeric("reorder_point", { precision: 12, scale: 2, mode: "number" }), // Per-item low-stock threshold (null = use global setting)
   commissionSplitOverride: boolean("commission_split_override").default(false).notNull(),
   commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
   commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),

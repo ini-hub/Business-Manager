@@ -42,8 +42,8 @@ export const staff = pgTable("staff", {
   staffNumber: text("staff_number").notNull(),
   mobileNumber: text("mobile_number").notNull(),
   countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
-  payPerMonth: numeric("pay_per_month", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  commissionRateOverride: numeric("commission_rate_override", { precision: 5, scale: 4 }).$type<number>(), // Nullable: overrides store commission rate
+  payPerMonth: numeric("pay_per_month", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  commissionRateOverride: numeric("commission_rate_override", { precision: 5, scale: 4, mode: "number" }), // Nullable: overrides store commission rate
   // DEPRECATED: predates the versioned e-signature flow (see staff-contracts.ts /
   // migrations/0046_staff_contract_signing.sql) and was a bare manual
   // checkbox never linked to any document. Left as-is for historical rows,
@@ -57,17 +57,17 @@ export const staff = pgTable("staff", {
   overridePaymentMethod: boolean("override_payment_method").notNull().default(false),
   overrideCommission: boolean("override_commission").notNull().default(false),
   commissionTypeOverride: text("commission_type_override"), // percentage or fixed_per_service
-  commissionFixedAmountOverride: numeric("commission_fixed_amount_override", { precision: 12, scale: 2 }).$type<number>(),
+  commissionFixedAmountOverride: numeric("commission_fixed_amount_override", { precision: 12, scale: 2, mode: "number" }),
   overrideFormula: boolean("override_formula").notNull().default(false),
   commissionFormulaOverride: text("commission_formula_override"), // formula_a, formula_b, formula_c, formula_d, formula_f
   overrideAttendanceRates: boolean("override_attendance_rates").notNull().default(false),
-  activeDayRateOverride: numeric("active_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
-  passiveDayRateOverride: numeric("passive_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
-  leaveDayRateOverride: numeric("leave_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
+  activeDayRateOverride: numeric("active_day_rate_override", { precision: 12, scale: 2, mode: "number" }),
+  passiveDayRateOverride: numeric("passive_day_rate_override", { precision: 12, scale: 2, mode: "number" }),
+  leaveDayRateOverride: numeric("leave_day_rate_override", { precision: 12, scale: 2, mode: "number" }),
   payLeaveDaysOverride: boolean("pay_leave_days_override").notNull().default(false),
-  holidayDayRateOverride: numeric("holiday_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
+  holidayDayRateOverride: numeric("holiday_day_rate_override", { precision: 12, scale: 2, mode: "number" }),
   payHolidayDaysOverride: boolean("pay_holiday_days_override").notNull().default(false),
-  offDayRateOverride: numeric("off_day_rate_override", { precision: 12, scale: 2 }).$type<number>(),
+  offDayRateOverride: numeric("off_day_rate_override", { precision: 12, scale: 2, mode: "number" }),
   payOffDaysOverride: boolean("pay_off_days_override").notNull().default(false),
   // Optional per-store second factor for clocking in, distinct from the login
   // password. Staff share app passwords casually; a separate PIN means a shared

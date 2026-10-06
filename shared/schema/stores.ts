@@ -20,7 +20,7 @@ export const stores = pgTable("stores", {
   country: text("country").notNull().default("NG"), // ISO country code
   currency: text("currency").notNull().default("NGN"), // ISO currency code
   timezone: text("timezone").notNull().default("Africa/Lagos"), // IANA timezone identifier
-  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).$type<number>().notNull().default(0.3000), // Default 30% service commission
+  commissionRate: numeric("commission_rate", { precision: 5, scale: 4, mode: "number" }).notNull().default(0.3000), // Default 30% service commission
   managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   isMain: boolean("is_main").notNull().default(false), // The business's primary store - at most one per business, enforced below
@@ -84,9 +84,9 @@ export type StoreCounter = typeof storeCounters.$inferSelect;
 export const settings = pgTable("settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id).unique(),
-  activeDayTransport: numeric("active_day_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(1000),
-  passiveDayTransport: numeric("passive_day_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(500),
-  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).$type<number>().notNull().default(0.3000),
+  activeDayTransport: numeric("active_day_transport", { precision: 12, scale: 2, mode: "number" }).notNull().default(1000),
+  passiveDayTransport: numeric("passive_day_transport", { precision: 12, scale: 2, mode: "number" }).notNull().default(500),
+  commissionRate: numeric("commission_rate", { precision: 5, scale: 4, mode: "number" }).notNull().default(0.3000),
   defaultPayrollPeriod: text("default_payroll_period").notNull().default("monthly"), // weekly, biweekly, monthly
   maxAssistingStaff: integer("max_assisting_staff").notNull().default(2),
   // Receipt settings
@@ -106,30 +106,30 @@ export const settings = pgTable("settings", {
   // Payroll Settings defaults
   defaultPaymentMethod: text("default_payment_method").notNull().default("hybrid"), // fixed, commission, hybrid
   commissionType: text("commission_type").notNull().default("percentage"), // percentage, fixed_per_service
-  commissionFixedAmount: numeric("commission_fixed_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  commissionFixedAmount: numeric("commission_fixed_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   commissionFormula: text("commission_formula").notNull().default("formula_b"), // formula_a, formula_b, formula_c, formula_d, formula_f
-  leaveDayRate: numeric("leave_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  leaveDayRate: numeric("leave_day_rate", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   payLeaveDays: boolean("pay_leave_days").notNull().default(false),
-  holidayDayRate: numeric("holiday_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  holidayDayRate: numeric("holiday_day_rate", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   payHolidayDays: boolean("pay_holiday_days").notNull().default(false),
-  offDayRate: numeric("off_day_rate", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  offDayRate: numeric("off_day_rate", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   payOffDays: boolean("pay_off_days").notNull().default(false),
   leadSplit2: integer("lead_split_2").notNull().default(80),
   asstSplit2: integer("asst_split_2").notNull().default(20),
   leadSplit3: integer("lead_split_3").notNull().default(60),
   asst1Split3: integer("asst1_split_3").notNull().default(20),
   asst2Split3: integer("asst2_split_3").notNull().default(20),
-  fixedBaseAmount: numeric("fixed_base_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(30000),
+  fixedBaseAmount: numeric("fixed_base_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(30000),
   // Loyalty Points program
   loyaltyPointsPerCurrency: integer("loyalty_points_per_currency").notNull().default(100), // 1 point earned per this much spent
-  loyaltyPointValue: numeric("loyalty_point_value", { precision: 12, scale: 2 }).$type<number>().notNull().default(10), // value of 1 point on redemption, in the store's currency
+  loyaltyPointValue: numeric("loyalty_point_value", { precision: 12, scale: 2, mode: "number" }).notNull().default(10), // value of 1 point on redemption, in the store's currency
   // ── Attendance & Clock-In ──────────────────────────────────────────────────
   // NOTE: every column below must also appear in the sanitizeSettings allowlist
   // in server/routes/settings.routes.ts, or PUT /api/settings drops it silently
   // and returns 200.
   clockInEnabled: boolean("clock_in_enabled").notNull().default(false),
-  geofenceLatitude: numeric("geofence_latitude", { precision: 9, scale: 6 }).$type<number>(),
-  geofenceLongitude: numeric("geofence_longitude", { precision: 9, scale: 6 }).$type<number>(),
+  geofenceLatitude: numeric("geofence_latitude", { precision: 9, scale: 6, mode: "number" }),
+  geofenceLongitude: numeric("geofence_longitude", { precision: 9, scale: 6, mode: "number" }),
   geofencePlaceLabel: text("geofence_place_label"),
   geofenceRadiusMeters: integer("geofence_radius_meters").notNull().default(50),
   // A fix reporting 80 m of error cannot prove a 50 m fence either way. Readings
@@ -140,7 +140,7 @@ export const settings = pgTable("settings", {
   // Flat amount per late day, deliberately uncapped — it may exceed a day's
   // transport. Where it exceeds the period's pay the existing mark-paid clamp
   // carries the excess forward.
-  lateDeductionAmount: numeric("late_deduction_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  lateDeductionAmount: numeric("late_deduction_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   lateDeductionEnabled: boolean("late_deduction_enabled").notNull().default(false),
   requirePunchPin: boolean("require_punch_pin").notNull().default(false),
   maxOfflinePunchAgeMinutes: integer("max_offline_punch_age_minutes").notNull().default(720),

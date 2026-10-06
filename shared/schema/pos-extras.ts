@@ -78,18 +78,18 @@ export const returnLogs = pgTable("return_logs", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   orderId: varchar("order_id").notNull().references(() => orders.id),
-  quantity: numeric("quantity", { precision: 12, scale: 4 }).$type<number>().notNull(),
-  refundAmount: numeric("refund_amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 4, mode: "number" }).notNull(),
+  refundAmount: numeric("refund_amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   // Tax component of refundAmount, broken out so the return history UI can show
   // customers/owners exactly how much tax was reversed, not just one opaque total.
-  taxRefundAmount: numeric("tax_refund_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  taxRefundAmount: numeric("tax_refund_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   refundMethod: text("refund_method").notNull(),
   reason: text("reason"),
   staffId: varchar("staff_id").references(() => staff.id),
   userId: varchar("user_id").references(() => users.id),
   restockEventId: varchar("restock_event_id").references(() => inventoryRestockEvents.id),
-  inventoryQuantityBeforeReturn: numeric("inventory_quantity_before_return", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  inventoryQuantityAfterReturn: numeric("inventory_quantity_after_return", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  inventoryQuantityBeforeReturn: numeric("inventory_quantity_before_return", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  inventoryQuantityAfterReturn: numeric("inventory_quantity_after_return", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -112,7 +112,7 @@ export const storeCreditTransactions = pgTable("store_credit_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   storeId: varchar("store_id").notNull().references(() => stores.id),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(), // positive for additions, negative for redemptions
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(), // positive for additions, negative for redemptions
   type: text("type").notNull(), // 'issued_refund', 'purchase_redemption', 'manual_adjustment'
   checkoutId: varchar("checkout_id").references(() => checkouts.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -139,10 +139,10 @@ export const cashRegisterSessions = pgTable("cash_register_sessions", {
   closedAt: timestamp("closed_at"),
   openedByUserId: varchar("opened_by_user_id").references(() => users.id),
   closedByUserId: varchar("closed_by_user_id").references(() => users.id),
-  openingFloat: numeric("opening_float", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  expectedCash: numeric("expected_cash", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  actualCash: numeric("actual_cash", { precision: 12, scale: 2 }).$type<number>(),
-  difference: numeric("difference", { precision: 12, scale: 2 }).$type<number>(),
+  openingFloat: numeric("opening_float", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  expectedCash: numeric("expected_cash", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  actualCash: numeric("actual_cash", { precision: 12, scale: 2, mode: "number" }),
+  difference: numeric("difference", { precision: 12, scale: 2, mode: "number" }),
   notes: text("notes"),
 }, (table) => [
   index("idx_cash_register_sessions_store_status").on(table.storeId, table.status),
@@ -151,7 +151,7 @@ export const cashRegisterSessions = pgTable("cash_register_sessions", {
 export const cashDrops = pgTable("cash_drops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sessionId: varchar("session_id").notNull().references(() => cashRegisterSessions.id),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   droppedAt: timestamp("dropped_at").notNull().defaultNow(),
   droppedByUserId: varchar("dropped_by_user_id").references(() => users.id),
   notes: text("notes"),

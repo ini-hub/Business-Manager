@@ -16,14 +16,14 @@ export const orders = pgTable("orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  quantity: numeric("quantity", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  returnedQuantity: numeric("returned_quantity", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  refundedAmount: numeric("refunded_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  taxApplied: numeric("tax_applied", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  quantity: numeric("quantity", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  returnedQuantity: numeric("returned_quantity", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  refundedAmount: numeric("refunded_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  taxApplied: numeric("tax_applied", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   // Tax portion already reversed via a return, tracked separately from refundedAmount so
   // tax-liability reporting can subtract exactly what was given back, not just the total.
-  taxRefunded: numeric("tax_refunded", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  taxRefunded: numeric("tax_refunded", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
 }, (table) => [
   index("idx_orders_inventory").on(table.inventoryId),
   index("idx_orders_store").on(table.storeId),
@@ -60,11 +60,11 @@ export const checkouts = pgTable("checkouts", {
   assistingStaff2Id: varchar("assisting_staff2_id").references(() => staff.id), // Optional assisting staff #2
   orderId: varchar("order_id").notNull().references(() => orders.id),
   bookingId: varchar("booking_id").references(() => bookings.id),
-  bookingDepositAmount: numeric("booking_deposit_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  bookingDepositAmount: numeric("booking_deposit_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   bookingDepositMethod: text("booking_deposit_method"),
-  balanceCollectedToday: numeric("balance_collected_today", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  balanceCollectedToday: numeric("balance_collected_today", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
-  totalPrice: numeric("total_price", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  totalPrice: numeric("total_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave, credit, split
   splitPayments: jsonb("split_payments").$type<Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>>(), // only populated if paymentMethod === "split"
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
@@ -77,14 +77,14 @@ export const checkouts = pgTable("checkouts", {
   voidReason: text("void_reason"),
   isPartiallyReturned: boolean("is_partially_returned").notNull().default(false),
   // New transaction-level Discount Option B columns
-  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  discountAmount: numeric("discount_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).$type<number>().notNull().default(0),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  discountAmount: numeric("discount_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2, mode: "number" }).notNull().default(0),
   discountReason: text("discount_reason"),
   discountApprovedBy: text("discount_approved_by"),
   pointsRedeemed: integer("points_redeemed").notNull().default(0),
-  totalCharged: numeric("total_charged", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  taxTotal: numeric("tax_total", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  totalCharged: numeric("total_charged", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  taxTotal: numeric("tax_total", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   isAddendum: boolean("is_addendum").notNull().default(false),
   addendumReason: text("addendum_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -167,7 +167,7 @@ export const transactions = pgTable("transactions", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   checkoutId: varchar("checkout_id").notNull().references(() => checkouts.id),
   transactionDate: timestamp("transaction_date").notNull().defaultNow(),
 }, (t) => [
@@ -207,10 +207,10 @@ export const profitLoss = pgTable("profit_loss", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   inventoryId: varchar("inventory_id").notNull().references(() => inventory.id),
-  totalQuantitySold: numeric("total_quantity_sold", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  quantityRemaining: numeric("quantity_remaining", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  totalRevenue: numeric("total_revenue", { precision: 15, scale: 2 }).$type<number>().notNull().default(0),
-  totalGrossProfit: numeric("total_gross_profit", { precision: 15, scale: 2 }).$type<number>().notNull().default(0),
+  totalQuantitySold: numeric("total_quantity_sold", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  quantityRemaining: numeric("quantity_remaining", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  totalRevenue: numeric("total_revenue", { precision: 15, scale: 2, mode: "number" }).notNull().default(0),
+  totalGrossProfit: numeric("total_gross_profit", { precision: 15, scale: 2, mode: "number" }).notNull().default(0),
 }, (table) => [
   unique("profit_loss_store_inventory_unique").on(table.storeId, table.inventoryId),
 ]);

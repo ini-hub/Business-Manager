@@ -61,7 +61,7 @@ export const hrFieldValues = pgTable("hr_field_values", {
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   fieldDefinitionId: varchar("field_definition_id").notNull().references(() => hrFieldDefinitions.id),
   valueText: text("value_text"),
-  valueNumber: numeric("value_number", { precision: 18, scale: 4 }).$type<number>(),
+  valueNumber: numeric("value_number", { precision: 18, scale: 4, mode: "number" }),
   valueDate: timestamp("value_date"),
   valueBoolean: boolean("value_boolean"),
   valueJson: jsonb("value_json"), // multiselect only

@@ -33,8 +33,8 @@ export const featureCatalog = pgTable("feature_catalog", {
   description: text("description"),
   category: text("category").notNull(), // 'vendor_mgmt' | 'staff_mgmt' | 'customer_mgmt' | 'financial_mgmt' | 'tax_compliance' | 'inventory_mgmt' | 'analytics' | 'business_settings'
   tierType: text("tier_type").notNull(), // see comment above
-  priceMonthly: numeric("price_monthly", { precision: 12, scale: 2 }).$type<number>(),
-  priceAnnual: numeric("price_annual", { precision: 12, scale: 2 }).$type<number>(),
+  priceMonthly: numeric("price_monthly", { precision: 12, scale: 2, mode: "number" }),
+  priceAnnual: numeric("price_annual", { precision: 12, scale: 2, mode: "number" }),
   currency: text("currency").notNull().default("NGN"),
   parentFeatureId: varchar("parent_feature_id").references((): any => featureCatalog.id), // set only for tierType='bundle_child'
   freeLimit: integer("free_limit"), // only for tierType='paid_metered_limit': 1 (staff), 50 (customers)
@@ -200,7 +200,7 @@ export const pricingBundles = pgTable("pricing_bundles", {
   // feature_catalog.key values. No FK on purpose: a jsonb list can't have one,
   // so every write is validated in server/lib/pricing.ts instead.
   featureKeys: jsonb("feature_keys").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-  discountPct: numeric("discount_pct", { precision: 5, scale: 2 }).$type<number>().notNull().default(sql`0`),
+  discountPct: numeric("discount_pct", { precision: 5, scale: 2, mode: "number" }).notNull().default(sql`0`),
   // Optional hand-written landing bullets; empty means derive them from the members.
   bullets: jsonb("bullets").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   featured: boolean("featured").notNull().default(false),

@@ -75,8 +75,8 @@ export const insertBusinessSchema = insertOrganisationSchema;
 export const plans = pgTable("plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  priceMonthly: numeric("price_monthly", { precision: 12, scale: 2 }).$type<number>().notNull(),
-  priceAnnual: numeric("price_annual", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  priceMonthly: numeric("price_monthly", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  priceAnnual: numeric("price_annual", { precision: 12, scale: 2, mode: "number" }).notNull(),
   currency: text("currency").notNull().default("NGN"),
   features: jsonb("features").notNull().default(sql`'[]'::jsonb`),
   isActive: boolean("is_active").notNull().default(true),
@@ -133,7 +133,7 @@ export const subscriptionPayments = pgTable("subscription_payments", {
   provider: text("provider").notNull(), // 'paystack' for now; 'stripe'/'flutterwave' once wired
   kind: text("kind").notNull().default("initial"), // 'initial', 'renewal'
   reference: text("reference").notNull().unique(),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   currency: text("currency").notNull(),
   billingCycle: text("billing_cycle").notNull(),
   status: text("status").notNull().default("pending"), // 'pending', 'success', 'failed'

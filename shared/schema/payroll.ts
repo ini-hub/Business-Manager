@@ -116,20 +116,20 @@ export const payrollEntries = pgTable("payroll_entries", {
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   activeDays: integer("active_days").notNull().default(0),
   passiveDays: integer("passive_days").notNull().default(0),
-  activeTransport: numeric("active_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  passiveTransport: numeric("passive_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  totalTransport: numeric("total_transport", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  grossCommission: numeric("gross_commission", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  netPay: numeric("net_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  activeTransport: numeric("active_transport", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  passiveTransport: numeric("passive_transport", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  totalTransport: numeric("total_transport", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  grossCommission: numeric("gross_commission", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  netPay: numeric("net_pay", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   leaveDays: integer("leave_days").notNull().default(0),
   holidayDays: integer("holiday_days").notNull().default(0),
   offDays: integer("off_days").notNull().default(0),
   absentDays: integer("absent_days").notNull().default(0),
-  leavePay: numeric("leave_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  holidayPay: numeric("holiday_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
-  offDayPay: numeric("off_day_pay", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  leavePay: numeric("leave_pay", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  holidayPay: numeric("holiday_pay", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  offDayPay: numeric("off_day_pay", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   calculationDetails: jsonb("calculation_details"),
-  carryForwardAmount: numeric("carry_forward_amount", { precision: 12, scale: 2 }).$type<number>().notNull().default(0),
+  carryForwardAmount: numeric("carry_forward_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
@@ -274,7 +274,7 @@ export const salaryAdvances = pgTable("salary_advances", {
   // The original, immutable claim — never mutated after creation. What's left
   // to collect lives in outstandingBalance, the same split credit_entries
   // draws between amountOwed and outstandingBalance.
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   date: text("date").notNull(), // YYYY-MM-DD
   notes: text("notes"),
   // What's still owed. Starts equal to `amount`; SalaryAdvanceDeductionService
@@ -282,7 +282,7 @@ export const salaryAdvances = pgTable("salary_advances", {
   // cover — never by more, so this never goes negative and an advance too big
   // for one paycheck simply gets re-proposed against its own remaining
   // balance next period, the same way an open credit_entries balance does.
-  outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  outstandingBalance: numeric("outstanding_balance", { precision: 12, scale: 2, mode: "number" }).notNull(),
   recoveryStatus: text("recovery_status").notNull().default("unrecovered"), // see salaryAdvanceRecoveryStatusEnum
   // Reserved to the period currently proposing/settling it — set by
   // SalaryAdvanceDeductionService.syncProposals as soon as a proposal is
@@ -344,7 +344,7 @@ export const payrollDeductions = pgTable("payroll_deductions", {
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   type: text("type").notNull(), // see payrollDeductionTypeEnum
   label: text("label").notNull(), // Human-readable description shown on payslip
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   // Set only for type = 'staff_credit': the Borrow Book debt this line recovers.
   creditEntryId: varchar("credit_entry_id").references(() => creditEntries.id),
   // The repayment written at mark-paid. Its presence is the idempotency guard
@@ -424,7 +424,7 @@ export const payrollPostings = pgTable("payroll_postings", {
   // in this schema (attendance, expenses, period bounds), which the reporting
   // layer compares as strings against store-local wall-clock dates.
   effectiveDate: text("effective_date").notNull(),
-  amount: numeric("amount", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_payroll_postings_store_account_date").on(table.storeId, table.account, table.effectiveDate),
@@ -449,7 +449,7 @@ export const payrollDisbursements = pgTable("payroll_disbursements", {
   periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   staffId: varchar("staff_id").notNull().references(() => staff.id),
-  amountPaid: numeric("amount_paid", { precision: 12, scale: 2 }).$type<number>().notNull(),
+  amountPaid: numeric("amount_paid", { precision: 12, scale: 2, mode: "number" }).notNull(),
   method: text("method").notNull().default("cash"), // 'cash', 'bank_transfer', 'mobile_money'
   reference: text("reference"), // Bank reference or transaction ID
   notes: text("notes"),
@@ -474,8 +474,8 @@ export const payslipRecords = pgTable("payslip_records", {
   periodId: varchar("period_id").notNull().references(() => payrollPeriods.id),
   staffId: varchar("staff_id").notNull().references(() => staff.id),
   generatedByUserId: varchar("generated_by_user_id").references(() => users.id),
-  grossPay: numeric("gross_pay", { precision: 12, scale: 2 }).$type<number>(),
-  netPay: numeric("net_pay", { precision: 12, scale: 2 }).$type<number>(),
+  grossPay: numeric("gross_pay", { precision: 12, scale: 2, mode: "number" }),
+  netPay: numeric("net_pay", { precision: 12, scale: 2, mode: "number" }),
   generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });
 
