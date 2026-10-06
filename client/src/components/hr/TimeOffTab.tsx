@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Check, X } from "lucide-react";
+import { Plus, Check, X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 const LEAVE_TYPES = ["annual", "sick", "bereavement", "maternity"] as const;
 
@@ -62,7 +63,7 @@ export function TimeOffTab({ staffId, canManage }: { staffId: string; canManage:
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-4">
-        {loadingBalances ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : LEAVE_TYPES.map((lt) => {
+        {loadingBalances ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : LEAVE_TYPES.map((lt) => {
           const b = balances.find((x) => x.leaveType === lt);
           return (
             <Card key={lt}>
@@ -97,7 +98,7 @@ export function TimeOffTab({ staffId, canManage }: { staffId: string; canManage:
               </div>
               <DialogFooter>
                 <Button onClick={() => createRequest.mutate()} disabled={!form.startDate || !form.endDate || !form.daysRequested || createRequest.isPending} data-testid="button-submit-time-off-request">
-                  {createRequest.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Submit
+                  {createRequest.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Submit
                 </Button>
               </DialogFooter>
             </DialogContent>

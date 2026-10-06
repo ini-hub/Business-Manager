@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, CalendarCheck, XCircle } from "lucide-react";
+import { CalendarCheck, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FullScreenLoader, Spinner } from "@/components/ui/loader";
 
 type BookingView = {
   booking: {
@@ -50,11 +51,7 @@ export default function CustomerBookingView() {
   });
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FullScreenLoader label="Loading your booking" />;
   }
 
   if (isError || !data) {
@@ -116,7 +113,7 @@ export default function CustomerBookingView() {
               onClick={() => cancelBooking.mutate()}
               disabled={cancelBooking.isPending}
             >
-              {cancelBooking.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {cancelBooking.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
               Cancel Booking
             </Button>
           )}

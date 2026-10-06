@@ -1,7 +1,7 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { featureCatalog, featureDependencies, featureFlags, organisations, orgFeatureEntitlements, type FeatureCatalog } from "@shared/schema";
-import { FEATURES, type FeatureDef } from "@shared/features";
+import { FEATURES, getFeatureDef, launchesForReview, type FeatureDef } from "@shared/features";
 
 /**
  * Pushes the code registry (shared/features.ts) into feature_catalog,
@@ -14,16 +14,24 @@ import { FEATURES, type FeatureDef } from "@shared/features";
  * currency, is_active and flag status are never touched, so an admin's edit
  * survives every deploy. Idempotent: a second run reports no changes.
  *
+ * Launch rule: a priced feature the sync creates (see launchesForReview) starts INACTIVE and
+ * 'pending_review', so it is hidden and unpurchasable, and is not grandfathered to anyone, until a super
+ * admin prices and publishes it (publishFeature, below). That is what makes it safe to sync on every boot:
+ * a deploy can add features but never switches a paid one on. The exception is an empty catalog (a fresh
+ * database), where there is no admin to review anything, so the first seed publishes everything.
+ *
  * This is also the supported way to repair an empty catalog. Do not re-run the
  * old seed INSERTs from migrations 0048/0057 by hand: since 0086 a catalog row
  * cannot exist without its flag.
  */
 
-type DbOrTx = Pick<typeof db, "select" | "insert" | "update" | "delete">;
+type DbOrTx = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
 
 export interface SyncReport {
   createdFeatures: string[];
   createdFlags: string[];
+  /** Created this run and left inactive until a super admin publishes them. */
+  pendingReview: string[];
   updatedFeatures: { key: string; fields: string[] }[];
   createdDependencies: string[];
   /** Edges from a bundled child to its own parent: redundant (the parent grants it) and they would block cancelling the parent. */
@@ -62,19 +70,73 @@ export function diffStructure(def: FeatureDef, row: StructuralFields): string[] 
   return (Object.keys(want) as (keyof StructuralFields)[]).filter((k) => want[k] !== row[k]);
 }
 
+/** Grants a feature (source 'grandfathered') to every organisation that exists now; returns how many. Idempotent. */
+async function grandfatherToExistingOrgs(tx: DbOrTx, featureId: string): Promise<number> {
+  const orgs = await tx.select({ id: organisations.id }).from(organisations);
+  if (orgs.length > 0) {
+    await tx
+      .insert(orgFeatureEntitlements)
+      .values(orgs.map((o) => ({ organisationId: o.id, featureId, status: "active", source: "grandfathered" })))
+      .onConflictDoNothing();
+  }
+  return orgs.length;
+}
+
+export interface PublishResult {
+  feature: FeatureCatalog;
+  /** Organisations that were granted it for free because it used to be free (registry `grandfather`). */
+  grandfathered: number;
+}
+
+/**
+ * Takes a feature the sync created pending review live: applies the admin's price, activates it and runs the
+ * grandfathering the sync held back. Returns null when the feature does not exist or is already published
+ * (a second click is harmless and grants nothing twice).
+ */
+export async function publishFeature(
+  id: string,
+  price?: { priceMonthly?: number | null; priceAnnual?: number | null },
+  lookup: (key: string) => FeatureDef | undefined = getFeatureDef,
+): Promise<PublishResult | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(featureCatalog).where(eq(featureCatalog.id, id)).for("update");
+    if (!row || row.reviewStatus !== "pending_review") return null;
+    const [feature] = await tx
+      .update(featureCatalog)
+      .set({
+        isActive: true,
+        reviewStatus: "published",
+        updatedAt: new Date(),
+        ...(price?.priceMonthly !== undefined ? { priceMonthly: price.priceMonthly } : {}),
+        ...(price?.priceAnnual !== undefined ? { priceAnnual: price.priceAnnual } : {}),
+      })
+      .where(eq(featureCatalog.id, id))
+      .returning();
+    const def = lookup(row.key);
+    const grandfathered = def?.grandfather && row.tierType !== "free" && row.tierType !== "bundle_child"
+      ? await grandfatherToExistingOrgs(tx, row.id)
+      : 0;
+    return { feature, grandfathered };
+  });
+}
+
 export async function syncFeatureRegistry(
-  options: { dryRun?: boolean; features?: readonly FeatureDef[] } = {},
+  options: { dryRun?: boolean; features?: readonly FeatureDef[]; publishNew?: boolean } = {},
 ): Promise<SyncReport> {
   const features = options.features ?? (FEATURES as readonly FeatureDef[]);
   const report: SyncReport = {
-    createdFeatures: [], createdFlags: [], updatedFeatures: [], createdDependencies: [], removedDependencies: [], grandfathered: [], absorbed: [], dbOnlyFeatures: [],
+    createdFeatures: [], createdFlags: [], pendingReview: [], updatedFeatures: [], createdDependencies: [], removedDependencies: [], grandfathered: [], absorbed: [], dbOnlyFeatures: [],
   };
 
   // A dry run still goes through a transaction, and rolls it back at the end.
   class DryRunRollback extends Error {}
 
   const run = async (tx: DbOrTx) => {
+    // Two instances booting together (rolling deploy) must not both insert the same rows.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('feature_sync'))`);
     const existing = new Map((await tx.select().from(featureCatalog)).map((r) => [r.key, r]));
+    const publishNew = options.publishNew === true || existing.size === 0;
+    const initialKeys = new Set(existing.keys());
     const flagsByName = new Map((await tx.select().from(featureFlags)).map((f) => [f.name, f]));
 
     const idByKey = new Map<string, string>();
@@ -92,6 +154,10 @@ export async function syncFeatureRegistry(
 
       const row = existing.get(def.key);
       if (!row) {
+        // A new parent that already has children in the database cannot start dark: those children are hidden
+        // while their parent is, and a bundle that absorbs old features would retire them while it is hidden.
+        const adoptsExisting = features.some((f) => f.parent === def.key && initialKeys.has(f.key));
+        const dark = !publishNew && !adoptsExisting && launchesForReview(def);
         const [created] = await tx
           .insert(featureCatalog)
           .values({
@@ -99,24 +165,20 @@ export async function syncFeatureRegistry(
             ...structuralFields(def),
             priceMonthly: def.price?.monthly ?? null,
             priceAnnual: def.price?.annual ?? null,
-            isActive: def.active,
+            isActive: def.active && !dark,
+            reviewStatus: dark ? "pending_review" : "published",
             flagId: flag.id,
           })
           .returning();
         idByKey.set(def.key, created.id);
         existing.set(def.key, created);
         report.createdFeatures.push(def.key);
+        if (dark) report.pendingReview.push(def.key);
         // A module that used to be free is now paid: organisations that already exist keep
         // it (source 'grandfathered'); the super admin can later schedule a sunset.
-        if (def.grandfather && def.active && def.tier !== "free" && def.tier !== "bundle_child") {
-          const orgs = await tx.select({ id: organisations.id }).from(organisations);
-          if (orgs.length > 0) {
-            await tx
-              .insert(orgFeatureEntitlements)
-              .values(orgs.map((o) => ({ organisationId: o.id, featureId: created.id, status: "active", source: "grandfathered" })))
-              .onConflictDoNothing();
-          }
-          report.grandfathered.push({ key: def.key, organisations: orgs.length });
+        // A feature left pending review is granted at publish time instead (publishFeature).
+        if (!dark && def.grandfather && def.active && def.tier !== "free" && def.tier !== "bundle_child") {
+          report.grandfathered.push({ key: def.key, organisations: await grandfatherToExistingOrgs(tx, created.id) });
         }
         continue;
       }
@@ -125,14 +187,7 @@ export async function syncFeatureRegistry(
       const fields = diffStructure(def, row);
       // A feature that was free and is now paid: organisations that exist right now keep it.
       if (def.grandfather && def.active && row.tierType === "free" && def.tier !== "free" && def.tier !== "bundle_child") {
-        const orgs = await tx.select({ id: organisations.id }).from(organisations);
-        if (orgs.length > 0) {
-          await tx
-            .insert(orgFeatureEntitlements)
-            .values(orgs.map((o) => ({ organisationId: o.id, featureId: row.id, status: "active", source: "grandfathered" })))
-            .onConflictDoNothing();
-        }
-        report.grandfathered.push({ key: def.key, organisations: orgs.length });
+        report.grandfathered.push({ key: def.key, organisations: await grandfatherToExistingOrgs(tx, row.id) });
       }
       // The registry only fills a MISSING price (a free feature that just became paid); it never overwrites an admin's.
       if (def.price && row.priceMonthly == null && row.priceAnnual == null && def.tier !== "free") {
@@ -263,6 +318,7 @@ export function formatSyncReport(r: SyncReport): string {
   const lines = [
     `created features:     ${r.createdFeatures.length ? r.createdFeatures.join(", ") : "none"}`,
     `created flags:        ${r.createdFlags.length ? r.createdFlags.join(", ") : "none"}`,
+    `pending review:       ${r.pendingReview.length ? r.pendingReview.join(", ") : "none"}`,
     `updated features:     ${r.updatedFeatures.length ? r.updatedFeatures.map((u) => `${u.key} (${u.fields.join(", ")})`).join("; ") : "none"}`,
     `created dependencies: ${r.createdDependencies.length ? r.createdDependencies.join(", ") : "none"}`,
     `removed dependencies: ${r.removedDependencies.length ? r.removedDependencies.join(", ") : "none"}`,

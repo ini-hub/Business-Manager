@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { format, startOfMonth } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -50,6 +50,7 @@ import type {
   YAxisMode,
 } from "@shared/analytics/model";
 import type { AnalyticsQueryInput, AnalyticsViewSpec } from "@shared/analytics/query";
+import { Spinner } from "@/components/ui/loader";
 
 const DEFAULT_MEASURES = ["sales.net_revenue", "sales.gross_profit"];
 const iso = (d: Date) => format(d, "yyyy-MM-dd");
@@ -302,7 +303,7 @@ export default function AnalyticsExplorerPage() {
 
             {isFetching && (
               <span className="text-xs text-muted-foreground flex items-center gap-2">
-                <Loader2 className="h-3 w-3 animate-spin" /> Updating…
+                <Spinner className="h-3 w-3 animate-spin" /> Updating…
               </span>
             )}
 

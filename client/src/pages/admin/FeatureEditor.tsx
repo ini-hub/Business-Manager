@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "wouter";
-import { ArrowLeft, Loader2, Package, Gauge, Layers, Gift, Tag } from "lucide-react";
+import { ArrowLeft, Package, Gauge, Layers, Gift, Tag } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { DisableImpactNote, disableAllowed } from "./DisableImpactNote";
+import { Spinner } from "@/components/ui/loader";
 
 const CATEGORIES = ["vendor_mgmt", "staff_mgmt", "customer_mgmt", "financial_mgmt", "tax_compliance", "inventory_mgmt", "analytics", "business_settings"] as const;
 const CATEGORY_LABELS: Record<string, string> = {
@@ -174,7 +175,7 @@ export default function FeatureEditor() {
       </div>
 
       {!isNew && isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+        <div className="flex justify-center py-12"><Spinner className="h-8 w-8 animate-spin text-primary" /></div>
       ) : !isNew && (error || !existing) ? (
         <p className="text-sm text-muted-foreground">Feature not found.</p>
       ) : (
@@ -361,7 +362,7 @@ export default function FeatureEditor() {
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => navigate(LIST_PATH)}>Cancel</Button>
                 <Button className="flex-1" onClick={() => saveMutation.mutate()} disabled={!canSave}>
-                  {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {saveMutation.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                   {isNew ? "Create" : "Save"}
                 </Button>
               </div>

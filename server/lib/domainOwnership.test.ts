@@ -26,7 +26,7 @@ for (const f of files) {
  */
 const PLATFORM_DOMAINS: ReadonlySet<string> = new Set([
   "auth", "user", "entitlements", "billing", "subscription", "webhooks", "health", "csrf-token", "public", "support", "legal", "profile", "upload", "uploads",
-  "admin", "debug", "verify", "geocode", "announcements", "permission-modules", "reports", "charts", "dashboard", "search",
+  "admin", "debug", "verify", "geocode", "export-branding", "announcements", "permission-modules", "reports", "charts", "dashboard", "search",
 ]);
 
 describe("API domain ownership", () => {

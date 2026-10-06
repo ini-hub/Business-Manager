@@ -9,16 +9,191 @@ import {
   quotes,
   checkouts,
   orders,
+  customerPhones,
+  storeCreditTransactions,
   type Customer,
+  type CustomerPhone,
   type InsertCustomer,
 } from "@shared/schema";
 import { eq, ne, and, or, ilike, inArray, count, asc, sql, gte, lte, desc } from "drizzle-orm";
-import { normalizePhoneNumber } from "../sanitize";
+import { normalizePhoneNumber, sanitizePhoneNumber } from "../sanitize";
 import { searchTokens, infix, searchPhoneDigits } from "../lib/searchTerms";
 import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 
+type Conn = Pick<typeof db, "select" | "insert" | "update" | "delete">;
+
+/** True when any of the customer's numbers (primary or secondary) matches the ilike pattern. */
+const anyPhoneLike = (pattern: string) =>
+  sql`exists (select 1 from customer_phones cp where cp.customer_id = ${customers.id} and cp.number ilike ${pattern})`;
+
 export class CustomerRepository {
+  // ─── Phone numbers ─────────────────────────────────────────────────────────
+  // customers.mobileNumber always mirrors the primary row of customer_phones.
+  private async mirrorPrimary(conn: Conn, customerId: string): Promise<void> {
+    const [primary] = await conn.select().from(customerPhones)
+      .where(and(eq(customerPhones.customerId, customerId), eq(customerPhones.isPrimary, true)));
+    await conn.update(customers)
+      .set({ mobileNumber: primary?.number ?? null, updatedAt: new Date() })
+      .where(eq(customers.id, customerId));
+  }
+
+  /** Customers created outside createCustomer (bulk import, walk-in provisioning) may hold a number with no phone row yet. */
+  private async ensureLegacyRow(conn: Conn, customer: Customer): Promise<void> {
+    if (!customer.mobileNumber) return;
+    const rows = await conn.select().from(customerPhones).where(eq(customerPhones.customerId, customer.id));
+    if (rows.some(r => r.number === customer.mobileNumber)) return;
+    await conn.insert(customerPhones).values({
+      customerId: customer.id, storeId: customer.storeId, number: customer.mobileNumber, isPrimary: !rows.some(r => r.isPrimary),
+    });
+  }
+
+  /** Make the first remaining number primary when the customer has numbers but none is primary. */
+  private async ensurePrimary(conn: Conn, customerId: string): Promise<void> {
+    const rows = await conn.select().from(customerPhones)
+      .where(eq(customerPhones.customerId, customerId)).orderBy(asc(customerPhones.createdAt));
+    if (rows.length > 0 && !rows.some(r => r.isPrimary)) {
+      await conn.update(customerPhones).set({ isPrimary: true }).where(eq(customerPhones.id, rows[0].id));
+    }
+    await this.mirrorPrimary(conn, customerId);
+  }
+
+  /** Set (or clear, with null) the primary number — what the edit form's single phone field does. */
+  private async replacePrimaryNumber(conn: Conn, customerId: string, storeId: string, number: string | null): Promise<void> {
+    const [current] = await conn.select().from(customerPhones)
+      .where(and(eq(customerPhones.customerId, customerId), eq(customerPhones.isPrimary, true)));
+    if (!number) {
+      if (current) await conn.delete(customerPhones).where(eq(customerPhones.id, current.id));
+    } else if (!current || current.number !== number) {
+      const [existing] = await conn.select().from(customerPhones)
+        .where(and(eq(customerPhones.customerId, customerId), eq(customerPhones.number, number)));
+      if (existing) {
+        // The number is already on the profile as a secondary: promote it, and drop the old primary (it was a correction).
+        if (current) await conn.delete(customerPhones).where(eq(customerPhones.id, current.id));
+        await conn.update(customerPhones).set({ isPrimary: true }).where(eq(customerPhones.id, existing.id));
+      } else if (current) {
+        await conn.update(customerPhones).set({ number }).where(eq(customerPhones.id, current.id));
+      } else {
+        await conn.insert(customerPhones).values({ customerId, storeId, number, isPrimary: true });
+      }
+    }
+    await this.ensurePrimary(conn, customerId);
+  }
+
+  async getPhones(customerId: string): Promise<CustomerPhone[]> {
+    return db.select().from(customerPhones)
+      .where(eq(customerPhones.customerId, customerId))
+      .orderBy(desc(customerPhones.isPrimary), asc(customerPhones.createdAt));
+  }
+
+  /** The live profile in this store that already uses this number, if any. */
+  async findPhoneOwner(storeId: string, number: string, excludeCustomerId?: string): Promise<Customer | undefined> {
+    const [row] = await db.select({ customer: customers })
+      .from(customerPhones)
+      .innerJoin(customers, eq(customers.id, customerPhones.customerId))
+      .where(and(
+        eq(customerPhones.storeId, storeId),
+        eq(customerPhones.number, number),
+        eq(customers.isArchived, false),
+        excludeCustomerId ? ne(customers.id, excludeCustomerId) : undefined,
+      ))
+      .limit(1);
+    return row?.customer;
+  }
+
+  async addPhone(customerId: string, rawNumber: string, opts: { label?: string | null; makePrimary?: boolean } = {}): Promise<CustomerPhone[]> {
+    const number = sanitizePhoneNumber(rawNumber);
+    if (!number) throw new Error("Enter a valid phone number.");
+    await db.transaction(async (tx) => {
+      const [customer] = await tx.select().from(customers).where(eq(customers.id, customerId));
+      if (!customer) throw new Error("Customer not found.");
+      await this.ensureLegacyRow(tx, customer);
+      const existing = await tx.select().from(customerPhones).where(eq(customerPhones.customerId, customerId));
+      if (existing.some(p => p.number === number)) throw new Error("This number is already on this customer.");
+      const makePrimary = opts.makePrimary || existing.length === 0;
+      if (makePrimary) {
+        await tx.update(customerPhones).set({ isPrimary: false }).where(eq(customerPhones.customerId, customerId));
+      }
+      await tx.insert(customerPhones).values({
+        customerId, storeId: customer.storeId, number, label: opts.label?.trim() || null, isPrimary: makePrimary,
+      });
+      await this.mirrorPrimary(tx, customerId);
+    });
+    await this.linkGlobalCustomerIds(customerId);
+    return this.getPhones(customerId);
+  }
+
+  async removePhone(customerId: string, phoneId: string): Promise<CustomerPhone[]> {
+    await db.transaction(async (tx) => {
+      const deleted = await tx.delete(customerPhones)
+        .where(and(eq(customerPhones.id, phoneId), eq(customerPhones.customerId, customerId))).returning();
+      if (deleted.length === 0) throw new Error("Phone number not found.");
+      await this.ensurePrimary(tx, customerId);
+    });
+    await this.linkGlobalCustomerIds(customerId);
+    return this.getPhones(customerId);
+  }
+
+  async setPrimaryPhone(customerId: string, phoneId: string): Promise<CustomerPhone[]> {
+    await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(customerPhones)
+        .where(and(eq(customerPhones.id, phoneId), eq(customerPhones.customerId, customerId)));
+      if (!row) throw new Error("Phone number not found.");
+      await tx.update(customerPhones).set({ isPrimary: false }).where(eq(customerPhones.customerId, customerId));
+      await tx.update(customerPhones).set({ isPrimary: true }).where(eq(customerPhones.id, phoneId));
+      await this.mirrorPrimary(tx, customerId);
+    });
+    await this.linkGlobalCustomerIds(customerId);
+    return this.getPhones(customerId);
+  }
+
+  /**
+   * Profiles in this store whose name looks like the one being entered (same words in any order, or one name
+   * containing all the words of the other). Used to ask "same person?" before a second profile is created.
+   */
+  async findSimilarByName(storeId: string, name: string, excludeId?: string) {
+    const words = (v: string) => Array.from(new Set(v.toLowerCase().split(/[^a-z0-9À-ɏ]+/).filter(w => w.length > 1)));
+    const wanted = words(name);
+    if (wanted.length === 0) return [];
+    const candidates = await db.select().from(customers).where(and(
+      eq(customers.storeId, storeId),
+      eq(customers.isArchived, false),
+      excludeId ? ne(customers.id, excludeId) : undefined,
+      or(...wanted.map(w => ilike(customers.name, `%${w}%`)))!,
+    )).limit(100);
+
+    const similar = candidates.filter(c => {
+      const have = words(c.name);
+      if (have.length === 0) return false;
+      const [small, big] = wanted.length <= have.length ? [wanted, have] : [have, wanted];
+      if (small.length < 2) return small.length === big.length && small[0] === big[0];
+      return small.every(w => big.includes(w));
+    }).slice(0, 5);
+    if (similar.length === 0) return [];
+
+    const ids = similar.map(c => c.id);
+    const stats = await db.select({
+      customerId: transactions.customerId,
+      visits: sql<number>`count(distinct ${checkouts.receiptNumber})`,
+      lastVisit: sql<string | null>`max(${transactions.transactionDate})`,
+    }).from(transactions)
+      .leftJoin(checkouts, eq(checkouts.id, transactions.checkoutId))
+      .where(inArray(transactions.customerId, ids))
+      .groupBy(transactions.customerId);
+    const statById = new Map(stats.map(r => [r.customerId, r]));
+    const phones = await db.select().from(customerPhones).where(inArray(customerPhones.customerId, ids));
+
+    return similar.map(c => ({
+      id: c.id,
+      name: c.name,
+      customerNumber: c.customerNumber,
+      isConfirmedDistinct: c.isConfirmedDistinct,
+      numbers: phones.filter(p => p.customerId === c.id).sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)).map(p => p.number),
+      visits: Number(statById.get(c.id)?.visits ?? 0),
+      lastVisit: statById.get(c.id)?.lastVisit ?? null,
+    }));
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
   private async getNextAvailableCustomerNumber(storeId: string): Promise<string> {
     const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
@@ -123,7 +298,8 @@ export class CustomerRepository {
         or(
           ilike(customers.name, `%${search}%`),
           ilike(customers.customerNumber, `%${search}%`),
-          ilike(customers.mobileNumber, `%${search}%`)
+          ilike(customers.mobileNumber, `%${search}%`),
+          anyPhoneLike(`%${search}%`)
         )!
       );
     }
@@ -200,6 +376,9 @@ export class CustomerRepository {
         customerNumber,
         birthday: birthday ? new Date(birthday) : null,
       }).returning();
+      if (normalizedPhone) {
+        await tx.insert(customerPhones).values({ customerId: inserted.id, storeId: inserted.storeId, number: normalizedPhone, isPrimary: true });
+      }
       return inserted;
     });
 
@@ -210,17 +389,21 @@ export class CustomerRepository {
   }
 
   async updateCustomer(id: string, customerData: Partial<InsertCustomer>): Promise<Customer | undefined> {
-    const { birthday, ...rest } = customerData;
+    const { birthday, mobileNumber, ...rest } = customerData;
     const updateData: any = { ...rest };
     if (birthday !== undefined) {
       updateData.birthday = birthday ? new Date(birthday) : null;
     }
-    if (customerData.mobileNumber !== undefined) {
-      updateData.mobileNumber = customerData.mobileNumber ? normalizePhoneNumber(customerData.mobileNumber) : null;
-    }
     updateData.updatedAt = new Date();
 
-    const [updated] = await db.update(customers).set(updateData).where(eq(customers.id, id)).returning();
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.update(customers).set(updateData).where(eq(customers.id, id)).returning();
+      // The single phone field on the edit form is the primary number; the phones table is the source of truth.
+      if (row && mobileNumber !== undefined) {
+        await this.replacePrimaryNumber(tx, id, row.storeId, mobileNumber ? normalizePhoneNumber(mobileNumber) : null);
+      }
+      return row;
+    });
     if (updated) {
       await this.linkGlobalCustomerIds(updated.id);
       const [fresh] = await db.select().from(customers).where(eq(customers.id, updated.id));
@@ -274,7 +457,10 @@ export class CustomerRepository {
       .where(
         and(
           eq(customers.storeId, storeId),
-          eq(customers.mobileNumber, phone),
+          or(
+            eq(customers.mobileNumber, phone),
+            sql`exists (select 1 from customer_phones cp where cp.customer_id = ${customers.id} and cp.number = ${phone})`,
+          ),
           eq(customers.isArchived, false)
         )
       );
@@ -296,12 +482,19 @@ export class CustomerRepository {
       if (!target || !duplicate) {
         throw new Error("Target or Duplicate customer not found.");
       }
+      if (target.id === duplicate.id) throw new Error("Pick two different customers to merge.");
+      if (target.storeId !== duplicate.storeId) throw new Error("Only customers of the same store can be merged.");
+      if (duplicate.staffId && !target.staffId) {
+        throw new Error("The duplicate is linked to a staff member. Keep that profile and merge the other into it.");
+      }
 
       const combinedPoints = (target.loyaltyPoints || 0) + (duplicate.loyaltyPoints || 0);
-      const updateData: any = { loyaltyPoints: combinedPoints };
+      const combinedCredit = Math.round(((target.storeCreditBalance || 0) + (duplicate.storeCreditBalance || 0)) * 100) / 100;
+      const updateData: any = { loyaltyPoints: combinedPoints, storeCreditBalance: combinedCredit };
 
       if (customFields) {
-        const { birthday, ...rest } = customFields;
+        // Numbers are merged below from customer_phones, never overwritten from the form; credit is summed above.
+        const { birthday, mobileNumber: _m, storeCreditBalance: _c, loyaltyPoints: _l, ...rest } = customFields as any;
         Object.assign(updateData, rest);
         if (birthday !== undefined) {
           updateData.birthday = birthday ? new Date(birthday) : null;
@@ -319,10 +512,29 @@ export class CustomerRepository {
       await tx.update(transactions).set({ customerId: targetId }).where(eq(transactions.customerId, duplicateId));
       await tx.update(creditEntries).set({ customerId: targetId }).where(eq(creditEntries.customerId, duplicateId));
       await tx.update(quotes).set({ customerId: targetId }).where(eq(quotes.customerId, duplicateId));
+      await tx.update(storeCreditTransactions).set({ customerId: targetId }).where(eq(storeCreditTransactions.customerId, duplicateId));
 
-      await tx.update(customers).set({ isArchived: true, mergedIntoId: targetId, updatedAt: new Date() }).where(eq(customers.id, duplicateId));
+      await this.ensureLegacyRow(tx, target);
+      await this.ensureLegacyRow(tx, duplicate);
+      // Union the phone numbers: the kept profile's primary stays primary, nothing is discarded.
+      const duplicatePhones = await tx.select().from(customerPhones).where(eq(customerPhones.customerId, duplicateId));
+      const targetNumbers = new Set((await tx.select().from(customerPhones).where(eq(customerPhones.customerId, targetId))).map(p => p.number));
+      for (const p of duplicatePhones) {
+        if (!targetNumbers.has(p.number)) {
+          await tx.insert(customerPhones).values({ customerId: targetId, storeId: target.storeId, number: p.number, label: p.label, isPrimary: false });
+        }
+      }
+      await tx.delete(customerPhones).where(eq(customerPhones.customerId, duplicateId));
+      await this.ensurePrimary(tx, targetId);
 
-      return updatedTarget;
+      await tx.update(customers).set({ isArchived: true, mergedIntoId: targetId, mobileNumber: null, duplicateOfId: null, updatedAt: new Date() }).where(eq(customers.id, duplicateId));
+      await tx.update(customers).set({ duplicateOfId: null }).where(and(eq(customers.id, targetId), eq(customers.duplicateOfId, duplicateId)));
+
+      const [fresh] = await tx.select().from(customers).where(eq(customers.id, targetId));
+      return fresh ?? updatedTarget;
+    }).then(async (merged) => {
+      await this.linkGlobalCustomerIds(merged.id);
+      return merged;
     });
   }
 
@@ -371,7 +583,7 @@ export class CustomerRepository {
           or(
             ilike(customers.name, searchQuery),
             ilike(customers.customerNumber, searchQuery),
-            normalizedPhone ? ilike(customers.mobileNumber, phonePattern) : sql`false`
+            normalizedPhone ? or(ilike(customers.mobileNumber, phonePattern), anyPhoneLike(phonePattern))! : sql`false`
           )
         )
       )

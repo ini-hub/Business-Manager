@@ -1256,6 +1256,78 @@ export class SalesRepository {
     }
   }
 
+  // ─── updateServiceStaff ────────────────────────────────────────────────────
+  // Post-sale correction of who performed each service line (lead + up to two
+  // assistants). Commission is computed from these columns, so the edit is
+  // refused when the sale date sits in a finalized payroll period.
+  async updateServiceStaff(data: {
+    checkoutId: string;
+    assignments: Array<{ checkoutId: string; staffIds: string[] }>;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    storeId?: string;
+    receiptNumber?: string;
+    previousValues?: Record<string, string[]>;
+    newValues?: Record<string, string[]>;
+  }> {
+    try {
+      let storeId = "";
+      let receiptNumber = "";
+      const previousValues: Record<string, string[]> = {};
+      const newValues: Record<string, string[]> = {};
+
+      await db.transaction(async (tx) => {
+        const [primary] = await tx.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
+        if (!primary) throw new Error("Transaction not found.");
+        if (primary.isVoided) throw new Error("Cannot change staff on a voided transaction.");
+        storeId = primary.storeId;
+        receiptNumber = primary.receiptNumber;
+
+        const periods = await this.getPayrollPeriodsCoveringDate(storeId, new Date(primary.createdAt));
+        if (periods.length > 0) {
+          const labels = periods.map((p) => `${p.startDate} – ${p.endDate} (${p.status})`).join(", ");
+          throw new Error(`Cannot change who performed this service — the sale falls within finalized payroll period(s): ${labels}. Reopen or amend the payroll period first.`);
+        }
+
+        const receiptCheckouts = await tx.select().from(checkouts)
+          .where(eq(checkouts.receiptNumber, receiptNumber));
+        const byId = new Map(receiptCheckouts.map((c) => [c.id, c]));
+
+        for (const a of data.assignments) {
+          const line = byId.get(a.checkoutId);
+          if (!line) throw new Error("A line item does not belong to this receipt.");
+          if (line.isVoided) continue;
+          if (a.staffIds.length === 0) throw new Error("Each service needs at least one staff member.");
+          if (a.staffIds.length > 3) throw new Error("A service can have a lead and at most two assistants.");
+          if (new Set(a.staffIds).size !== a.staffIds.length) throw new Error("A staff member can only be selected once per service.");
+
+          const [order] = await tx.select().from(orders).where(eq(orders.id, line.orderId));
+          const [item] = order ? await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId)) : [];
+          if (item?.type !== "service") throw new Error("Performed-by can only be changed on service items.");
+
+          const members = await tx.select().from(staff).where(inArray(staff.id, a.staffIds));
+          if (members.length !== a.staffIds.length || members.some((m) => m.storeId !== storeId)) {
+            throw new Error("Every selected staff member must belong to this store.");
+          }
+
+          previousValues[line.id] = [line.leadStaffId, line.assistingStaff1Id, line.assistingStaff2Id].filter((x): x is string => !!x);
+          newValues[line.id] = a.staffIds;
+          await tx.update(checkouts).set({
+            leadStaffId: a.staffIds[0],
+            assistingStaff1Id: a.staffIds[1] ?? null,
+            assistingStaff2Id: a.staffIds[2] ?? null,
+          }).where(eq(checkouts.id, line.id));
+        }
+      });
+
+      return { success: true, message: "Performed-by updated.", storeId, receiptNumber, previousValues, newValues };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update staff.";
+      return { success: false, message };
+    }
+  }
+
   // ─── processAddendum ──────────────────────────────────────────────────────
   async processAddendum(data: {
     originalCheckoutId: string;

@@ -16,6 +16,7 @@ import { startAttendanceDayCloseService } from "./services/AttendanceDayCloseSer
 import { runMigrations } from "./migrate";
 import { assertCatalogSeeded } from "./lib/entitlements";
 import { formatSyncReport, syncFeatureRegistry } from "./lib/featureSync";
+import { notifyFeaturesAwaitingReview } from "./lib/featureReviewNotice";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -98,12 +99,17 @@ app.use((req, res, next) => {
 
 (async () => {
   await runMigrations();
-  // Opt-in: lets a deploy keep the catalog and flags in step with shared/features.ts.
-  // Off by default so booting against a database never writes to its catalog unasked;
-  // `npm run features:sync` does the same on demand.
-  if (process.env.FEATURE_SYNC_ON_BOOT === "true") {
+  // Keeps the catalog and flags in step with shared/features.ts on every boot. Safe by construction: it only
+  // changes structure, and a priced feature it adds starts inactive, pending an admin's review (see
+  // server/lib/featureSync.ts). Set FEATURE_SYNC_ON_BOOT=false to skip it; `npm run features:sync` does it on demand.
+  if (process.env.FEATURE_SYNC_ON_BOOT !== "false") {
     try {
-      log(`feature sync:\n${formatSyncReport(await syncFeatureRegistry())}`);
+      const syncReport = await syncFeatureRegistry();
+      log(`feature sync:\n${formatSyncReport(syncReport)}`);
+      // Push the "needs your review" notice once, when this boot is the one that added the features.
+      if (syncReport.pendingReview.length > 0) {
+        notifyFeaturesAwaitingReview(syncReport.pendingReview).catch((error) => console.error("[features] review notice failed:", error));
+      }
     } catch (error) {
       console.error("[features] boot sync failed:", error);
     }

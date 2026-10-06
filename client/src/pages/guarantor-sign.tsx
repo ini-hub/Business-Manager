@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, XCircle, Upload, Camera } from "lucide-react";
+import { CheckCircle2, XCircle, Upload, Camera } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LocationSelect } from "@/components/location-select";
+import { FullScreenLoader, Spinner } from "@/components/ui/loader";
 
 interface PendingForm {
   version: {
@@ -123,7 +124,7 @@ export default function GuarantorSignPage() {
   });
 
   if (!token) return <CenteredMessage title="Invalid link" description="This link is missing its token." />;
-  if (isLoading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <FullScreenLoader />;
   if (signed) return <CenteredMessage icon={<CheckCircle2 className="h-10 w-10 text-green-600" />} title="Thank you" description="Your information and signature have been recorded." />;
   if (declined) return <CenteredMessage icon={<XCircle className="h-10 w-10 text-muted-foreground" />} title="Response recorded" description="Thank you for letting us know." />;
   if (error || !data) return <CenteredMessage title="This link is no longer valid" description="It may have expired or already been used." />;
@@ -243,7 +244,7 @@ export default function GuarantorSignPage() {
             <label className="flex items-start gap-2"><Checkbox checked={consentedElectronicSignature} onCheckedChange={(v) => setConsentedElectronicSignature(!!v)} />I consent to sign electronically.</label>
 
             <Button onClick={() => fillAndSignMutation.mutate()} disabled={!canSubmit || fillAndSignMutation.isPending} data-testid="button-sign-guarantor-form">
-              {fillAndSignMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Submit and sign
+              {fillAndSignMutation.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Submit and sign
             </Button>
           </CardContent>
         </Card>
@@ -253,7 +254,7 @@ export default function GuarantorSignPage() {
           <CardContent className="space-y-3">
             <Textarea placeholder="Reason (optional)" value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
             <Button variant="outline" onClick={() => declineMutation.mutate()} disabled={declineMutation.isPending} data-testid="button-decline-guarantor-form">
-              {declineMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Decline
+              {declineMutation.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Decline
             </Button>
           </CardContent>
         </Card>
@@ -265,7 +266,7 @@ export default function GuarantorSignPage() {
 function UploadTile({ label, onSelect, busy, capture, icon }: { label: string; onSelect: (f: File) => void; busy?: boolean; capture?: boolean; icon?: React.ReactNode }) {
   return (
     <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (icon ?? <Upload className="h-3.5 w-3.5" />)} {label}
+      {busy ? <Spinner className="h-3.5 w-3.5 animate-spin" /> : (icon ?? <Upload className="h-3.5 w-3.5" />)} {label}
       <input
         type="file"
         accept="image/*,application/pdf"

@@ -1,18 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  MessageSquareWarning,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  RotateCcw,
-  Mail,
-  Send,
-  Search,
-  ArrowLeft,
-  Inbox,
-} from "lucide-react";
+import { MessageSquareWarning, AlertCircle, CheckCircle2, RotateCcw, Mail, Send, Search, ArrowLeft, Inbox } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -22,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { isGenuineSuspensionReason } from "@shared/schema";
+import { Spinner } from "@/components/ui/loader";
 
 type ThreadSummary = {
   id: string;
@@ -205,7 +195,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: string; onBack: () => vo
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        <Spinner className="h-6 w-6 animate-spin text-primary" />
       </div>
     );
   }
@@ -347,7 +337,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: string; onBack: () => vo
               onClick={send}
               aria-label="Send reply"
             >
-              {replyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {replyMutation.isPending ? <Spinner className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
         </div>
@@ -512,7 +502,7 @@ export default function SupportInbox() {
           <div className="flex-1 min-h-0 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <Spinner className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : error ? (
               <div className="m-3 p-4 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-700 dark:text-rose-300 flex items-center gap-3 text-sm">

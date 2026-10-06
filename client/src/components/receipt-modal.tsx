@@ -1,4 +1,4 @@
-import { Printer, Download, MessageCircle, Loader2, AlertCircle } from "lucide-react";
+import { Printer, Download, MessageCircle, AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,7 @@ import { ReceiptView, useReceiptPayload } from "@/components/receipt-view";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { printWithFormat } from "@/lib/print-utils";
+import { Spinner } from "@/components/ui/loader";
 
 interface ReceiptModalProps {
   checkoutId: string | null | undefined;
@@ -106,7 +107,7 @@ export function ReceiptModal({ checkoutId, open, onClose }: ReceiptModalProps) {
 
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Spinner className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         )}
 

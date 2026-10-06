@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2, ArrowLeft, GripVertical } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, GripVertical } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/loader";
 
 const FIELD_TYPES = ["text", "textarea", "number", "date", "select", "multiselect", "boolean", "email", "phone"] as const;
 const SECTION_TITLES: Record<"personal" | "job_current" | "time_off" | "emergency" | "documents" | "benefits" | "disciplinary" | "guarantor", string> = {
@@ -121,7 +122,7 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
                 onClick={() => reorderFields.mutate(reorderingFields.map((f) => f.id))}
                 disabled={reorderFields.isPending}
               >
-                {reorderFields.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save Order
+                {reorderFields.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Save Order
               </Button>
             )}
             {reorderMode && (
@@ -152,7 +153,7 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
                 </div>
                 <DialogFooter>
                   <Button onClick={() => createField.mutate()} disabled={!form.fieldKey || !form.label || createField.isPending}>
-                    {createField.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Add
+                    {createField.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Add
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -179,7 +180,7 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
                 </div>
               </div>
             ))
-          ) : isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
+          ) : isLoading ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
             <div key={f.id} className="flex items-center justify-between py-3">
               <div>
                 <p className="text-sm font-medium">{f.label} <span className="text-xs text-muted-foreground">({f.fieldType})</span></p>

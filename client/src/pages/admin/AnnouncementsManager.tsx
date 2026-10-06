@@ -2,16 +2,7 @@ import { useState } from "react";
 import { useSessionState } from "@/hooks/use-session-state";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  Megaphone,
-  Mail,
-  Plus,
-  Loader2,
-  AlertCircle,
-  Clock,
-  User,
-  Layers, Trash2
-} from "lucide-react";
+import { Megaphone, Mail, Plus, AlertCircle, Clock, User, Layers, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -32,6 +23,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 export default function AnnouncementsManager() {
   const { admin } = useAdminAuth();
@@ -229,7 +221,7 @@ export default function AnnouncementsManager() {
         <TabsContent value="banners" className="space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <Spinner className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : error || !listData?.announcements ? (
             <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -371,7 +363,7 @@ export default function AnnouncementsManager() {
                 >
                   {emailBroadcastMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Dispatching...
                     </>
                   ) : (

@@ -12,13 +12,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, AlertCircle, ExternalLink } from "lucide-react";
+import { ArrowLeft, AlertCircle, ExternalLink } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { legalDocHref } from "@/lib/legal-docs";
 import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
+import { Spinner } from "@/components/ui/loader";
 
 export default function Login() {
   const { toast } = useToast();
@@ -811,7 +812,7 @@ export default function Login() {
                     >
                       {checkIdentityMutation.isPending ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <Spinner className="mr-2 h-5 w-5 animate-spin" />
                           Checking...
                         </>
                       ) : (
@@ -877,7 +878,7 @@ export default function Login() {
                     >
                       {checkIdentityMutation.isPending ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <Spinner className="mr-2 h-5 w-5 animate-spin" />
                           Checking...
                         </>
                       ) : (
@@ -933,7 +934,7 @@ export default function Login() {
                 >
                   {loginMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Signing in...
                     </>
                   ) : (
@@ -1028,7 +1029,7 @@ export default function Login() {
                 >
                   {verifyCodeMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Verifying...
                     </>
                   ) : (
@@ -1144,7 +1145,7 @@ export default function Login() {
                 >
                   {setPasswordMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Setting Password...
                     </>
                   ) : (
@@ -1160,7 +1161,7 @@ export default function Login() {
             <div className="space-y-4">
               {pendingContractQuery.isLoading && (
                 <div className="flex justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <Spinner className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               )}
 
@@ -1242,7 +1243,7 @@ export default function Login() {
                   >
                     {signContractMutation.isPending ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Spinner className="mr-2 h-5 w-5 animate-spin" />
                         Signing...
                       </>
                     ) : (
@@ -1305,7 +1306,7 @@ export default function Login() {
             <div className="space-y-4">
               {legalDocsLoading && (
                 <div className="flex justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <Spinner className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               )}
 
@@ -1359,7 +1360,7 @@ export default function Login() {
                   >
                     {acceptLegalConsentMutation.isPending ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Spinner className="mr-2 h-5 w-5 animate-spin" />
                         Recording...
                       </>
                     ) : (
@@ -1408,7 +1409,7 @@ export default function Login() {
                 >
                   {verifyEmailChangeMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Verifying...
                     </>
                   ) : (

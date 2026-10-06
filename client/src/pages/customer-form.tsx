@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -17,6 +17,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
 import { apiRequest, type ApiError } from "@/lib/queryClient";
@@ -24,6 +27,16 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { insertCustomerSchema, type InsertCustomer } from "@shared/schema";
 import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
+import { buildSlug } from "@/lib/slug";
+
+interface SimilarCustomer {
+  id: string;
+  name: string;
+  customerNumber: string;
+  numbers: string[];
+  visits: number;
+  lastVisit: string | null;
+}
 
 const customerFormSchema = insertCustomerSchema.extend({
   mobileNumber: z.string().optional().default(""),
@@ -104,6 +117,26 @@ export default function CustomerFormPage() {
       toast({ title: "Error", description: getUserFriendlyError(error, "customer"), variant: "destructive" }),
   });
 
+  // "Same person?" prompt: a returning customer who gives a different number would otherwise get a second profile.
+  const [similar, setSimilar] = useState<SimilarCustomer[]>([]);
+  const [pendingData, setPendingData] = useState<InsertCustomer | null>(null);
+
+  const addNumberMutation = useMutation({
+    mutationFn: async (match: SimilarCustomer) => {
+      const number = pendingData?.mobileNumber?.trim();
+      if (number) await apiRequest("POST", `/api/customers/${match.id}/phones`, { number });
+      return match;
+    },
+    onSuccess: (match) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
+      toast({ title: `Number added to ${match.name}` });
+      setSimilar([]);
+      setLocation(`/customers/${buildSlug(match.name, match.id)}`);
+    },
+    onError: (error: Error) =>
+      toast({ title: "Couldn't add the number", description: error.message, variant: "destructive" }),
+  });
+
   const onSubmit = async (data: InsertCustomer) => {
     const countryCode = data.countryCode || "NG";
     if (data.mobileNumber?.trim()) {
@@ -113,8 +146,22 @@ export default function CustomerFormPage() {
         return;
       }
     }
-    if (isEdit) updateMutation.mutate(data);
-    else createMutation.mutate(data);
+    if (isEdit) return updateMutation.mutate(data);
+
+    if (data.storeId && data.name.trim()) {
+      try {
+        const res = await apiRequest("GET", `/api/customers/similar?storeId=${encodeURIComponent(data.storeId)}&name=${encodeURIComponent(data.name.trim())}`);
+        const body = await res.json();
+        if (body.similar?.length > 0) {
+          setPendingData(data);
+          setSimilar(body.similar);
+          return;
+        }
+      } catch {
+        // The check is a convenience; never block creating a customer because it failed.
+      }
+    }
+    createMutation.mutate(data);
   };
 
   if (!currentStore) return <StoreRequiredAlert />;
@@ -320,6 +367,52 @@ export default function CustomerFormPage() {
             </div>
           </form>
         </Form>
+
+        <Dialog open={similar.length > 0} onOpenChange={(open) => !open && setSimilar([])}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Is this an existing customer?</DialogTitle>
+              <DialogDescription>
+                {similar.length === 1 ? "A customer with a similar name already exists." : "Customers with similar names already exist."}
+                {pendingData?.mobileNumber?.trim() ? " If it's the same person, add this number to their profile instead of creating a new one." : ""}
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="space-y-2">
+              {similar.map((c) => (
+                <li key={c.id} className="rounded-lg border p-3 space-y-2">
+                  <div>
+                    <p className="text-sm font-medium">{c.name} <span className="text-xs text-muted-foreground">{c.customerNumber}</span></p>
+                    <p className="text-xs text-muted-foreground">
+                      {c.numbers.length > 0 ? c.numbers.join(", ") : "No number"} · {c.visits} {c.visits === 1 ? "visit" : "visits"}
+                      {c.lastVisit ? ` · last ${new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", year: "numeric" }).format(new Date(c.lastVisit))}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {pendingData?.mobileNumber?.trim() ? (
+                      <Button size="sm" onClick={() => addNumberMutation.mutate(c)} disabled={addNumberMutation.isPending}>
+                        Same person, add number
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => setLocation(`/customers/${buildSlug(c.name, c.id)}`)}>Open profile</Button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const data = pendingData;
+                  setSimilar([]);
+                  if (data) createMutation.mutate(data);
+                }}
+              >
+                Different person, create new
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

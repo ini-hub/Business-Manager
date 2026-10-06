@@ -1,4 +1,4 @@
-import { PartyPopper, Loader2 } from "lucide-react";
+import { PartyPopper } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { trialDaysRemaining } from "@/lib/trial";
 import type { Business } from "@shared/schema";
+import { Spinner } from "@/components/ui/loader";
 
 /**
  * One-time blocking notice shown to a new owner right after signup, before
@@ -72,7 +73,7 @@ export function TrialWelcomeNotice({ business }: { business: Business }) {
             >
               {acceptMutation.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Spinner className="mr-2 h-5 w-5 animate-spin" />
                   Continuing...
                 </>
               ) : (

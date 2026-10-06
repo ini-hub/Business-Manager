@@ -12,8 +12,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, KeyRound, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, KeyRound, CheckCircle2 } from "lucide-react";
 import { validateEmailOrPhone } from "@/lib/validation-utils";
+import { Spinner } from "@/components/ui/loader";
 
 const resetPasswordSchema = z.object({
   emailOrPhone: z.string().min(1, "Enter your email or phone number.").refine(validateEmailOrPhone, "Enter a valid email address or phone number."),
@@ -236,7 +237,7 @@ export default function ResetPassword() {
               >
                 {resetMutation.isPending ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-5 w-5 animate-spin" />
                     Resetting...
                   </>
                 ) : (

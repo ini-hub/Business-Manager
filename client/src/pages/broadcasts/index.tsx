@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { MessageSquare, Loader2, Send } from "lucide-react";
+import { MessageSquare, Send } from "lucide-react";
 import { useStore } from "@/lib/store-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { TemplateManagerSection } from "./components/template-manager";
+import { Spinner } from "@/components/ui/loader";
 
 type Customer = { id: string; name: string; mobileNumber: string | null };
 type Template = { id: string; metaTemplateName: string; bodyText: string; variableCount: number; variableLabels: Record<string, string> | null };
@@ -168,7 +169,7 @@ export default function BroadcastsPage() {
             disabled={!name || !templateId || selectedCustomerIds.size === 0 || createAndSend.isPending}
             onClick={() => createAndSend.mutate()}
           >
-            {createAndSend.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+            {createAndSend.isPending ? <Spinner className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
             Send Broadcast
           </Button>
         </CardContent>

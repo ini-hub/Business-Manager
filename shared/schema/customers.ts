@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, unique, uniqueIndex, index, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { trimmedString } from "./_helpers";
@@ -31,6 +31,25 @@ export const customers = pgTable("customers", {
   unique("customer_store_number_unique").on(table.storeId, table.customerNumber),
   index("idx_customers_store").on(table.storeId),
 ]);
+
+// Every phone number a customer uses. `customers.mobileNumber` always mirrors the primary row, so code that
+// reads that column keeps working; lookups and search also match the secondary numbers here. Numbers are stored
+// normalized (normalizePhoneNumber). Not unique per store on purpose: the create flow lets a user knowingly
+// keep two profiles with one number (allowDuplicatePhone), so the app warns instead of the database refusing.
+export const customerPhones = pgTable("customer_phones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  number: text("number").notNull(),
+  label: text("label"),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("customer_phones_customer_number_unique").on(table.customerId, table.number),
+  uniqueIndex("customer_phones_one_primary").on(table.customerId).where(sql`is_primary`),
+  index("idx_customer_phones_store_number").on(table.storeId, table.number),
+]);
+export type CustomerPhone = typeof customerPhones.$inferSelect;
 
 export const customersRelations = relations(customers, ({ one, many }) => ({
   store: one(stores, {

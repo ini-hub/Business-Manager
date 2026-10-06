@@ -1,6 +1,7 @@
 import { sendEmail as queueEmail, enqueueEmail } from "./services/EmailQueue";
 import { escapeHtml, sanitizeHeaderValue } from "./sanitize";
 import { getAppUrl } from "./lib/appUrl";
+import { callout, codeBlock, muted, para, renderEmail, warn } from "./lib/emailLayout";
 
 const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
 const APP_URL = getAppUrl();
@@ -36,18 +37,15 @@ export function sendSupportRequestEmail(
   const safeBusiness = escapeHtml(businessName);
   const safeMessage = escapeHtml(message).replace(/\n/g, "<br/>");
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">Support request from ${safeBusiness}</h2>
-      <p><strong>From:</strong> ${safeName} (${safeEmail})</p>
-      <p><strong>Business:</strong> ${safeBusiness}</p>
-      <div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0;">
-        ${safeMessage}
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px;">Reply directly to this email to respond to ${safeName}.</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: `Support request from ${safeBusiness}`,
+    preheader: `${fromUserName} sent a message from ${businessName}`,
+    body:
+      para(`<strong>From:</strong> ${safeName} (${safeEmail})<br/><strong>Business:</strong> ${safeBusiness}`) +
+      callout(safeMessage),
+    afterButton: muted(`Reply directly to this email to respond to ${safeName}.`),
+    signoff: "Kowope support inbox",
+  });
 
   const headerSafeName = fromUserName.replace(/[\r\n"<>]/g, "").trim();
 
@@ -72,24 +70,19 @@ export async function sendActivationEmail(
   const safeCode = escapeHtml(code);
   const activationLink = `${APP_URL}/activate?code=${encodeURIComponent(code)}`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">You've been added to ${safeBusiness}</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>You have been added to <strong>${safeBusiness}</strong> as a <strong>${safeRole}</strong>.</p>
-      <p>Use the activation code below when you first log in:</p>
-      <div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-radius: 6px; font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 20px 0; color: #111827;">
-        ${safeCode}
-      </div>
-      <p>Or click the button below to go straight to the app to set up your password:</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${activationLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Activate My Account</a>
-      </div>
-      <p style="color: #6b7280; font-size: 14px;">This link and code will expire in 48 hours. If you were not expecting this, you can safely ignore this email.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: `You've been added to ${safeBusiness}`,
+    preheader: `Activate your account with code ${code}`,
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para(`You have been added to <strong>${safeBusiness}</strong> as a <strong>${safeRole}</strong>.`) +
+      para("Use the activation code below when you first log in:") +
+      codeBlock(safeCode) +
+      para("Or use the button below to go straight to the app and set up your password:"),
+    button: { label: "Activate my account", href: activationLink },
+    afterButton: muted("This link and code expire in 48 hours. If you weren't expecting this, you can safely ignore this email."),
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   // Awaited (unlike most senders here) so the staff invite path can report a
   // failure to queue back to the manager instead of silently dropping it.
@@ -113,19 +106,16 @@ export async function sendAddedToOrgEmail(
   const safeInviter = escapeHtml(inviterName);
   const loginLink = `${APP_URL}/auth/login`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">You've been added to ${safeBusiness}</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p><strong>${safeInviter}</strong> has added you to <strong>${safeBusiness}</strong> as a <strong>${safeRole}</strong>.</p>
-      <p>Log in with your existing credentials to accept and access this business workspace:</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${loginLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Open Business Manager</a>
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: `You've been added to ${safeBusiness}`,
+    preheader: `${inviterName} added you to ${businessName}`,
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para(`<strong>${safeInviter}</strong> has added you to <strong>${safeBusiness}</strong> as a <strong>${safeRole}</strong>.`) +
+      para("Log in with your existing credentials to accept and access this business workspace."),
+    button: { label: "Open Kowope", href: loginLink },
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   // Awaited for the same reason as sendActivationEmail above.
   await enqueueEmail({
@@ -156,24 +146,19 @@ export async function sendAdminInviteEmail(to: string, name: string, role: strin
   // super admin, so prefilling the email is a plain convenience, not a leak.
   const activationLink = `${APP_URL}/super-admin/activate?code=${encodeURIComponent(code)}&email=${encodeURIComponent(to)}`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">You've been invited to the ${ADMIN_CONSOLE_NAME}</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>You've been granted administrative access as <strong>${safeRole}</strong>.</p>
-      <p>Use the activation code below to set up your account:</p>
-      <div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-radius: 6px; font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 20px 0; color: #111827;">
-        ${safeCode}
-      </div>
-      <p>Or click the button below to go straight to account setup, where you'll choose your own password and pair an authenticator app for MFA:</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${activationLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Set Up My Admin Account</a>
-      </div>
-      <p style="color: #6b7280; font-size: 14px;">This link and code will expire in 48 hours. If you were not expecting this, you can safely ignore this email.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${ADMIN_CONSOLE_NAME}</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: `You've been invited to the ${ADMIN_CONSOLE_NAME}`,
+    preheader: `Set up your admin account with code ${code}`,
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para(`You've been granted administrative access as <strong>${safeRole}</strong>.`) +
+      para("Use the activation code below to set up your account:") +
+      codeBlock(safeCode) +
+      para("Or use the button below to go straight to account setup, where you'll choose your own password and pair an authenticator app for MFA:"),
+    button: { label: "Set up my admin account", href: activationLink },
+    afterButton: muted("This link and code expire in 48 hours. If you weren't expecting this, you can safely ignore this email."),
+    signoff: ADMIN_CONSOLE_NAME,
+  });
 
   // Awaited for the same reason as sendActivationEmail — the provisioning
   // admin's create-invite call can report a failure to queue back to them.
@@ -196,22 +181,18 @@ export async function sendAdminMfaResetEmail(to: string, name: string, code: str
   const safeCode = escapeHtml(code);
   const activationLink = `${APP_URL}/super-admin/activate?code=${encodeURIComponent(code)}&email=${encodeURIComponent(to)}`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #ef4444; margin-bottom: 20px;">Your MFA pairing was reset</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>Your authenticator pairing for the ${ADMIN_CONSOLE_NAME} was reset by another administrator. Use the code below to pair a new authenticator before you can log in again:</p>
-      <div style="background-color: #fef2f2; border: 1px solid #fee2e2; padding: 15px; text-align: center; border-radius: 6px; font-size: 24px; font-weight: bold; letter-spacing: 2px; margin: 20px 0; color: #b91c1c;">
-        ${safeCode}
-      </div>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${activationLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Re-pair My Authenticator</a>
-      </div>
-      <p style="color: #6b7280; font-size: 14px;">This link and code will expire in 48 hours. If you did not expect this, contact another super admin immediately.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${ADMIN_CONSOLE_NAME}</p>
-    </div>
-  `;
+  const html = renderEmail({
+    tone: "danger",
+    heading: "Your MFA pairing was reset",
+    preheader: "Pair a new authenticator before you log in again",
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para(`Your authenticator pairing for the ${ADMIN_CONSOLE_NAME} was reset by another administrator. Use the code below to pair a new authenticator before you can log in again:`) +
+      codeBlock(safeCode, "danger"),
+    button: { label: "Re-pair my authenticator", href: activationLink },
+    afterButton: muted("This link and code expire in 48 hours. If you did not expect this, contact another super admin immediately."),
+    signoff: ADMIN_CONSOLE_NAME,
+  });
 
   await enqueueEmail({
     to,
@@ -239,20 +220,18 @@ export async function sendContractDeclinedEmail(
   const safeReason = reason ? escapeHtml(reason) : null;
   const staffLink = `${APP_URL}/staff`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #b91c1c; margin-bottom: 20px;">${safeStaff} declined their contract</h2>
-      <p>Hi <strong>${safeInviter}</strong>,</p>
-      <p><strong>${safeStaff}</strong> has declined to sign the contract you attached to their onboarding at <strong>${safeBusiness}</strong>. They will not gain access to the system until this is resolved.</p>
-      ${safeReason ? `<div style="background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 20px 0;"><strong>Reason given:</strong><br/>${safeReason.replace(/\n/g, "<br/>")}</div>` : ""}
-      <p>You may want to reach out to them directly, revise the contract, or replace it from their staff profile.</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${staffLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Staff</a>
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    tone: "danger",
+    heading: `${safeStaff} declined their contract`,
+    preheader: `${staffName} will not get access until this is resolved`,
+    body:
+      para(`Hi <strong>${safeInviter}</strong>,`) +
+      para(`<strong>${safeStaff}</strong> has declined to sign the contract you attached to their onboarding at <strong>${safeBusiness}</strong>. They will not gain access to the system until this is resolved.`) +
+      (safeReason ? callout(`<strong>Reason given:</strong><br/>${safeReason.replace(/\n/g, "<br/>")}`, "danger") : "") +
+      para("You may want to reach out to them directly, revise the contract, or replace it from their staff profile."),
+    button: { label: "View staff", href: staffLink },
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   await enqueueEmail({
     to,
@@ -276,18 +255,15 @@ export async function sendContractSignatureRequiredEmail(
   const safeBusiness = escapeHtml(businessName);
   const loginLink = `${APP_URL}/auth/login`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">A contract needs your signature</h2>
-      <p>Hi <strong>${safeStaff}</strong>,</p>
-      <p>Your manager at <strong>${safeBusiness}</strong> has attached a contract that needs your review and signature. You'll be asked to sign it the next time you log in.</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${loginLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Log In</a>
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: "A contract needs your signature",
+    preheader: `Your manager at ${businessName} attached a contract`,
+    body:
+      para(`Hi <strong>${safeStaff}</strong>,`) +
+      para(`Your manager at <strong>${safeBusiness}</strong> has attached a contract that needs your review and signature. You'll be asked to sign it the next time you log in.`),
+    button: { label: "Log in", href: loginLink },
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   await enqueueEmail({
     to,
@@ -315,20 +291,17 @@ export async function sendGuarantorSigningRequestEmail(
   const safeEmployee = escapeHtml(employeeName);
   const safeBusiness = escapeHtml(businessName);
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">You've been asked to act as a guarantor</h2>
-      <p>Hello,</p>
-      <p><strong>${safeEmployee}</strong> has listed you as their guarantor as part of their employment with <strong>${safeBusiness}</strong>. To complete this, please open the link below, fill in your details, and sign.</p>
-      <p style="color: #6b7280; font-size: 13px;">This link is unique to you and can only be used once - your submission cannot be edited after you sign.</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${signingLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Review &amp; Sign</a>
-      </div>
-      <p style="color: #9ca3af; font-size: 12px;">If the button doesn't work, copy and paste this link into your browser:<br/>${signingLink}</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: "You've been asked to act as a guarantor",
+    preheader: `${employeeName} listed you as their guarantor`,
+    body:
+      para("Hello,") +
+      para(`<strong>${safeEmployee}</strong> has listed you as their guarantor as part of their employment with <strong>${safeBusiness}</strong>. To complete this, please open the link below, fill in your details, and sign.`) +
+      muted("This link is unique to you and can only be used once. Your submission cannot be edited after you sign."),
+    button: { label: "Review &amp; sign", href: signingLink },
+    showLinkFallback: true,
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   await enqueueEmail({
     to,
@@ -347,20 +320,17 @@ export async function sendOtpEmail(
   const safeCode = escapeHtml(code);
   const safeBusiness = escapeHtml(businessName);
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #ef4444; margin-bottom: 20px;">Reset your password</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>Your one-time password reset code is:</p>
-      <div style="background-color: #fef2f2; border: 1px solid #fee2e2; padding: 15px; text-align: center; border-radius: 6px; font-size: 28px; font-weight: bold; letter-spacing: 4px; margin: 20px 0; color: #b91c1c;">
-        ${safeCode}
-      </div>
-      <p>This code will expire in 10 minutes. Do not share this code with anyone.</p>
-      <p style="color: #6b7280; font-size: 14px;">If you did not request this, you can safely ignore this email. Your password will remain unchanged.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: "Reset your password",
+    preheader: `Your password reset code is ${code}`,
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para("Your one-time password reset code is:") +
+      codeBlock(safeCode) +
+      para("This code expires in 10 minutes. Do not share it with anyone.") +
+      muted("If you did not request this, you can safely ignore this email. Your password will remain unchanged."),
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   sendEmail({
     to,
@@ -377,16 +347,15 @@ export async function sendPasswordChangedEmail(
   const safeName = escapeHtml(name);
   const safeBusiness = escapeHtml(businessName);
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #6a9ad9ff; margin-bottom: 20px;">Password Changed Successfully</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>Your password for Business Manager was successfully changed.</p>
-      <p style="color: #dc2626; font-weight: bold;">If you did not make this change, contact your manager immediately or use Forgot Password on the login screen to secure your account.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: "Your password was changed",
+    preheader: "If this wasn't you, secure your account now",
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para("Your password for Kowope was successfully changed.") +
+      warn("If you did not make this change, contact your manager immediately or use Forgot password on the login screen to secure your account."),
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   sendEmail({
     to,
@@ -405,17 +374,17 @@ export async function sendEmailChangeNoticeToOldAddress(
   const safeNewEmail = escapeHtml(newEmail);
   const safeBusiness = escapeHtml(businessName);
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #b91c1c; margin-bottom: 20px;">Your account email is being changed</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>A request was made to change the email address on your account to <strong>${safeNewEmail}</strong>.</p>
-      <p>This change will only take effect once the new address is verified. Until then, this email address remains your login.</p>
-      <p style="color: #dc2626; font-weight: bold;">If you did not request this, contact your manager immediately or change your password now to secure your account.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    tone: "danger",
+    heading: "Your account email is being changed",
+    preheader: `A request was made to change your email to ${newEmail}`,
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para(`A request was made to change the email address on your account to <strong>${safeNewEmail}</strong>.`) +
+      para("This change only takes effect once the new address is verified. Until then, this email address remains your login.") +
+      warn("If you did not request this, contact your manager immediately or change your password now to secure your account."),
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   sendEmail({
     to,
@@ -453,18 +422,14 @@ export async function sendTrialReminderEmail(
   const copy = TRIAL_REMINDER_COPY[stage];
   const billingLink = `${APP_URL}/settings/billing`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #d97706; margin-bottom: 20px;">${copy.headline}</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>${copy.urgency}</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${billingLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Subscribe Now</a>
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    tone: "warning",
+    heading: copy.headline,
+    preheader: copy.urgency,
+    body: para(`Hi <strong>${safeName}</strong>,`) + para(copy.urgency),
+    button: { label: "Subscribe now", href: billingLink },
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   sendEmail({
     to,
@@ -514,24 +479,40 @@ export async function sendFeatureSunsetReminderEmail(
   const dateStr = paywallEffectiveAt.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const billingLink = `${APP_URL}/settings/billing`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #d97706; margin-bottom: 20px;">${copy.headline(safeFeature)}</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>${copy.urgency(safeFeature, dateStr)}</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${billingLink}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Keep ${safeFeature}</a>
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The Business Manager Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    tone: "warning",
+    heading: copy.headline(safeFeature),
+    preheader: copy.urgency(featureName, dateStr),
+    body: para(`Hi <strong>${safeName}</strong>,`) + para(copy.urgency(safeFeature, dateStr)),
+    button: { label: `Keep ${safeFeature}`, href: billingLink },
+    signoff: "The Kowope Team",
+  });
 
   sendEmail({
     to,
     subject: copy.subject(safeFeature),
     html,
   });
+}
+
+/** Tells a super admin that a release added features which stay hidden until they price and publish them. */
+export function sendFeaturesAwaitingReviewEmail(to: string, name: string, features: { key: string; name: string }[]): void {
+  const safeName = escapeHtml(name);
+  const items = features.map((f) => `<li><strong>${escapeHtml(f.name)}</strong> <span style="color:#9ca3af">(${escapeHtml(f.key)})</span></li>`).join("");
+  const count = features.length;
+  const link = `${APP_URL}/super-admin/feature-catalog?active=pending`;
+  const html = renderEmail({
+    tone: "warning",
+    heading: `${count} new feature${count === 1 ? "" : "s"} awaiting your review`,
+    preheader: "Hidden from businesses until you set a price and publish",
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para(`A release added the following. ${count === 1 ? "It is" : "They are"} hidden from businesses until you set a price and publish ${count === 1 ? "it" : "them"}:`) +
+      `<ul style="margin:0 0 16px;padding-left:20px;font-size:16px;line-height:1.7;color:#14202B;">${items}</ul>`,
+    button: { label: "Review in Feature Catalog", href: link },
+    signoff: ADMIN_CONSOLE_NAME,
+  });
+  sendEmail({ to, subject: `${count} new feature${count === 1 ? "" : "s"} awaiting review`, html });
 }
 
 export async function sendAccountLockedEmail(
@@ -543,20 +524,18 @@ export async function sendAccountLockedEmail(
   const safeBusiness = escapeHtml(businessName);
   const unlockLink = `${APP_URL}/forgot-password`;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #b91c1c; margin-bottom: 20px;">Account Locked</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>Your account was locked after too many failed login attempts.</p>
-      <p>It will automatically unlock after <strong>30 minutes</strong>.</p>
-      <p>To unlock immediately, reset your password using the link below:</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${unlockLink}" style="background-color: #b91c1c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Reset Password</a>
-      </div>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    tone: "danger",
+    heading: "Account locked",
+    preheader: "Too many failed login attempts",
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para("Your account was locked after too many failed login attempts.") +
+      para("It will automatically unlock after <strong>30 minutes</strong>.") +
+      para("To unlock immediately, reset your password:"),
+    button: { label: "Reset password", href: unlockLink },
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   sendEmail({
     to,
@@ -584,20 +563,17 @@ export async function sendEmailVerificationOtpEmail(
   const safeCode = escapeHtml(code);
   const safeBusiness = escapeHtml(businessName);
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">Verify your email address</h2>
-      <p>Hi <strong>${safeName}</strong>,</p>
-      <p>Your one-time email verification code is:</p>
-      <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; padding: 15px; text-align: center; border-radius: 6px; font-size: 28px; font-weight: bold; letter-spacing: 4px; margin: 20px 0; color: #4f46e5;">
-        ${safeCode}
-      </div>
-      <p>This code will expire in 10 minutes. Do not share this code with anyone.</p>
-      <p style="color: #6b7280; font-size: 14px;">If you did not request this, you can safely ignore this email.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— The ${safeBusiness} Team</p>
-    </div>
-  `;
+  const html = renderEmail({
+    heading: "Verify your email address",
+    preheader: `Your verification code is ${code}`,
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      para("Your one-time email verification code is:") +
+      codeBlock(safeCode) +
+      para("This code expires in 10 minutes. Do not share it with anyone.") +
+      muted("If you did not request this, you can safely ignore this email."),
+    signoff: `The ${safeBusiness} Team`,
+  });
 
   sendEmail({
     to,
@@ -632,37 +608,37 @@ export async function sendPurchaseOrderEmail(input: PurchaseOrderEmailInput): Pr
   const total = input.lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
   const rows = input.lines.map((l) => `
     <tr>
-      <td style="padding: 6px 8px; border-bottom: 1px solid #eee;">${escapeHtml(l.name)}</td>
-      <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align: right;">${l.quantity}${l.unit ? " " + escapeHtml(l.unit) : ""}</td>
-      <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align: right;">${escapeHtml(money(l.unitCost))}</td>
-      <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align: right;">${escapeHtml(money(l.quantity * l.unitCost))}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #E3E8EF;">${escapeHtml(l.name)}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #E3E8EF; text-align: right;">${l.quantity}${l.unit ? " " + escapeHtml(l.unit) : ""}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #E3E8EF; text-align: right;">${escapeHtml(money(l.unitCost))}</td>
+      <td style="padding: 6px 8px; border-bottom: 1px solid #E3E8EF; text-align: right;">${escapeHtml(money(l.quantity * l.unitCost))}</td>
     </tr>`).join("");
   const safeBusiness = escapeHtml(input.businessName);
   const arrival = input.expectedDelivery ? input.expectedDelivery.toDateString() : null;
 
-  const html = `
-    <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 640px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-      <h2 style="color: #4f46e5; margin-bottom: 20px;">Purchase order ${escapeHtml(input.poNumber)}</h2>
-      <p>Hello ${escapeHtml(input.vendorName)},</p>
-      <p><strong>${safeBusiness}</strong> has placed the order below with you.${input.supplierRef ? ` Your reference: <strong>${escapeHtml(input.supplierRef)}</strong>.` : ""}${arrival ? ` Expected arrival: <strong>${escapeHtml(arrival)}</strong>.` : ""}</p>
-      <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0;">
+  const html = renderEmail({
+    width: 640,
+    heading: `Purchase order ${escapeHtml(input.poNumber)}`,
+    preheader: `${input.businessName} placed an order with you`,
+    body:
+      para(`Hello ${escapeHtml(input.vendorName)},`) +
+      para(`<strong>${safeBusiness}</strong> has placed the order below with you.${input.supplierRef ? ` Your reference: <strong>${escapeHtml(input.supplierRef)}</strong>.` : ""}${arrival ? ` Expected arrival: <strong>${escapeHtml(arrival)}</strong>.` : ""}`) +
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:14px;margin:0 0 16px;">
         <thead>
-          <tr style="background: #f9fafb; text-align: left;">
-            <th style="padding: 6px 8px;">Item</th>
-            <th style="padding: 6px 8px; text-align: right;">Qty</th>
-            <th style="padding: 6px 8px; text-align: right;">Unit cost</th>
-            <th style="padding: 6px 8px; text-align: right;">Total</th>
+          <tr style="background:#EEF4FC;text-align:left;color:#1A549F;">
+            <th style="padding:8px;">Item</th>
+            <th style="padding:8px;text-align:right;">Qty</th>
+            <th style="padding:8px;text-align:right;">Unit cost</th>
+            <th style="padding:8px;text-align:right;">Total</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>
-      ${input.notes ? `<p style="background: #f9fafb; border-radius: 6px; padding: 10px 12px; font-size: 14px;"><strong>Note from ${safeBusiness}:</strong><br/>${escapeHtml(input.notes).replace(/\n/g, "<br/>")}</p>` : ""}
-      <p style="text-align: right; font-weight: bold;">Order total: ${escapeHtml(money(total))}</p>
-      <p style="color: #6b7280; font-size: 13px;">Please quote ${escapeHtml(input.poNumber)} on your delivery note and invoice. Reply to this email if anything cannot be supplied as ordered.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="color: #9ca3af; font-size: 12px; text-align: center;">— ${safeBusiness}</p>
-    </div>
-  `;
+      </table>` +
+      (input.notes ? callout(`<strong>Note from ${safeBusiness}:</strong><br/>${escapeHtml(input.notes).replace(/\n/g, "<br/>")}`) : "") +
+      `<p style="margin:0 0 16px;text-align:right;font-size:18px;font-weight:700;color:#14202B;">Order total: ${escapeHtml(money(total))}</p>` +
+      muted(`Please quote ${escapeHtml(input.poNumber)} on your delivery note and invoice. Reply to this email if anything cannot be supplied as ordered.`),
+    signoff: safeBusiness,
+  });
 
   await enqueueEmail({
     to: input.to,

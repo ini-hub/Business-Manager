@@ -1,0 +1,89 @@
+/* Kowope shopfront loader. The shop builds itself: awning drops in, shop opens, bars grow.
+   Spec: 1.8s loop, cubic-bezier(.2,.7,.2,1). Reveal (splash) is 4.2s and plays once.
+   Colours: three-tone on light, white shop with ink bars on dark, white shop with blue bars on brand blue.
+   Inside a <button> the shop takes currentColor and the bars take --loader-bars (set per Button variant). */
+
+.kl {
+  --kl-awning: #216AC7;
+  --kl-stripe: #5B93DE;
+  --kl-body: #1A549F;
+  --kl-bars: #FFFFFF;
+  display: inline-block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+.dark .kl {
+  --kl-awning: #FFFFFF;
+  --kl-body: #FFFFFF;
+  --kl-bars: #14202B;
+}
+.kl[data-tone="onBrand"] {
+  --kl-awning: #FFFFFF;
+  --kl-body: #FFFFFF;
+  --kl-bars: #216AC7;
+}
+.kl[data-tone="onDark"] {
+  --kl-awning: #FFFFFF;
+  --kl-body: #FFFFFF;
+  --kl-bars: #14202B;
+}
+button .kl.kl, a .kl.kl, .kl[data-tone="current"].kl {
+  --kl-awning: currentColor;
+  --kl-body: currentColor;
+  --kl-stripe: currentColor;
+  --kl-bars: var(--loader-bars, hsl(var(--background)));
+}
+button .kl .kl-stripe, a .kl .kl-stripe, .kl[data-tone="current"] .kl-stripe { opacity: .72; }
+
+.kl-awning-fill { fill: var(--kl-awning); }
+.kl-stripe { fill: var(--kl-stripe); }
+.kl-body { fill: var(--kl-body); }
+.kl-bar { fill: var(--kl-bars); }
+
+.kl-a, .kl-bd, .kl-b1, .kl-b2, .kl-b3 { transform-box: fill-box; }
+.kl-a { transform-origin: 50% 0; animation: kl-A 1.8s cubic-bezier(.2,.7,.2,1) infinite; }
+.kl-bd { transform-origin: 50% 100%; animation: kl-BD 1.8s cubic-bezier(.2,.7,.2,1) infinite; }
+.kl-b1, .kl-b2, .kl-b3 { transform-origin: 50% 100%; }
+.kl-b1 { animation: kl-B1 1.8s cubic-bezier(.2,.7,.2,1) infinite; }
+.kl-b2 { animation: kl-B2 1.8s cubic-bezier(.2,.7,.2,1) infinite; }
+.kl-b3 { animation: kl-B3 1.8s cubic-bezier(.2,.7,.2,1) infinite; }
+
+@keyframes kl-A { 0% { transform: translateY(-30%); opacity: 0 } 15%, 85% { transform: none; opacity: 1 } 100% { opacity: 0 } }
+@keyframes kl-BD { 0%, 8% { transform: scaleY(.2); opacity: 0 } 25%, 85% { transform: none; opacity: 1 } 100% { opacity: 0 } }
+@keyframes kl-B1 { 0%, 25% { transform: scaleY(0) } 40%, 85% { transform: none } 100% { transform: scaleY(0) } }
+@keyframes kl-B2 { 0%, 33% { transform: scaleY(0) } 48%, 85% { transform: none } 100% { transform: scaleY(0) } }
+@keyframes kl-B3 { 0%, 41% { transform: scaleY(0) } 56%, 85% { transform: none } 100% { transform: scaleY(0) } }
+
+/* Reduced motion: the mark stays still and the label gently pulses. */
+@media (prefers-reduced-motion: reduce) {
+  .kl-a, .kl-bd, .kl-b1, .kl-b2, .kl-b3 { animation: none; }
+  .kl-label { animation: kl-pulse 2s ease-in-out infinite; }
+}
+@keyframes kl-pulse { 50% { opacity: .55 } }
+
+/* Logo reveal: mark builds in the centre, glides left, "kowope" and the strapline slide out. 4.2s, once. */
+.klr-a, .klr-bd, .klr-b1, .klr-b2, .klr-b3 { transform-box: fill-box; }
+.klr-a { transform-origin: 50% 0; animation: klr-A 4.2s cubic-bezier(.2,.7,.2,1) both; }
+.klr-bd { transform-origin: 50% 100%; animation: klr-BD 4.2s cubic-bezier(.2,.7,.2,1) both; }
+.klr-b1, .klr-b2, .klr-b3 { transform-origin: 50% 100%; }
+.klr-b1 { animation: klr-B1 4.2s cubic-bezier(.2,.7,.2,1) both; }
+.klr-b2 { animation: klr-B2 4.2s cubic-bezier(.2,.7,.2,1) both; }
+.klr-b3 { animation: klr-B3 4.2s cubic-bezier(.2,.7,.2,1) both; }
+.klr-m { animation: klr-M 4.2s cubic-bezier(.2,.7,.2,1) both; }
+.klr-t { animation: klr-T 4.2s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes klr-A { 0% { transform: translateY(-30%); opacity: 0 } 7%, 100% { transform: none; opacity: 1 } }
+@keyframes klr-BD { 0%, 3% { transform: scaleY(.2); opacity: 0 } 11%, 100% { transform: none; opacity: 1 } }
+@keyframes klr-B1 { 0%, 11% { transform: scaleY(0) } 18%, 100% { transform: none } }
+@keyframes klr-B2 { 0%, 15% { transform: scaleY(0) } 22%, 100% { transform: none } }
+@keyframes klr-B3 { 0%, 19% { transform: scaleY(0) } 26%, 100% { transform: none } }
+@keyframes klr-M { 0%, 30% { transform: translateX(172px) } 46%, 100% { transform: none } }
+@keyframes klr-T { 0%, 40% { clip-path: inset(0 100% 0 0); transform: translateX(-24px); opacity: 0 } 58%, 100% { clip-path: inset(0 0 0 0); transform: none; opacity: 1 } }
+@media (prefers-reduced-motion: reduce) {
+  .klr-a, .klr-bd, .klr-b1, .klr-b2, .klr-b3, .klr-m, .klr-t { animation: none; }
+}
+.klr-word { fill: #14202B; }
+.klr-strap { fill: #5B6672; }
+.dark .klr-word { fill: #FFFFFF; }
+.dark .klr-strap { fill: #D5DAE1; }
+.klr[data-tone="onBrand"] .klr-word { fill: #FFFFFF; }
+.klr[data-tone="onBrand"] .klr-strap { fill: #E9F0FA; }

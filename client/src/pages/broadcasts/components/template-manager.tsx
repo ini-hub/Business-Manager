@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Loader2, Plus, Pencil, Ban } from "lucide-react";
+import { FileText, Plus, Pencil, Ban } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 type Template = {
   id: string;
@@ -165,7 +166,7 @@ export function TemplateManagerSection({ storeId }: { storeId: string | undefine
                   onClick={() => save.mutate()}
                   disabled={!form.metaTemplateName || !form.bodyText || save.isPending}
                 >
-                  {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {save.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                   {editingId ? "Save Changes" : "Add Template"}
                 </Button>
               </DialogFooter>

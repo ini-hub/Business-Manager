@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
@@ -9,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { Card, Money, SaveBar } from "./settings-ui";
+import { Spinner } from "@/components/ui/loader";
 
 const LANGUAGES = [
   { value: "english", label: "English" },
@@ -80,7 +80,7 @@ export function BorrowBookSettingsSection() {
   }, [settingsData]);
 
   if (!currentStore) return null;
-  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center p-12"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   const steps = buildSchedule(daysBefore, onDueDate, daysAfter, repeatDays, stopDays);
 

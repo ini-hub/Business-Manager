@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { PersonalTab } from "@/components/hr/PersonalTab";
 import { EmergencyContactsTab } from "@/components/hr/EmergencyContactsTab";
 import { GuarantorTab } from "@/components/hr/GuarantorTab";
+import { FullScreenLoader, Spinner } from "@/components/ui/loader";
 
 interface StatusResponse { outstandingSections: Array<"personal" | "emergency" | "guarantor">; requiredSections: Array<"personal" | "emergency" | "guarantor">; complete: boolean }
 
@@ -46,7 +47,7 @@ export default function CompleteProfilePage() {
   });
 
   if (isLoading) {
-    return <div className="flex items-center justify-center min-h-screen"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+    return <FullScreenLoader />;
   }
 
   const outstanding = status?.outstandingSections ?? [];
@@ -98,7 +99,7 @@ export default function CompleteProfilePage() {
         )}
 
         <Button size="lg" onClick={() => completeMutation.mutate()} disabled={completeMutation.isPending} data-testid="button-complete-profile">
-          {completeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          {completeMutation.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}
           Continue to dashboard
         </Button>
       </div>

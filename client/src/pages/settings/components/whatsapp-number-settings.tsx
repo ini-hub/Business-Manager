@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { MessageSquare, Loader2, HelpCircle, CheckCircle2, ExternalLink } from "lucide-react";
+import { MessageSquare, HelpCircle, CheckCircle2, ExternalLink } from "lucide-react";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Spinner } from "@/components/ui/loader";
 
 const MASK = "••••••••••••••••";
 
@@ -113,7 +114,7 @@ export function WhatsAppNumberSection() {
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <Spinner className="h-4 w-4 animate-spin text-muted-foreground" />
         ) : (
           <>
             {data && (
@@ -162,7 +163,7 @@ export function WhatsAppNumberSection() {
                   onClick={() => discover.mutate()}
                   disabled={!accessToken || accessToken === MASK || discover.isPending}
                 >
-                  {discover.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {discover.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                   Find My Numbers
                 </Button>
               </div>
@@ -196,7 +197,7 @@ export function WhatsAppNumberSection() {
                 onClick={() => connect.mutate()}
                 disabled={!selectedPhoneNumberId || connect.isPending}
               >
-                {connect.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {connect.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                 Connect Number
               </Button>
             </div>

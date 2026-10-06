@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Wallet, Landmark, HandCoins, Plus, Trash2, Loader2 } from "lucide-react";
+import { Wallet, Landmark, HandCoins, Plus, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Spinner } from "@/components/ui/loader";
 
 type CapitalContribution = { id: string; type: "capital_injection" | "withdrawal"; amount: number; description: string | null; date: string };
 type Asset = { id: string; name: string; category: "cash" | "fixed" | "other"; value: number; acquiredDate: string | null };
@@ -186,7 +187,7 @@ export function CapitalAssetsSettings() {
                 </div>
                 <DialogFooter>
                   <Button onClick={() => addCapital.mutate()} disabled={!capitalAmount || addCapital.isPending}>
-                    {addCapital.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Save
+                    {addCapital.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />} Save
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -250,7 +251,7 @@ export function CapitalAssetsSettings() {
                 </div>
                 <DialogFooter>
                   <Button onClick={() => addAsset.mutate()} disabled={!assetName || !assetValue || addAsset.isPending}>
-                    {addAsset.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Save
+                    {addAsset.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />} Save
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -318,7 +319,7 @@ export function CapitalAssetsSettings() {
                 </div>
                 <DialogFooter>
                   <Button onClick={() => addLiability.mutate()} disabled={!liabilityName || !liabilityAmount || addLiability.isPending}>
-                    {addLiability.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Save
+                    {addLiability.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />} Save
                   </Button>
                 </DialogFooter>
               </DialogContent>

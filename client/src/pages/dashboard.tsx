@@ -711,13 +711,13 @@ export default function Dashboard() {
 
       {/* ─── Desktop (lg+): dense analytics layout ─── */}
       <div className="hidden lg:block space-y-6">
-        <div className="flex items-end justify-between gap-6">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between xl:gap-6">
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {greeting}, {firstName}
             </p>
             <h1 className="mt-1 text-[26px] font-bold tracking-tight leading-none">Dashboard</h1>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               {stores.length > 1 && (
                 <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 font-medium text-foreground">
                   {currentStore?.id === "all" ? `All ${stores.length} branches` : currentStore?.name}
@@ -727,7 +727,7 @@ export default function Dashboard() {
               {prevRangeLabel && <span className="text-muted-foreground/70">vs {prevRangeLabel}</span>}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 xl:shrink-0 xl:flex-nowrap">
             <div className="flex items-center gap-0.5 rounded-lg bg-muted p-1">
               {([
                 ["today", "Today"],
@@ -742,7 +742,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => applyDatePreset(preset)}
                   className={cn(
-                    "px-3 py-2 text-sm rounded-md font-medium transition-all whitespace-nowrap",
+                    "px-2.5 py-1.5 text-sm rounded-md font-medium transition-all whitespace-nowrap xl:px-3 xl:py-2",
                     datePreset === preset
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -780,7 +780,7 @@ export default function Dashboard() {
                 />
               </PopoverContent>
             </Popover>
-            <Button asChild data-testid="button-new-sale-desktop">
+            <Button asChild className="ml-auto xl:ml-0" data-testid="button-new-sale-desktop">
               <Link href="/sales/new">
                 <ShoppingCart className="mr-2 h-4 w-4" />
                 New sale

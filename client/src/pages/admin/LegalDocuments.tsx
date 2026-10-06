@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { FileText, Loader2, AlertCircle, History, Eye, Save, Plus, ExternalLink, Archive, RotateCcw, Trash2 } from "lucide-react";
+import { FileText, AlertCircle, History, Eye, Save, Plus, ExternalLink, Archive, RotateCcw, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { LegalDocumentViewer } from "@/components/legal-document-viewer";
 import { legalDocHref } from "@/lib/legal-docs";
+import { Spinner } from "@/components/ui/loader";
 
 interface LegalDocumentRow {
   documentType: string;
@@ -142,7 +143,7 @@ function AddSectionDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           >
             {createMutation.isPending ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Spinner className="h-5 w-5 mr-2 animate-spin" />
                 Adding...
               </>
             ) : (
@@ -267,7 +268,7 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
             disabled={reactivateMutation.isPending}
             data-testid={`button-reactivate-${document.documentType}`}
           >
-            {reactivateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 mr-1.5" />}
+            {reactivateMutation.isPending ? <Spinner className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 mr-1.5" />}
             Reactivate
           </Button>
         </div>
@@ -355,7 +356,7 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
           </DialogHeader>
           {historyQuery.isLoading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <Spinner className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -393,7 +394,7 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
             <Button onClick={() => publishMutation.mutate()} disabled={publishMutation.isPending}>
               {publishMutation.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Spinner className="h-5 w-5 mr-2 animate-spin" />
                   Publishing...
                 </>
               ) : (
@@ -425,7 +426,7 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
             >
               {archiveMutation.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Spinner className="h-5 w-5 mr-2 animate-spin" />
                   Deactivating...
                 </>
               ) : (
@@ -451,7 +452,7 @@ function DocumentEditor({ document }: { document: LegalDocumentRow }) {
             <Button variant="destructive" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Spinner className="h-5 w-5 mr-2 animate-spin" />
                   Deleting...
                 </>
               ) : (
@@ -504,7 +505,7 @@ export default function LegalDocuments() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">

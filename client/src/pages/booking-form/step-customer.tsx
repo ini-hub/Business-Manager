@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
 import { UseFormReturn } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Plus, Loader2 } from "lucide-react";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -39,6 +39,7 @@ import { BookingFormValues, InsertCustomer, newCustomerSchema } from "./types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { getDefaultCountryCode } from "@/lib/validation-utils";
+import { Spinner } from "@/components/ui/loader";
 
 interface StepCustomerProps {
   form: UseFormReturn<BookingFormValues>;
@@ -426,7 +427,7 @@ export function StepCustomer({ form }: StepCustomerProps) {
                 </Button>
                 <Button type="submit" disabled={createCustomerMutation.isPending}>
                   {createCustomerMutation.isPending ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adding...</>
+                    <><Spinner className="mr-2 h-5 w-5 animate-spin" />Adding...</>
                   ) : (
                     "Add Customer"
                   )}

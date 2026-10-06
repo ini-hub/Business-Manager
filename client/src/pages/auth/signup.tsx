@@ -15,9 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { legalDocHref } from "@/lib/legal-docs";
+import { Spinner } from "@/components/ui/loader";
 
 interface LegalDocumentSummary {
   documentType: string;
@@ -473,7 +474,7 @@ export default function Signup() {
                     <div className="space-y-2">
                       {legalDocsQuery.isLoading && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <Spinner className="h-3.5 w-3.5 animate-spin" />
                           Loading agreements...
                         </div>
                       )}
@@ -523,7 +524,7 @@ export default function Signup() {
               >
                 {signupMutation.isPending ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-5 w-5 animate-spin" />
                     Creating account...
                   </>
                 ) : (

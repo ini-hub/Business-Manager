@@ -1,7 +1,7 @@
-import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/loader";
 
 /** Building blocks shared by the settings pages: a titled section card, an input with a unit on each side, and a save row. */
 export function Card({ title, hint, children, id }: { title?: string; hint?: string; children: React.ReactNode; id?: string }) {
@@ -33,7 +33,7 @@ export function SaveBar({ onSave, pending, label, disabled, note }: { onSave: ()
     <div className="flex items-center justify-end gap-3">
       {note && <p className="text-sm text-destructive">{note}</p>}
       <Button onClick={onSave} disabled={pending || disabled}>
-        {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {pending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
         {label}
       </Button>
     </div>

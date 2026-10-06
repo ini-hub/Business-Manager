@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Settings, Clock, CreditCard, MessageSquare, Phone, Loader2 } from "lucide-react";
+import { Settings, Clock, CreditCard, MessageSquare, Phone } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/loader";
 
 const MASK = "••••••••••••••••";
 
@@ -116,6 +117,34 @@ export default function PlatformSettings() {
     onError: (err: Error) => toast({ title: "Couldn't update payment credentials", description: err.message, variant: "destructive" }),
   });
 
+  // ---- Export branding ("Powered by" line) ----
+  const { data: brandData, isLoading: brandLoading } = useQuery<{ enabled: boolean; text: string }>({
+    queryKey: ["/api/admin/platform-config/export-branding"],
+  });
+  const [brandEnabled, setBrandEnabled] = useState(true);
+  const [brandText, setBrandText] = useState("");
+  useEffect(() => {
+    if (brandData) {
+      setBrandEnabled(brandData.enabled);
+      setBrandText(brandData.text);
+    }
+  }, [brandData]);
+
+  const saveBranding = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PUT", "/api/admin/platform-config/export-branding", { enabled: brandEnabled, text: brandText });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to update export branding");
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-config/export-branding"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/export-branding"] });
+      toast({ title: "Export branding updated", description: "Applies to documents generated from now on." });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't update export branding", description: err.message, variant: "destructive" }),
+  });
+
   // ---- WhatsApp Business Platform (Cloud API) ----
   // The ONE Meta Tech Provider app this platform uses to receive webhooks for
   // every connected business's WhatsApp number - distinct from a business's
@@ -200,7 +229,7 @@ export default function PlatformSettings() {
         </CardHeader>
         <CardContent className="flex items-end gap-3">
           {trialLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Spinner className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
             <>
               <div className="space-y-2">
@@ -216,7 +245,7 @@ export default function PlatformSettings() {
                 />
               </div>
               <Button onClick={() => saveTrialDays.mutate()} disabled={saveTrialDays.isPending}>
-                {saveTrialDays.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {saveTrialDays.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                 Save
               </Button>
             </>
@@ -236,7 +265,7 @@ export default function PlatformSettings() {
         </CardHeader>
         <CardContent className="flex items-end gap-3">
           {graceLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Spinner className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
             <>
               <div className="space-y-2">
@@ -244,7 +273,7 @@ export default function PlatformSettings() {
                 <Input id="grace-days" type="number" min={0} max={90} value={graceDays} onChange={(e) => setGraceDays(e.target.value)} className="w-32" />
               </div>
               <Button onClick={() => saveGraceDays.mutate()} disabled={saveGraceDays.isPending}>
-                {saveGraceDays.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {saveGraceDays.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                 Save
               </Button>
             </>
@@ -264,7 +293,7 @@ export default function PlatformSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           {credLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Spinner className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
             <>
               <div className="flex items-center gap-2">
@@ -291,7 +320,7 @@ export default function PlatformSettings() {
 
               <div className="flex justify-end">
                 <Button onClick={() => saveCredentials.mutate()} disabled={saveCredentials.isPending}>
-                  {saveCredentials.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {saveCredentials.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                   Save Credentials
                 </Button>
               </div>
@@ -312,7 +341,7 @@ export default function PlatformSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           {waPlatformLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Spinner className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
             <>
               <div className="flex items-center gap-2">
@@ -335,7 +364,7 @@ export default function PlatformSettings() {
 
               <div className="flex justify-end">
                 <Button onClick={() => saveWhatsAppPlatformConfig.mutate()} disabled={saveWhatsAppPlatformConfig.isPending}>
-                  {saveWhatsAppPlatformConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {saveWhatsAppPlatformConfig.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                   Save WhatsApp Configuration
                 </Button>
               </div>
@@ -355,7 +384,7 @@ export default function PlatformSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           {smsLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Spinner className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
             <>
               <div className="space-y-4">
@@ -380,8 +409,40 @@ export default function PlatformSettings() {
 
               <div className="flex justify-end">
                 <Button onClick={() => saveSmsConfig.mutate()} disabled={saveSmsConfig.isPending}>
-                  {saveSmsConfig.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {saveSmsConfig.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                   Save SMS Configuration
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-4 w-4" /> Export branding
+          </CardTitle>
+          <CardDescription>
+            A "powered by" line printed on receipts, quotes, payslips and exported PDF reports.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {brandLoading ? (
+            <Spinner className="h-5 w-5 animate-spin" />
+          ) : (
+            <>
+              <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/50">
+                <Label htmlFor="brand-enabled" className="text-sm font-semibold">Show on exported documents</Label>
+                <Switch id="brand-enabled" checked={brandEnabled} onCheckedChange={setBrandEnabled} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="brand-text">Text</Label>
+                <Input id="brand-text" value={brandText} maxLength={80} disabled={!brandEnabled} onChange={(e) => setBrandText(e.target.value)} />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => saveBranding.mutate()} disabled={saveBranding.isPending}>
+                  {saveBranding.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
+                  Save
                 </Button>
               </div>
             </>

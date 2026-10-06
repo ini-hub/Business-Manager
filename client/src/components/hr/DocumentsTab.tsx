@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Upload, Trash2, LayoutGrid, List as ListIcon, FileText } from "lucide-react";
+import { Upload, Trash2, LayoutGrid, List as ListIcon, FileText } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/loader";
 
 interface Folder { id: string; key: string; label: string }
 interface DocumentRow { id: string; folderId: string; fileName: string; fileMimeType: string; uploadedAt: string }
@@ -63,7 +64,7 @@ export function DocumentsTab({ staffId }: { staffId: string }) {
         </div>
       </div>
 
-      {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : view === "grid" ? (
+      {isLoading ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : view === "grid" ? (
         <div className="grid gap-3 sm:grid-cols-3">
           {visibleDocs.map((d) => (
             <Card key={d.id}>

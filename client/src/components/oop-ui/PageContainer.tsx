@@ -2,8 +2,9 @@ import * as React from "react";
 import { PageHeader } from "@/components/page-header";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/loader";
 
 export interface PageContainerProps {
   title: string;
@@ -66,7 +67,7 @@ export const PageContainer: React.FC<PageContainerProps> = ({
       
       {isLoading ? (
         <div className="flex flex-col items-center justify-center min-h-[300px] gap-2 text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
           <span className="text-sm font-medium">Loading details...</span>
         </div>
       ) : (

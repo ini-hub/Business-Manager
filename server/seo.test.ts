@@ -9,7 +9,7 @@ describe("renderDocument", () => {
     const doc = renderDocument(template, "/auth/signup", site);
     expect(doc.status).toBe(200);
     expect(doc.html).toContain("<title data-seo>Create Your Free Kowope Account</title>");
-    expect(doc.html).toContain('property="og:image" content="https://kowope.com/og/og-home.jpg"');
+    expect(doc.html).toContain('property="og:image" content="https://kowope.com/og/og-home.jpg?v=3"');
     expect(doc.html).not.toContain(SEO_MARKER);
     expect(doc.noindexHeader).toBe(false);
   });

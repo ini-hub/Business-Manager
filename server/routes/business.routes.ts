@@ -832,6 +832,98 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
+  // Profiles in the store whose name looks like the one being entered ("same person?" prompt)
+  app.get("/api/customers/similar", async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      const name = ((req.query.name as string) || "").trim();
+      if (!storeId || !name) return res.status(400).json({ error: "Store ID and name are required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const excludeId = (req.query.excludeId as string) || undefined;
+      const similar = await storage.findSimilarCustomers(storeId, name, excludeId);
+      res.json({ similar: similar.filter(c => !c.isConfirmedDistinct) });
+    } catch (error) {
+      res.status(500).json({ error: "Could not check for similar customers." });
+    }
+  });
+
+  // ── Phone numbers on a customer ───────────────────────────────────────────
+  const loadCustomerForPhones = async (req: any, res: any) => {
+    const customer = await storage.getCustomer(req.params.id);
+    if (!customer) {
+      res.status(404).json({ error: "Customer not found." });
+      return null;
+    }
+    if (!(await verifyRecordStoreAccess(req, customer.storeId))) {
+      res.status(403).json({ error: "You don't have access to this customer." });
+      return null;
+    }
+    return customer;
+  };
+
+  app.get("/api/customers/:id/phones", withCustomerId, async (req, res) => {
+    try {
+      const customer = await loadCustomerForPhones(req, res);
+      if (!customer) return;
+      res.json(await storage.getCustomerPhones(customer.id));
+    } catch (error) {
+      res.status(500).json({ error: "Could not load phone numbers." });
+    }
+  });
+
+  app.post("/api/customers/:id/phones", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
+    try {
+      const customer = await loadCustomerForPhones(req, res);
+      if (!customer) return;
+      const number = sanitizePhoneNumber(req.body?.number);
+      if (!number) return res.status(400).json({ error: "Enter a valid phone number." });
+
+      // A number that already belongs to another live profile is the "same person" case — surface it
+      // so the user can merge instead of silently creating a second owner.
+      const owner = await storage.findCustomerPhoneOwner(customer.storeId, number, customer.id);
+      if (owner && !req.body?.allowShared) {
+        return res.status(409).json({
+          error: "number_in_use",
+          message: `This number already belongs to ${owner.name}.`,
+          existingCustomer: { id: owner.id, name: owner.name, customerNumber: owner.customerNumber, mobileNumber: owner.mobileNumber },
+        });
+      }
+
+      const phones = await storage.addCustomerPhone(customer.id, number, {
+        label: req.body?.label ? sanitizeString(req.body.label) : null,
+        makePrimary: !!req.body?.makePrimary,
+      });
+      const ctx = await getAuditContext(req, { storeId: customer.storeId });
+      auditLogger.logEvent(ctx, "UPDATE", "customer", customer.id, "success", { changedFields: ["phoneNumbers"], newValues: { added: number } });
+      res.status(201).json(phones);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Could not add phone number." });
+    }
+  });
+
+  app.delete("/api/customers/:id/phones/:phoneId", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
+    try {
+      const customer = await loadCustomerForPhones(req, res);
+      if (!customer) return;
+      const phones = await storage.removeCustomerPhone(customer.id, req.params.phoneId);
+      const ctx = await getAuditContext(req, { storeId: customer.storeId });
+      auditLogger.logEvent(ctx, "UPDATE", "customer", customer.id, "success", { changedFields: ["phoneNumbers"], newValues: { removedPhoneId: req.params.phoneId } });
+      res.json(phones);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Could not remove phone number." });
+    }
+  });
+
+  app.patch("/api/customers/:id/phones/:phoneId/primary", withCustomerId, requireRole("owner", "manager"), async (req, res) => {
+    try {
+      const customer = await loadCustomerForPhones(req, res);
+      if (!customer) return;
+      res.json(await storage.setPrimaryCustomerPhone(customer.id, req.params.phoneId));
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Could not change primary number." });
+    }
+  });
+
   app.get("/api/customers/search-global", async (req, res) => {
     try {
       const storeId = req.query.storeId as string;

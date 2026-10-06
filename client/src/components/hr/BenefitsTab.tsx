@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 interface Dependant { id: string; name: string; relationship: string | null; gender: string | null; ssn: string | null; birthDate: string | null }
 interface Beneficiary { id: string; name: string; relationship: string | null; address: string | null; phone: string | null; percentage: number }
@@ -67,12 +68,12 @@ export function BenefitsTab({ staffId }: { staffId: string }) {
                 <Input placeholder="SSN" value={depForm.ssn} onChange={(e) => setDepForm({ ...depForm, ssn: e.target.value })} />
                 <Input type="date" value={depForm.birthDate} onChange={(e) => setDepForm({ ...depForm, birthDate: e.target.value })} />
               </div>
-              <DialogFooter><Button onClick={() => addDependant.mutate()} disabled={!depForm.name || addDependant.isPending}>{addDependant.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save</Button></DialogFooter>
+              <DialogFooter><Button onClick={() => addDependant.mutate()} disabled={!depForm.name || addDependant.isPending}>{addDependant.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Save</Button></DialogFooter>
             </DialogContent>
           </Dialog>
         </CardHeader>
         <CardContent>
-          {loadingDep ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+          {loadingDep ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : (
             <Table>
               <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Relationship</TableHead><TableHead>Gender</TableHead><TableHead>SSN</TableHead><TableHead>Birthdate</TableHead><TableHead /></TableRow></TableHeader>
               <TableBody>
@@ -106,12 +107,12 @@ export function BenefitsTab({ staffId }: { staffId: string }) {
                 <Input placeholder="Phone" value={benForm.phone} onChange={(e) => setBenForm({ ...benForm, phone: e.target.value })} />
                 <Input type="number" placeholder="Percentage *" value={benForm.percentage} onChange={(e) => setBenForm({ ...benForm, percentage: e.target.value })} />
               </div>
-              <DialogFooter><Button onClick={() => addBeneficiary.mutate()} disabled={!benForm.name || !benForm.percentage || addBeneficiary.isPending}>{addBeneficiary.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save</Button></DialogFooter>
+              <DialogFooter><Button onClick={() => addBeneficiary.mutate()} disabled={!benForm.name || !benForm.percentage || addBeneficiary.isPending}>{addBeneficiary.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Save</Button></DialogFooter>
             </DialogContent>
           </Dialog>
         </CardHeader>
         <CardContent>
-          {loadingBen ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+          {loadingBen ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : (
             <Table>
               <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Relationship</TableHead><TableHead>Address</TableHead><TableHead>Phone</TableHead><TableHead>%</TableHead><TableHead /></TableRow></TableHeader>
               <TableBody>

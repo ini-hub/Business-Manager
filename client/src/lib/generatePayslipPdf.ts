@@ -1,3 +1,4 @@
+import { getPoweredByText } from "./export-branding";
 import { format, parseISO } from "date-fns";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
 import type { CommissionExplanation } from "@shared/commission-explainer";
@@ -275,6 +276,13 @@ export async function generatePayslipPdf(params: {
   doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
   doc.setTextColor(...LABEL);
   doc.text(`Generated on ${format(new Date(), "MMM d, yyyy")}`, R, y + (qrDataUrl ? 4 : 0), { align: "right" });
+
+  const poweredBy = await getPoweredByText();
+  if (poweredBy) {
+    doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+    doc.setTextColor(...LABEL);
+    doc.text(poweredBy, C, doc.internal.pageSize.getHeight() - 5, { align: "center" });
+  }
 
   doc.save(`payslip-${entry.staff?.name || entry.staffId}-${period.startDate}.pdf`);
 }

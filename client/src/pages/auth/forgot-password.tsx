@@ -13,8 +13,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, Mail, MessageSquare, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Mail, MessageSquare, CheckCircle2 } from "lucide-react";
 import { deduplicatedCountryCodes } from "@/lib/phone-utils";
+import { Spinner } from "@/components/ui/loader";
 
 const emailSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -205,7 +206,7 @@ export default function ForgotPassword() {
                 >
                   {forgotMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Sending...
                     </>
                   ) : (
@@ -316,7 +317,7 @@ export default function ForgotPassword() {
                 >
                   {forgotMutation.isPending ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       Sending...
                     </>
                   ) : (

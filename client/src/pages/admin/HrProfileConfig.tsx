@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 const SECTIONS = [
   { key: "personal", label: "Personal" },
@@ -66,7 +67,7 @@ export function HrProfileConfig({ businessId }: { businessId: string }) {
     onError: (error) => toast({ variant: "destructive", title: "Could not update section", description: getUserFriendlyError(error) }),
   });
 
-  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center py-8"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-6">
@@ -174,14 +175,14 @@ function FieldBuilder({ businessId, section, title }: { businessId: string; sect
             </div>
             <DialogFooter>
               <Button onClick={() => createField.mutate()} disabled={!form.fieldKey || !form.label || createField.isPending} data-testid={`button-save-field-${section}`}>
-                {createField.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Add
+                {createField.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Add
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </CardHeader>
       <CardContent className="divide-y">
-        {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
+        {isLoading ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : fields.map((f) => (
           <div key={f.id} className="flex items-center justify-between py-3">
             <div>
               <p className="text-sm font-medium">{f.label} <span className="text-xs text-muted-foreground">({f.fieldType})</span></p>

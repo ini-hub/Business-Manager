@@ -13,10 +13,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Crosshair, Loader2, MapPin, TriangleAlert } from "lucide-react";
+import { Crosshair, MapPin, TriangleAlert } from "lucide-react";
 import { LocationHelp } from "@/components/location-help";
 import { LocationPickerOsm } from "@/components/location-picker-osm";
 import { hasGoogleMapsKey, loadGoogleMaps } from "@/lib/google-maps";
+import { Spinner } from "@/components/ui/loader";
 
 export type PickedLocation = {
   latitude: number | null;
@@ -260,7 +261,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
           />
           {mapsState === "loading" && (
             <div className="absolute inset-0 flex items-center justify-center rounded-md bg-muted/60">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <Spinner className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
         </div>
@@ -275,7 +276,7 @@ export function LocationPicker({ value, radiusMeters, onChange, disabled }: Prop
           disabled={disabled || locating}
           data-testid="button-use-current-location"
         >
-          {locating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Crosshair className="mr-2 h-4 w-4" />}
+          {locating ? <Spinner className="mr-2 h-5 w-5 animate-spin" /> : <Crosshair className="mr-2 h-4 w-4" />}
           Use my current location
         </Button>
         {value.label && (

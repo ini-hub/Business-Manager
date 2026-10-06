@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { Check, Loader2, Mail } from "lucide-react";
+import { Check, Mail } from "lucide-react";
+import { Spinner } from "@/components/ui/loader";
 
 export type OtpIssue = "wrong" | "expired" | "locked" | "error";
 
@@ -188,7 +189,7 @@ export function EmailOtpForm(p: Props) {
       </fieldset>
 
       <button type="submit" className="ks-otp-primary" disabled={!canVerify} data-testid="button-verify-otp">
-        {p.verifying ? (<><Loader2 className="animate-spin" size={18} aria-hidden="true" />Verifying...</>) : "Verify email"}
+        {p.verifying ? (<><Spinner className="animate-spin" size={18} aria-hidden="true" />Verifying...</>) : "Verify email"}
       </button>
 
       <p className="ks-otp-resend">
@@ -241,7 +242,7 @@ export function ChangeEmailForm({ currentEmail, busy, error, onSubmit, onCancel 
       </div>
       {error && <p className="ks-otp-note is-wrong" role="alert">{error}</p>}
       <button type="submit" className="ks-otp-primary" disabled={!ready} data-testid="button-save-email">
-        {busy ? (<><Loader2 className="animate-spin" size={18} aria-hidden="true" />Sending code...</>) : "Send new code"}
+        {busy ? (<><Spinner className="animate-spin" size={18} aria-hidden="true" />Sending code...</>) : "Send new code"}
       </button>
       <p className="ks-otp-resend">
         <button type="button" onClick={onCancel} data-testid="button-cancel-change-email">Keep current email</button>

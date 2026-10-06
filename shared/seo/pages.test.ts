@@ -64,7 +64,7 @@ describe("seo head rendering", () => {
     const h = html("/");
     expect(h).toContain("<title data-seo>Kowope: Business Management App for Nigerian SMEs</title>");
     expect(h).toContain('<link data-seo rel="canonical" href="https://kowope.com/">');
-    expect(h).toContain('content="https://kowope.com/og/og-home.jpg"');
+    expect(h).toContain('content="https://kowope.com/og/og-home.jpg?v=3"');
     expect(h).toContain('property="og:title" content="Run your whole business from your phone"');
     expect(h).toContain('name="twitter:card" content="summary_large_image"');
     expect(h).toContain("index, follow, max-image-preview:large");

@@ -47,10 +47,12 @@ import {
   createLegalDocumentSchema
 } from "@shared/schema";
 import { grantFeatureEntitlement } from "./lib/entitlements";
+import { publishFeature } from "./lib/featureSync";
+import { listPendingReview } from "./lib/featureReviewNotice";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
 import { slugifyBundleKey } from "@shared/bundles";
 import { validateBundleMembers } from "./lib/pricing";
-import { getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
+import { getExportBranding, getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
@@ -2433,6 +2435,14 @@ adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole([
       if (blocked) return res.status(400).json({ error: blocked });
     }
 
+    // Turning a feature that is pending review on is publishing it: do it through the one path that also
+    // clears the review state and runs the grandfathering the sync held back.
+    if (patch.data.isActive === true && existing.reviewStatus === "pending_review") {
+      const problem = publishProblem({ ...existing, ...patch.data });
+      if (problem) return res.status(400).json({ error: problem });
+      await publishFeature(id, { priceMonthly: patch.data.priceMonthly, priceAnnual: patch.data.priceAnnual });
+    }
+
     const [updated] = await db
       .update(featureCatalog)
       .set({ ...patch.data, updatedAt: new Date() })
@@ -2444,6 +2454,36 @@ adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole([
   } catch (error) {
     console.error("Update feature catalog entry error:", error);
     return res.status(500).json({ error: "Failed to update this feature." });
+  }
+});
+
+/** A priced feature cannot go live without a price. */
+function publishProblem(row: { tierType: string; priceMonthly?: number | null }): string | null {
+  const priced = row.tierType === "paid_flat" || row.tierType === "paid_metered_limit" || row.tierType === "bundle_parent";
+  return priced && row.priceMonthly == null ? "Set a monthly price before publishing." : null;
+}
+
+// Takes a feature the registry sync created (pending review, inactive) live: optional price, then active, then
+// the free-to-existing-businesses grant the sync held back. Safe to repeat: a published feature returns 409.
+adminRouter.post("/feature-catalog/:id/publish", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const body = z.object({
+    priceMonthly: z.number().nonnegative().nullable().optional(),
+    priceAnnual: z.number().nonnegative().nullable().optional(),
+  }).safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: body.error.errors.map((e) => e.message).join(", ") });
+  try {
+    const [existing] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!existing) return res.status(404).json({ error: "Feature not found." });
+    if (existing.reviewStatus !== "pending_review") return res.status(409).json({ error: "This feature is already published." });
+    const problem = publishProblem({ ...existing, ...(body.data.priceMonthly !== undefined ? { priceMonthly: body.data.priceMonthly } : {}) });
+    if (problem) return res.status(400).json({ error: problem });
+    const result = await publishFeature(existing.id, body.data);
+    if (!result) return res.status(409).json({ error: "This feature is already published." });
+    await writeAuditLog(req, "publish_feature_catalog_entry", existing.key, { price: body.data, grandfathered: result.grandfathered });
+    return res.json({ success: true, feature: result.feature, grandfathered: result.grandfathered });
+  } catch (error) {
+    console.error("Publish feature catalog entry error:", error);
+    return res.status(500).json({ error: "Failed to publish this feature." });
   }
 });
 
@@ -2872,6 +2912,8 @@ adminRouter.get("/system/health", isAdminAuthenticated, async (req: Request, res
       : [];
     const names = new Map(nameRows.map((r) => [r.id, r.name]));
 
+    const pendingFeatures = await listPendingReview();
+
     const apiStatus = stats.total === 0 ? "No Data" : stats.p95 > 1500 ? "Degraded" : "Normal";
     const databaseStatus = !dbOk ? "Down" : dbMs > 500 ? "Degraded" : "Normal";
 
@@ -2893,6 +2935,7 @@ adminRouter.get("/system/health", isAdminAuthenticated, async (req: Request, res
         smsDeliveryRate: null,
         range,
       },
+      featureReview: { pending: pendingFeatures.length, features: pendingFeatures },
       latencyTimeline: stats.timeline,
       latencyApproximate: true,
       recentErrors: stats.recentErrors.map((e, i) => ({
@@ -3205,6 +3248,30 @@ adminRouter.put("/platform-config/grace-days", isAdminAuthenticated, requireAdmi
   } catch (error) {
     console.error("Update grace-days error:", error);
     return res.status(500).json({ error: "Failed to update grace period." });
+  }
+});
+
+adminRouter.get("/platform-config/export-branding", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    return res.json(await getExportBranding());
+  } catch {
+    return res.status(500).json({ error: "Failed to load export branding." });
+  }
+});
+
+adminRouter.put("/platform-config/export-branding", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const enabled = req.body?.enabled;
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+  if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be true or false." });
+  if (enabled && (!text || text.length > 80)) return res.status(400).json({ error: "Text is required and must be 80 characters or fewer." });
+  try {
+    const value = { enabled, text: text.slice(0, 80) };
+    await setPlatformConfigValue("export_branding", value, req.admin!.email);
+    await writeAuditLog(req, "update_export_branding", "platform_config", value);
+    return res.json({ success: true, ...(await getExportBranding()) });
+  } catch (error) {
+    console.error("Update export-branding error:", error);
+    return res.status(500).json({ error: "Failed to update export branding." });
   }
 });
 

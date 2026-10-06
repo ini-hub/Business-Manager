@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/loader";
 
 const SECTIONS = [
   { key: "personal", label: "Personal information" },
@@ -55,7 +55,7 @@ export function HrProfileSettingsSection({ onSelectSection }: { onSelectSection?
     onError: (error) => toast({ variant: "destructive", title: "Could not update section", description: getUserFriendlyError(error) }),
   });
 
-  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center py-8"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   const levelOf = (key: string): Level => {
     const cfg = sections.find((s) => s.section === key);

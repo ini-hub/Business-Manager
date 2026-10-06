@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "wouter";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { priceSelection, type PublicPricing } from "@shared/bundles";
 import { CATEGORY_LABELS, formatMoney } from "@/lib/pricing";
 import type { BundleRow } from "./Bundles";
+import { Spinner } from "@/components/ui/loader";
 
 const EMPTY = {
   name: "", tagline: "", featureKeys: [] as string[], discountPct: "0", bullets: "",
@@ -108,7 +109,7 @@ export default function BundleEditor() {
     return acc;
   }, {});
 
-  if (!isNew && isLoading) return <div className="p-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (!isNew && isLoading) return <div className="p-6"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   if (!isNew && !existing) {
     return (
       <div className="space-y-3 p-6">
@@ -191,7 +192,7 @@ export default function BundleEditor() {
           <Button variant="outline" onClick={() => navigate("/super-admin/bundles")}>Cancel</Button>
           {isSuperAdmin && (
             <Button onClick={() => save.mutate()} disabled={save.isPending || !form.name.trim() || form.featureKeys.length === 0}>
-              {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {save.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
               Save
             </Button>
           )}

@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, LayoutDashboard, Loader2, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, LayoutDashboard, Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Spinner } from "@/components/ui/loader";
 
 interface Dashboard {
   id: string;
@@ -113,7 +114,7 @@ export default function AnalyticsDashboardsPage() {
                   onClick={() => create.mutate()}
                   disabled={!name.trim() || create.isPending}
                 >
-                  {create.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {create.isPending && <Spinner className="h-3.5 w-3.5 animate-spin" />}
                   Create
                 </Button>
               </DialogFooter>

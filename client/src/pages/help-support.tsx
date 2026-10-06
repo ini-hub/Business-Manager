@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Mail, MessageCircle, CheckCircle2 } from "lucide-react";
+import { Mail, MessageCircle, CheckCircle2 } from "lucide-react";
+import { Spinner } from "@/components/ui/loader";
 
 function EmailSupportForm() {
   const { toast } = useToast();
@@ -76,7 +77,7 @@ function EmailSupportForm() {
           onClick={() => sendMutation.mutate()}
           data-testid="button-send-support-email"
         >
-          {sendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+          {sendMutation.isPending ? <Spinner className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
           Send email
         </Button>
       </CardContent>

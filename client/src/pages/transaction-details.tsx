@@ -1,22 +1,7 @@
 import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  Calendar, CreditCard,
-  AlertCircle,
-  Printer,
-  Ban,
-  Edit,
-  ShoppingBag,
-  Loader2,
-  Undo2,
-  Tag,
-  Plus,
-  Droplet,
-  History,
-  MoreHorizontal
-} from "lucide-react";
+import { ArrowLeft, Calendar, CreditCard, AlertCircle, Printer, Ban, Edit, ShoppingBag, Undo2, Tag, Plus, Droplet, UserCog, History, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { AddendumDialog } from "@/components/AddendumDialog";
+import { PerformedByDialog } from "@/components/PerformedByDialog";
 import { LogSupplyUsageDialog } from "@/components/log-supply-usage-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useReturnTo } from "@/lib/return-to";
@@ -64,6 +50,7 @@ import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { type TransactionWithRelations, VOID_REASON_PRESETS } from "@shared/schema";
+import { Spinner } from "@/components/ui/loader";
 
 export default function TransactionDetailsPage() {
   const { id } = useParams();
@@ -99,6 +86,9 @@ export default function TransactionDetailsPage() {
 
   // Addendum Dialog State
   const [isAddendumOpen, setIsAddendumOpen] = useState(false);
+
+  // Performed-by correction dialog
+  const [isPerformedByOpen, setIsPerformedByOpen] = useState(false);
 
   // Log Supply Usage Dialog State — which order line it's being logged against
   const [logUsageTarget, setLogUsageTarget] = useState<{ orderId: string; serviceName: string } | null>(null);
@@ -234,6 +224,15 @@ export default function TransactionDetailsPage() {
       setIsRefreshingAfterReturn(false);
     }
   };
+
+  // Service lines only — lead first, then assistants, matching how checkout stores them.
+  const performedByLines = (receiptDetails?.items ?? [])
+    .filter((item: any) => item.inventory?.type === "service" && !item.checkout?.isVoided)
+    .map((item: any) => ({
+      checkoutId: item.checkout.id as string,
+      serviceName: (item.inventory?.name ?? "Service") as string,
+      staffIds: [item.leadStaff?.id, item.assistingStaff1?.id, item.assistingStaff2?.id].filter(Boolean) as string[],
+    }));
 
   const returnCheckoutObj = receiptDetails ? {
     id: checkoutId,
@@ -380,7 +379,7 @@ export default function TransactionDetailsPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh] animate-in fade-in duration-300">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Loading transaction details...</p>
         </div>
       </div>
@@ -455,6 +454,20 @@ export default function TransactionDetailsPage() {
           <div>
             <p className="text-sm font-medium">Add missed item</p>
             <p className="text-xs text-muted-foreground">Adds to this receipt and records a balance due</p>
+          </div>
+        </button>
+      )}
+
+      {canManage && performedByLines.length > 0 && !isVoided && (
+        <button
+          type="button"
+          className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-muted/50 transition-colors"
+          onClick={() => setIsPerformedByOpen(true)}
+        >
+          <UserCog className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div>
+            <p className="text-sm font-medium">Correct performed by</p>
+            <p className="text-xs text-muted-foreground">Change who did each service · affects commission</p>
           </div>
         </button>
       )}
@@ -717,6 +730,15 @@ export default function TransactionDetailsPage() {
                               <p className="text-xs text-muted-foreground font-mono mt-0.5">
                                 {item.order.quantity} × {formatCurrency(unitPrice)}
                               </p>
+                              {item.inventory?.type === "service" && item.leadStaff && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  Performed by{" "}
+                                  {[item.leadStaff, item.assistingStaff1, item.assistingStaff2]
+                                    .filter(Boolean)
+                                    .map((st: any) => st.name)
+                                    .join(", ")}
+                                </p>
+                              )}
                               {returnedQty > 0 && (
                                 <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mt-1">
                                   {returnedQty} returned
@@ -1158,6 +1180,16 @@ export default function TransactionDetailsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {checkoutId && currentStore?.id && (
+        <PerformedByDialog
+          open={isPerformedByOpen}
+          onOpenChange={setIsPerformedByOpen}
+          checkoutId={checkoutId}
+          storeId={currentStore.id}
+          lines={performedByLines}
+        />
+      )}
 
       {/* Edit Transaction Date Dialog */}
       <AlertDialog open={isEditDateDialogOpen} onOpenChange={setIsEditDateDialogOpen}>

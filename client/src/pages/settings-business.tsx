@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { SettingsPageHeader } from "@/components/settings-page-header";
 import { Card, SaveBar } from "@/pages/settings/components/settings-ui";
 import { Button } from "@/components/ui/button";
@@ -17,6 +16,7 @@ import { validatePhoneNumber } from "@/lib/phone-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { formatCurrency } from "@/lib/currency-utils";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/loader";
 
 type Draft = {
   name: string;
@@ -82,7 +82,7 @@ export default function SettingsBusinessPage() {
   };
 
   if (isLoading) {
-    return <div className="flex min-h-[400px] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex min-h-[400px] items-center justify-center"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
   if (!business) {

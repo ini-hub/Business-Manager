@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { useSessionSet } from "@/hooks/use-session-state";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Edit2, Loader2, AlertCircle, Lock, Sunset, Search, ChevronRight, ChevronDown, Package } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus, Edit2, AlertCircle, Lock, Sunset, Search, ChevronRight, ChevronDown, Package, Rocket } from "lucide-react";
 import { FEATURE_SECTION_LABELS, getFeatureDef } from "@shared/features";
 import { buildFeatureTree, filterFeatureTree, subtreeKeys, type TreeNode, type TreeInput } from "@shared/featureTree";
 import { apiRequest } from "@/lib/queryClient";
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GateRulesDialog } from "./GateRulesDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 const TIER_TYPES = ["free", "paid_flat", "paid_metered_limit", "bundle_parent", "bundle_child"] as const;
 const TIER_LABEL: Record<string, string> = {
@@ -42,6 +43,7 @@ interface CatalogItem extends TreeInput {
   tier: string;
   price: number;
   active: boolean;
+  pending: boolean;
 }
 
 const isPriced = (tier: string) => tier !== "free" && tier !== "bundle_child";
@@ -61,6 +63,10 @@ export default function FeatureCatalog() {
   const [sunsetting, setSunsetting] = useState<any>(null);
   const [sunsetDate, setSunsetDate] = useState("");
   const [gating, setGating] = useState<any>(null);
+  const [publishing, setPublishing] = useState<any>(null);
+  const [publishMonthly, setPublishMonthly] = useState("");
+  const [publishAnnual, setPublishAnnual] = useState("");
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/admin/feature-catalog"],
@@ -82,7 +88,32 @@ export default function FeatureCatalog() {
     onError: (err: Error) => toast({ title: "Couldn't schedule this transition", description: err.message, variant: "destructive" }),
   });
 
+  const publishMutation = useMutation({
+    mutationFn: async ({ id, priceMonthly, priceAnnual }: { id: string; priceMonthly: number | null; priceAnnual: number | null }) => {
+      const res = await apiRequest("POST", `/api/admin/feature-catalog/${id}/publish`, { priceMonthly, priceAnnual });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to publish this feature");
+      return body;
+    },
+    onSuccess: (body) => {
+      toast({
+        title: "Feature published",
+        description: body.grandfathered ? `Now live. ${body.grandfathered} existing business${body.grandfathered === 1 ? "" : "es"} keep it free.` : "Now live and purchasable.",
+      });
+      setPublishing(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/feature-catalog"] });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't publish this feature", description: err.message, variant: "destructive" }),
+  });
+
+  const openPublish = (f: any) => {
+    setPublishing(f);
+    setPublishMonthly(f.priceMonthly != null ? String(f.priceMonthly) : "");
+    setPublishAnnual(f.priceAnnual != null ? String(f.priceAnnual) : "");
+  };
+
   const features = (data?.features ?? []) as any[];
+  const pendingCount = features.filter((f) => f.reviewStatus === "pending_review").length;
 
   const [search, setSearch] = useUrlState<string>("q", "");
   const [tierFilter, setTierFilter] = useUrlState<string>("tier", "all");
@@ -105,6 +136,7 @@ export default function FeatureCatalog() {
         tier: r.tierType,
         price: Number(r.priceMonthly ?? 0),
         active: !!r.isActive,
+        pending: r.reviewStatus === "pending_review",
       };
     });
     if (sort !== "default") {
@@ -125,7 +157,7 @@ export default function FeatureCatalog() {
     if (!filtering) return tree;
     return filterFeatureTree(tree, (i) =>
       (tierFilter === "all" || i.tier === tierFilter) &&
-      (activeFilter === "all" || (activeFilter === "active") === i.active) &&
+      (activeFilter === "all" || (activeFilter === "pending" ? i.pending : (activeFilter === "active") === i.active)) &&
       (!q || i.key.includes(q) || i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q)),
     );
   }, [tree, search, tierFilter, activeFilter, filtering]);
@@ -186,7 +218,9 @@ export default function FeatureCatalog() {
               <span className={`text-sm text-foreground truncate ${hasChildren ? "font-bold" : "font-medium"}`}>{item.name}</span>
               <code className="text-[11px] font-mono text-muted-foreground">{item.key}</code>
               {hasChildren && <span className="text-[11px] text-muted-foreground">({subtreeKeys(node).length - 1})</span>}
-              {!item.active && <Badge variant="outline" className="border-none bg-muted text-muted-foreground text-[10px]">Inactive</Badge>}
+              {item.pending
+                ? <Badge variant="outline" className="border-none bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 text-[10px]">Needs review</Badge>
+                : !item.active && <Badge variant="outline" className="border-none bg-muted text-muted-foreground text-[10px]">Inactive</Badge>}
             </div>
             {item.description && <p className="text-xs text-muted-foreground truncate">{item.description}</p>}
           </div>
@@ -203,6 +237,11 @@ export default function FeatureCatalog() {
           </div>
           {isSuperAdmin && (
             <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+              {item.pending && (
+                <Button size="sm" className="h-7 px-2 text-xs" onClick={() => openPublish(f)} aria-label={`Publish ${item.key}`}>
+                  <Rocket className="h-3.5 w-3.5 mr-1" /> Publish
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => navigate(`/super-admin/feature-catalog/${f.id}`)} aria-label={`Edit ${item.key}`}>
                 <Edit2 className="h-3.5 w-3.5" />
               </Button>
@@ -242,7 +281,7 @@ export default function FeatureCatalog() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -250,6 +289,16 @@ export default function FeatureCatalog() {
         </div>
       ) : (
         <div className="space-y-4 animate-in fade-in duration-300">
+          {pendingCount > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900/40 px-4 py-3" data-testid="pending-review-banner">
+              <AlertCircle className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
+              <p className="text-sm text-amber-900 dark:text-amber-200 flex-1">
+                {pendingCount} new feature{pendingCount === 1 ? " was" : "s were"} added by a release and {pendingCount === 1 ? "is" : "are"} hidden from businesses until you price and publish {pendingCount === 1 ? "it" : "them"}.
+              </p>
+              <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setActiveFilter("pending")}>Review</Button>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {([
               ["Features", stats.total],
@@ -294,6 +343,7 @@ export default function FeatureCatalog() {
                   <SelectItem value="all">Any status</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="pending">Needs review{pendingCount ? ` (${pendingCount})` : ""}</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
@@ -346,6 +396,42 @@ export default function FeatureCatalog() {
           )}
         </div>
       )}
+
+      <Dialog open={!!publishing} onOpenChange={(open) => !open && setPublishing(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Publish "{publishing?.name}"</DialogTitle>
+            <DialogDescription>
+              {publishing?.description || "This feature was added by a release."} It is hidden until you publish it. Once live, businesses can see and buy it{publishing && isPriced(publishing.tierType) ? " at the price below" : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          {publishing && isPriced(publishing.tierType) && (
+            <div className="grid grid-cols-2 gap-3 my-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Monthly price ({publishing.currency})</Label>
+                <Input type="number" min={0} value={publishMonthly} onChange={(e) => setPublishMonthly(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Annual price ({publishing.currency})</Label>
+                <Input type="number" min={0} value={publishAnnual} onChange={(e) => setPublishAnnual(e.target.value)} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPublishing(null)}>Cancel</Button>
+            <Button
+              disabled={publishMutation.isPending || (publishing && isPriced(publishing.tierType) && publishMonthly.trim() === "")}
+              onClick={() => publishing && publishMutation.mutate({
+                id: publishing.id,
+                priceMonthly: publishMonthly.trim() === "" ? null : Number(publishMonthly),
+                priceAnnual: publishAnnual.trim() === "" ? null : Number(publishAnnual),
+              })}
+            >
+              Publish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {gating && <GateRulesDialog feature={gating} onClose={() => setGating(null)} />}
       {/* Schedule sunset dialog - §2.7 of the pay-per-feature plan */}

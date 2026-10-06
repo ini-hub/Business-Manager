@@ -47,6 +47,18 @@ export async function getConfiguredGraceDays(): Promise<number> {
   return typeof value === "number" && value >= 0 ? value : GRACE_DAYS;
 }
 
+export type ExportBranding = { enabled: boolean; text: string };
+export const DEFAULT_EXPORT_BRANDING: ExportBranding = { enabled: true, text: "Powered by Kowope App" };
+
+/** The "Powered by" line stamped on receipts, reports, payslips and other exports. */
+export async function getExportBranding(): Promise<ExportBranding> {
+  const v = await getPlatformConfigValue<Partial<ExportBranding>>("export_branding");
+  return {
+    enabled: typeof v?.enabled === "boolean" ? v.enabled : DEFAULT_EXPORT_BRANDING.enabled,
+    text: typeof v?.text === "string" && v.text.trim() ? v.text.trim() : DEFAULT_EXPORT_BRANDING.text,
+  };
+}
+
 export async function getSmsConfig(): Promise<{ smsEnabled: boolean; whatsappEnabled: boolean }> {
   const smsEnabled = await getPlatformConfigValue<boolean>("sms_enabled");
   const whatsappEnabled = await getPlatformConfigValue<boolean>("whatsapp_enabled");

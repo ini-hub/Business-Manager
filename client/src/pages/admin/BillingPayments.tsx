@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, Eye, Loader2, AlertCircle, Clock, Filter } from "lucide-react";
+import { CreditCard, Eye, AlertCircle, Clock, Filter } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 type BillingPayment = {
   id: string;
@@ -100,7 +101,7 @@ export default function BillingPayments() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">

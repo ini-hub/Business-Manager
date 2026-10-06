@@ -42,7 +42,7 @@ import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
 import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
-import { getConfiguredTrialDays, getSmsConfig } from "./lib/platformConfig";
+import { getConfiguredTrialDays, getSmsConfig, getExportBranding } from "./lib/platformConfig";
 import { logFunnelEvent } from "./lib/funnel";
 import { checkResendCooldown, checkSubmittedOtp, resendWaitSeconds, MAX_OTP_ATTEMPTS, OTP_TTL_MS, OTP_RESEND_MIN_GAP_MS } from "./lib/otp-cooldown";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
@@ -504,6 +504,16 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get SMS config error:", error);
       return res.status(500).json({ error: "Failed to load SMS configuration." });
+    }
+  });
+
+  // "Powered by" line for exported documents (public: needed by client-side PDF/print)
+  app.get("/api/export-branding", async (_req: Request, res: Response) => {
+    try {
+      return res.json(await getExportBranding());
+    } catch (error) {
+      console.error("Get export branding error:", error);
+      return res.status(500).json({ error: "Failed to load export branding." });
     }
   });
 

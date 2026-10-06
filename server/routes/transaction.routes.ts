@@ -370,6 +370,45 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
     }
   });
 
+  // ─── Correct who performed each service (post-sale correction) ───────────
+  app.patch("/api/transactions/:checkoutId/staff", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const { checkoutId } = req.params;
+      const raw = req.body?.assignments;
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return res.status(400).json({ error: "At least one service assignment is required." });
+      }
+      const assignments = raw.map((a: any) => ({
+        checkoutId: String(a?.checkoutId ?? ""),
+        staffIds: Array.isArray(a?.staffIds) ? a.staffIds.map(String) : [],
+      }));
+      if (assignments.some((a) => !a.checkoutId)) {
+        return res.status(400).json({ error: "Invalid assignment." });
+      }
+      if (!req.user?.id) return res.status(401).json({ error: "Unauthorized." });
+
+      const result = await storage.updateServiceStaff({ checkoutId, assignments });
+      const ctx = await getAuditContext(req, { storeId: result.storeId });
+      if (!result.success) {
+        auditLogger.logEvent(ctx, "TRANSACTION_STAFF_EDIT", "checkout", checkoutId, "failure", {
+          errorMessage: result.message,
+        });
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.logEvent(ctx, "TRANSACTION_STAFF_EDIT", "checkout", checkoutId, "success", {
+        previousValues: { receiptNumber: result.receiptNumber, staffByLine: result.previousValues },
+        newValues: { staffByLine: result.newValues },
+        changedFields: ["leadStaffId", "assistingStaff1Id", "assistingStaff2Id"],
+      });
+
+      broadcastChange(req, "sales", result.storeId, "updated");
+      res.json({ success: true, message: result.message });
+    } catch (error) {
+      res.status(500).json({ error: "Could not update staff." });
+    }
+  });
+
   // ─── Add missed item (addendum) ──────────────────────────────────────────
   app.post("/api/transactions/:checkoutId/addendum", requireRole("owner", "manager"), async (req: any, res) => {
     try {

@@ -1,23 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  Building,
-  User,
-  Phone,
-  Mail, Activity,
-  CreditCard, Receipt,
-  FileCheck,
-  Ban,
-  RotateCcw,
-  Trash2,
-  Loader2,
-  AlertCircle,
-  Clock,
-  Briefcase,
-  AlertTriangle
-} from "lucide-react";
+import { ArrowLeft, Building, User, Phone, Mail, Activity, CreditCard, Receipt, FileCheck, Ban, RotateCcw, Trash2, AlertCircle, Clock, Briefcase, AlertTriangle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -37,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HrProfileConfig } from "./HrProfileConfig";
+import { Spinner } from "@/components/ui/loader";
 
 export default function BusinessDetails() {
   const { id } = useParams<{ id: string }>();
@@ -133,7 +118,7 @@ export default function BusinessDetails() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Spinner className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }

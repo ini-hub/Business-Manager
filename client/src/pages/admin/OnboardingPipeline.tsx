@@ -1,19 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  GitMerge,
-  AlertTriangle,
-  User,
-  Mail,
-  Calendar,
-  Building,
-  TrendingUp, ChevronRight,
-  Loader2,
-  AlertCircle
-} from "lucide-react";
+import { GitMerge, AlertTriangle, User, Mail, Calendar, Building, TrendingUp, ChevronRight, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
+import { Spinner } from "@/components/ui/loader";
 
 export default function OnboardingPipeline() {
   const { data, isLoading, error } = useQuery({
@@ -28,7 +19,7 @@ export default function OnboardingPipeline() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <Spinner className="h-8 w-8 animate-spin text-primary mx-auto" />
           <p className="text-muted-foreground text-sm font-medium">Analyzing registration funnel pipelines...</p>
         </div>
       </div>

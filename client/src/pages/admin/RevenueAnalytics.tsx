@@ -1,12 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  TrendingUp,
-  DollarSign,
-  Users,
-  Percent, Building,
-  Loader2,
-  AlertCircle
-} from "lucide-react";
+import { TrendingUp, DollarSign, Users, Percent, Building, AlertCircle } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -22,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
+import { Spinner } from "@/components/ui/loader";
 
 export default function RevenueAnalytics() {
   const { data, isLoading, error } = useQuery({
@@ -36,7 +30,7 @@ export default function RevenueAnalytics() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <Spinner className="h-8 w-8 animate-spin text-primary mx-auto" />
           <p className="text-muted-foreground text-sm font-medium">Aggregating platform revenue logs...</p>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Upload, CheckCircle2, Copy, Check } from "lucide-react";
+import { Upload, CheckCircle2, Copy, Check } from "lucide-react";
 import { apiRequest, type ApiError } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { splitNormalizedPhone, normalizePhoneForStorage } from "@shared/phone-utils";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/loader";
 
 type Party = "employee" | "next_of_kin";
 
@@ -156,7 +157,7 @@ export function GuarantorTab({ staffId, basePath }: { staffId: string; basePath:
     });
   };
 
-  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center py-8"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   if (status?.status === "signed") {
     return (
@@ -267,7 +268,7 @@ function GuarantorEditForm({
         disabled={isPending || !employee.surname || !nextOfKin.surname || !emailValid}
         data-testid="button-generate-guarantor-link"
       >
-        {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+        {isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}
         Email guarantor link
       </Button>
     </div>

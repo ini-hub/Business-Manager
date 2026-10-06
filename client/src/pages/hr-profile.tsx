@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useHasPermission } from "@/lib/permissions";
@@ -14,6 +14,7 @@ import { DocumentsTab } from "@/components/hr/DocumentsTab";
 import { BenefitsTab } from "@/components/hr/BenefitsTab";
 import { DisciplinaryTab } from "@/components/hr/DisciplinaryTab";
 import { GuarantorTab } from "@/components/hr/GuarantorTab";
+import { Spinner } from "@/components/ui/loader";
 
 interface SectionConfig { section: string; isEnabled: boolean }
 
@@ -46,7 +47,7 @@ export default function HrProfilePage() {
   }
 
   if (isLoading) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex justify-center py-16"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
   return (

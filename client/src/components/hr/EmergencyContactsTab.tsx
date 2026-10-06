@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { splitNormalizedPhone, normalizePhoneForStorage } from "@shared/phone-utils";
@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { PhoneInput } from "@/components/phone-input";
 import { LocationSelect } from "@/components/location-select";
+import { Spinner } from "@/components/ui/loader";
 
 interface EmergencyContact {
   id: string;
@@ -64,7 +65,7 @@ export function EmergencyContactsTab({ staffId, basePath }: { staffId: string; b
     onError: (error) => toast({ variant: "destructive", title: "Could not remove contact", description: getUserFriendlyError(error) }),
   });
 
-  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center py-8"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
@@ -122,7 +123,7 @@ export function EmergencyContactsTab({ staffId, basePath }: { staffId: string; b
           </div>
           <DialogFooter>
             <Button onClick={() => createMutation.mutate()} disabled={!form.name.trim() || createMutation.isPending} data-testid="button-save-emergency-contact">
-              {createMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {createMutation.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}
               Save
             </Button>
           </DialogFooter>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Loader2, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { LocationPicker, type PickedLocation } from "@/components/location-picker";
 import { formatCurrency } from "@/lib/currency-utils";
 import { Card, Money, SaveBar } from "./settings-ui";
+import { Spinner } from "@/components/ui/loader";
 
 const WEEKDAYS = [
   { value: 0, label: "Sun" },
@@ -92,7 +93,7 @@ export function AttendanceSettingsSection() {
   }, [settingsData]);
 
   if (!currentStore) return null;
-  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center p-12"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   const activeDayTransport = settingsData?.activeDayTransport ?? 0;
   // Not a validation error (the owner chose an uncapped deduction), but a five-minute

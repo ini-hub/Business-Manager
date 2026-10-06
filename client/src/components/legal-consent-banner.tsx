@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ScrollText, ExternalLink, Loader2 } from "lucide-react";
+import { ScrollText, ExternalLink } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 interface LegalDocumentEntry {
   documentType: string;
@@ -117,7 +118,7 @@ export function LegalConsentBanner() {
 
           {legalDocsQuery.isLoading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <Spinner className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <div className="space-y-3">
@@ -158,7 +159,7 @@ export function LegalConsentBanner() {
             >
               {acceptMutation.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Spinner className="mr-2 h-5 w-5 animate-spin" />
                   Recording...
                 </>
               ) : (

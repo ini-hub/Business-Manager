@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { usePoweredByText } from "@/lib/export-branding";
 import { format } from "date-fns";
 import { formatCurrency } from "@/lib/currency-utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -93,6 +94,7 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
   const currency = store?.currency ?? "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
   const isVoided = checkout?.isVoided;
+  const poweredBy = usePoweredByText();
 
   // Aggregate transaction-wide totals across all checkout items
   const subtotal = checkout?.subtotal ?? 0;
@@ -182,9 +184,8 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
           snapshot) mis-measures grid rows and overlaps their cells, which
           previously rendered the item name on top of other text. */}
       <div className="flex text-xs font-bold mb-1">
-        <div className="w-5/12">Item</div>
-        <div className="w-2/12 text-center">Qty</div>
-        <div className="w-2/12 text-right">Unit</div>
+        <div className="w-6/12">Item</div>
+        <div className="w-3/12 text-center">Qty</div>
         <div className="w-3/12 text-right">Total</div>
       </div>
 
@@ -192,7 +193,6 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
       {items.map((item, idx) => {
         const qty = item.order?.quantity ?? 0;
         const totalPrice = item.checkout?.totalPrice ?? 0;
-        const unitPrice = qty > 0 ? (totalPrice / qty) : 0;
         const isPromo = item.checkout?.discountReason?.startsWith("Promo -");
         const promoName = isPromo ? item.checkout?.discountReason?.replace("Promo - ", "") : "";
         const unit = item.inventory?.unit;
@@ -204,9 +204,8 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
                   CSS ellipsis truncation as a garbled/strikethrough-looking mess
                   in the captured image. Wrapping is safe here since the column
                   has a fixed width. */}
-              <div className="w-5/12 break-words pr-1">{item.inventory?.name ?? "Unknown Item"}</div>
-              <div className="w-2/12 text-center">{displayQty}{unit ? ` ${unit}` : ""}</div>
-              <div className="w-2/12 text-right">{fmt(unitPrice)}</div>
+              <div className="w-6/12 break-words pr-1">{item.inventory?.name ?? "Unknown Item"}</div>
+              <div className="w-3/12 text-center">{displayQty}{unit ? ` ${unit}` : ""}</div>
               <div className="w-3/12 text-right">{fmt(totalPrice)}</div>
             </div>
             {isPromo && (
@@ -360,6 +359,7 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
       <div className="text-center text-xs text-gray-400 mt-3">
         Thank you for your patronage!
       </div>
+      {poweredBy && <div className="text-center text-[10px] text-gray-400 mt-1">{poweredBy}</div>}
     </div>
   );
 }

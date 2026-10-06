@@ -1,12 +1,13 @@
 import { UseFormReturn } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store-context";
 import type { Customer } from "@shared/schema";
 import { BookingFormValues } from "./types";
+import { Spinner } from "@/components/ui/loader";
 
 interface BookingSidebarProps {
   form: UseFormReturn<BookingFormValues>;
@@ -78,7 +79,7 @@ export function BookingSidebar({ form, nextLabel, onNext, onBack, backLabel, isS
       )}
 
       <Button type="button" onClick={onNext} disabled={isSubmitting} className="h-12 text-base font-bold gap-2">
-        {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        {isSubmitting ? <Spinner className="h-4 w-4 animate-spin" /> : null}
         {nextLabel}
         {!isSubmitting && <ArrowRight className="h-4 w-4" />}
       </Button>

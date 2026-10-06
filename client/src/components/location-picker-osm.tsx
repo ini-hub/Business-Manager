@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { PickedLocation } from "@/components/location-picker";
+import { Spinner } from "@/components/ui/loader";
 
 type Props = {
   value: PickedLocation;
@@ -176,7 +177,7 @@ export function LocationPickerOsm({ value, radiusMeters, onChange, disabled, onU
           disabled={disabled}
           data-testid="input-location-search"
         />
-        {searching && <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
+        {searching && <Spinner className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />}
         {results.length > 0 && (
           <ul className="absolute z-[1000] mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover text-sm shadow-md" data-testid="location-search-results">
             {results.map((r, i) => (
@@ -199,7 +200,7 @@ export function LocationPickerOsm({ value, radiusMeters, onChange, disabled, onU
         <div ref={nodeRef} data-testid="location-map" className="relative z-0 h-64 w-full rounded-md border bg-muted" />
         {!ready && (
           <div className="absolute inset-0 flex items-center justify-center rounded-md bg-muted/60">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <Spinner className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         )}
       </div>

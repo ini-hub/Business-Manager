@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePoweredByText } from "@/lib/export-branding";
 import { AddButton } from "@/components/add-button";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -53,6 +54,7 @@ type QuoteWithCustomer = Quote & { customer: Customer | null };
 type FullQuote = Quote & { customer: Customer | null; items: (QuoteItem & { inventory: Inventory })[] };
 
 export default function QuotesPage() {
+  const poweredBy = usePoweredByText();
   const { currentStore } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -711,6 +713,7 @@ export default function QuotesPage() {
                     </h2>
                   </div>
                 </div>
+                {poweredBy && <p className="text-center text-[10px] text-gray-400 mt-6">{poweredBy}</p>}
               </div>
             </div>
           )}

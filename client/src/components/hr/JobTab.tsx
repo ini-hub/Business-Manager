@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { DynamicFieldForm } from "./DynamicFieldForm";
+import { Spinner } from "@/components/ui/loader";
 
 interface JobInfoRow { id: string; effectiveDate: string; location: string | null; division: string | null; department: string | null; jobTitle: string | null }
 interface AdditionalJobInfoRow { id: string; effectiveDate: string; employeeBoxId: string | null; legalEntity: string | null; beneficiaryEntity: string | null; team: string | null; subteam: string | null; jobFamily: string | null; level: string | null; comment: string | null }
@@ -81,7 +82,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
                 </div>
                 <DialogFooter>
                   <Button onClick={() => addJobInfo.mutate()} disabled={!jobForm.effectiveDate || addJobInfo.isPending} data-testid="button-save-job-info">
-                    {addJobInfo.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save
+                    {addJobInfo.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Save
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -89,7 +90,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
           )}
         </CardHeader>
         <CardContent>
-          {loadingJob ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+          {loadingJob ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : (
             <Table>
               <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Location</TableHead><TableHead>Division</TableHead><TableHead>Department</TableHead><TableHead>Job Title</TableHead></TableRow></TableHeader>
               <TableBody>
@@ -124,7 +125,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
                 </div>
                 <DialogFooter>
                   <Button onClick={() => addAdditionalInfo.mutate()} disabled={!additionalForm.effectiveDate || addAdditionalInfo.isPending} data-testid="button-save-additional-job-info">
-                    {addAdditionalInfo.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save
+                    {addAdditionalInfo.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Save
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -132,7 +133,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
           )}
         </CardHeader>
         <CardContent>
-          {loadingAdditional ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+          {loadingAdditional ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : (
             <Table>
               <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Box ID</TableHead><TableHead>Legal Entity</TableHead><TableHead>Team</TableHead><TableHead>Level</TableHead></TableRow></TableHeader>
               <TableBody>

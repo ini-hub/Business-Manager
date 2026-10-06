@@ -51,6 +51,9 @@ export const featureCatalog = pgTable("feature_catalog", {
   section: text("section"), // 'management' | 'sales' | 'settings_business' | 'settings_store'
   groupParentFeatureId: varchar("group_parent_feature_id").references((): any => featureCatalog.id),
   isActive: boolean("is_active").notNull().default(true),
+  // 'pending_review': created by the registry sync, inactive until a super admin publishes it;
+  // 'published': live (or deliberately deactivated by an admin). See server/lib/featureSync.ts.
+  reviewStatus: text("review_status").notNull().default("published"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -66,7 +69,7 @@ export const featureCatalogRelations = relations(featureCatalog, ({ one, many })
 }));
 
 export const insertFeatureCatalogSchema = createInsertSchema(featureCatalog)
-  .omit({ id: true, createdAt: true, updatedAt: true, flagId: true })
+  .omit({ id: true, createdAt: true, updatedAt: true, flagId: true, reviewStatus: true })
   .extend({
     key: z.string().trim().min(1, "Feature key is required").regex(/^[a-z][a-z0-9_]*$/, "Use lowercase snake_case, e.g. 'staff_seats_addon'."),
     name: z.string().trim().min(1, "Feature name is required"),

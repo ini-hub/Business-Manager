@@ -53,7 +53,7 @@ export function DashboardViewSwitch({ children }: { children: ReactNode }) {
               aria-selected={active}
               data-testid={`${v.testId}-desktop`}
               className={cn(
-                "-mb-px border-b-2 pb-3 text-sm font-semibold transition-colors",
+                "-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors",
                 active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >

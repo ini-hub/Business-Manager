@@ -11,7 +11,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Loader2, ArrowLeft, Mail, RefreshCw } from "lucide-react";
+import { ArrowLeft, Mail, RefreshCw } from "lucide-react";
+import { Spinner } from "@/components/ui/loader";
 
 const verifyOtpSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -173,7 +174,7 @@ export default function VerifyOtp() {
               >
                 {verifyMutation.isPending ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Spinner className="mr-2 h-5 w-5 animate-spin" />
                     Verifying...
                   </>
                 ) : (
@@ -197,7 +198,7 @@ export default function VerifyOtp() {
             >
               {resendMutation.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Spinner className="mr-2 h-5 w-5 animate-spin" />
                   Sending...
                 </>
               ) : resendCooldown > 0 ? (

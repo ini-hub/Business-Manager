@@ -1,9 +1,10 @@
 import { useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
-import { ShieldCheck, ShieldX, Loader2 } from "lucide-react";
+import { ShieldCheck, ShieldX } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { FullScreenLoader } from "@/components/ui/loader";
 
 export default function VerifyPayslipPage() {
   const [, params] = useRoute("/verify/payslip/:id");
@@ -21,11 +22,7 @@ export default function VerifyPayslipPage() {
   });
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FullScreenLoader label="Verifying payslip" />;
   }
 
   if (isError || !data) {

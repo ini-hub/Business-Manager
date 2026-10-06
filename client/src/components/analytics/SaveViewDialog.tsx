@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookmarkPlus, Check, Loader2, Trash2 } from "lucide-react";
+import { BookmarkPlus, Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { AnalyticsViewSpec } from "@shared/analytics/query";
+import { Spinner } from "@/components/ui/loader";
 
 interface SavedView {
   id: string;
@@ -128,7 +129,7 @@ export function SaveViewDialog({ spec, onLoad }: SaveViewDialogProps) {
           <DropdownMenuSeparator />
           {views.isLoading && (
             <div className="px-2 py-3 text-xs text-muted-foreground flex items-center gap-2">
-              <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              <Spinner className="h-3 w-3 animate-spin" /> Loading…
             </div>
           )}
           {views.data?.length === 0 && (
@@ -236,7 +237,7 @@ export function SaveViewDialog({ spec, onLoad }: SaveViewDialogProps) {
               disabled={!name.trim() || save.isPending}
             >
               {save.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Spinner className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Check className="h-3.5 w-3.5" />
               )}

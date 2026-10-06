@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { TAX_RATE_BULK_CONFIG } from "@/lib/bulk-entity-configs";
 import { ExportToolbar } from "@/components/export-toolbar";
 import { cn } from "@/lib/utils";
 import type { TaxRate } from "@shared/schema";
+import { Spinner } from "@/components/ui/loader";
 
 type Transaction = {
   id: string;
@@ -311,7 +312,7 @@ export default function TaxesCompliancePage() {
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
                   <Button type="submit" disabled={missing.length > 0 || createMutation.isPending}>
-                    {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {createMutation.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                     Add rate
                   </Button>
                 </div>
@@ -320,7 +321,7 @@ export default function TaxesCompliancePage() {
           )}
 
           {isLoadingRates ? (
-            <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            <div className="flex h-32 items-center justify-center"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : taxRates.length === 0 ? (
             <div className="rounded-xl border bg-card p-4">
               <div className="rounded-lg bg-muted/60 px-4 py-8 text-center">
@@ -382,7 +383,7 @@ export default function TaxesCompliancePage() {
             />
           </div>
           {isLoadingTransactions ? (
-            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            <div className="flex justify-center py-10"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : reportsList.length === 0 ? (
             <div className="rounded-lg bg-muted/60 px-4 py-8 text-center">
               <p className="font-semibold">Nothing collected yet</p>

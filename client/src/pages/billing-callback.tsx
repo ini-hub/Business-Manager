@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/loader";
 
 type VerifyState = "verifying" | "success" | "failed";
 
@@ -66,7 +67,7 @@ export default function BillingCallback() {
         <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
           {state === "verifying" && (
             <>
-              <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+              <Spinner className="h-10 w-10 animate-spin text-muted-foreground" />
               <h1 className="text-lg font-bold">Confirming your payment…</h1>
               <p className="text-sm text-muted-foreground">This only takes a moment.</p>
             </>

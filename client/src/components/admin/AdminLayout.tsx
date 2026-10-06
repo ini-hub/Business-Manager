@@ -1,33 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  Receipt,
-  ToggleLeft,
-  Megaphone,
-  Heart,
-  History,
-  Shield,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  AlertTriangle,
-  Clock,
-  Menu,
-  X,
-  Map,
-  Coins,
-  MessageSquareWarning,
-  CreditCard,
-  Tag,
-  Layers,
-  Settings,
-  FileText,
-} from "lucide-react";
+import { LayoutDashboard, Building2, Users, Receipt, ToggleLeft, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FullScreenLoader } from "@/components/ui/loader";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -196,15 +173,16 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     }
   }, [admin, isLoading, location, setLocation]);
 
+  // Features a release added that wait for a price and a publish; shares the Feature Catalog page's cache.
+  const { data: catalog } = useQuery({
+    queryKey: ["/api/admin/feature-catalog"],
+    queryFn: async () => (await apiRequest("GET", "/api/admin/feature-catalog")).json(),
+    enabled: admin?.role === "super_admin" || admin?.role === "finance_admin",
+  });
+  const pendingReviewCount = ((catalog?.features ?? []) as { reviewStatus?: string }[]).filter((f) => f.reviewStatus === "pending_review").length;
+
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
-          <p className="text-muted-foreground text-sm font-medium tracking-wider">Decrypting Console...</p>
-        </div>
-      </div>
-    );
+    return <FullScreenLoader label="Decrypting Console..." />;
   }
 
   if (!admin) {
@@ -321,6 +299,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                         }`}
                       />
                       {!collapsed && <span className="truncate">{item.name}</span>}
+                      {!collapsed && item.path === "/super-admin/feature-catalog" && pendingReviewCount > 0 && (
+                        <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white tabular-nums" aria-label={`${pendingReviewCount} features need review`}>
+                          {pendingReviewCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

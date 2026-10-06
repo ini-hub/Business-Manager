@@ -1,17 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  UserPlus,
-  Shield,
-  Loader2,
-  AlertCircle,
-  KeyRound,
-  UserX,
-  UserCheck,
-  CheckCircle,
-  QrCode,
-  Copy
-} from "lucide-react";
+import { UserPlus, Shield, AlertCircle, KeyRound, UserX, UserCheck, CheckCircle, QrCode, Copy } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { validateEmail } from "@/lib/validation-utils";
@@ -30,6 +19,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 export default function SuperAdminAccounts() {
   const { admin: currentAdmin } = useAdminAuth();
@@ -207,7 +197,7 @@ export default function SuperAdminAccounts() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-amber-600 dark:text-amber-400" />
+          <Spinner className="h-8 w-8 animate-spin text-amber-600 dark:text-amber-400" />
         </div>
       ) : error || !data?.admins ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">

@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand-mark";
 import { useAttendanceTracked } from "@/hooks/useAttendanceTracked";
 import { useEntitlements, formatPrice } from "@/hooks/useEntitlements";
 import { featureForScreen } from "@shared/features";
@@ -335,12 +336,10 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-            <span className="text-xl font-bold leading-none" aria-hidden="true">K</span>
-          </div>
+          <BrandMark size={40} />
           <div className="flex flex-col">
-            <span className="text-base font-bold tracking-tight leading-tight">
-              Ko<span className="text-primary">wope</span>
+            <span className="font-[Instrument_Sans,system-ui,sans-serif] text-lg font-bold leading-tight tracking-[-0.03em]">
+              kowope
             </span>
             <span className="text-[11px] text-muted-foreground font-medium leading-tight">Business Management System</span>
           </div>

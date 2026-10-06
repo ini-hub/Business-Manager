@@ -15,9 +15,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight, Upload, Wallet } from "lucide-react";
+import { Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight, Upload, Wallet } from "lucide-react";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { uploadContractFileToStaging } from "@/lib/contract-upload";
+import { Spinner } from "@/components/ui/loader";
 
 // Fire-and-forget funnel instrumentation - never blocks the wizard on failure.
 function logFunnelEvent(eventName: string, metadata?: Record<string, unknown>) {
@@ -363,10 +364,10 @@ export default function OnboardingWizard() {
                   </div>
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" className="flex-1" onClick={() => skipMutation.mutate()} disabled={skipMutation.isPending || storeMutation.isPending}>
-                      {skipMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Setting up...</> : "Skip to Dashboard"}
+                      {skipMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Setting up...</> : "Skip to Dashboard"}
                     </Button>
                     <Button type="submit" className="flex-1" disabled={storeMutation.isPending || skipMutation.isPending}>
-                      {storeMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : <>Create Store <ChevronRight className="h-4 w-4 ml-1" /></>}
+                      {storeMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Creating...</> : <>Create Store <ChevronRight className="h-4 w-4 ml-1" /></>}
                     </Button>
                   </div>
                 </form>
@@ -516,9 +517,9 @@ export default function OnboardingWizard() {
                     </Button>
                     <Button type="submit" className="flex-1" disabled={staffMutation.isPending || isPreparingContract}>
                       {isPreparingContract
-                        ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading contract...</>
+                        ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Uploading contract...</>
                         : staffMutation.isPending
-                          ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Adding...</>
+                          ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Adding...</>
                           : <>Add Staff <ChevronRight className="h-4 w-4 ml-1" /></>}
                     </Button>
                   </div>
@@ -585,7 +586,7 @@ export default function OnboardingWizard() {
                       Skip for now
                     </Button>
                     <Button type="submit" className="flex-1" disabled={inventoryMutation.isPending}>
-                      {inventoryMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Adding...</> : <>Add Item <ChevronRight className="h-4 w-4 ml-1" /></>}
+                      {inventoryMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Adding...</> : <>Add Item <ChevronRight className="h-4 w-4 ml-1" /></>}
                     </Button>
                   </div>
                 </form>
@@ -624,7 +625,7 @@ export default function OnboardingWizard() {
                       Skip for now
                     </Button>
                     <Button type="submit" className="flex-1" disabled={capitalMutation.isPending}>
-                      {capitalMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : <>Save <ChevronRight className="h-4 w-4 ml-1" /></>}
+                      {capitalMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Saving...</> : <>Save <ChevronRight className="h-4 w-4 ml-1" /></>}
                     </Button>
                   </div>
                 </form>

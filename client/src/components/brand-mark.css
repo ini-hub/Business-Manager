@@ -1,0 +1,19 @@
+/* Kowope shopfront mark (static). Three-tone on light, white on dark surfaces.
+   Responsive: .bm-resp steps the size up with the viewport (28 / 32 / 36 px).
+   Clear space is one stem width; minimum size is 16px (below 24px the mark is used on a tile). */
+.bm { --bm-awning: #216AC7; --bm-stripe: #5B93DE; --bm-body: #1A549F; --bm-bars: #FFFFFF; display: inline-block; flex-shrink: 0; }
+.dark .bm, .ks-side .bm, .kp-sheet .bm, .bm[data-tone="onDark"] { --bm-awning: #FFFFFF; --bm-body: #FFFFFF; --bm-bars: #14202B; }
+.bm[data-tone="ink"] { --bm-awning: #14202B; --bm-stripe: #14202B; --bm-body: #14202B; --bm-bars: #FFFFFF; }
+.bm[data-tone="blue"] { --bm-awning: #216AC7; --bm-stripe: #216AC7; --bm-body: #216AC7; --bm-bars: #FFFFFF; }
+.bm-awning { fill: var(--bm-awning); }
+.bm-stripe { fill: var(--bm-stripe); }
+.bm-body { fill: var(--bm-body); }
+.bm-bar { fill: var(--bm-bars); }
+.bm-resp { width: 28px; height: 28px; }
+@media (min-width: 640px) { .bm-resp { width: 32px; height: 32px; } }
+@media (min-width: 1024px) { .bm-resp { width: 36px; height: 36px; } }
+
+.bm-logo { display: inline-flex; align-items: center; gap: 10px; }
+.bm-word { font-family: "Instrument Sans", system-ui, sans-serif; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-size: 22px; color: var(--kp-ink, hsl(var(--foreground))); }
+.dark .bm-word, .ks-side .bm-word, .kp-sheet .bm-word { color: #fff; }
+@media (min-width: 1024px) { .bm-word { font-size: 26px; } }

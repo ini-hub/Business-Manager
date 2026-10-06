@@ -8,12 +8,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import type { FeatureCatalog, Subscription } from "@shared/schema";
 import { priceIncrement } from "@shared/bundles";
 import { keepBiggestTiers, otherTiers } from "@shared/features";
 import { CATEGORY_LABELS, formatMoney, readPlanChoice, savePlanChoice, usePublicPricing } from "@/lib/pricing";
+import { Spinner } from "@/components/ui/loader";
 
 const RETURN_TO_KEY = "billing_return_to";
 
@@ -197,7 +198,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   if (catalogLoading || entitlementsLoading || pricingLoading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <Spinner className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -325,7 +326,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
             </p>
           )}
           <Button onClick={() => proceedMutation.mutate()} disabled={busy || !hasChanges}>
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {busy ? <Spinner className="mr-2 h-5 w-5 animate-spin" /> : null}
             {redirecting ? "Redirecting to secure checkout…" : proceedMutation.isPending ? "Updating…" : "Proceed"}
           </Button>
         </CardContent>

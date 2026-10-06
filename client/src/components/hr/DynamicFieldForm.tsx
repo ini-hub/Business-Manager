@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save } from "lucide-react";
+import { Save } from "lucide-react";
 import { apiRequest, type ApiError } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { validateHrFieldValue, isFieldValueEmpty } from "@shared/hr-field-validation";
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PhoneInput } from "@/components/phone-input";
 import { LocationSelect, NationalitySelect } from "@/components/location-select";
 import { SocialUrlField, socialPlatformFromFieldKey } from "@/components/social-url-field";
+import { Spinner } from "@/components/ui/loader";
 
 type FieldValue = string | number | boolean | string[] | null;
 
@@ -107,7 +108,7 @@ export function DynamicFieldForm({
   });
 
   if (isLoading) {
-    return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex justify-center py-8"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
   if (fields.length === 0) {
@@ -223,7 +224,7 @@ export function DynamicFieldForm({
         disabled={saveMutation.isPending}
         data-testid="button-save-hr-fields"
       >
-        {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+        {saveMutation.isPending ? <Spinner className="h-5 w-5 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
         Save
       </Button>
     </div>

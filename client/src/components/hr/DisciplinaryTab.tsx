@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 interface DisciplinaryRecord { id: string; incidentDate: string; closedDate: string | null; complaintIssuedBy: string | null; description: string; action: string | null }
 
@@ -53,14 +54,14 @@ export function DisciplinaryTab({ staffId }: { staffId: string }) {
             </div>
             <DialogFooter>
               <Button onClick={() => create.mutate()} disabled={!form.incidentDate || !form.description || create.isPending} data-testid="button-save-disciplinary-record">
-                {create.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save
+                {create.isPending && <Spinner className="h-5 w-5 mr-2 animate-spin" />}Save
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </CardHeader>
       <CardContent>
-        {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+        {isLoading ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : (
           <Table>
             <TableHeader><TableRow><TableHead>Incident Date</TableHead><TableHead>Closed</TableHead><TableHead>Issued By</TableHead><TableHead>Description</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
             <TableBody>

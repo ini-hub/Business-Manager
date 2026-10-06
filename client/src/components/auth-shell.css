@@ -54,7 +54,6 @@
 @media (min-width: 1024px) {
   .ks { flex-direction: row; }
   .ks-side { display: flex; flex-direction: column; justify-content: flex-start; gap: 64px; flex: 0 0 43.75%; position: sticky; top: 0; height: 100vh; padding: 48px; background: var(--kp-ink); color: #fff; }
-  .ks-side .kp-logo-word { color: #fff; }
   .ks-side-logo { align-self: flex-start; }
   .ks-side h2 { font-size: 40px; line-height: 1.1; font-weight: 700; letter-spacing: -1px; color: #fff; max-width: 12em; }
   .ks-side-sub { margin-top: 16px; font-size: 16px; color: var(--kp-line); max-width: 30em; }

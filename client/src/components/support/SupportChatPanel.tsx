@@ -6,8 +6,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, Send, ShieldCheck } from "lucide-react";
+import { Send, ShieldCheck } from "lucide-react";
 import type { SupportThread, SupportThreadMessage } from "@shared/schema";
+import { Spinner } from "@/components/ui/loader";
 
 type ThreadResponse = {
   thread: SupportThread | null;
@@ -58,7 +59,7 @@ export function SupportChatPanel() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <Spinner className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -116,7 +117,7 @@ export function SupportChatPanel() {
           onClick={() => sendMutation.mutate()}
           data-testid="button-send-support-chat-message"
         >
-          {sendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {sendMutation.isPending ? <Spinner className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Send
         </Button>
       </CardContent>

@@ -181,6 +181,12 @@ interface IStorage {
   restoreCustomer(id: string): Promise<Customer | undefined>;
   hasCustomerTransactions(id: string): Promise<boolean>;
   findCustomerByPhone(storeId: string, phone: string): Promise<Customer | undefined>;
+  getCustomerPhones(customerId: string): ReturnType<CustomerRepository["getPhones"]>;
+  findCustomerPhoneOwner(storeId: string, number: string, excludeCustomerId?: string): Promise<Customer | undefined>;
+  addCustomerPhone(...args: Parameters<CustomerRepository["addPhone"]>): ReturnType<CustomerRepository["addPhone"]>;
+  removeCustomerPhone(customerId: string, phoneId: string): ReturnType<CustomerRepository["removePhone"]>;
+  setPrimaryCustomerPhone(customerId: string, phoneId: string): ReturnType<CustomerRepository["setPrimaryPhone"]>;
+  findSimilarCustomers(storeId: string, name: string, excludeId?: string): ReturnType<CustomerRepository["findSimilarByName"]>;
   dismissDuplicate(targetId: string, duplicateId: string): Promise<void>;
   mergeCustomers(targetId: string, duplicateId: string, customFields?: Partial<InsertCustomer>): Promise<Customer>;
   linkGlobalCustomerIds(customerId: string): Promise<void>;
@@ -458,6 +464,9 @@ interface IStorage {
 
   // Update payment method/status post-checkout
   updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean>;
+
+  // Correct who performed each service line post-sale
+  updateServiceStaff(data: Parameters<SalesRepository["updateServiceStaff"]>[0]): ReturnType<SalesRepository["updateServiceStaff"]>;
 
   // Update transaction date post-sale (owner only)
   updateTransactionDate(data: Parameters<SalesRepository["updateTransactionDate"]>[0]): ReturnType<SalesRepository["updateTransactionDate"]>;
@@ -764,6 +773,17 @@ class DatabaseStorage implements IStorage {
 
   async findCustomerByPhone(storeId: string, phone: string): Promise<Customer | undefined> {
     return this.customerRepo.findCustomerByPhone(storeId, phone);
+  }
+
+  async getCustomerPhones(customerId: string) { return this.customerRepo.getPhones(customerId); }
+  async findCustomerPhoneOwner(storeId: string, number: string, excludeCustomerId?: string) {
+    return this.customerRepo.findPhoneOwner(storeId, number, excludeCustomerId);
+  }
+  async addCustomerPhone(...args: Parameters<CustomerRepository["addPhone"]>) { return this.customerRepo.addPhone(...args); }
+  async removeCustomerPhone(customerId: string, phoneId: string) { return this.customerRepo.removePhone(customerId, phoneId); }
+  async setPrimaryCustomerPhone(customerId: string, phoneId: string) { return this.customerRepo.setPrimaryPhone(customerId, phoneId); }
+  async findSimilarCustomers(storeId: string, name: string, excludeId?: string) {
+    return this.customerRepo.findSimilarByName(storeId, name, excludeId);
   }
 
   async dismissDuplicate(targetId: string, duplicateId: string): Promise<void> {
@@ -1142,6 +1162,10 @@ class DatabaseStorage implements IStorage {
 
   async voidCheckout(checkoutId: string, reason: string, voidedByUserId: string): Promise<{ success: boolean; message: string; payrollWarning?: string; voidedCreditCustomerIds?: string[]; voidedStoreId?: string }> {
     return this.salesRepo.voidCheckout(checkoutId, reason, voidedByUserId);
+  }
+
+  async updateServiceStaff(data: Parameters<SalesRepository["updateServiceStaff"]>[0]) {
+    return this.salesRepo.updateServiceStaff(data);
   }
 
   async updateTransactionDate(data: Parameters<SalesRepository["updateTransactionDate"]>[0]) {

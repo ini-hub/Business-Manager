@@ -20,7 +20,7 @@ import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { SeoSync } from "@/components/seo-sync";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
-import { Loader2, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useHasPermission } from "@/lib/permissions";
@@ -149,6 +149,7 @@ const VerifyPayslipPage = lazy(() => import("@/pages/verify-payslip"));
 
 // Super Admin Portal (lazy — separate user segment)
 import AdminLayout from "@/components/admin/AdminLayout";
+import { FullScreenLoader, SplashScreen, useFirstLoad } from "@/components/ui/loader";
 const AdminDashboard = lazy(() => import("@/pages/admin/Dashboard"));
 const BusinessesList = lazy(() => import("@/pages/admin/BusinessesList"));
 const BusinessDetails = lazy(() => import("@/pages/admin/BusinessDetails"));
@@ -171,6 +172,12 @@ const AuditLogs = lazy(() => import("@/pages/admin/AuditLogs"));
 const SuperAdminAccounts = lazy(() => import("@/pages/admin/SuperAdminAccounts"));
 const SupportInbox = lazy(() => import("@/pages/admin/SupportInbox"));
 
+// First load of a session plays the logo reveal; later full-screen waits use the plain loader.
+function BootLoader() {
+  const firstLoad = useFirstLoad();
+  return firstLoad ? <SplashScreen /> : <FullScreenLoader />;
+}
+
 function PageLoader() {
   return <PageSkeleton />;
 }
@@ -186,11 +193,7 @@ function OnboardingRoute() {
   }, [isLoading, isAuthenticated]);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!isAuthenticated) return null;
@@ -328,11 +331,7 @@ function Router() {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <BootLoader />;
   }
 
   return (
@@ -476,11 +475,7 @@ function AuthenticatedLayout() {
   }, [setLocation]);
 
   if (storesLoading || businessLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // Must be reachable even while the org still reads as locked - this is

@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { getPoweredByText } from "./export-branding";
 import autoTable from "jspdf-autotable";
 
 export function exportToCSV<T extends Record<string, unknown>>(
@@ -24,13 +25,14 @@ export function exportToCSV<T extends Record<string, unknown>>(
   downloadFile(csvContent, `${filename}.csv`, "text/csv");
 }
 
-export function exportToPDF<T extends Record<string, unknown>>(
+export async function exportToPDF<T extends Record<string, unknown>>(
   data: T[],
   columns: { key: string; header: string }[],
   title: string,
   filename: string,
   options?: { orientation?: "portrait" | "landscape" }
 ) {
+  const poweredBy = await getPoweredByText();
   const doc = new jsPDF({ orientation: options?.orientation ?? "portrait" });
 
   doc.setFontSize(16);
@@ -67,6 +69,16 @@ export function exportToPDF<T extends Record<string, unknown>>(
       fillColor: [245, 245, 245],
     },
   });
+
+  if (poweredBy) {
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7.5);
+      doc.setTextColor(139, 147, 163);
+      doc.text(poweredBy, doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 6, { align: "center" });
+    }
+  }
 
   doc.save(`${filename}.pdf`);
 }
@@ -268,11 +280,12 @@ interface FooterOptions {
   marginX: number;
   businessName: string;
   storeName: string;
+  poweredBy?: string | null;
 }
 
 /** Builds an autoTable `didDrawPage` callback that paints the shared footer band. */
 function makeFooterDrawer(doc: jsPDF, opts: FooterOptions) {
-  const { bodyFont, pageWidth, marginX, businessName, storeName } = opts;
+  const { bodyFont, pageWidth, marginX, businessName, storeName, poweredBy } = opts;
   return (data: { pageNumber: number }) => {
     const footerY = doc.internal.pageSize.getHeight() - 8;
     doc.setFont(bodyFont, "normal");
@@ -281,6 +294,7 @@ function makeFooterDrawer(doc: jsPDF, opts: FooterOptions) {
     doc.text(`${businessName} — Confidential`, marginX, footerY);
     doc.text(storeName, pageWidth / 2, footerY, { align: "center" });
     doc.text(`Page ${data.pageNumber} of ${FOOTER_TOTAL_PAGES_EXP}`, pageWidth - marginX, footerY, { align: "right" });
+    if (poweredBy) doc.text(poweredBy, pageWidth / 2, footerY + 3.5, { align: "center" });
   };
 }
 
@@ -474,6 +488,7 @@ export async function exportReportToPDF<T extends Record<string, unknown>>(opts:
   } = opts;
 
   const { doc, pageWidth, marginX, bodyFont } = await setupReportDoc(orientation);
+  const poweredBy = await getPoweredByText();
 
   // --- Masthead ---
   const mastheadHeight = drawMasthead(doc, { bodyFont, pageWidth, marginX, businessName, title, storeName, periodLabel, generatedAt });
@@ -484,7 +499,7 @@ export async function exportReportToPDF<T extends Record<string, unknown>>(opts:
   renderGroupedTable(doc, {
     columns, rows, amountKey, formatAmount, unitLabel, groupBy, statusKey, getStatus, isVoided, getRefundedAmount,
     bodyFont, marginX, startY: cursorY + 4,
-    didDrawPage: makeFooterDrawer(doc, { bodyFont, pageWidth, marginX, businessName, storeName }),
+    didDrawPage: makeFooterDrawer(doc, { bodyFont, pageWidth, marginX, businessName, storeName, poweredBy }),
   });
 
   finalizeFooterPageCount(doc);
@@ -597,6 +612,7 @@ export async function exportFinancialStatementToPDF<T extends Record<string, unk
   } = opts;
 
   const { doc, pageWidth, marginX, bodyFont } = await setupReportDoc(orientation);
+  const poweredBy = await getPoweredByText();
 
   const mastheadHeight = drawMasthead(doc, { bodyFont, pageWidth, marginX, businessName, title, storeName, periodLabel, generatedAt });
 
@@ -619,7 +635,7 @@ export async function exportFinancialStatementToPDF<T extends Record<string, unk
     statusKey: schedule.statusKey,
     getStatus: schedule.getStatus,
     bodyFont, marginX, startY: cursorY + 2,
-    didDrawPage: makeFooterDrawer(doc, { bodyFont, pageWidth, marginX, businessName, storeName }),
+    didDrawPage: makeFooterDrawer(doc, { bodyFont, pageWidth, marginX, businessName, storeName, poweredBy }),
   });
 
   finalizeFooterPageCount(doc);

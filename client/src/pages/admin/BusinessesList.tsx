@@ -2,16 +2,7 @@ import { useState } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  Search,
-  Building,
-  User, Eye,
-  Ban,
-  RotateCcw,
-  SlidersHorizontal,
-  Loader2,
-  AlertCircle
-} from "lucide-react";
+import { Search, Building, User, Eye, Ban, RotateCcw, SlidersHorizontal, AlertCircle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -34,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/loader";
 
 export default function BusinessesList() {
   const { toast } = useToast();
@@ -226,7 +218,7 @@ export default function BusinessesList() {
       {/* Main Directory Table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">

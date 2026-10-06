@@ -1,18 +1,6 @@
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Search,
-  Receipt,
-  CreditCard,
-  Calendar,
-  AlertTriangle,
-  Building, ArrowUpRight,
-  TrendingUp,
-  Percent, Loader2,
-  AlertCircle,
-  ShieldCheck,
-  Ban
-} from "lucide-react";
+import { Search, Receipt, CreditCard, Calendar, AlertTriangle, Building, ArrowUpRight, TrendingUp, Percent, AlertCircle, ShieldCheck, Ban } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/loader";
 
 export default function TransactionsMonitor() {
   const [search, setSearch] = useUrlState<string>("q", "");
@@ -140,7 +129,7 @@ export default function TransactionsMonitor() {
           {/* Table */}
           {ledgerLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <Spinner className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : ledgerError || !ledgerData ? (
             <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">
@@ -217,7 +206,7 @@ export default function TransactionsMonitor() {
         <TabsContent value="flagged" className="space-y-6 animate-in fade-in duration-300">
           {flaggedLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <Spinner className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : !flaggedData?.flagged || flaggedData.flagged.length === 0 ? (
             <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">

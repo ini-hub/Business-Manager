@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,7 @@ import { SettingsPageHeader } from "@/components/settings-page-header";
 import { formatCurrency } from "@/lib/currency-utils";
 import { cn } from "@/lib/utils";
 import type { Promotion, Inventory } from "@shared/schema";
+import { Spinner } from "@/components/ui/loader";
 
 type Kind = "buy_x_get_y" | "spend_x_get_y";
 
@@ -220,7 +221,7 @@ export default function PromotionsPage() {
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={missing.length > 0 || createMutation.isPending} data-testid="button-start-promotion">
-                {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {createMutation.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
                 Start promotion
               </Button>
             </div>
@@ -229,7 +230,7 @@ export default function PromotionsPage() {
       )}
 
       {loading ? (
-        <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        <div className="flex h-32 items-center justify-center"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : promotions.length === 0 ? (
         <div className="rounded-xl border bg-card p-4">
           <div className="rounded-lg bg-muted/60 px-4 py-8 text-center">

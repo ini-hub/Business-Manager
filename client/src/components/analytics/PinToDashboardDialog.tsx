@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Loader2, Plus } from "lucide-react";
+import { LayoutDashboard, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,6 +31,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { AnalyticsViewSpec } from "@shared/analytics/query";
+import { Spinner } from "@/components/ui/loader";
 
 interface Dashboard {
   id: string;
@@ -164,7 +165,7 @@ export function PinToDashboardDialog({
             Cancel
           </Button>
           <Button size="sm" onClick={() => pin.mutate()} disabled={pin.isPending}>
-            {pin.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {pin.isPending && <Spinner className="h-3.5 w-3.5 animate-spin" />}
             Pin
           </Button>
         </DialogFooter>

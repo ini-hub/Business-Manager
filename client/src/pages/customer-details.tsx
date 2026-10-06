@@ -4,11 +4,12 @@ import { useReturnTo, appendReturnTo } from "@/lib/return-to";
 import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation, useSearch } from "wouter";
-import { ArrowLeft, Phone, MapPin, Calendar, Coins, Receipt, AlertCircle, BookOpen, MoreVertical, Edit, Archive, RotateCcw, PhoneCall, MessageCircle, ShoppingCart } from "lucide-react";
+import { ArrowLeft, Phone, MapPin, Calendar, Coins, Receipt, AlertCircle, BookOpen, MoreVertical, Edit, Archive, RotateCcw, PhoneCall, MessageCircle, ShoppingCart, GitMerge, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -29,7 +30,7 @@ import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { getCustomerInitials, formatRelativeDate, groupByDay, deriveTransactionStatus } from "@/lib/customer-detail-utils";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { Link } from "wouter";
-import type { Customer, TransactionWithRelations } from "@shared/schema";
+import type { Customer, CustomerPhone, TransactionWithRelations } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -51,6 +52,8 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { CustomerPhonesCard } from "@/components/CustomerPhonesCard";
 import { CustomerGamificationCard } from "@/components/gamification/CustomerGamificationCard";
 
 export default function CustomerDetails() {
@@ -73,6 +76,10 @@ export default function CustomerDetails() {
   const [mergeDuplicate, setMergeDuplicate] = useState<Customer | null>(null);
   const [mergeNameChoice, setMergeNameChoice] = useState<string>("");
   const [mergeAddressChoice, setMergeAddressChoice] = useState<string>("");
+  const [isMergePickerOpen, setIsMergePickerOpen] = useState(false);
+  const [mergeSearch, setMergeSearch] = useState("");
+  const { user } = useAuth();
+  const canManage = user?.role === "owner" || user?.role === "manager";
 
   const dismissMutation = useMutation({
     mutationFn: async ({ targetId, duplicateId }: { targetId: string; duplicateId: string }) => {
@@ -182,6 +189,45 @@ export default function CustomerDetails() {
     },
     enabled: !isDisabled("booking_management") && !!resolvedCustomerId && !!currentStore?.id,
   });
+
+  // Numbers of both profiles for the merge wizard, so the compare screen shows everything that will be combined.
+  const { data: mergeTargetPhones = [] } = useQuery<CustomerPhone[]>({
+    queryKey: ["/api/customers", mergeTarget?.id, "phones"],
+    enabled: isMergeWizardOpen && !!mergeTarget,
+  });
+  const { data: mergeDuplicatePhones = [] } = useQuery<CustomerPhone[]>({
+    queryKey: ["/api/customers", mergeDuplicate?.id, "phones"],
+    enabled: isMergeWizardOpen && !!mergeDuplicate,
+  });
+
+  const mergeCandidates = useMemo(() => {
+    const q = mergeSearch.trim().toLowerCase();
+    return customers
+      .filter(c => c.id !== customer?.id && !c.isArchived)
+      .filter(c => !q || c.name.toLowerCase().includes(q) || c.customerNumber.toLowerCase().includes(q) || (c.mobileNumber || "").includes(q.replace(/\D/g, "").replace(/^0+/, "") || "\u0000"))
+      .slice(0, 8);
+  }, [customers, customer?.id, mergeSearch]);
+
+  // The profile being viewed is the one kept by default; the wizard can swap them.
+  const startMerge = (otherId: string) => {
+    const other = customers.find(c => c.id === otherId);
+    if (!customer || !other) return;
+    setMergeTarget(customer);
+    setMergeDuplicate(other);
+    setMergeNameChoice(customer.name);
+    setMergeAddressChoice(customer.address || "");
+    setIsMergePickerOpen(false);
+    setMergeSearch("");
+    setIsMergeWizardOpen(true);
+  };
+
+  const swapMergeSides = () => {
+    if (!mergeTarget || !mergeDuplicate) return;
+    setMergeTarget(mergeDuplicate);
+    setMergeDuplicate(mergeTarget);
+    setMergeNameChoice(mergeDuplicate.name);
+    setMergeAddressChoice(mergeDuplicate.address || "");
+  };
 
   const formatCurrency = (value: number, currency: string = "NGN") => {
     return new Intl.NumberFormat("en-NG", {
@@ -307,6 +353,12 @@ export default function CustomerDetails() {
               <Edit className="mr-2 h-4 w-4" />
               Edit
             </DropdownMenuItem>
+            {canManage && !customer.isArchived && (
+              <DropdownMenuItem onClick={() => setIsMergePickerOpen(true)} data-testid="menu-merge-customer">
+                <GitMerge className="mr-2 h-4 w-4" />
+                Merge with another customer
+              </DropdownMenuItem>
+            )}
             {customer.isArchived ? (
               <DropdownMenuItem onClick={() => restoreMutation.mutate(customer.id)} data-testid="menu-restore-customer">
                 <RotateCcw className="mr-2 h-4 w-4" />
@@ -399,6 +451,8 @@ export default function CustomerDetails() {
           )}
         </div>
       )}
+
+      <CustomerPhonesCard customer={customer} canManage={canManage} onMerge={startMerge} />
 
       <MetricGrid>
         <MetricCard
@@ -724,6 +778,31 @@ export default function CustomerDetails() {
         isLoading={archiveMutation.isPending}
       />
 
+      <Dialog open={isMergePickerOpen} onOpenChange={setIsMergePickerOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Merge with another customer</DialogTitle>
+            <DialogDescription>Find the other profile of this customer by name, customer number or phone number.</DialogDescription>
+          </DialogHeader>
+          <Input value={mergeSearch} onChange={(e) => setMergeSearch(e.target.value)} placeholder="Search customers" autoFocus />
+          <ul className="space-y-1 max-h-72 overflow-y-auto">
+            {mergeCandidates.map(c => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className="w-full text-left rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                  onClick={() => startMerge(c.id)}
+                >
+                  <p className="text-sm font-medium">{c.name}</p>
+                  <p className="text-xs text-muted-foreground">{c.customerNumber}{c.mobileNumber ? ` · ${formatPhoneDisplay(c.mobileNumber, c.countryCode || "")}` : ""}</p>
+                </button>
+              </li>
+            ))}
+            {mergeCandidates.length === 0 && <li className="text-sm text-muted-foreground p-2">No matching customers.</li>}
+          </ul>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isMergeWizardOpen} onOpenChange={setIsMergeWizardOpen}>
         <DialogContent className="max-w-2xl bg-slate-900 border border-slate-800 text-white rounded-2xl p-6">
           <DialogHeader>
@@ -776,8 +855,8 @@ export default function CustomerDetails() {
                     </tr>
                     <tr className="h-10">
                       <td className="text-slate-400">Phone</td>
-                      <td>{mergeTarget.mobileNumber || "—"}</td>
-                      <td>{mergeDuplicate.mobileNumber || "—"}</td>
+                      <td>{mergeTarget.mobileNumber ? mergeTargetPhones.map(p => p.number).join(", ") || mergeTarget.mobileNumber : "—"}</td>
+                      <td>{mergeDuplicate.mobileNumber ? mergeDuplicatePhones.map(p => p.number).join(", ") || mergeDuplicate.mobileNumber : "—"}</td>
                     </tr>
                     <tr className="h-10">
                       <td className="text-slate-400">Address</td>
@@ -811,6 +890,11 @@ export default function CustomerDetails() {
                       <td className="text-emerald-500 font-bold">{mergeTarget.loyaltyPoints} pts</td>
                       <td className="text-emerald-500 font-bold">{mergeDuplicate.loyaltyPoints} pts</td>
                     </tr>
+                    <tr className="h-10">
+                      <td className="text-slate-400">Store credit</td>
+                      <td>{formatCurrency(Number(mergeTarget.storeCreditBalance || 0), currentStore?.currency || "NGN")}</td>
+                      <td>{formatCurrency(Number(mergeDuplicate.storeCreditBalance || 0), currentStore?.currency || "NGN")}</td>
+                    </tr>
                   </tbody>
                 </table>
                 <div className="mt-4 pt-3 border-t border-slate-800 text-xs text-emerald-400 font-bold flex justify-between">
@@ -825,11 +909,15 @@ export default function CustomerDetails() {
                   <li>All appointment/order bookings will be transferred to the Surviving Profile.</li>
                   <li>All POS sales ledgers and transaction history will be consolidated.</li>
                   <li>Any active Credit Sales outstanding debt ledger records will be unified.</li>
+                  <li>Store credit and loyalty points are added together, and every phone number from both profiles is kept on the Surviving Profile.</li>
                   <li>The Duplicate Profile will be archived/retired and cannot be logged into.</li>
                 </ul>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="ghost" className="rounded-full text-slate-400 hover:text-white mr-auto" onClick={swapMergeSides}>
+                  <ArrowLeftRight className="mr-1 h-4 w-4" /> Keep the other profile instead
+                </Button>
                 <Button
                   variant="ghost"
                   className="rounded-full text-slate-400 hover:text-white"

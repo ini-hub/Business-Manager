@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -13,6 +13,7 @@ import { Link } from "wouter";
 import { Card, Money, SaveBar } from "./settings-ui";
 import { formatCurrency } from "@/lib/currency-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Spinner } from "@/components/ui/loader";
 
 // Renamed from BusinessSettingsSection: despite the old name, everything
 // here is store-scoped (receipt prefix override, low-stock threshold,
@@ -167,7 +168,7 @@ export function StoreDetailsSection() {
   }, [settingsData]);
 
   if (!currentStore) return null;
-  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (isLoading) return <div className="flex justify-center p-12"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   const currency = currentStore.currency || "NGN";
   const money = (n: number) => formatCurrency(n, currency);

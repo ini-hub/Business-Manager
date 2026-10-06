@@ -8,7 +8,6 @@ import { Form } from "@/components/ui/form";
 import { PageHeader } from "@/components/page-header";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
-import { Loader2 } from "lucide-react";
 
 import { useStore } from "@/lib/store-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -21,6 +20,7 @@ import { StepItems } from "./step-items";
 import { StepSchedule } from "./step-schedule";
 import { StepSummary } from "./step-summary";
 import { bookingFormSchema, BookingFormValues, STEP_FIELDS, WizardStep, WIZARD_STEPS } from "./types";
+import { Spinner } from "@/components/ui/loader";
 
 export default function BookingFormPage() {
   const { id } = useParams();
@@ -186,7 +186,7 @@ export default function BookingFormPage() {
   if (isEditing && isLoadingBooking) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Spinner className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }

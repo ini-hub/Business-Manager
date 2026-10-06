@@ -2,11 +2,7 @@ import { useMemo, useState } from "react";
 import { useSessionSet } from "@/hooks/use-session-state";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  ToggleLeft, Edit2,
-  Trash2, Loader2,
-  AlertCircle, ChevronRight, ChevronDown, Search
-} from "lucide-react";
+import { ToggleLeft, Edit2, Trash2, AlertCircle, ChevronRight, ChevronDown, Search } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -27,6 +23,7 @@ import {
 import { FEATURE_SECTION_LABELS, getFeatureDef } from "@shared/features";
 import { DisableImpactNote, disableAllowed } from "./DisableImpactNote";
 import { buildFeatureTree, filterFeatureTree, subtreeKeys, type SectionNode, type TreeNode, type TreeInput } from "@shared/featureTree";
+import { Spinner } from "@/components/ui/loader";
 
 interface FlagItem extends TreeInput {
   flag: any;
@@ -322,7 +319,7 @@ export default function FeatureFlags() {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <Spinner className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : error || !data?.flags ? (
         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-rose-700 dark:text-rose-300 flex items-center gap-3">

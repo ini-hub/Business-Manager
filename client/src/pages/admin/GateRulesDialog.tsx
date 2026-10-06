@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, Lock, Trash2, Undo2, Eye, Power, PowerOff } from "lucide-react";
+import { Lock, Trash2, Undo2, Eye, Power, PowerOff } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/loader";
 
 type Rule = { id: string; kind: "route" | "screen"; methods: string; pattern: string; status: "draft" | "active"; note: string | null; featureId: string; featureKey: string };
 type Impact = { totalOrgs: number; withAccess: number; trialing: number; wouldLoseAccess: number; sample: string[]; featureActive: boolean; flagOff: boolean; freeDomainsTouched: string[] };
@@ -106,7 +107,7 @@ export function GateRulesDialog({ feature, onClose }: { feature: any; onClose: (
         </DialogHeader>
 
         {isLoading ? (
-          <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+          <div className="flex justify-center py-6"><Spinner className="h-6 w-6 animate-spin text-primary" /></div>
         ) : (
           <div className="space-y-5 text-sm">
             {baseline.length > 0 && (

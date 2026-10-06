@@ -1,11 +1,12 @@
 import { useUrlState } from "@/hooks/use-url-state";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Copy } from "lucide-react";
+import { Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/loader";
 
 const LIMITS = [
   { value: "staff_seats", label: "Staff seats" },
@@ -69,7 +70,7 @@ export default function OverCapReport() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex items-center justify-center p-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            <div className="flex items-center justify-center p-10"><Spinner className="h-5 w-5 animate-spin text-muted-foreground" /></div>
           ) : error ? (
             <p className="p-6 text-sm text-destructive">Couldn't load the report.</p>
           ) : !data?.rows.length ? (

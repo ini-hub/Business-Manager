@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { Layers, Plus, Edit2, Trash2, Loader2, ChevronDown } from "lucide-react";
+import { Layers, Plus, Edit2, Trash2, ChevronDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { priceSelection, type PublicPricing } from "@shared/bundles";
 import { formatMoney } from "@/lib/pricing";
+import { Spinner } from "@/components/ui/loader";
 
 export interface BundleRow {
   id: string;
@@ -84,7 +85,7 @@ export default function Bundles() {
       </div>
 
       {isLoading ? (
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <Spinner className="h-5 w-5 animate-spin text-muted-foreground" />
       ) : (data?.bundles ?? []).length === 0 ? (
         <p className="text-sm text-muted-foreground">No bundles yet. The landing page will show the Free plan and the build-your-own picker only.</p>
       ) : (
@@ -161,7 +162,7 @@ export default function Bundles() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleting && remove.mutate(deleting.id)} disabled={remove.isPending}>
-              {remove.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {remove.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
               Delete
             </Button>
           </DialogFooter>

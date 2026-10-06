@@ -36,6 +36,12 @@ export const PLANS = [
   { name: "Business", price: 35000 },
 ] as const;
 
+/**
+ * Share-image cache buster. Social platforms cache og:image by URL, so bump this whenever any file
+ * in client/public/og changes and the new image is picked up without a manual re-scrape.
+ */
+export const OG_IMAGE_VERSION = "3";
+
 const meta = (key: "name" | "property", name: string, content: string): HeadTag => ({
   tag: "meta",
   attrs: { [key]: name, content },
@@ -115,7 +121,7 @@ function publicTags(page: SeoPage, site: SiteConfig): HeadTag[] {
   const isIndustry = Boolean(page.industry);
   const ogTitle = page.ogTitle ?? (isIndustry ? page.h1 : DEFAULT_SHARE.title);
   const ogDescription = page.ogDescription ?? (isIndustry ? page.description : DEFAULT_SHARE.description);
-  const image = `${site.siteUrl}/og/${page.ogImage}`;
+  const image = `${site.siteUrl}/og/${page.ogImage}?v=${OG_IMAGE_VERSION}`;
   const alt = isIndustry
     ? `Kowope app on a phone next to the headline ${page.h1}`
     : DEFAULT_SHARE.imageAlt;

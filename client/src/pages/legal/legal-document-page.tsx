@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { LegalDocumentViewer } from "@/components/legal-document-viewer";
+import { Spinner } from "@/components/ui/loader";
 
 interface LegalDocumentResponse {
   documentType: string;
@@ -27,7 +28,7 @@ function LegalDocumentPage({ documentType }: { documentType: string }) {
 
         {isLoading && (
           <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Spinner className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         )}
 

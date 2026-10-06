@@ -103,6 +103,14 @@ export interface FeatureDef {
   /** Default is_active when the row is first created; the DB owns it afterwards. */
   active: boolean;
   /**
+   * How the sync launches this feature when it first creates the row. "review" creates it inactive and
+   * pending review: hidden and unpurchasable until a super admin prices and publishes it. "live" uses
+   * `active` as written. Left off, a priced feature (paid, capped add-on, bundle) goes to review and a
+   * free or bundled one goes live. A new parent whose children already exist in the database always goes
+   * live (the sync enforces it), since hiding it would hide them. See launchesForReview.
+   */
+  launch?: "live" | "review";
+  /**
    * Set on a paid feature that used to be free. When the sync first creates its
    * row it grants it (source 'grandfathered') to every organisation that exists
    * at that moment, so nobody loses a module they already use.
@@ -150,6 +158,13 @@ export interface FeatureDef {
    * field when real routes/screens are attached.
    */
   pendingGate?: string;
+}
+
+/** Whether the sync creates this feature inactive and pending an admin's review. */
+export function launchesForReview(def: Pick<FeatureDef, "launch" | "tier" | "active">): boolean {
+  if (!def.active) return false; // already declared dark: nothing to review
+  if (def.launch) return def.launch === "review";
+  return def.tier === "paid_flat" || def.tier === "paid_metered_limit" || def.tier === "bundle_parent";
 }
 
 const w = WRITE_METHODS;

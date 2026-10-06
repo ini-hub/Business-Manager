@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { CheckCircle, Loader2 } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,7 @@ import { BookingFormValues } from "./types";
 import { cn } from "@/lib/utils";
 import { SegmentedControl } from "./segmented-control";
 import { fetchAllStaff } from "@/lib/staff-api";
+import { Spinner } from "@/components/ui/loader";
 
 interface StepSummaryProps {
   form: UseFormReturn<BookingFormValues>;
@@ -346,7 +347,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
           className="h-12 text-base font-bold gap-2"
         >
           {isSubmitting ? (
-            <><Loader2 className="h-5 w-5 animate-spin" /> Creating...</>
+            <><Spinner className="h-5 w-5 animate-spin" /> Creating...</>
           ) : (
             <><CheckCircle className="h-5 w-5" /> Confirm booking</>
           )}

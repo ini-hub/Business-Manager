@@ -24,10 +24,11 @@ import { useGeofence, type GeofenceCentre } from "@/hooks/useGeofence";
 import { LocationHelp, isInAppBrowser } from "@/components/location-help";
 import { getDeviceId, newPunchId } from "@/lib/device-id";
 import { saveOfflinePunch } from "@/lib/offline-db";
-import { CheckCircle2, Clock, LogOut, MapPin, Loader2, TriangleAlert, CalendarClock } from "lucide-react";
+import { CheckCircle2, Clock, LogOut, MapPin, TriangleAlert, CalendarClock } from "lucide-react";
 import { parseISO } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { formatDurationCompact, formatDurationLong } from "@/lib/duration-utils";
+import { Spinner } from "@/components/ui/loader";
 
 type TodayContext = {
   localDate: string;
@@ -390,7 +391,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
               disabled={retroReason.trim().length === 0 || retroMutation.isPending}
               data-testid="button-submit-retro-request"
             >
-              {retroMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {retroMutation.isPending && <Spinner className="mr-2 h-5 w-5 animate-spin" />}
               Ask my manager
             </Button>
           </DialogFooter>
@@ -425,12 +426,12 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
     );
     const action = alreadyIn ? (alreadyOut ? null : (
       <Button variant="outline" size="lg" className="w-full" onClick={() => punchMutation.mutate("clock_out")} disabled={!canClockOut} data-testid="button-clock-out">
-        {punchMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+        {punchMutation.isPending ? <Spinner className="mr-2 h-5 w-5 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
         Clock out
       </Button>
     )) : (
       <Button size="lg" className="w-full" onClick={() => punchMutation.mutate("clock_in")} disabled={!canClockIn} data-testid="button-clock-in">
-        {punchMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Clock className="mr-2 h-4 w-4" />}
+        {punchMutation.isPending ? <Spinner className="mr-2 h-5 w-5 animate-spin" /> : <Clock className="mr-2 h-4 w-4" />}
         Clock in
       </Button>
     );
@@ -570,7 +571,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
                     data-testid="button-clock-out"
                   >
                     {punchMutation.isPending
-                      ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ? <Spinner className="mr-2 h-5 w-5 animate-spin" />
                       : <LogOut className="mr-2 h-4 w-4" />}
                     Clock out
                   </Button>
@@ -604,7 +605,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
                 data-testid="button-clock-in"
               >
                 {punchMutation.isPending
-                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ? <Spinner className="mr-2 h-5 w-5 animate-spin" />
                   : <Clock className="mr-2 h-4 w-4" />}
                 Clock in
               </Button>

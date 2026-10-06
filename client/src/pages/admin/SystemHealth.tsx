@@ -11,7 +11,9 @@ import {
   Clock,
   RefreshCw,
   TrendingUp,
+  Rocket,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import {
   AreaChart,
   Area,
@@ -35,6 +37,7 @@ const RANGE_OPTIONS = [
 type Range = (typeof RANGE_OPTIONS)[number]["value"];
 
 export default function SystemHealth() {
+  const [, navigate] = useLocation();
   const [range, setRange] = useState<Range>("24h");
   const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)!.label.toLowerCase();
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
@@ -71,6 +74,7 @@ export default function SystemHealth() {
   }
 
   const { health, recentErrors, latencyTimeline } = data;
+  const featureReview: { pending: number; features: { key: string; name: string }[] } = data.featureReview ?? { pending: 0, features: [] };
   const na = (v: string | number | null | undefined) => (v === null || v === undefined ? "—" : v);
 
   return (
@@ -107,6 +111,21 @@ export default function SystemHealth() {
         </Button>
         </div>
       </div>
+
+      {featureReview.pending > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900/40 px-5 py-4" data-testid="health-feature-review">
+          <Rocket className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              {featureReview.pending} new feature{featureReview.pending === 1 ? "" : "s"} awaiting review
+            </p>
+            <p className="text-xs text-amber-800/80 dark:text-amber-300/80 truncate">
+              {featureReview.features.slice(0, 4).map((f) => f.name).join(", ")}{featureReview.pending > 4 ? ` and ${featureReview.pending - 4} more` : ""}. Hidden from businesses until priced and published.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => navigate("/super-admin/feature-catalog?active=pending")}>Review</Button>
+        </div>
+      )}
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
