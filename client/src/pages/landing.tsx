@@ -625,8 +625,9 @@ function SignUp({ onStart }: { onStart: () => void }) {
 
 function Footer() {
   return (
-    <footer className="kp-footer">
+    <footer className="kp-footer kp-dark">
       <div className="kp-wrap kp-footer-in">
+        <KowopeLogo />
         <p>&copy; {new Date().getFullYear()} Kowope</p>
         <nav aria-label="Legal">
           <Link href="/privacy">Privacy</Link>
