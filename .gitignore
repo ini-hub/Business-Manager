@@ -47,3 +47,8 @@ validate_*.ts
 *.md
 *.txt
 
+
+# Local scratch, load-test credentials and archives
+scratch-loadtest/
+*.zip
+*.tmp.*

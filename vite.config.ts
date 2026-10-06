@@ -28,6 +28,19 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: path.resolve(__dirname, "dist/public"),
       emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          // Vendor code changes far less often than app code; separate chunks cache across deploys.
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "vendor-react";
+            if (id.includes("@radix-ui") || id.includes("cmdk") || id.includes("vaul")) return "vendor-radix";
+            if (id.includes("@tanstack")) return "vendor-query";
+            if (id.includes("date-fns")) return "vendor-date";
+            return undefined;
+          },
+        },
+      },
     },
     server: {
       fs: {
