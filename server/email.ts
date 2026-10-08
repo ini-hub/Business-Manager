@@ -647,3 +647,114 @@ export async function sendPurchaseOrderEmail(input: PurchaseOrderEmailInput): Pr
     replyTo: input.replyTo,
   });
 }
+
+// ───────────── Partner network ─────────────
+
+const formatMoney = (amount: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat("en-NG", { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+};
+
+const PARTNER_REMINDER_COPY = {
+  upcoming: (partner: string, amount: string, due: string) => ({
+    subject: `A balance with ${partner} is due soon`,
+    heading: "A partner balance is due soon",
+    line: `You owe ${partner} ${amount}, due on ${due}.`,
+    tone: "brand" as const,
+  }),
+  due: (partner: string, amount: string, due: string) => ({
+    subject: `A balance with ${partner} is due today`,
+    heading: "A partner balance is due today",
+    line: `You owe ${partner} ${amount}, due today (${due}).`,
+    tone: "warning" as const,
+  }),
+  overdue: (partner: string, amount: string, due: string) => ({
+    subject: `A balance with ${partner} is overdue`,
+    heading: "A partner balance is overdue",
+    line: `You owe ${partner} ${amount}, which was due on ${due}.`,
+    tone: "danger" as const,
+  }),
+};
+
+/** Nudges the owner of the business that owes a partner, for a balance from a stock transfer. */
+export function sendPartnerReminderEmail(
+  to: string,
+  name: string | null,
+  input: { kind: keyof typeof PARTNER_REMINDER_COPY; partnerName: string; amount: number; currency: string; dueDate: Date; transferId: string },
+): void {
+  const amount = formatMoney(input.amount, input.currency);
+  const due = input.dueDate.toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" });
+  // The subject is plain text and the body is HTML, so each gets the name in its own form.
+  const copy = PARTNER_REMINDER_COPY[input.kind](escapeHtml(input.partnerName), amount, due);
+  const subject = PARTNER_REMINDER_COPY[input.kind](input.partnerName, amount, due).subject;
+  sendEmail({
+    to,
+    subject: sanitizeHeaderValue(subject),
+    html: renderEmail({
+      tone: copy.tone,
+      heading: copy.heading,
+      preheader: copy.line,
+      body: para(`Hi <strong>${escapeHtml(name || "there")}</strong>,`) + para(copy.line) + muted("Record your payment on the transfer so your partner can confirm it."),
+      button: { label: "Open the transfer", href: `${APP_URL}/partners/transfers/${encodeURIComponent(input.transferId)}` },
+      signoff: `The ${escapeHtml(BUSINESS_NAME)} Team`,
+    }),
+  });
+}
+
+export interface PartnerStatementInput {
+  businessName: string;
+  periodLabel: string;
+  currency: string;
+  partners: { name: string; balance: number }[]; // positive: they owe the business
+  transfersInPeriod: number;
+  partnerCode: string;
+}
+
+/** The once-a-month summary of what each partner owes and is owed. Carries the invite code so it can be forwarded. */
+export function sendPartnerStatementEmail(to: string, name: string | null, s: PartnerStatementInput): void {
+  const rows = s.partners.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border-collapse:collapse;font-size:15px;">${s.partners.map((p) =>
+        `<tr><td style="padding:8px 0;border-bottom:1px solid #E5E7EB;">${escapeHtml(p.name)}</td><td align="right" style="padding:8px 0;border-bottom:1px solid #E5E7EB;font-weight:600;">${
+          p.balance > 0 ? `Owes you ${formatMoney(p.balance, s.currency)}` : p.balance < 0 ? `You owe ${formatMoney(-p.balance, s.currency)}` : "Even"}</td></tr>`).join("")}</table>`
+    : "";
+  sendEmail({
+    to,
+    subject: sanitizeHeaderValue(`Your partner statement for ${s.periodLabel}`),
+    html: renderEmail({
+      heading: `Partner statement: ${escapeHtml(s.periodLabel)}`,
+      preheader: `${s.transfersInPeriod} transfer${s.transfersInPeriod === 1 ? "" : "s"} last month`,
+      body:
+        para(`Hi <strong>${escapeHtml(name || "there")}</strong>,`) +
+        para(`Here is where <strong>${escapeHtml(s.businessName)}</strong> stands with its partners. There ${s.transfersInPeriod === 1 ? "was 1 transfer" : `were ${s.transfersInPeriod} transfers`} in ${escapeHtml(s.periodLabel)}.`) +
+        rows +
+        muted(`Know a business that should be sharing stock with you? Give them your partner code: <strong>${escapeHtml(s.partnerCode)}</strong>.`),
+      button: { label: "Open the partner ledger", href: `${APP_URL}/partners/ledger` },
+      signoff: `The ${escapeHtml(BUSINESS_NAME)} Team`,
+      width: 560,
+    }),
+  });
+}
+
+/** An owner invites another business by email to become a partner. Sent at most once per address. */
+export function sendPartnerInviteEmail(to: string, input: { fromBusiness: string; fromName: string | null; code: string; note: string | null }): void {
+  const from = escapeHtml(input.fromBusiness);
+  sendEmail({
+    to,
+    subject: sanitizeHeaderValue(`${input.fromBusiness} invites you to share stock`),
+    html: renderEmail({
+      heading: `${from} wants to be your partner`,
+      preheader: "Share stock with each other and keep track of what is owed.",
+      body:
+        para(`${escapeHtml(input.fromName || input.fromBusiness)} invited you to connect on ${escapeHtml(BUSINESS_NAME)}, so your businesses can send each other stock and keep a clear record of what is owed, in money or in goods.`) +
+        (input.note ? callout(escapeHtml(input.note)) : "") +
+        para("Create your account, open <strong>Partners</strong>, and enter this code:") +
+        codeBlock(escapeHtml(input.code)),
+      button: { label: "Create your account", href: `${APP_URL}/auth/signup` },
+      signoff: `The ${escapeHtml(BUSINESS_NAME)} Team`,
+      afterButton: "If you already have an account, sign in and enter the code under Partners.",
+    }),
+  });
+}

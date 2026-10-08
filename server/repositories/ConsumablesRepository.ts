@@ -15,6 +15,7 @@ import {
 import { eq, and, inArray, desc, gt, lte, sql } from "drizzle-orm";
 import { isMeteredSupply } from "../services/SupplyCostingService";
 import { deriveCalibration } from "../services/ConsumablesService";
+import { recordStockMovements } from "../lib/stockLedger";
 
 /** Round to 2dp the way money is stored, without the float drift of toFixed chains. */
 function round2(n: number): number {
@@ -59,11 +60,13 @@ export class ConsumablesRepository {
    */
   async getActiveRecipes(
     inventoryIds: string[],
+    /** Pass the surrounding transaction so the read uses its connection instead of taking a second one. */
+    conn: Pick<typeof db, "select"> = db,
   ): Promise<Map<string, { supplyInventoryId: string; quantityPerUnit: number }[]>> {
     const out = new Map<string, { supplyInventoryId: string; quantityPerUnit: number }[]>();
     if (inventoryIds.length === 0) return out;
 
-    const rows = await db
+    const rows = await conn
       .select({
         inventoryId: serviceConsumables.inventoryId,
         supplyInventoryId: serviceConsumables.supplyInventoryId,
@@ -241,6 +244,16 @@ export class ConsumablesRepository {
       // negative result is logged, not refused.
       const newQty = Number(supply.quantity) - input.quantityUsed;
       await tx.update(inventory).set({ quantity: newQty }).where(eq(inventory.id, supply.id));
+      await recordStockMovements(tx, [{
+        storeId: input.storeId,
+        inventoryId: supply.id,
+        reason: "consumable_use",
+        before: Number(supply.quantity),
+        after: newQty,
+        refType: "order",
+        refId: input.orderId,
+        note: "Manual usage log",
+      }]);
       if (newQty < 0) {
         console.warn(
           `[consumables] supply "${supply.name}" went negative (${newQty}) in store ${input.storeId} ` +

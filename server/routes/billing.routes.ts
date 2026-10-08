@@ -1,9 +1,11 @@
+import { parsePage } from "../lib/pagination";
+import { pagedSelect, totalOf } from "../lib/pagedQuery";
 import { listScreenGates } from "../lib/gateRules";
 import { tiersNotAbove, validateTierSelection } from "@shared/features";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { plans, subscriptions, subscriptionPayments } from "@shared/schema";
 import { storage } from "../storage";
 import {
@@ -111,13 +113,13 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
       const user = (req as any).user;
       if (!user?.businessId) return res.status(401).json({ error: "Authentication required." });
 
-      const payments = await db
-        .select()
-        .from(subscriptionPayments)
-        .where(eq(subscriptionPayments.organisationId, user.businessId))
-        .orderBy(desc(subscriptionPayments.createdAt));
-
-      res.json(payments);
+      const page = parsePage(req.query);
+      const where = eq(subscriptionPayments.organisationId, user.businessId);
+      res.json(await pagedSelect(
+        page,
+        ({ limit, offset }) => db.select().from(subscriptionPayments).where(where).orderBy(desc(subscriptionPayments.createdAt)).limit(limit).offset(offset),
+        () => totalOf(db.select({ total: sql<number>`count(*)::int` }).from(subscriptionPayments).where(where)),
+      ));
     } catch (error) {
       console.error("GET /api/billing/payments error:", error);
       res.status(500).json({ error: "We couldn't load your payment history. Please try again." });

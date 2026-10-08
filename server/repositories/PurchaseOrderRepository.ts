@@ -19,6 +19,7 @@ import {
 import { eq, and, desc, like, sql } from "drizzle-orm";
 import { postSupplyPurchaseExpense, localDateString } from "../services/SupplyCostingService";
 import { getStoreTimezone } from "../lib/dateUtils";
+import { recordStockMovements } from "../lib/stockLedger";
 
 export class PurchaseOrderRepository extends BaseRepository<typeof purchaseOrders> {
   constructor() {
@@ -40,6 +41,18 @@ export class PurchaseOrderRepository extends BaseRepository<typeof purchaseOrder
       ...r.po,
       vendor: r.vendor,
     }));
+  }
+
+  /** One page of a store's purchase orders, newest first, with the total. */
+  async getPurchaseOrdersPage(storeId: string, page: { limit: number; offset: number }): Promise<{ rows: (PurchaseOrder & { vendor: Vendor })[]; total: number }> {
+    const where = eq(purchaseOrders.storeId, storeId);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select({ po: purchaseOrders, vendor: vendors }).from(purchaseOrders)
+        .innerJoin(vendors, eq(purchaseOrders.vendorId, vendors.id))
+        .where(where).orderBy(desc(purchaseOrders.createdAt), desc(purchaseOrders.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(purchaseOrders).innerJoin(vendors, eq(purchaseOrders.vendorId, vendors.id)).where(where),
+    ]);
+    return { rows: rows.map((r) => ({ ...r.po, vendor: r.vendor })), total };
   }
 
   async getPurchaseOrder(id: string): Promise<(PurchaseOrder & { vendor: Vendor; items: (PurchaseOrderItem & { inventory: Inventory })[]; deliveryReceipts: PurchaseOrderDeliveryReceipt[] }) | undefined> {
@@ -281,14 +294,28 @@ export class PurchaseOrderRepository extends BaseRepository<typeof purchaseOrder
         const newCostPrice = newQuantity > 0 ? (totalOldValue + totalNewValue) / newQuantity : poItem.unitCost;
 
         // 3. Update Inventory item
-        await tx
+        // Relative write: the read above takes no lock, so an absolute value could erase a sale.
+        const [updatedInv] = await tx
           .update(inventory)
           .set({
-            quantity: newQuantity,
+            quantity: sql`${inventory.quantity} + ${quantityAdded}`,
             costPrice: newCostPrice,
           })
           .where(eq(inventory.id, item.inventoryId))
           .returning();
+
+        await recordStockMovements(tx, [{
+          storeId: po.storeId,
+          inventoryId: item.inventoryId,
+          reason: "po_receipt",
+          before: Number(updatedInv.quantity) - quantityAdded,
+          after: Number(updatedInv.quantity),
+          refType: "purchase_order",
+          refId: poId,
+          actorStaffId: staffId || null,
+          actorUserId: userId || null,
+          note: `Received via PO #${po.poNumber}`,
+        }]);
 
         // 4. Log Restock Event
         const [restockEvent] = await tx

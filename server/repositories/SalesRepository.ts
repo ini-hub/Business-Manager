@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { db } from "../db";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import { auditLogger } from "../audit";
@@ -23,18 +24,39 @@ import {
   payrollPeriods,
   saleDrafts,
   checkoutIdempotencyKeys,
+  storePaymentAccounts,
+  salePaymentLegs,
+  type PaymentLegInput,
   type ProfitLossWithInventory,
   type SaleDraft
 } from "@shared/schema";
 import { eq, and, or, gt, gte, lte, sql, desc, asc, inArray } from "drizzle-orm";
 import { InventoryRepository } from "./InventoryRepository";
-import { TransactionRepository, resolveTransactionIdsForCheckouts } from "./TransactionRepository";
+import { TransactionRepository, resolveTransactionIdsForCheckouts, resolveReceiptPrefix } from "./TransactionRepository";
 import { ConsumablesRepository } from "./ConsumablesRepository";
 import { expandConsumables } from "../services/ConsumablesService";
 import type { NotificationRepository } from "./NotificationRepository";
 import { DEFAULT_LOYALTY_POINT_VALUE, DEFAULT_LOYALTY_POINTS_PER_CURRENCY } from "@shared/analytics/constants";
 import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
 import { gamificationRepository } from "./GamificationRepository";
+import { fullUnitCost, lineLossAmount } from "../lib/lossSale";
+import { recordStockMovements, adjustStock } from "../lib/stockLedger";
+
+/**
+ * Sets absolute quantities for many inventory rows in one statement (a cart used to issue one UPDATE per
+ * row). The caller must hold row locks on every id, which is what makes absolute values safe.
+ */
+async function setInventoryQuantities(tx: { execute: (query: any) => Promise<unknown> }, quantities: Map<string, number>): Promise<void> {
+  if (quantities.size === 0) return;
+  const values = sql.join(
+    Array.from(quantities.entries()).map(([id, qty]) => sql`(${id}::varchar, ${qty}::numeric)`),
+    sql`, `,
+  );
+  await tx.execute(sql`UPDATE inventory AS i SET quantity = v.q FROM (VALUES ${values}) AS v(id, q) WHERE i.id = v.id`);
+}
+
+/** The P&L discounts table lists at most this many receipts (newest first); totals stay exact. */
+const DISCOUNT_LIST_LIMIT = 200;
 
 export class SalesRepository {
   private inventoryRepo = new InventoryRepository();
@@ -135,6 +157,8 @@ export class SalesRepository {
     costOfServicesSold: number;
     grossProfit: number;
     discountsGiven: number;
+    /** How many discounted receipts there were in the period (discountsList holds only the newest ones). */
+    discountsCount: number;
     discountsList: Array<{
       receiptNumber: string;
       transactionId: string | null;
@@ -154,63 +178,6 @@ export class SalesRepository {
     if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
     if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
-    const [storeSettingsRow] = await db.select().from(settings).where(eq(settings.storeId, storeId));
-    const loyaltyPointValue = storeSettingsRow?.loyaltyPointValue ?? DEFAULT_LOYALTY_POINT_VALUE;
-
-    const rows = await db
-      .select({
-        inventoryType: inventory.type,
-        costPrice: inventory.costPrice,
-        quantity: orders.quantity,
-        returnedQuantity: orders.returnedQuantity,
-        refundedAmount: orders.refundedAmount,
-        totalPrice: orders.totalPrice,
-      })
-      .from(orders)
-      .innerJoin(checkouts, eq(checkouts.orderId, orders.id))
-      .innerJoin(inventory, eq(inventory.id, orders.inventoryId))
-      .where(and(...conditions));
-
-    let serviceRevenue = 0;
-    let productRevenue = 0;
-    let costOfProductsSold = 0;
-    let costOfServicesSold = 0;
-    let grossRevenue = 0;
-    let returnedRevenue = 0;
-
-    for (const row of rows) {
-      const netQuantity = Math.max(0, row.quantity - (row.returnedQuantity || 0));
-      const netTotalPrice = Math.max(0, row.totalPrice - (row.refundedAmount || 0));
-      const netLineCost = (row.costPrice ?? 0) * netQuantity;
-
-      grossRevenue += row.totalPrice;
-      returnedRevenue += (row.refundedAmount || 0);
-
-      // Tested in both directions rather than service/else. With the 'supply' type
-      // an `else` would silently bank back-bar consumables as product revenue.
-      // Supplies are unsellable (rejected in processCheckout and hidden from every
-      // sale surface), so this branch means the data is already wrong — say so
-      // rather than absorbing it into a total. Cost is gated the same way revenue
-      // is, so costOfGoodsSold (derived below) can never drift from the sum of
-      // the two split figures.
-      if (row.inventoryType === "service") {
-        serviceRevenue += netTotalPrice;
-        costOfServicesSold += netLineCost;
-      } else if (row.inventoryType === "product") {
-        productRevenue += netTotalPrice;
-        costOfProductsSold += netLineCost;
-      } else {
-        console.warn(
-          `[profit-loss] sale line on inventory type "${row.inventoryType}" counted in neither ` +
-          `service nor product revenue (store ${storeId}). A supply should never reach a sale line.`
-        );
-      }
-    }
-
-    const totalRevenue = serviceRevenue + productRevenue;
-    const costOfGoodsSold = costOfProductsSold + costOfServicesSold;
-    const grossProfit = totalRevenue - costOfGoodsSold;
-
     // A receipt is stored as one `checkouts` row PER LINE, and processCheckout
     // replicates the basket-level discount, percent and points onto every one of
     // them. Grouping by checkouts.id (line grain) therefore counted a single
@@ -221,35 +188,99 @@ export class SalesRepository {
     // `subtotal` is the true receipt gross; HAVING then keeps only receipts that
     // actually carried a discount. Promo lines store 0, so MAX() recovers the
     // basket value.
-    const discountConditions: any[] = [
-      eq(checkouts.storeId, storeId),
-      eq(checkouts.paymentStatus, "completed"),
-      eq(checkouts.isVoided, false),
-    ];
-    if (startDate) discountConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
-    if (endDate) discountConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
-
-    const uniqueTxDiscounts = await db
+    const discountedReceipts = db
       .select({
-        checkoutId: sql<string>`min(${checkouts.id})`,
         receiptNumber: checkouts.receiptNumber,
-        discountAmount: sql<number>`max(${checkouts.discountAmount})`,
-        discountPercent: sql<number>`max(${checkouts.discountPercent})`,
-        discountReason: sql<string | null>`max(${checkouts.discountReason})`,
-        discountApprovedBy: sql<string | null>`max(${checkouts.discountApprovedBy})`,
-        pointsRedeemed: sql<number>`max(${checkouts.pointsRedeemed})`,
-        createdAt: sql<Date>`min(${checkouts.createdAt})`,
-        subtotal: sql<number>`sum(${checkouts.totalPrice})`,
+        discountAmount: sql<number>`max(${checkouts.discountAmount})`.as("discount_amount"),
+        pointsRedeemed: sql<number>`max(${checkouts.pointsRedeemed})`.as("points_redeemed"),
       })
       .from(checkouts)
-      .where(and(...discountConditions))
+      .where(and(...conditions))
       .groupBy(checkouts.receiptNumber)
       .having(
         or(
           gt(sql`max(${checkouts.discountAmount})`, 0),
           gt(sql`max(${checkouts.pointsRedeemed})`, 0),
         ),
+      )
+      .as("discounted_receipts");
+
+    const [storeSettingsRow, [totals], [discountTotals], uniqueTxDiscounts] = await Promise.all([
+      db.select().from(settings).where(eq(settings.storeId, storeId)).then((rows) => rows[0]),
+      // The statement is summed by the database. This used to fetch every sale line in the period (all time
+      // when no range was given) and add them up in Node, on every dashboard and P&L load.
+      //
+      // Net figures floor at zero per line, exactly as the old loop did (a fully refunded line contributes
+      // nothing, never a negative). Services and products are split by item type; gross and refunded
+      // revenue cover every line.
+      db
+        .select({
+          serviceRevenue: sql<number>`COALESCE(SUM(GREATEST(0, ${orders.totalPrice} - COALESCE(${orders.refundedAmount}, 0))) FILTER (WHERE ${inventory.type} = 'service'), 0)::float8`,
+          productRevenue: sql<number>`COALESCE(SUM(GREATEST(0, ${orders.totalPrice} - COALESCE(${orders.refundedAmount}, 0))) FILTER (WHERE ${inventory.type} = 'product'), 0)::float8`,
+          costOfServicesSold: sql<number>`COALESCE(SUM(COALESCE(${inventory.costPrice}, 0) * GREATEST(0, ${orders.quantity} - COALESCE(${orders.returnedQuantity}, 0))) FILTER (WHERE ${inventory.type} = 'service'), 0)::float8`,
+          costOfProductsSold: sql<number>`COALESCE(SUM(COALESCE(${inventory.costPrice}, 0) * GREATEST(0, ${orders.quantity} - COALESCE(${orders.returnedQuantity}, 0))) FILTER (WHERE ${inventory.type} = 'product'), 0)::float8`,
+          grossRevenue: sql<number>`COALESCE(SUM(${orders.totalPrice}), 0)::float8`,
+          returnedRevenue: sql<number>`COALESCE(SUM(COALESCE(${orders.refundedAmount}, 0)), 0)::float8`,
+          otherTypeLines: sql<number>`(COUNT(*) FILTER (WHERE ${inventory.type} NOT IN ('service', 'product')))::int`,
+        })
+        .from(orders)
+        .innerJoin(checkouts, eq(checkouts.orderId, orders.id))
+        .innerJoin(inventory, eq(inventory.id, orders.inventoryId))
+        .where(and(...conditions)),
+      // Exact totals over every discounted receipt, whatever the list below is capped at.
+      db
+        .select({
+          count: sql<number>`count(*)::int`,
+          discountSum: sql<number>`COALESCE(SUM(${discountedReceipts.discountAmount}), 0)::float8`,
+          pointsSum: sql<number>`COALESCE(SUM(${discountedReceipts.pointsRedeemed}), 0)::float8`,
+        })
+        .from(discountedReceipts),
+      db
+        .select({
+          checkoutId: sql<string>`min(${checkouts.id})`,
+          receiptNumber: checkouts.receiptNumber,
+          discountAmount: sql<number>`max(${checkouts.discountAmount})`,
+          discountPercent: sql<number>`max(${checkouts.discountPercent})`,
+          discountReason: sql<string | null>`max(${checkouts.discountReason})`,
+          discountApprovedBy: sql<string | null>`max(${checkouts.discountApprovedBy})`,
+          pointsRedeemed: sql<number>`max(${checkouts.pointsRedeemed})`,
+          createdAt: sql<Date>`min(${checkouts.createdAt})`,
+          subtotal: sql<number>`sum(${checkouts.totalPrice})`,
+        })
+        .from(checkouts)
+        .where(and(...conditions))
+        .groupBy(checkouts.receiptNumber)
+        .having(
+          or(
+            gt(sql`max(${checkouts.discountAmount})`, 0),
+            gt(sql`max(${checkouts.pointsRedeemed})`, 0),
+          ),
+        )
+        // The newest receipts only: the report lists discounts, it is not an export. discountsGiven and
+        // discountsCount above are exact over all of them.
+        .orderBy(desc(sql`min(${checkouts.createdAt})`))
+        .limit(DISCOUNT_LIST_LIMIT),
+    ]);
+    const loyaltyPointValue = storeSettingsRow?.loyaltyPointValue ?? DEFAULT_LOYALTY_POINT_VALUE;
+
+    // Tested in both directions rather than service/else. With the 'supply' type
+    // an `else` would silently bank back-bar consumables as product revenue.
+    // Supplies are unsellable (rejected in processCheckout and hidden from every
+    // sale surface), so a line of any other type means the data is already wrong
+    // - say so rather than absorbing it into a total. Cost is gated the same way
+    // revenue is, so costOfGoodsSold (derived below) can never drift from the sum
+    // of the two split figures.
+    if (totals.otherTypeLines > 0) {
+      console.warn(
+        `[profit-loss] ${totals.otherTypeLines} sale line(s) on an inventory type other than product/service ` +
+        `counted in neither service nor product revenue (store ${storeId}). A supply should never reach a sale line.`
       );
+    }
+
+    const { serviceRevenue, productRevenue, costOfProductsSold, costOfServicesSold, grossRevenue, returnedRevenue } = totals;
+    const totalRevenue = serviceRevenue + productRevenue;
+    const costOfGoodsSold = costOfProductsSold + costOfServicesSold;
+    const grossProfit = totalRevenue - costOfGoodsSold;
 
     const discountTxIdByCheckout = await resolveTransactionIdsForCheckouts(
       uniqueTxDiscounts.map((d) => d.checkoutId)
@@ -279,7 +310,7 @@ export class SalesRepository {
       };
     });
 
-    const discountsGiven = processedDiscounts.reduce((sum, d) => sum + d.discountAmount, 0);
+    const discountsGiven = discountTotals.discountSum + discountTotals.pointsSum * loyaltyPointValue;
 
     return {
       serviceRevenue,
@@ -292,6 +323,7 @@ export class SalesRepository {
       costOfServicesSold,
       grossProfit,
       discountsGiven,
+      discountsCount: discountTotals.count,
       discountsList: processedDiscounts,
     };
   }
@@ -360,8 +392,41 @@ export class SalesRepository {
   private async getSettings(storeId: string) {
     const [row] = await db.select().from(settings).where(eq(settings.storeId, storeId));
     if (row) return row;
-    const [inserted] = await db.insert(settings).values({ storeId }).returning();
-    return inserted;
+    // ON CONFLICT DO NOTHING: the first sales of a new store can arrive together, and a plain insert would
+    // fail all but one of them on the unique store_id.
+    const [inserted] = await db.insert(settings).values({ storeId }).onConflictDoNothing().returning();
+    if (inserted) return inserted;
+    const [created] = await db.select().from(settings).where(eq(settings.storeId, storeId));
+    return created;
+  }
+
+  /**
+   * Read-only below-cost check for the POS. Returns the shortfall only, never the cost itself,
+   * so staff who must not see cost prices can still be warned.
+   */
+  async assessLoss(storeId: string, items: Array<{ inventoryId: string; quantity: number; unitPrice: number }>): Promise<
+    Array<{ inventoryId: string; belowCost: boolean; lossAmount: number }>
+  > {
+    const ids = Array.from(new Set(items.map(i => i.inventoryId)));
+    if (ids.length === 0) return [];
+    const rows = await db.select({ id: inventory.id, costPrice: inventory.costPrice })
+      .from(inventory)
+      .where(and(eq(inventory.storeId, storeId), inArray(inventory.id, ids)));
+    const costById = new Map(rows.map(r => [r.id, Number(r.costPrice) || 0]));
+    const recipes = await this.consumablesRepo.getActiveRecipes(ids);
+    const supplyIds = Array.from(new Set(Array.from(recipes.values()).flat().map(r => r.supplyInventoryId)));
+    const supplyCosts = new Map<string, number>();
+    if (supplyIds.length > 0) {
+      const supplies = await db.select({ id: inventory.id, costPrice: inventory.costPrice })
+        .from(inventory).where(inArray(inventory.id, supplyIds));
+      for (const s of supplies) supplyCosts.set(s.id, Number(s.costPrice) || 0);
+    }
+    return items.map((item) => {
+      if (!costById.has(item.inventoryId)) return { inventoryId: item.inventoryId, belowCost: false, lossAmount: 0 };
+      const unitCost = fullUnitCost(costById.get(item.inventoryId)!, recipes.get(item.inventoryId), supplyCosts);
+      const lossAmount = lineLossAmount(item.unitPrice, item.quantity, unitCost);
+      return { inventoryId: item.inventoryId, belowCost: lossAmount > 0, lossAmount };
+    });
   }
 
   // ─── processCheckout ──────────────────────────────────────────────────────
@@ -379,7 +444,9 @@ export class SalesRepository {
       commissionSplit?: "standard" | "equal";
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit" | "store_credit";
-    splitPayments?: Array<{ method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit"; amount: number }>;
+    splitPayments?: PaymentLegInput[];
+    paymentDetail?: Omit<PaymentLegInput, "method" | "amount">;
+    actorUserId?: string;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
@@ -408,7 +475,17 @@ export class SalesRepository {
       }
     }
 
+    // Per-store configuration the sale only reads. Fetched on the pool before the transaction opens, in
+    // parallel, so the transaction does not hold a connection while waiting on them (and never needs a
+    // second connection mid-flight, which could starve the pool under a burst of sales).
+    const afterCommit: Array<() => void> = [];
+
     try {
+      const [storeSettings, receiptPrefix] = await Promise.all([
+        this.getSettings(data.storeId),
+        resolveReceiptPrefix(db, data.storeId),
+      ]);
+
       await db.transaction(async (tx) => {
         let txDate: Date;
         if (data.effectiveDate) {
@@ -460,7 +537,6 @@ export class SalesRepository {
           activeSessionId = activeSession.id;
         }
 
-        const storeSettings = await this.getSettings(data.storeId);
         const lowStockThreshold = storeSettings?.lowStockThreshold ?? 5;
 
         const storePromotions = await tx.select().from(promotions).where(
@@ -480,8 +556,30 @@ export class SalesRepository {
           promoName?: string;
         }> = [];
 
+        // ── Lock and read every row the cart names, once ─────────────────────────────
+        //
+        // One id-ordered FOR UPDATE per batch instead of a lock-and-read per line. That is fewer round trips,
+        // and because every checkout now takes its row locks in the same (sorted) order, two carts holding the
+        // same items in opposite order can no longer deadlock.
+        const itemRows = new Map<string, typeof inventory.$inferSelect>();
+        const lockItems = async (ids: string[]) => {
+          const wanted = Array.from(new Set(ids)).filter((id) => !itemRows.has(id)).sort();
+          if (wanted.length === 0) return;
+          const rows = await tx.select().from(inventory).where(inArray(inventory.id, wanted)).orderBy(asc(inventory.id)).for("update");
+          for (const row of rows) itemRows.set(row.id, row);
+        };
+        await lockItems(data.items.map((i) => i.inventoryId));
+
+        const assignedStaffIds = Array.from(new Set(
+          data.items.flatMap((i) => [i.leadStaffId, i.assistingStaff1Id, i.assistingStaff2Id]).filter((id): id is string => !!id),
+        ));
+        const assignedStaff = new Map<string, typeof staff.$inferSelect>();
+        if (assignedStaffIds.length > 0) {
+          for (const row of await tx.select().from(staff).where(inArray(staff.id, assignedStaffIds))) assignedStaff.set(row.id, row);
+        }
+
         for (const item of data.items) {
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId)).for("update");
+          const inventoryItem = itemRows.get(item.inventoryId);
           if (!inventoryItem) {
             throw new Error("One of the items in your cart is no longer available.");
           }
@@ -503,7 +601,7 @@ export class SalesRepository {
           }
 
           if (item.leadStaffId) {
-            const [leadStaffMember] = await tx.select().from(staff).where(eq(staff.id, item.leadStaffId));
+            const leadStaffMember = assignedStaff.get(item.leadStaffId);
             if (!leadStaffMember) throw new Error("One of the assigned lead staff members is invalid.");
             if (leadStaffMember.storeId !== data.storeId) {
               throw new Error(`Lead staff member "${leadStaffMember.name}" does not belong to this store branch.`);
@@ -511,7 +609,7 @@ export class SalesRepository {
           }
 
           if (item.assistingStaff1Id) {
-            const [ass1Member] = await tx.select().from(staff).where(eq(staff.id, item.assistingStaff1Id));
+            const ass1Member = assignedStaff.get(item.assistingStaff1Id);
             if (!ass1Member) throw new Error("One of the assigned assisting staff members is invalid.");
             if (ass1Member.storeId !== data.storeId) {
               throw new Error(`Assisting staff member "${ass1Member.name}" does not belong to this store branch.`);
@@ -519,7 +617,7 @@ export class SalesRepository {
           }
 
           if (item.assistingStaff2Id) {
-            const [ass2Member] = await tx.select().from(staff).where(eq(staff.id, item.assistingStaff2Id));
+            const ass2Member = assignedStaff.get(item.assistingStaff2Id);
             if (!ass2Member) throw new Error("One of the assigned assisting staff members is invalid.");
             if (ass2Member.storeId !== data.storeId) {
               throw new Error(`Assisting staff member "${ass2Member.name}" does not belong to this store branch.`);
@@ -600,12 +698,13 @@ export class SalesRepository {
           }
         }
 
+        // Promotions can add free items the cart did not name; lock those too (still in id order).
+        await lockItems(processedItems.map((i) => i.inventoryId));
+
         let grossCartTotal = 0;
         for (const item of processedItems) {
           grossCartTotal += item.unitPrice * item.quantity;
         }
-
-        const receiptNumber = await this.transactionRepo.getNextAvailableTransactionNumber(tx, data.storeId);
 
         const storeTaxRates = await tx.select().from(taxRates).where(eq(taxRates.storeId, data.storeId));
         const defaultTax = storeTaxRates.find((r: any) => r.isDefault);
@@ -627,7 +726,19 @@ export class SalesRepository {
         const totalCharged = discountedSubtotal + taxTotalGlobal;
 
         const bookingDepositAmount = data.bookingDepositAmount || 0;
-        const balanceCollectedToday = data.balanceCollectedToday ?? (totalCharged - bookingDepositAmount);
+        // Store credit settles part (or all) of the sale without any money changing
+        // hands, so it is carved out of what must be collected. The client sends the
+        // net figure; the gross figure is accepted for a pure store_credit sale to
+        // stay compatible with older callers.
+        const dueAfterDeposit = totalCharged - bookingDepositAmount;
+        const storeCreditUsed = data.paymentMethod === "store_credit"
+          ? Math.max(0, dueAfterDeposit)
+          : data.paymentMethod === "split"
+            ? (data.splitPayments ?? []).filter(p => p.method === "store_credit").reduce((sum, p) => sum + p.amount, 0)
+            : 0;
+        const balanceCollectedToday = data.paymentMethod === "store_credit"
+          ? 0
+          : data.balanceCollectedToday ?? (dueAfterDeposit - storeCreditUsed);
 
         if (data.bookingId) {
           const [booking] = await tx.select().from(bookings).where(eq(bookings.id, data.bookingId));
@@ -638,7 +749,7 @@ export class SalesRepository {
           }
         }
 
-        if (Math.abs(balanceCollectedToday - (totalCharged - bookingDepositAmount)) > 0.01) {
+        if (data.paymentMethod !== "store_credit" && Math.abs(balanceCollectedToday - (dueAfterDeposit - storeCreditUsed)) > 0.01) {
           throw new Error("Balance calculation mismatch.");
         }
         if (balanceCollectedToday < 0) {
@@ -649,11 +760,40 @@ export class SalesRepository {
           if (!data.splitPayments || data.splitPayments.length === 0) {
             throw new Error("Split payments array must be provided when paymentMethod is 'split'");
           }
-          const sumOfSplits = data.splitPayments.reduce((sum, p) => sum + p.amount, 0);
+          const sumOfSplits = data.splitPayments.filter(p => p.method !== "store_credit").reduce((sum, p) => sum + p.amount, 0);
           if (Math.abs(sumOfSplits - balanceCollectedToday) > 0.01) {
             throw new Error(`Sum of split payments (₦${sumOfSplits.toLocaleString()}) does not match the balance collected today (₦${balanceCollectedToday.toLocaleString()}).`);
           }
         }
+
+        // ── Payment legs: normalise single/split into receipt-level legs and vet them ──
+        const rawLegs: PaymentLegInput[] = data.paymentMethod === "split"
+          ? (data.splitPayments ?? [])
+          : data.paymentMethod === "store_credit"
+            ? [{ method: "store_credit", amount: storeCreditUsed, ...data.paymentDetail }]
+            : data.paymentMethod === "deposit"
+              ? []
+              : [{ method: data.paymentMethod, amount: balanceCollectedToday, ...data.paymentDetail }];
+
+        const activeAccounts = await tx.select().from(storePaymentAccounts)
+          .where(and(eq(storePaymentAccounts.storeId, data.storeId), eq(storePaymentAccounts.isActive, true)));
+        const accountById = new Map(activeAccounts.map(a => [a.id, a]));
+
+        for (const leg of rawLegs) {
+          if (leg.method === "transfer" && activeAccounts.length > 0) {
+            if (!leg.accountId) throw new Error("Select the account this transfer was paid into.");
+            if (!accountById.has(leg.accountId)) throw new Error("The selected payment account is not active for this store.");
+          }
+          if (leg.method === "cash") {
+            const tendered = leg.cashTendered ?? leg.amount;
+            const owed = leg.changeOwed ?? 0;
+            if (tendered + 0.01 < leg.amount) throw new Error("Cash received is less than the cash amount due.");
+            if (owed > tendered - leg.amount + 0.01) throw new Error("Change owed cannot exceed the change due.");
+          } else if (leg.changeOwed) {
+            throw new Error("Change can only be owed on a cash payment.");
+          }
+        }
+        const changeOwedTotal = rawLegs.reduce((sum, l) => sum + (l.method === "cash" ? (l.changeOwed ?? 0) : 0), 0);
 
         // ── Consumables: lock the supplies this cart will burn ──────────────
         //
@@ -663,7 +803,7 @@ export class SalesRepository {
         //
         // Promo lines are included deliberately: a free service still uses product.
         const cartItemIds = Array.from(new Set(processedItems.map(i => i.inventoryId)));
-        const cartRecipes = await this.consumablesRepo.getActiveRecipes(cartItemIds);
+        const cartRecipes = await this.consumablesRepo.getActiveRecipes(cartItemIds, tx);
         const supplyCosts = new Map<string, number>();
         const supplyRows = new Map<string, { name: string; quantity: number }>();
 
@@ -686,10 +826,53 @@ export class SalesRepository {
           }
         }
 
+        // The receipt number is allocated near the end of the transaction (see "Allocate the receipt number"
+        // below): the counter row stays locked until commit and every other sale in the store waits on it, so
+        // everything that does not need the number runs first.
+        let receiptNumber = "";
+
+        // ── Bundle components: read their definitions and lock them with everything else ──────────────
+        // (They used to be read unlocked and written from that stale read, which let two sales oversell a
+        // component.)
+        const bundleParentIds = Array.from(new Set(
+          processedItems
+            .filter((i) => { const row = itemRows.get(i.inventoryId); return row?.type === "product" && row.isBundle; })
+            .map((i) => i.inventoryId),
+        ));
+        const componentsByParent = new Map<string, { id: string; qtyNeeded: number }[]>();
+        if (bundleParentIds.length > 0) {
+          const defs = await tx
+            .select({
+              parentId: bundleComponents.parentInventoryId,
+              id: bundleComponents.componentInventoryId,
+              qtyNeeded: bundleComponents.quantity,
+            })
+            .from(bundleComponents)
+            .where(inArray(bundleComponents.parentInventoryId, bundleParentIds));
+          for (const def of defs) {
+            const list = componentsByParent.get(def.parentId) ?? [];
+            list.push({ id: def.id, qtyNeeded: def.qtyNeeded });
+            componentsByParent.set(def.parentId, list);
+          }
+          await lockItems(defs.map((d) => d.id));
+        }
+
+        // Running stock per locked row. Lines are applied to it in cart order, so a later line sees what an
+        // earlier line (or a promo line for the same item) left, exactly as the old per-line re-read did.
+        const stock = new Map<string, number>();
+        itemRows.forEach((row, id) => stock.set(id, Number(row.quantity)));
+        const changedStock = new Set<string>();
+        const fifoDeductions = new Map<string, number>();
+        const addFifo = (id: string, qty: number) => fifoDeductions.set(id, (fifoDeductions.get(id) ?? 0) + qty);
+        const plDeltas = new Map<string, { sold: number; revenue: number; profit: number; remaining: number }>();
+
+        const orderRows: (typeof orders.$inferInsert)[] = [];
+        const checkoutRows: (typeof checkouts.$inferInsert)[] = [];
+        const transactionRows: (typeof transactions.$inferInsert)[] = [];
         const consumingLines: { orderId: string; inventoryId: string; quantity: number }[] = [];
 
         for (const item of processedItems) {
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, item.inventoryId)).for("update");
+          const inventoryItem = itemRows.get(item.inventoryId);
           if (!inventoryItem) throw new Error("One of the items in your cart is no longer available.");
 
           // Back-bar supplies are not merchandise. The client hides them, but a
@@ -698,26 +881,21 @@ export class SalesRepository {
             throw new Error(`"${inventoryItem.name}" is a back-bar supply and cannot be sold.`);
           }
 
+          const quantityBefore = stock.get(item.inventoryId) ?? 0;
+          const components = inventoryItem.type === "product" && inventoryItem.isBundle
+            ? componentsByParent.get(item.inventoryId) ?? []
+            : [];
+
           if (inventoryItem.type === "product") {
             if (inventoryItem.isBundle) {
-              const childComponents = await tx
-                .select({
-                  name: inventory.name,
-                  compQty: inventory.quantity,
-                  qtyNeeded: bundleComponents.quantity,
-                })
-                .from(bundleComponents)
-                .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
-                .where(eq(bundleComponents.parentInventoryId, item.inventoryId));
-
-              for (const comp of childComponents) {
+              for (const comp of components) {
                 const totalNeeded = comp.qtyNeeded * item.quantity;
-                if (comp.compQty < totalNeeded) {
-                  throw new Error(`Sorry, we do not have enough stock for the component ${comp.name} inside bundle ${inventoryItem.name}.`);
+                if ((stock.get(comp.id) ?? 0) < totalNeeded) {
+                  throw new Error(`Sorry, we do not have enough stock for the component ${itemRows.get(comp.id)?.name} inside bundle ${inventoryItem.name}.`);
                 }
               }
-            } else if (inventoryItem.quantity < item.quantity) {
-              throw new Error(`Sorry, we only have ${inventoryItem.quantity} ${inventoryItem.name} in stock.`);
+            } else if (quantityBefore < item.quantity) {
+              throw new Error(`Sorry, we only have ${quantityBefore} ${inventoryItem.name} in stock.`);
             }
           }
 
@@ -728,14 +906,25 @@ export class SalesRepository {
           const itemTaxTotal = itemDiscountedSubtotal * (taxRatePercent / 100);
           const itemCharged = itemDiscountedSubtotal + itemTaxTotal;
 
-          const [order] = await tx.insert(orders).values({
+          // Ids are generated here so the three rows can be inserted together without reading any back.
+          const orderId = randomUUID();
+          const checkoutId = randomUUID();
+          orderRows.push({
+            id: orderId,
             storeId: data.storeId,
             inventoryId: item.inventoryId,
             quantity: item.quantity,
             totalPrice,
-          }).returning();
+          });
 
-          const [checkout] = await tx.insert(checkouts).values({
+          // Below-cost sales are allowed but always recorded. Free promo lines are
+          // intentional giveaways, not pricing mistakes, so they are not flagged.
+          const lossAmount = item.isPromoLine
+            ? 0
+            : lineLossAmount(item.unitPrice, item.quantity, fullUnitCost(Number(inventoryItem.costPrice), cartRecipes.get(item.inventoryId), supplyCosts));
+
+          checkoutRows.push({
+            id: checkoutId,
             storeId: data.storeId,
             bookingId: data.bookingId || null,
             staffId: data.staffId,
@@ -743,8 +932,8 @@ export class SalesRepository {
             assistingStaff1Id: item.assistingStaff1Id || null,
             assistingStaff2Id: item.assistingStaff2Id || null,
             commissionSplit: item.commissionSplit || "standard",
-            orderId: order.id,
-            receiptNumber,
+            orderId,
+            receiptNumber: "", // filled in once the number is allocated
             totalPrice,
             paymentMethod: data.paymentMethod,
             splitPayments: data.paymentMethod === "split" ? data.splitPayments : null,
@@ -757,46 +946,37 @@ export class SalesRepository {
             pointsRedeemed: data.pointsRedeemed || 0,
             totalCharged: itemCharged,
             taxTotal: itemTaxTotal,
+            lossAmount,
             bookingDepositAmount,
             bookingDepositMethod: data.bookingDepositMethod || null,
             balanceCollectedToday: Math.max(0, itemCharged - bookingDepositAmount),
             createdAt: txDate,
-          }).returning();
+          });
 
-          checkoutIds.push(checkout.id);
+          checkoutIds.push(checkoutId);
 
-          await tx.insert(transactions).values({
+          transactionRows.push({
             storeId: data.storeId,
             customerId: data.customerId,
             inventoryId: item.inventoryId,
-            checkoutId: checkout.id,
+            checkoutId,
             amount: itemCharged,
             transactionDate: txDate,
           });
 
           if (inventoryItem.type === "product") {
             if (inventoryItem.isBundle) {
-              const childComponents = await tx
-                .select({
-                  id: bundleComponents.componentInventoryId,
-                  name: inventory.name,
-                  quantity: inventory.quantity,
-                  qtyNeeded: bundleComponents.quantity,
-                })
-                .from(bundleComponents)
-                .innerJoin(inventory, eq(bundleComponents.componentInventoryId, inventory.id))
-                .where(eq(bundleComponents.parentInventoryId, item.inventoryId));
-
-              for (const comp of childComponents) {
+              for (const comp of components) {
                 const totalDeduction = comp.qtyNeeded * item.quantity;
-                const newCompQty = comp.quantity - totalDeduction;
-                await tx.update(inventory).set({ quantity: newCompQty }).where(eq(inventory.id, comp.id));
-                await this.inventoryRepo.deductFIFO(comp.id, totalDeduction, tx);
+                const newCompQty = (stock.get(comp.id) ?? 0) - totalDeduction;
+                stock.set(comp.id, newCompQty);
+                changedStock.add(comp.id);
+                addFifo(comp.id, totalDeduction);
                 if (newCompQty <= lowStockThreshold) {
-                  lowStockItems.push({ name: comp.name, quantity: newCompQty });
+                  lowStockItems.push({ name: itemRows.get(comp.id)?.name ?? "", quantity: newCompQty });
                 }
-                // Log inventory activity for bundle component
-                auditLogger.logDataModification(
+                // Log inventory activity for bundle component (after commit, so a rolled-back sale leaves no trace)
+                afterCommit.push(() => auditLogger.logDataModification(
                   "inventory",
                   comp.id,
                   data.staffId,
@@ -804,25 +984,26 @@ export class SalesRepository {
                   true,
                   undefined,
                   { quantityDeducted: totalDeduction, newQuantity: newCompQty }
-                );
+                ));
               }
             } else {
-              const newQuantity = inventoryItem.quantity - item.quantity;
-              await tx.update(inventory).set({ quantity: newQuantity }).where(eq(inventory.id, item.inventoryId));
-              await this.inventoryRepo.deductFIFO(item.inventoryId, item.quantity, tx);
+              const newQuantity = quantityBefore - item.quantity;
+              stock.set(item.inventoryId, newQuantity);
+              changedStock.add(item.inventoryId);
+              addFifo(item.inventoryId, item.quantity);
               if (newQuantity <= lowStockThreshold) {
                 lowStockItems.push({ name: inventoryItem.name, quantity: newQuantity });
               }
-              // Log inventory activity for product sale
-              auditLogger.logDataModification(
+              // Log inventory activity for product sale (after commit, so a rolled-back sale leaves no trace)
+              afterCommit.push(() => auditLogger.logDataModification(
                 "inventory",
                 item.inventoryId,
                 data.staffId,
                 "SALE_DEDUCTION",
                 true,
                 undefined,
-                { quantityDeducted: item.quantity, newQuantity: newQuantity }
-              );
+                { quantityDeducted: item.quantity, newQuantity }
+              ));
             }
           }
 
@@ -830,36 +1011,60 @@ export class SalesRepository {
           // profit_loss: gross profit keeps its meaning of revenue minus item cost.
           // Supply cost lands below gross profit, as Direct Supplies.
           if (cartRecipes.has(item.inventoryId)) {
-            consumingLines.push({ orderId: order.id, inventoryId: item.inventoryId, quantity: item.quantity });
+            consumingLines.push({ orderId, inventoryId: item.inventoryId, quantity: item.quantity });
           }
 
-          const costPrice = inventoryItem.costPrice;
           const revenue = totalPrice;
-          const profit = revenue - (costPrice * item.quantity);
-
-          const [existingPL] = await tx.select().from(profitLoss)
-            .where(and(eq(profitLoss.inventoryId, item.inventoryId), eq(profitLoss.storeId, data.storeId)));
-
-          if (existingPL) {
-            await tx.update(profitLoss)
-              .set({
-                totalQuantitySold: existingPL.totalQuantitySold + item.quantity,
-                quantityRemaining: inventoryItem.quantity - item.quantity,
-                totalRevenue: existingPL.totalRevenue + revenue,
-                totalGrossProfit: existingPL.totalGrossProfit + profit,
-              })
-              .where(eq(profitLoss.id, existingPL.id));
-          } else {
-            await tx.insert(profitLoss).values({
-              storeId: data.storeId,
-              inventoryId: item.inventoryId,
-              totalQuantitySold: item.quantity,
-              quantityRemaining: inventoryItem.quantity - item.quantity,
-              totalRevenue: revenue,
-              totalGrossProfit: profit,
-            });
-          }
+          const profit = revenue - (inventoryItem.costPrice * item.quantity);
+          const delta = plDeltas.get(item.inventoryId) ?? { sold: 0, revenue: 0, profit: 0, remaining: 0 };
+          delta.sold += item.quantity;
+          delta.revenue += revenue;
+          delta.profit += profit;
+          delta.remaining = quantityBefore - item.quantity;
+          plDeltas.set(item.inventoryId, delta);
         }
+
+        // ── Write the whole cart ──────────────────────────────────────────────────────────────────────
+        // Everything below that does not need the receipt number goes first. Orders go in now (checkouts
+        // reference them); checkouts, transactions and anything that references a checkout wait until the
+        // number is allocated, so the store's counter lock is held for as few statements as possible.
+        await tx.insert(orders).values(orderRows);
+
+        const ledgerMoves: Parameters<typeof recordStockMovements>[1] = [];
+
+        // Absolute quantities are safe: every one of these rows is locked by this transaction.
+        await setInventoryQuantities(tx, new Map(Array.from(changedStock).map((id) => [id, stock.get(id) ?? 0] as [string, number])));
+        ledgerMoves.push(...Array.from(changedStock).map((id) => ({
+          storeId: data.storeId,
+          inventoryId: id,
+          reason: "sale" as const,
+          before: Number(itemRows.get(id)?.quantity ?? 0),
+          after: stock.get(id) ?? 0,
+          refType: "receipt",
+          refId: "", // filled in once the number is allocated
+          actorStaffId: data.staffId,
+          actorUserId: data.actorUserId ?? null,
+        })));
+        await this.inventoryRepo.deductFIFOMany(fifoDeductions, tx);
+
+        await tx.insert(profitLoss).values(
+          Array.from(plDeltas.entries()).map(([inventoryId, d]) => ({
+            storeId: data.storeId,
+            inventoryId,
+            totalQuantitySold: d.sold,
+            quantityRemaining: d.remaining,
+            totalRevenue: d.revenue,
+            totalGrossProfit: d.profit,
+          })),
+        ).onConflictDoUpdate({
+          target: [profitLoss.storeId, profitLoss.inventoryId],
+          set: {
+            totalQuantitySold: sql`${profitLoss.totalQuantitySold} + excluded.total_quantity_sold`,
+            quantityRemaining: sql`excluded.quantity_remaining`,
+            totalRevenue: sql`${profitLoss.totalRevenue} + excluded.total_revenue`,
+            totalGrossProfit: sql`${profitLoss.totalGrossProfit} + excluded.total_gross_profit`,
+          },
+        });
 
         // ── Consumables: write the ledger and draw down supply stock ─────────
         //
@@ -882,6 +1087,7 @@ export class SalesRepository {
             );
           }
 
+          const newSupplyQty = new Map<string, number>();
           for (const [supplyId, used] of Array.from(deductions.entries())) {
             const snapshot = supplyRows.get(supplyId);
             const newQty = (snapshot?.quantity ?? 0) - used;
@@ -889,7 +1095,7 @@ export class SalesRepository {
             // Deducted directly rather than through deductFIFO: inventory_batches
             // .quantity is an integer column, so a fractional supply draw-down would
             // be silently rounded there. Supplies get no expiry batches in v1.
-            await tx.update(inventory).set({ quantity: newQty }).where(eq(inventory.id, supplyId));
+            newSupplyQty.set(supplyId, newQty);
 
             if (snapshot && newQty <= lowStockThreshold) {
               lowStockItems.push({ name: snapshot.name, quantity: newQty });
@@ -905,7 +1111,123 @@ export class SalesRepository {
               );
             }
           }
+          await setInventoryQuantities(tx, newSupplyQty);
+          ledgerMoves.push(...Array.from(newSupplyQty.entries()).map(([supplyId, after]) => ({
+            storeId: data.storeId,
+            inventoryId: supplyId,
+            reason: "consumable_use" as const,
+            before: supplyRows.get(supplyId)?.quantity ?? 0,
+            after,
+            refType: "receipt",
+            refId: "", // filled in once the number is allocated
+            actorStaffId: data.staffId,
+            actorUserId: data.actorUserId ?? null,
+          })));
         }
+
+        if (hasCashPayment && activeSessionId) {
+          let cashReceived = 0;
+          if (data.paymentMethod === "cash") {
+            cashReceived = balanceCollectedToday;
+          } else if (data.paymentMethod === "split" && data.splitPayments) {
+            const cashSplit = data.splitPayments.find(p => p.method === "cash");
+            if (cashSplit) cashReceived = cashSplit.amount;
+          }
+
+          // Owed change is cash the drawer keeps (it is credited to the customer instead of handed back).
+          cashReceived += changeOwedTotal;
+
+          if (cashReceived > 0) {
+            await tx
+              .update(cashRegisterSessions)
+              .set({ expectedCash: sql`${cashRegisterSessions.expectedCash} + ${cashReceived}` })
+              .where(eq(cashRegisterSessions.id, activeSessionId));
+          }
+        }
+
+        const pointsPerCurrency = storeSettings?.loyaltyPointsPerCurrency ?? DEFAULT_LOYALTY_POINTS_PER_CURRENCY;
+        const pointsEarned = Math.floor(discountedSubtotal / pointsPerCurrency);
+        if (storeCreditUsed > 0 && !customer) throw new Error("A customer profile is required to redeem store credit.");
+
+        // One statement settles the customer's points and store credit, relative to what is in the row NOW
+        // rather than to the copy read at the start of the sale. The old absolute writes lost points when two
+        // sales to one customer overlapped (the walk-in customer is shared by every register), and the balance
+        // check could pass twice against the same credit. The WHERE clause is the real check; the snapshot
+        // test earlier in the sale is only a fast failure.
+        const pointsRedeemed = data.pointsRedeemed || 0;
+        const settled = await tx
+          .update(customers)
+          .set({
+            loyaltyPoints: sql`GREATEST(0, ${customers.loyaltyPoints} - ${pointsRedeemed}::integer + ${pointsEarned}::integer)`,
+            storeCreditBalance: sql`${customers.storeCreditBalance} - ${storeCreditUsed}::numeric + ${changeOwedTotal}::numeric`,
+          })
+          .where(and(
+            eq(customers.id, data.customerId),
+            sql`${customers.loyaltyPoints} >= ${pointsRedeemed}::integer`,
+            sql`${customers.storeCreditBalance} >= ${storeCreditUsed}::numeric`,
+          ))
+          .returning({ id: customers.id });
+        if (settled.length === 0) {
+          // Someone else spent the points or credit since this sale began. Say which.
+          const [fresh] = await tx.select().from(customers).where(eq(customers.id, data.customerId));
+          if (fresh && fresh.loyaltyPoints < pointsRedeemed) {
+            throw new Error(`Insufficient loyalty points. Customer has only ${fresh.loyaltyPoints} points.`);
+          }
+          throw new Error(`Insufficient store credit balance. Available: ₦${Number(fresh?.storeCreditBalance || 0).toLocaleString()}`);
+        }
+
+        // Gamification: one visit credit for the customer per checkout batch,
+        // and one sale credit per distinct staff member credited across the
+        // items in it. Runs in-transaction so it never records against a sale
+        // that ends up rolled back.
+        if (data.customerId && checkoutIds.length > 0) {
+          await gamificationRepository.recordCustomerVisit(data.storeId, data.customerId, checkoutIds[0], tx);
+        }
+        const creditedStaffIds = new Set<string>([data.staffId, ...data.items.map(i => i.leadStaffId).filter((id): id is string => !!id)]);
+        for (const staffMemberId of Array.from(creditedStaffIds)) {
+          await gamificationRepository.recordStaffSale(data.storeId, staffMemberId, checkoutIds[0], tx);
+        }
+
+        // ── Allocate the receipt number, then write the rows that carry it ───────────────────────────
+        // From here to COMMIT the store's counter row is locked, so only what needs the number remains.
+        receiptNumber = await this.transactionRepo.getNextAvailableTransactionNumber(tx, data.storeId, receiptPrefix);
+        for (const row of checkoutRows) row.receiptNumber = receiptNumber;
+        for (const move of ledgerMoves) move.refId = receiptNumber;
+
+        await tx.insert(checkouts).values(checkoutRows);
+        await tx.insert(transactions).values(transactionRows);
+        await recordStockMovements(tx, ledgerMoves);
+
+        // Receipt-level payment legs (what per-account reconciliation reads).
+        const now = new Date();
+        const legRows = rawLegs.map((leg) => {
+          const account = leg.method === "transfer" && leg.accountId ? accountById.get(leg.accountId) : undefined;
+          const tendered = leg.method === "cash" ? (leg.cashTendered ?? leg.amount) : null;
+          const owed = leg.method === "cash" ? (leg.changeOwed ?? 0) : null;
+          const needsConfirm = leg.method === "transfer" || leg.method === "flutterwave";
+          const confirmedNow = leg.method === "transfer" && !!leg.confirmed;
+          return {
+            storeId: data.storeId,
+            receiptNumber,
+            checkoutId: checkoutIds[0],
+            method: leg.method,
+            amount: leg.amount,
+            paymentAccountId: account?.id ?? null,
+            accountLabel: account?.label ?? null,
+            accountDetail: account ? [account.bankName, account.accountNumber].filter(Boolean).join(" · ") || null : null,
+            confirmationStatus: (confirmedNow ? "confirmed" : needsConfirm ? "pending" : "not_required") as "confirmed" | "pending" | "not_required",
+            confirmationSource: confirmedNow ? ("manual" as const) : null,
+            confirmedAt: confirmedNow ? now : null,
+            confirmedByUserId: confirmedNow ? (data.actorUserId ?? null) : null,
+            reference: leg.reference ?? null,
+            senderName: leg.senderName ?? null,
+            cashTendered: tendered,
+            changeGiven: tendered === null ? null : Math.max(0, tendered - leg.amount - (owed ?? 0)),
+            changeOwed: owed,
+            createdAt: txDate,
+          };
+        });
+        if (legRows.length > 0) await tx.insert(salePaymentLegs).values(legRows);
 
         let creditAmount = 0;
         let upfrontPaid = 0;
@@ -953,45 +1275,10 @@ export class SalesRepository {
           await tx.update(bookings).set({ status: "completed" }).where(eq(bookings.id, data.bookingId));
         }
 
-        if (hasCashPayment && activeSessionId) {
-          let cashReceived = 0;
-          if (data.paymentMethod === "cash") {
-            cashReceived = balanceCollectedToday;
-          } else if (data.paymentMethod === "split" && data.splitPayments) {
-            const cashSplit = data.splitPayments.find(p => p.method === "cash");
-            if (cashSplit) cashReceived = cashSplit.amount;
-          }
-
-          if (cashReceived > 0) {
-            await tx
-              .update(cashRegisterSessions)
-              .set({ expectedCash: sql`${cashRegisterSessions.expectedCash} + ${cashReceived}` })
-              .where(eq(cashRegisterSessions.id, activeSessionId));
-          }
-        }
-
-        const pointsPerCurrency = storeSettings?.loyaltyPointsPerCurrency ?? DEFAULT_LOYALTY_POINTS_PER_CURRENCY;
-        const pointsEarned = Math.floor(discountedSubtotal / pointsPerCurrency);
-        const newPointsBalance = Math.max(0, customer.loyaltyPoints - (data.pointsRedeemed || 0) + pointsEarned);
-        await tx.update(customers).set({ loyaltyPoints: newPointsBalance }).where(eq(customers.id, data.customerId));
-
-        let storeCreditUsed = 0;
-        if (data.paymentMethod === "store_credit") {
-          storeCreditUsed = balanceCollectedToday;
-        } else if (data.paymentMethod === "split" && data.splitPayments) {
-          const storeCreditSplit = data.splitPayments.find(p => p.method === "store_credit");
-          if (storeCreditSplit) storeCreditUsed = storeCreditSplit.amount;
-        }
-
+        // Store-credit ledger rows reference the checkout, so they are written once it exists.
+        const storeCreditRows: (typeof storeCreditTransactions.$inferInsert)[] = [];
         if (storeCreditUsed > 0) {
-          if (!customer) throw new Error("A customer profile is required to redeem store credit.");
-          if (Number(customer.storeCreditBalance || 0) < storeCreditUsed) {
-            throw new Error(`Insufficient store credit balance. Available: ₦${customer.storeCreditBalance?.toLocaleString() || 0}`);
-          }
-          await tx.update(customers)
-            .set({ storeCreditBalance: sql`${customers.storeCreditBalance} - ${storeCreditUsed}` })
-            .where(eq(customers.id, customer.id));
-          await tx.insert(storeCreditTransactions).values({
+          storeCreditRows.push({
             customerId: customer.id,
             storeId: data.storeId,
             amount: -storeCreditUsed,
@@ -999,18 +1286,16 @@ export class SalesRepository {
             checkoutId: checkoutIds[0],
           });
         }
-
-        // Gamification: one visit credit for the customer per checkout batch,
-        // and one sale credit per distinct staff member credited across the
-        // items in it. Runs in-transaction so it never records against a sale
-        // that ends up rolled back.
-        if (data.customerId && checkoutIds.length > 0) {
-          await gamificationRepository.recordCustomerVisit(data.storeId, data.customerId, checkoutIds[0], tx);
+        if (changeOwedTotal > 0) {
+          storeCreditRows.push({
+            customerId: customer.id,
+            storeId: data.storeId,
+            amount: changeOwedTotal,
+            type: "change_owed",
+            checkoutId: checkoutIds[0],
+          });
         }
-        const creditedStaffIds = new Set<string>([data.staffId, ...data.items.map(i => i.leadStaffId).filter((id): id is string => !!id)]);
-        for (const staffMemberId of Array.from(creditedStaffIds)) {
-          await gamificationRepository.recordStaffSale(data.storeId, staffMemberId, checkoutIds[0], tx);
-        }
+        if (storeCreditRows.length > 0) await tx.insert(storeCreditTransactions).values(storeCreditRows);
 
         // Claims this replay id inside the same transaction as the sale itself,
         // so a retry that races a still-committing first attempt either waits
@@ -1026,8 +1311,20 @@ export class SalesRepository {
         }
       });
 
-      for (const item of lowStockItems) {
-        await this.notifyManagers(data.storeId, "low_stock", `Low stock alert: ${item.name} has only ${item.quantity} units left.`);
+      for (const run of afterCommit) run();
+
+      // Alerts are not part of the sale: each costs several round trips (store, recipients, one insert per
+      // recipient), so they run after the response is on its way rather than holding the cashier up. One alert
+      // per item even when it sits on several lines of the cart (the lowest remaining count wins).
+      if (lowStockItems.length > 0) {
+        const lowest = new Map<string, number>();
+        for (const item of lowStockItems) lowest.set(item.name, Math.min(item.quantity, lowest.get(item.name) ?? Infinity));
+        const alerts = Array.from(lowest.entries());
+        void (async () => {
+          for (const [name, quantity] of alerts) {
+            await this.notifyManagers(data.storeId, "low_stock", `Low stock alert: ${name} has only ${quantity} units left.`);
+          }
+        })().catch((error) => console.error("[checkout] low-stock notification failed:", error));
       }
 
       return { success: true, message: "Sale completed successfully", checkoutIds };
@@ -1077,6 +1374,34 @@ export class SalesRepository {
         const matchedCheckouts = await tx.select().from(checkouts)
           .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber));
 
+        // Store credit this sale spent or issued is undone with it: redeemed credit goes back to
+        // the customer, and change we owed them is withdrawn. Withdrawal is clamped at zero, so credit
+        // the customer has already spent is not clawed back into a negative balance.
+        if (matchedCheckouts.some(c => !c.isVoided)) {
+          const creditRows = await tx.select().from(storeCreditTransactions).where(and(
+            inArray(storeCreditTransactions.checkoutId, matchedCheckouts.map(c => c.id)),
+            inArray(storeCreditTransactions.type, ["change_owed", "purchase_redemption"]),
+          ));
+          for (const row of creditRows) {
+            const [cust] = await tx.select({ balance: customers.storeCreditBalance }).from(customers)
+              .where(eq(customers.id, row.customerId)).for("update");
+            if (!cust) continue;
+            const current = Number(cust.balance) || 0;
+            const applied = row.amount < 0 ? -row.amount : -Math.min(row.amount, current);
+            if (applied === 0) continue;
+            await tx.update(customers)
+              .set({ storeCreditBalance: current + applied })
+              .where(eq(customers.id, row.customerId));
+            await tx.insert(storeCreditTransactions).values({
+              customerId: row.customerId,
+              storeId: row.storeId,
+              amount: applied,
+              type: "void_reversal",
+              checkoutId: row.checkoutId,
+            });
+          }
+        }
+
         for (const checkout of matchedCheckouts) {
           if (checkout.isVoided) continue;
 
@@ -1105,9 +1430,15 @@ export class SalesRepository {
           if (!inventoryItem) continue;
 
           if (inventoryItem.type === "product") {
-            await tx.update(inventory)
-              .set({ quantity: sql`quantity + ${order.quantity}` })
-              .where(eq(inventory.id, inventoryItem.id));
+            await adjustStock(tx, {
+              storeId: checkout.storeId,
+              inventoryId: inventoryItem.id,
+              delta: order.quantity,
+              reason: "sale_void",
+              refType: "receipt",
+              refId: checkout.receiptNumber,
+              actorUserId: voidedByUserId,
+            });
           }
 
           // Consumables go back on the shelf: a voided sale is one that never
@@ -1120,9 +1451,15 @@ export class SalesRepository {
           const voidedConsumables = await tx.select().from(orderConsumables)
             .where(eq(orderConsumables.orderId, order.id));
           for (const oc of voidedConsumables) {
-            await tx.update(inventory)
-              .set({ quantity: sql`quantity + ${oc.quantityUsed}` })
-              .where(eq(inventory.id, oc.supplyInventoryId));
+            await adjustStock(tx, {
+              storeId: checkout.storeId,
+              inventoryId: oc.supplyInventoryId,
+              delta: oc.quantityUsed,
+              reason: "consumable_restore",
+              refType: "receipt",
+              refId: checkout.receiptNumber,
+              actorUserId: voidedByUserId,
+            });
           }
 
           const [existingPL] = await tx.select().from(profitLoss)
@@ -1442,9 +1779,15 @@ export class SalesRepository {
 
         // 8. Decrement inventory only for products
         if (inv.type === "product") {
-          await tx.update(inventory)
-            .set({ quantity: sql`${inventory.quantity} - ${data.quantity}` })
-            .where(eq(inventory.id, data.inventoryId));
+          await adjustStock(tx, {
+            storeId,
+            inventoryId: data.inventoryId,
+            delta: -data.quantity,
+            reason: "sale",
+            refType: "order",
+            refId: order.id,
+            note: "Addendum to a past sale",
+          });
           await this.inventoryRepo.deductFIFO(data.inventoryId, data.quantity, tx);
         }
 
@@ -1489,9 +1832,15 @@ export class SalesRepository {
 
           // Negative stock is allowed here for the same reason it is at checkout.
           for (const [supplyId, used] of Array.from(deductions.entries())) {
-            await tx.update(inventory)
-              .set({ quantity: sql`${inventory.quantity} - ${used}` })
-              .where(eq(inventory.id, supplyId));
+            await adjustStock(tx, {
+              storeId,
+              inventoryId: supplyId,
+              delta: -used,
+              reason: "consumable_use",
+              refType: "order",
+              refId: order.id,
+              note: "Addendum to a past sale",
+            });
           }
         }
 
@@ -1668,9 +2017,16 @@ export class SalesRepository {
 
             restockEventId = restockEvent.id;
 
-            await tx.update(inventory)
-              .set({ quantity: inventoryItem.quantity + item.quantity })
-              .where(eq(inventory.id, inventoryItem.id));
+            await adjustStock(tx, {
+              storeId: data.storeId,
+              inventoryId: inventoryItem.id,
+              delta: item.quantity,
+              reason: "sale_return",
+              refType: "receipt",
+              refId: checkout.receiptNumber,
+              actorStaffId: data.staffId || null,
+              actorUserId: data.userId || null,
+            });
 
             // Log inventory activity for product return/restock
             auditLogger.logDataModification(
@@ -1835,6 +2191,16 @@ export class SalesRepository {
     return db.select().from(saleDrafts)
       .where(eq(saleDrafts.storeId, storeId))
       .orderBy(desc(saleDrafts.updatedAt));
+  }
+
+  /** One page of a store's saved sale drafts, most recently edited first, with the total. */
+  async listDraftsPage(storeId: string, page: { limit: number; offset: number }) {
+    const where = eq(saleDrafts.storeId, storeId);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(saleDrafts).where(where).orderBy(desc(saleDrafts.updatedAt)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(saleDrafts).where(where),
+    ]);
+    return { rows, total };
   }
 
   async getDraft(id: string, storeId: string): Promise<SaleDraft | null> {

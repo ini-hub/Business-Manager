@@ -30,6 +30,12 @@ export const BADGE_DEFINITIONS: BadgeDefinition[] = [
   { key: "revenue_streak_3", subjectType: "owner", label: "Momentum", description: "3 consecutive months of growing revenue", icon: "TrendingUp" },
   { key: "revenue_streak_6", subjectType: "owner", label: "Unstoppable", description: "6 consecutive months of growing revenue", icon: "Rocket" },
   { key: "customers_100", subjectType: "owner", label: "Growing Community", description: "100 customers served", icon: "Users" },
+
+  // Partner network (owner subject: the store is the subject)
+  { key: "partner_first_share", subjectType: "owner", label: "First Share", description: "Completed a first stock transfer with a partner", icon: "Handshake" },
+  { key: "partner_trusted_trader", subjectType: "owner", label: "Trusted Trader", description: "Completed 5 partner transfers", icon: "ShieldCheck" },
+  { key: "partner_reliable_settler", subjectType: "owner", label: "Reliable Settler", description: "Cleared 3 partner balances by their due date", icon: "Clock" },
+  { key: "partner_connector", subjectType: "owner", label: "Connector", description: "Brought a business onto the platform as a partner", icon: "Users" },
 ];
 
 export function badgesForSubject(subjectType: GamificationSubjectType): BadgeDefinition[] {
@@ -43,4 +49,6 @@ export const POINTS_RULES = {
   customer_visit: 10,
   staff_sale: 5,
   staff_on_time_shift: 3,
+  partner_transfer_completed: 10,
+  partner_connected: 25,
 } as const;

@@ -27,3 +27,19 @@ describe("healthMetrics", () => {
     expect(parseRange(undefined)).toBe("24h");
   });
 });
+
+import { recordRequest, resetHealthMetrics } from "./healthMetrics";
+
+describe("healthMetrics per-route recording", () => {
+  it("accepts route and query-count fields and folds routes past the cap into (other)", () => {
+    resetHealthMetrics();
+    const at = Date.now();
+    for (let i = 0; i < 450; i++) {
+      recordRequest({ at, ms: 40, status: 200, method: "GET", path: `/api/x${i}`, route: `GET /api/x${i}`, queries: 3 });
+    }
+    // Recording must never throw, including for 5xx samples and requests without a route.
+    recordRequest({ at, ms: 900, status: 500, method: "GET", path: "/api/x1", route: "GET /api/x1", queries: 40 });
+    recordRequest({ at, ms: 10, status: 200, method: "GET", path: "/api/y" });
+    resetHealthMetrics();
+  });
+});

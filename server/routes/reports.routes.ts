@@ -1,17 +1,10 @@
+import { getCashFlowTotals } from "../lib/cashFlow";
+import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { getStoreTimezone, toUtcStart, toUtcEnd, storeToday } from "../lib/dateUtils";
 import { formatInTimeZone } from "date-fns-tz";
 import { storage } from "../storage";
 import { attendanceService } from "../services/AttendanceService";
-import {
-  checkouts, repayments,
-  expenses,
-  cashDrops,
-  creditEntries,
-  cashRegisterSessions
-} from "@shared/schema";
-import { db } from "../db";
-import { eq, and, gte, lte } from "drizzle-orm";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { payrollPostingService } from "../services/PayrollPostingService";
@@ -270,12 +263,13 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const scope = await resolveAttendanceStaffScope(req, res, req.query.staffId as string | undefined, storeId);
       if (!scope.ok) return; // response already sent
 
-      const records = await storage.getAttendanceRecords(storeId, {
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.getAttendanceRecordsPage(storeId, {
         staffId: scope.staffId,
         startDate: req.query.startDate as string | undefined,
         endDate: req.query.endDate as string | undefined,
-      });
-      res.json(records);
+      }, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not load attendance records." });
     }
@@ -660,7 +654,9 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "storeId, startDate and endDate are required." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      res.json(await attendanceService.listPunches(storeId, startDate, endDate));
+      const page = parsePage(req.query);
+      const { rows, total } = await attendanceService.listPunchesPage(storeId, startDate, endDate, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not load the clock-in log." });
     }
@@ -719,12 +715,16 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       if (wantsSelf) {
         const staffRecord = await resolveOwnStaff(req, res, storeId);
         if (!staffRecord) return;
-        return res.json(await attendanceService.listRetroRequests(staffRecord.storeId, { staffId: staffRecord.id, status }));
+        const page = parsePage(req.query);
+        const own = await attendanceService.listRetroRequestsPage(staffRecord.storeId, { staffId: staffRecord.id, status }, page);
+        return res.json(paginated(own.rows, own.total, page));
       }
 
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      res.json(await attendanceService.listRetroRequests(storeId, { status }));
+      const page = parsePage(req.query);
+      const queue = await attendanceService.listRetroRequestsPage(storeId, { status }, page);
+      res.json(paginated(queue.rows, queue.total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not load missed clock-in requests." });
     }
@@ -878,131 +878,24 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const start = startDateStr ? toUtcStart(startDateStr, tz) : new Date(new Date().setDate(new Date().getDate() - 30));
       const end = endDateStr ? toUtcEnd(endDateStr, tz) : new Date();
 
-      // Retrieve all checkouts for Operating inflow
-      const storeCheckouts = await db
-        .select()
-        .from(checkouts)
-        .where(
-          and(
-            eq(checkouts.storeId, storeId),
-            gte(checkouts.createdAt, start),
-            lte(checkouts.createdAt, end),
-            eq(checkouts.isVoided, false)
-          )
-        );
-
-      // Sum up cash receipts from sales (cash payments + cash split payments)
-      let cashSales = 0;
-      let nonCashSales = 0;
-
-      for (const checkout of storeCheckouts) {
-        if (checkout.paymentMethod === "cash") {
-          cashSales += checkout.totalCharged;
-        } else if (checkout.paymentMethod === "split" && checkout.splitPayments) {
-          const cashPortion = checkout.splitPayments.find((p: any) => p.method === "cash")?.amount || 0;
-          cashSales += cashPortion;
-          nonCashSales += (checkout.totalCharged - cashPortion);
-        } else {
-          nonCashSales += checkout.totalCharged;
-        }
-      }
-
-      // Customer repayments in cash
-      const repaymentsList = await db
-        .select({
-          repayment: repayments,
-          credit: creditEntries,
-        })
-        .from(repayments)
-        .innerJoin(creditEntries, eq(repayments.creditEntryId, creditEntries.id))
-        .where(
-          and(
-            eq(creditEntries.storeId, storeId),
-            gte(repayments.createdAt, start),
-            lte(repayments.createdAt, end)
-          )
-        );
-
-      let cashRepayments = 0;
-      for (const row of repaymentsList) {
-        if (row.repayment.paymentMethod === "cash") {
-          cashRepayments += row.repayment.amountReceived;
-        }
-      }
-
-      // Paid expenses as Operating outflow.
-      //
-      // `expenses.date` is a text 'YYYY-MM-DD' already written in store-local wall
-      // clock, so it must be compared against local date strings. Deriving them
-      // from `start`/`end` via toISOString() re-introduced the very offset
-      // toUtcStart/toUtcEnd had just removed — for a UTC+1 store, local midnight
-      // is 23:00 the previous day in UTC, so the range picked up an extra day at
-      // the start and lost one at the end. Use the request's local dates directly.
+      // Paid expenses are matched on their store-local date. `expenses.date` is a text 'YYYY-MM-DD' already
+      // written in store-local wall clock, so it must be compared against local date strings. Deriving them
+      // from `start`/`end` via toISOString() re-introduced the very offset toUtcStart/toUtcEnd had just removed
+      // — for a UTC+1 store, local midnight is 23:00 the previous day in UTC, so the range picked up an extra
+      // day at the start and lost one at the end. Use the request's local dates directly.
       const startStr = startDateStr ?? formatInTimeZone(start, tz, "yyyy-MM-dd");
       const endStr = endDateStr ?? formatInTimeZone(end, tz, "yyyy-MM-dd");
 
-      // Every cost class counts here — this is a CASH statement, not the accrual
-      // P&L, so what matters is money leaving the till, not which door the cost
-      // takes into the income statement. Soft-deleted rows must not: without the
-      // isDeleted filter a deleted expense still showed up as cash out.
-      const expensesList = await db
-        .select()
-        .from(expenses)
-        .where(
-          and(
-            eq(expenses.storeId, storeId),
-            eq(expenses.isDeleted, false),
-            gte(expenses.date, startStr),
-            lte(expenses.date, endStr)
-          )
-        );
-
-      let operatingExpensesCashOut = 0;
-      let operatingExpensesNonCashOut = 0;
-
-      // Payroll is excluded here and taken from the ledger below. It used to
-      // reach this statement as a mirror row in `expenses`, which forced every
-      // reader of that table to know about a fake row and forced payroll cash
-      // to be reported as "cash" whatever it was actually paid by.
-      const payrollCategoryIds = new Set(
-        (await storage.getExpenseCategories(storeId))
-          .filter(c => c.isSystem && c.name === "Payroll")
-          .map(c => c.id)
-      );
-
-      for (const exp of expensesList) {
-        if (exp.categoryId && payrollCategoryIds.has(exp.categoryId)) continue;
-        if (exp.paymentMethod === "cash") {
-          operatingExpensesCashOut += exp.amount;
-        } else if (exp.paymentMethod === "split" && exp.splitPayments) {
-          const cashPortion = exp.splitPayments.find((p: any) => p.method === "cash")?.amount || 0;
-          operatingExpensesCashOut += cashPortion;
-          operatingExpensesNonCashOut += (exp.amount - cashPortion);
-        } else {
-          operatingExpensesNonCashOut += exp.amount;
-        }
-      }
-
-      // Payroll cash, straight from the ledger: net of every deduction, dated
-      // the day the period was paid.
-      operatingExpensesCashOut += await payrollPostingService.getCashOut(storeId, startStr, endStr);
-
-      // Cash Drawer Float discrepancy / Drops
-      const sessionDrops = await db
-        .select({
-          drop: cashDrops
-        })
-        .from(cashDrops)
-        .innerJoin(cashRegisterSessions, eq(cashDrops.sessionId, cashRegisterSessions.id))
-        .where(
-          and(
-            eq(cashRegisterSessions.storeId, storeId),
-            gte(cashDrops.droppedAt, start),
-            lte(cashDrops.droppedAt, end)
-          )
-        );
-      
-      let cashDropsTotal = sessionDrops.reduce((sum, row) => sum + Number(row.drop.amount), 0);
+      // Sales, repayments, expenses and drops are summed by the database (see getCashFlowTotals for the rules).
+      // Every cost class counts in the expenses: this is a CASH statement, not the accrual P&L, so what matters
+      // is money leaving the till. Soft-deleted rows do not count, and neither does the Payroll category —
+      // payroll cash comes from the ledger below, net of every deduction and dated the day the period was paid.
+      const [totals, payrollCashOut] = await Promise.all([
+        getCashFlowTotals(storeId, start, end, startStr, endStr),
+        payrollPostingService.getCashOut(storeId, startStr, endStr),
+      ]);
+      const { cashSales, nonCashSales, cashRepayments, expensesNonCashOut: operatingExpensesNonCashOut, cashDropsTotal } = totals;
+      const operatingExpensesCashOut = totals.expensesCashOut + payrollCashOut;
 
       // Calculations
       const operatingInflow = cashSales + cashRepayments;

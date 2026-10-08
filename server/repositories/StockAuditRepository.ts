@@ -15,6 +15,7 @@ import {
 import { eq, desc, sql } from "drizzle-orm";
 import { settleSupplyVariance, localDateString } from "../services/SupplyCostingService";
 import { getStoreTimezone } from "../lib/dateUtils";
+import { recordStockMovements } from "../lib/stockLedger";
 
 export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
   constructor() {
@@ -27,6 +28,16 @@ export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
       .from(stockAudits)
       .where(eq(stockAudits.storeId, storeId))
       .orderBy(desc(stockAudits.createdAt));
+  }
+
+  /** One page of a store's stock audits, newest first, with the total. */
+  async getAuditsPage(storeId: string, page: { limit: number; offset: number }): Promise<{ rows: StockAudit[]; total: number }> {
+    const where = eq(stockAudits.storeId, storeId);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(stockAudits).where(where).orderBy(desc(stockAudits.createdAt), desc(stockAudits.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(stockAudits).where(where),
+    ]);
+    return { rows, total };
   }
 
   async getAudit(id: string): Promise<
@@ -145,12 +156,31 @@ export class StockAuditRepository extends BaseRepository<typeof stockAudits> {
           auditDetails.items.map((item) => sql`(${item.inventoryId}::varchar, ${item.physicalQuantity}::numeric)`),
           sql`, `
         );
-        await tx.execute(sql`
+        // `prior` is read under a row lock in the same statement, so the ledger records what the
+        // count really changed, not the system_quantity the client sent when the count was drafted
+        // (sales since then would otherwise be invisible).
+        const result = await tx.execute(sql`
+          WITH prior AS (
+            SELECT id, quantity FROM inventory
+            WHERE id IN (SELECT id FROM (VALUES ${valueRows}) AS w(id, quantity))
+            FOR UPDATE
+          )
           UPDATE inventory AS inv
           SET quantity = v.quantity
-          FROM (VALUES ${valueRows}) AS v(id, quantity)
-          WHERE inv.id = v.id
+          FROM (VALUES ${valueRows}) AS v(id, quantity), prior
+          WHERE inv.id = v.id AND prior.id = inv.id
+          RETURNING inv.id AS id, inv.store_id AS store_id, prior.quantity AS before, inv.quantity AS after
         `);
+        await recordStockMovements(tx, (result.rows as { id: string; store_id: string; before: string | number; after: string | number }[]).map((r) => ({
+          storeId: r.store_id,
+          inventoryId: r.id,
+          reason: "audit_adjustment" as const,
+          before: Number(r.before),
+          after: Number(r.after),
+          refType: "stock_audit",
+          refId: id,
+          actorUserId: approvedByUserId,
+        })));
       }
 
       const [row] = await tx

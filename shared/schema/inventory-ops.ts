@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, numeric, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { trimmedString } from "./_helpers";
@@ -138,7 +138,9 @@ export const inventoryBatches = pgTable("inventory_batches", {
   expiryDate: timestamp("expiry_date").notNull(),
   quantity: integer("quantity").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_inventory_batches_fifo").on(table.inventoryId, table.expiryDate, table.createdAt).where(sql`quantity > 0`),
+]);
 
 export const inventoryBatchRelations = relations(inventoryBatches, ({ one }) => ({
   store: one(stores, { fields: [inventoryBatches.storeId], references: [stores.id] }),

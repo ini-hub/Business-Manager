@@ -249,6 +249,25 @@ class GamificationRepository {
     }
   }
 
+  // Partner network milestones. Points are keyed by reason + source so replaying an event (a retried
+  // request, a re-run job) can never pay out twice.
+  async awardOnce(storeId: string, subjectId: string, points: number, reason: string, sourceType: string, sourceId: string) {
+    const [existing] = await db.select({ id: gamificationPointsLedger.id }).from(gamificationPointsLedger).where(and(
+      eq(gamificationPointsLedger.storeId, storeId),
+      eq(gamificationPointsLedger.subjectType, "owner"),
+      eq(gamificationPointsLedger.reason, reason),
+      eq(gamificationPointsLedger.sourceId, sourceId),
+    )).limit(1);
+    if (existing) return false;
+    await this.awardPoints(storeId, "owner", subjectId, points, reason, sourceType, sourceId);
+    return true;
+  }
+
+  /** Grants an owner badge to a store; a no-op if it already has it. */
+  async grantOwnerBadge(storeId: string, badgeKey: string) {
+    await this.awardBadgeIfNew(storeId, "owner", storeId, badgeKey);
+  }
+
   // Owner/business milestone badges - cheap to recompute on read since they
   // only fire a handful of times over a store's lifetime.
   async evaluateOwnerBadges(storeId: string) {

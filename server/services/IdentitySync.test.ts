@@ -69,4 +69,21 @@ describe("syncUserIdentityToLinkedStaff", () => {
     await expect(syncUserIdentityToLinkedStaff("user-1", { name: "Folakemi" })).resolves.toBeUndefined();
     expect(S.updateStaff).not.toHaveBeenCalled();
   });
+
+  it("with previous values, only updates rows still holding the old value or blank", async () => {
+    S.getAllStaffByUserId.mockResolvedValue([
+      { id: "follows", firstName: "Old", lastName: "Name", email: "old@x.com", mobileNumber: "8011111111", countryCode: "+234" },
+      { id: "overridden", firstName: "Biz", lastName: "Alias", email: "work@biz.com", mobileNumber: "8022222222", countryCode: "+234" },
+      { id: "blank", firstName: "Old", lastName: "Name", email: "old@x.com", mobileNumber: "", countryCode: "+234" },
+    ]);
+    await syncUserIdentityToLinkedStaff(
+      "user-1",
+      { name: "New Name", email: "new@x.com", phone: "+2348033333333" },
+      { name: "Old Name", email: "old@x.com", phone: "+2348011111111" },
+    );
+    const calls = Object.fromEntries(S.updateStaff.mock.calls.map((c: any[]) => [c[0], c[1]]));
+    expect(calls.follows).toMatchObject({ firstName: "New", lastName: "Name", email: "new@x.com", mobileNumber: "8033333333" });
+    expect(calls.overridden).toBeUndefined();
+    expect(calls.blank).toMatchObject({ mobileNumber: "8033333333" });
+  });
 });

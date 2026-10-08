@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { platformConfig } from "@shared/schema";
 import { TRIAL_DAYS, GRACE_DAYS } from "./trial";
 import { encryptSecret, decryptSecret } from "./credentialEncryption";
+import { createTtlCache } from "./ttlCache";
 
 /**
  * Platform-operator-level settings (shared/schema/platform.ts's platformConfig
@@ -12,9 +13,15 @@ import { encryptSecret, decryptSecret } from "./credentialEncryption";
  * change.
  */
 
+// Read on every gated request (grace days feeds the org lifecycle), changed only from the admin console.
+// setPlatformConfigValue invalidates the key on this instance; other instances catch up within the TTL.
+const configCache = createTtlCache<string, unknown>(30_000);
+
 export async function getPlatformConfigValue<T>(key: string): Promise<T | undefined> {
-  const [row] = await db.select().from(platformConfig).where(eq(platformConfig.key, key)).limit(1);
-  return row ? (row.value as T) : undefined;
+  return (await configCache.get(key, async () => {
+    const [row] = await db.select().from(platformConfig).where(eq(platformConfig.key, key)).limit(1);
+    return row ? row.value : undefined;
+  })) as T | undefined;
 }
 
 export async function setPlatformConfigValue(key: string, value: unknown, updatedBy?: string): Promise<void> {
@@ -25,6 +32,7 @@ export async function setPlatformConfigValue(key: string, value: unknown, update
       target: platformConfig.key,
       set: { value: value as any, updatedBy, updatedAt: new Date() },
     });
+  configCache.invalidate(key);
 }
 
 /**

@@ -195,6 +195,24 @@ export class ProductRepository extends BaseRepository<typeof products> {
     });
   }
 
+  /** One page of archived products (with their variants) and the total, by name. */
+  async getArchivedProductsPage(storeId: string, page: { limit: number; offset: number }): Promise<{ rows: any[]; total: number }> {
+    const where = and(eq(products.storeId, storeId), eq(products.isDeleted, true));
+    const [rows, [{ total }]] = await Promise.all([
+      db.query.products.findMany({ where, with: { variants: true }, orderBy: asc(products.name), limit: page.limit, offset: page.offset }),
+      db.select({ total: sql<number>`count(*)::int` }).from(products).where(where),
+    ]);
+    return { rows, total };
+  }
+
+  /** The archived product with this name (case-insensitive), if any: one row, no variants, no full read. */
+  async findArchivedProductByName(storeId: string, name: string): Promise<{ id: string } | undefined> {
+    const [row] = await db.select({ id: products.id }).from(products)
+      .where(and(eq(products.storeId, storeId), eq(products.isDeleted, true), sql`lower(${products.name}) = lower(${name})`))
+      .limit(1);
+    return row;
+  }
+
   async restoreProduct(id: string): Promise<boolean> {
     const now = new Date();
     return db.transaction(async (tx) => {

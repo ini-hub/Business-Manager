@@ -113,7 +113,7 @@ export const storeCreditTransactions = pgTable("store_credit_transactions", {
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   storeId: varchar("store_id").notNull().references(() => stores.id),
   amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(), // positive for additions, negative for redemptions
-  type: text("type").notNull(), // 'issued_refund', 'purchase_redemption', 'manual_adjustment'
+  type: text("type").notNull(), // 'issued_refund', 'purchase_redemption', 'manual_adjustment', 'change_owed', 'void_reversal'
   checkoutId: varchar("checkout_id").references(() => checkouts.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

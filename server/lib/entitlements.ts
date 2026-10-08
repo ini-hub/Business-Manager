@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 import { sql, eq, and, or, lte, inArray } from "drizzle-orm";
 import { db } from "../db";
+import { createTtlCache } from "./ttlCache";
 import {
   inventory,
   featureCatalog,
@@ -26,8 +27,29 @@ import { FREE_FEATURE_KEYS, getFeatureDef, resolveCountLimit, tiersNotAbove, typ
 
 type DbOrTx = typeof db;
 
-async function loadCatalog(conn: DbOrTx): Promise<FeatureCatalog[]> {
-  return conn.select().from(featureCatalog).where(eq(featureCatalog.isActive, true));
+// The catalog and the flag rows are platform-wide and change only when an admin edits them (or the boot
+// sync runs), yet they were re-read on nearly every API request. A short TTL keeps that to a handful of
+// reads per window; the admin writers call invalidateFeatureCatalogCache() so their own edits show at once
+// (another instance sees them within the TTL). Per-org rows (purchases, lifecycle) are NOT cached: a
+// purchase or removal must take effect on the very next request.
+const FEATURE_CACHE_TTL_MS = 15_000;
+const catalogCache = createTtlCache<"all", FeatureCatalog[]>(FEATURE_CACHE_TTL_MS);
+type FlagRow = { key: string; status: string; scopedOrgIds: unknown };
+const flagRowsCache = createTtlCache<"all", FlagRow[]>(FEATURE_CACHE_TTL_MS);
+
+/** Call after any write to feature_catalog or feature_flags. */
+export function invalidateFeatureCatalogCache(): void {
+  catalogCache.invalidate();
+  flagRowsCache.invalidate();
+}
+
+/** Every catalog row, active or not. Shared (do not mutate). */
+function loadAllCatalog(): Promise<FeatureCatalog[]> {
+  return catalogCache.get("all", () => db.select().from(featureCatalog));
+}
+
+async function loadCatalog(): Promise<FeatureCatalog[]> {
+  return (await loadAllCatalog()).filter((f) => f.isActive);
 }
 
 /**
@@ -86,12 +108,14 @@ function sweepExpiredEntitlements(organisationId: string): void {
  * kill-switch) or 'scoped' with the org outside scopedOrgIds. Off means HIDDEN
  * (client) and unusable (server), distinct from "on but unpaid".
  */
-async function loadDisabledFlagKeys(conn: DbOrTx, organisationId?: string): Promise<Set<string>> {
-  const rows = await conn
-    .select({ key: featureCatalog.key, status: featureFlags.status, scopedOrgIds: featureFlags.scopedOrgIds })
-    .from(featureCatalog)
-    .innerJoin(featureFlags, eq(featureFlags.id, featureCatalog.flagId))
-    .where(or(eq(featureFlags.status, "off"), eq(featureFlags.status, "scoped")));
+async function loadDisabledFlagKeys(_conn: DbOrTx, organisationId?: string): Promise<Set<string>> {
+  const rows = await flagRowsCache.get("all", () =>
+    db
+      .select({ key: featureCatalog.key, status: featureFlags.status, scopedOrgIds: featureFlags.scopedOrgIds })
+      .from(featureCatalog)
+      .innerJoin(featureFlags, eq(featureFlags.id, featureCatalog.flagId))
+      .where(or(eq(featureFlags.status, "off"), eq(featureFlags.status, "scoped"))),
+  );
   return new Set(
     rows
       .filter((r) => {
@@ -145,17 +169,25 @@ async function loadLifecycle(conn: Pick<typeof db, "select">, organisationId: st
  * right after it. (A failed renewal's grace keeps what the org already paid for
  * but does not blanket-grant everything, see below.)
  */
-async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
-  const life = await loadLifecycle(db, organisationId);
+type Lifecycle = Awaited<ReturnType<typeof loadLifecycle>>;
+
+function trialingFrom(life: Lifecycle): boolean {
   if (!life) return false;
   if (life.state === "trialing") return true;
   return life.state === "grace" && life.org.status === "trialing" && !life.org.graceEndsAt;
 }
 
 /** True once a failed renewal's grace has run out: purchased add-ons stop counting until the org pays again. */
-async function isRenewalSoftLocked(organisationId: string): Promise<boolean> {
-  const life = await loadLifecycle(db, organisationId);
+function softLockedFrom(life: Lifecycle): boolean {
   return life?.state === "soft_locked" && !!life.org.graceEndsAt;
+}
+
+async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
+  return trialingFrom(await loadLifecycle(db, organisationId));
+}
+
+async function isRenewalSoftLocked(organisationId: string): Promise<boolean> {
+  return softLockedFrom(await loadLifecycle(db, organisationId));
 }
 
 async function loadActiveEntitlementRows(organisationId: string) {
@@ -222,13 +254,14 @@ export function computePurchasedGrant(
 export async function getOrgEntitlements(organisationId: string): Promise<Set<string>> {
   sweepExpiredEntitlements(organisationId);
 
-  const [catalog, disabledFlags, loadedRows, trialing, renewalLocked] = await Promise.all([
-    loadCatalog(db),
+  const [catalog, disabledFlags, loadedRows, life] = await Promise.all([
+    loadCatalog(),
     loadDisabledFlagKeys(db, organisationId),
     loadActiveEntitlementRows(organisationId),
-    isOrgCurrentlyTrialing(organisationId),
-    isRenewalSoftLocked(organisationId),
+    loadLifecycle(db, organisationId), // once: trialing and soft-locked are both read off the same row
   ]);
+  const trialing = trialingFrom(life);
+  const renewalLocked = softLockedFrom(life);
 
   // Blanket grant while trialing: every active catalog feature, full stop -
   // no need to reason about bundles/dependencies/purchases, this isn't a
@@ -253,7 +286,7 @@ export async function getOrgEntitlements(organisationId: string): Promise<Set<st
  */
 export async function getOrgPurchasedFeatures(organisationId: string): Promise<Set<string>> {
   const [catalog, disabledFlags, activeRows] = await Promise.all([
-    loadCatalog(db),
+    loadCatalog(),
     loadDisabledFlagKeys(db, organisationId),
     loadActiveEntitlementRows(organisationId),
   ]);
@@ -309,7 +342,7 @@ export function resolveFeaturePrice(feature: FeatureCatalog, catalog: FeatureCat
  * ₦X/month" when it is on but unpaid, "feature_disabled" when its flag is off.
  */
 export async function featureNotPurchasedBody(featureKey: string, organisationId?: string) {
-  const catalog = await db.select().from(featureCatalog);
+  const catalog = await loadAllCatalog();
   const feature = catalog.find((f) => f.key === featureKey);
   if (!feature) return { error: "feature_not_purchased", featureKey, featureName: featureKey, message: "This feature isn't included in your plan yet." };
 
@@ -384,7 +417,7 @@ function computeDisabledKeys(catalog: FeatureCatalog[], flagOff: Set<string>): S
 /** Request-scoped, like getRequestEntitlements: the hidden features for this org, queried at most once per request. */
 export function getRequestDisabledFeatures(res: { locals: Record<string, any> }, organisationId: string): Promise<Set<string>> {
   if (!res.locals.__orgDisabledFeatures) {
-    res.locals.__orgDisabledFeatures = Promise.all([db.select().from(featureCatalog), loadDisabledFlagKeys(db, organisationId)]).then(([catalog, flagOff]) =>
+    res.locals.__orgDisabledFeatures = Promise.all([loadAllCatalog(), loadDisabledFlagKeys(db, organisationId)]).then(([catalog, flagOff]) =>
       computeDisabledKeys(catalog, flagOff),
     );
   }
@@ -393,7 +426,7 @@ export function getRequestDisabledFeatures(res: { locals: Record<string, any> },
 
 export async function getOrgFeatureView(organisationId: string): Promise<{ disabled: string[]; prices: Record<string, FeaturePrice> }> {
   const [catalog, flagOff, granted] = await Promise.all([
-    db.select().from(featureCatalog),
+    loadAllCatalog(),
     loadDisabledFlagKeys(db, organisationId),
     getOrgEntitlements(organisationId),
   ]);
@@ -622,7 +655,7 @@ export async function validatePurchaseDependencies(
   organisationId: string,
   featureKeys: string[]
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const catalog = await loadCatalog(db);
+  const catalog = await loadCatalog();
   const byKey = new Map(catalog.map((f) => [f.key, f]));
   const alreadyGranted = await getOrgEntitlements(organisationId);
   const requestedSet = new Set(featureKeys);
@@ -718,7 +751,7 @@ export async function scheduleFeatureRemoval(
   if (!feature) return { ok: false, message: "Unknown feature." };
 
   const granted = await getOrgEntitlements(organisationId);
-  const catalog = await loadCatalog(db);
+  const catalog = await loadCatalog();
   const dependents = await db.select().from(featureDependencies).where(eq(featureDependencies.dependsOnFeatureId, feature.id));
   for (const dep of dependents) {
     const dependentFeature = catalog.find((f) => f.id === dep.featureId);

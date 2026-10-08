@@ -50,6 +50,24 @@ export const insertOrderSchema = createInsertSchema(orders).omit({ id: true }).e
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;
 
+// One leg of a checkout payment as sent by the client. The detail fields are optional and
+// only meaningful for the matching method: accountId/reference/senderName/confirmed for
+// transfer, cashTendered/changeOwed for cash.
+export type PaymentLegMethod = "cash" | "transfer" | "flutterwave" | "credit" | "store_credit";
+export type PaymentLegInput = {
+  method: PaymentLegMethod;
+  amount: number;
+  accountId?: string;
+  reference?: string;
+  senderName?: string;
+  /** Cashier confirmed the transfer has landed. Unset means it is recorded as pending. */
+  confirmed?: boolean;
+  /** Cash handed over, which may exceed `amount`. */
+  cashTendered?: number;
+  /** Part of the excess the cashier could not return; credited to the customer's store credit. */
+  changeOwed?: number;
+};
+
 // Checkouts table (final sale/receipt)
 export const checkouts = pgTable("checkouts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -66,7 +84,7 @@ export const checkouts = pgTable("checkouts", {
   receiptNumber: text("receipt_number").notNull().default("LEGACY-RECORD"), // Formatted e.g. "STORE-TXN-0001"
   totalPrice: numeric("total_price", { precision: 12, scale: 2, mode: "number" }).notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"), // cash, transfer, flutterwave, credit, split
-  splitPayments: jsonb("split_payments").$type<Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>>(), // only populated if paymentMethod === "split"
+  splitPayments: jsonb("split_payments").$type<PaymentLegInput[]>(), // only populated if paymentMethod === "split"
   paymentStatus: text("payment_status").notNull().default("completed"), // completed, pending
   paymentReference: text("payment_reference"), // For Flutterwave transaction reference
   commissionSplit: text("commission_split").notNull().default("standard"), // standard or equal
@@ -85,6 +103,8 @@ export const checkouts = pgTable("checkouts", {
   pointsRedeemed: integer("points_redeemed").notNull().default(0),
   totalCharged: numeric("total_charged", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   taxTotal: numeric("tax_total", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
+  // Amount by which this line sold below full unit cost (0 = not a loss sale). Set server-side at checkout.
+  lossAmount: numeric("loss_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   isAddendum: boolean("is_addendum").notNull().default(false),
   addendumReason: text("addendum_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -92,6 +112,7 @@ export const checkouts = pgTable("checkouts", {
   index("idx_checkouts_store_created").on(table.storeId, table.createdAt),
   index("idx_checkouts_receipt").on(table.receiptNumber),
   index("idx_checkouts_order").on(table.orderId),
+  index("idx_checkouts_created_live").on(table.createdAt).where(sql`is_voided = false`),
 ]);
 
 export const checkoutsRelations = relations(checkouts, ({ one, many }) => ({

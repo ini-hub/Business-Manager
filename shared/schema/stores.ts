@@ -24,6 +24,7 @@ export const stores = pgTable("stores", {
   managerStaffId: text("manager_staff_id"), // References staff.id - manager for this store
   isActive: boolean("is_active").notNull().default(true),
   isMain: boolean("is_main").notNull().default(false), // The business's primary store - at most one per business, enforced below
+  acceptsPartnerTransfers: boolean("accepts_partner_transfers").notNull().default(true), // may be chosen as the destination of a partner transfer
   createdAt: timestamp("created_at").notNull().defaultNow(),
   commissionSplitOverride: boolean("commission_split_override").notNull().default(false),
   commissionSplitBusinessShare: integer("commission_split_business_share").notNull().default(80),

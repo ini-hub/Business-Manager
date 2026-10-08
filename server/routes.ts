@@ -5,7 +5,7 @@ import { type Server } from "http";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { enforceFeaturePolicy } from "./lib/featurePolicy";
-import { setupAuth, isAuthenticated, enforceOrgAccess, generateOrgSelectToken, verifyOrgSelectToken, generateLegalConsentPendingToken } from "./auth";
+import { setupAuth, verifyToken, isAuthenticated, enforceOrgAccess, generateOrgSelectToken, verifyOrgSelectToken, generateLegalConsentPendingToken } from "./auth";
 import { issueSession, revokeSession, revokeAllUserSessions } from "./lib/authSessions";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { completeLoginForUser, completeStaffActivation } from "./lib/authFlow";
@@ -29,7 +29,8 @@ import {
   sendSMS,
   sendEmailVerificationOtpEmail
 } from "./email";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { parseCookies } from "./lib/cookies";
 import bcrypt from "bcrypt";
 import {
   signupSchema,
@@ -71,10 +72,12 @@ import { registerSettingsRoutes } from "./routes/settings.routes";
 import { registerPayrollRoutes } from "./routes/payroll.routes";
 import { registerReportsRoutes } from "./routes/reports.routes";
 import { registerVendorRoutes } from "./routes/vendor.routes";
+import { registerPartnerRoutes } from "./routes/partner.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerSupportRoutes } from "./routes/support.routes";
 import { registerCashRoutes } from "./routes/cash.routes";
+import { registerPaymentAccountRoutes } from "./routes/payment-accounts.routes";
 import { registerAuditLogRoutes } from "./routes/audit-logs.routes";
 import { registerAnalyticsRoutes } from "./routes/analytics.routes";
 import { registerAnalyticsViewRoutes } from "./routes/analytics-views.routes";
@@ -87,19 +90,49 @@ function getUserAgent(req: Request): string {
   return typeof ua === "string" ? ua : "unknown";
 }
 
-// Rate limiting configuration for security
+// Rate limiting. Many users can share one egress IP (corporate proxies such as Netskope, office NAT,
+// mobile carrier NAT), so an authenticated caller is bucketed by user, not by IP. The limiters run
+// before the auth middleware, so the key reads the JWT itself. A forged or expired token fails
+// verifyToken and falls back to the IP bucket, so it cannot be used to dodge the limit.
+function limiterKey(req: Request): string {
+  const token = parseCookies(req.headers.cookie).jwt_token || req.headers["authorization"]?.replace("Bearer ", "");
+  const claims = token ? verifyToken(token) : undefined;
+  if (claims?.userId) return `u:${claims.userId}`;
+  return `ip:${ipKeyGenerator(req.ip ?? "")}`;
+}
+
 const apiLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 500, // 500 requests per 10 min per IP
+  max: 500, // 500 requests per 10 min per user (per IP when unauthenticated)
+  keyGenerator: limiterKey,
   message: { error: "Too many requests, please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-// Stricter rate limiting for auth endpoints
+// Stricter rate limiting for auth endpoints. Unauthenticated attempts are bucketed by IP + email, so
+// one office sharing an IP does not lock itself out, while a single account still cannot be hammered.
 const authLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 60, // 60 auth attempts per minute per IP
+  max: 60, // 60 auth attempts per minute per user, or per IP + email
+  keyGenerator: (req) => {
+    const key = limiterKey(req);
+    if (key.startsWith("u:")) return key;
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase().slice(0, 254) : "";
+    return email ? `${key}|${email}` : key;
+  },
+  message: { error: "Too many login attempts, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Backstop for the per-email bucket above: credential stuffing rotates emails from one IP, so cap the
+// unauthenticated auth volume per IP too, well above what a shared office needs.
+const authIpLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? ""),
+  skip: (req) => limiterKey(req).startsWith("u:"),
   message: { error: "Too many login attempts, please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -116,7 +149,7 @@ export async function registerRoutes(
   app.use("/api/", apiLimiter);
 
   // Apply stricter rate limiting to auth endpoints
-  app.use("/api/auth", authLimiter);
+  app.use("/api/auth", authIpLimiter, authLimiter);
 
   // Setup authentication
   await setupAuth(app);
@@ -931,10 +964,14 @@ export async function registerRoutes(
       // Create new organisation
       const nameTrimmed = name.trim();
       const slug = nameTrimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Math.floor(1000 + Math.random() * 9000);
+      // A new workspace is a new business, so it gets the same free trial as signup.
+      const trialDays = await getConfiguredTrialDays();
       const organisation = await storage.createOrganisation({
         name: nameTrimmed,
         slug,
         receiptPrefix: nameTrimmed.substring(0, 3).toUpperCase(),
+        status: "trialing",
+        trialEndsAt: computeTrialEndsAt(new Date(), trialDays),
       });
 
       // Add user as the active Owner of this new organisation
@@ -1855,10 +1892,12 @@ export async function registerRoutes(
   registerPayrollRoutes(app, routeMiddlewares);
   registerReportsRoutes(app, routeMiddlewares);
   registerVendorRoutes(app, routeMiddlewares);
+  registerPartnerRoutes(app, routeMiddlewares);
   registerPaymentRoutes(app, routeMiddlewares);
   registerBillingRoutes(app, routeMiddlewares);
   registerSupportRoutes(app, routeMiddlewares);
   registerCashRoutes(app, routeMiddlewares);
+  registerPaymentAccountRoutes(app, routeMiddlewares);
   registerAuditLogRoutes(app, routeMiddlewares);
 
   // Fails fast if the analytics catalog and its SQL bindings have drifted apart.

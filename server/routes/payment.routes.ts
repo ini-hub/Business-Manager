@@ -229,7 +229,14 @@ export function registerPaymentRoutes(app: Express, { isAuthenticated, requireRo
         if (checkoutId && storeId) {
           const [owned] = await db.select({ id: checkouts.id }).from(checkouts)
             .where(and(eq(checkouts.id, checkoutId), eq(checkouts.storeId, storeId)));
-          if (owned) await storage.updateCheckoutPaymentStatus(owned.id, "completed");
+          if (owned) {
+            await storage.updateCheckoutPaymentStatus(owned.id, "completed");
+            const confirmed = await storage.paymentAccountRepo.confirmGatewayLeg(storeId, owned.id, amount, txRef);
+            if (!confirmed) {
+              // Paid less than the link asked for, or no pending leg (older sale): leave it for a person.
+              auditLogger.log({ action: "PAYMENT_LEG_GATEWAY_UNMATCHED", resource: "checkout", resourceId: owned.id, status: "failure", ip: getClientIp(req), details: { txRef, amount, provider } });
+            }
+          }
         }
       }
 

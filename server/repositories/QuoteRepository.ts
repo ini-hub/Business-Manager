@@ -10,7 +10,7 @@ import {
   type QuoteItem, type Customer,
   type Inventory
 } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 
 export class QuoteRepository extends BaseRepository<typeof quotes> {
   constructor() {
@@ -32,6 +32,20 @@ export class QuoteRepository extends BaseRepository<typeof quotes> {
       ...r.quote,
       customer: r.customer,
     }));
+  }
+
+  /** One page of quotes across one or more stores, newest first, with the total. */
+  async getQuotesPage(storeIds: string | string[], page: { limit: number; offset: number }): Promise<{ rows: (Quote & { customer: Customer | null })[]; total: number }> {
+    const ids = Array.isArray(storeIds) ? storeIds : [storeIds];
+    if (ids.length === 0) return { rows: [], total: 0 };
+    const where = ids.length === 1 ? eq(quotes.storeId, ids[0]) : inArray(quotes.storeId, ids);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select({ quote: quotes, customer: customers }).from(quotes)
+        .leftJoin(customers, eq(quotes.customerId, customers.id))
+        .where(where).orderBy(desc(quotes.createdAt), desc(quotes.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(quotes).where(where),
+    ]);
+    return { rows: rows.map((r) => ({ ...r.quote, customer: r.customer })), total };
   }
 
   async getQuote(id: string): Promise<(Quote & { customer: Customer | null; items: (QuoteItem & { inventory: Inventory })[] }) | undefined> {

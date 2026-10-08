@@ -16,13 +16,16 @@ import { hrDocumentService } from "../services/HrDocumentService";
 import { estateBeneficiaryService } from "../services/EstateBeneficiaryService";
 import { hrDisciplinaryService } from "../services/HrDisciplinaryService";
 import { guarantorFormService } from "../services/GuarantorFormService";
-import { getPublicHolidays } from "../lib/publicHolidays";
+import { hrStoreHolidayService } from "../services/HrStoreHolidayService";
+import { TimeOffRequestError } from "../services/HrTimeOffService";
 import {
   upsertHrFieldValuesSchema,
   upsertHrEmergencyContactSchema,
   createHrJobInfoSchema,
   createHrAdditionalJobInfoSchema,
   createHrTimeOffRequestSchema,
+  createHrStoreHolidaysSchema,
+  setHrLeaveAllowanceSchema,
   attachHrDocumentSchema,
   ALLOWED_HR_DOCUMENT_MIME_TYPES,
   MAX_HR_DOCUMENT_FILE_SIZE_BYTES,
@@ -413,6 +416,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
       res.status(201).json(row);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      if (error instanceof TimeOffRequestError) return res.status(400).json({ error: error.message });
       console.error("HR time off request error:", error);
       res.status(500).json({ error: "Could not submit this request." });
     }
@@ -422,7 +426,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
     const staffMember = await authorizeStaffAccess(req, res, req.params.staffId, { managerOnly: true });
     if (!staffMember) return;
     const outcome = await hrTimeOffService.approve(req.params.requestId, getUserId(req)!);
-    if (outcome.kind === "not_pending") return res.status(409).json({ error: outcome.reason });
+    if (outcome.kind === "not_pending" || outcome.kind === "insufficient") return res.status(409).json({ error: outcome.reason });
 
     const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
     auditLogger.logEvent(ctx, "HR_TIME_OFF_APPROVED", "hr_time_off_requests", req.params.requestId, "success", {});
@@ -434,7 +438,7 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
     const staffMember = await authorizeStaffAccess(req, res, req.params.staffId, { managerOnly: true });
     if (!staffMember) return;
     const outcome = await hrTimeOffService.reject(req.params.requestId, getUserId(req)!);
-    if (outcome.kind === "not_pending") return res.status(409).json({ error: outcome.reason });
+    if (outcome.kind === "not_pending" || outcome.kind === "insufficient") return res.status(409).json({ error: outcome.reason });
 
     const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
     auditLogger.logEvent(ctx, "HR_TIME_OFF_REJECTED", "hr_time_off_requests", req.params.requestId, "success", {});
@@ -449,9 +453,85 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
     res.json(await hrTimeOffService.listHistory(staffMember.id, leaveType));
   });
 
-  app.get("/api/hr/time-off/public-holidays", isAuthenticated, async (req: Request, res: Response) => {
-    const country = typeof req.query.country === "string" ? req.query.country : "NG";
-    res.json(getPublicHolidays(country));
+  // Allowance: the total days a staff member may take of a leave type.
+  app.put("/api/hr/staff/:staffId/time-off/allowance", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const staffMember = await authorizeStaffAccess(req, res, req.params.staffId, { managerOnly: true });
+      if (!staffMember) return;
+      const input = setHrLeaveAllowanceSchema.parse(req.body);
+      const balance = await hrTimeOffService.setAllowance(staffMember.id, input);
+
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "HR_LEAVE_ALLOWANCE_SET", "hr_time_off_balances", balance.id, "success", { newValues: input });
+
+      res.json(balance);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      if (error instanceof TimeOffRequestError) return res.status(400).json({ error: error.message });
+      console.error("HR leave allowance error:", error);
+      res.status(500).json({ error: "Could not save the allowance." });
+    }
+  });
+
+  // ─── Store holidays (which public holidays each store observes) ──────────
+
+  async function authorizeStoreManager(req: Request, res: Response, storeId: string) {
+    const store = await storage.getStore(storeId);
+    const user = (req as any).user;
+    if (!store || store.businessId !== user?.businessId) {
+      res.status(404).json({ error: "Store not found." });
+      return undefined;
+    }
+    if (!(await hasModulePermission(user, "Staff & Payroll")) || !(await verifyRecordStoreAccess(req, store.id))) {
+      res.status(403).json({ error: "Only a manager or owner can do this." });
+      return undefined;
+    }
+    return store;
+  }
+
+  // What a staff member sees: only their own store's observed holidays.
+  app.get("/api/hr/staff/:staffId/holidays", isAuthenticated, async (req: Request, res: Response) => {
+    const staffMember = await authorizeStaffAccess(req, res, req.params.staffId);
+    if (!staffMember) return;
+    res.json(await hrStoreHolidayService.listUpcoming(staffMember.storeId));
+  });
+
+  app.get("/api/hr/stores/:storeId/holidays", isAuthenticated, async (req: Request, res: Response) => {
+    const store = await authorizeStoreManager(req, res, req.params.storeId);
+    if (!store) return;
+    res.json({
+      holidays: await hrStoreHolidayService.listUpcoming(store.id),
+      suggestions: await hrStoreHolidayService.suggestions(store.id, store.country),
+    });
+  });
+
+  app.post("/api/hr/stores/:storeId/holidays", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const store = await authorizeStoreManager(req, res, req.params.storeId);
+      if (!store) return;
+      const input = createHrStoreHolidaysSchema.parse(req.body);
+      const rows = await hrStoreHolidayService.add(store.id, getUserId(req)!, input);
+
+      const ctx = await getAuditContext(req, { storeId: store.id });
+      auditLogger.logEvent(ctx, "HR_STORE_HOLIDAYS_ADDED", "hr_store_holidays", store.id, "success", { newValues: input });
+
+      res.status(201).json(rows);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("HR store holiday add error:", error);
+      res.status(500).json({ error: "Could not save holidays." });
+    }
+  });
+
+  app.delete("/api/hr/stores/:storeId/holidays/:id", isAuthenticated, async (req: Request, res: Response) => {
+    const store = await authorizeStoreManager(req, res, req.params.storeId);
+    if (!store) return;
+    if (!(await hrStoreHolidayService.remove(store.id, req.params.id))) return res.status(404).json({ error: "Holiday not found." });
+
+    const ctx = await getAuditContext(req, { storeId: store.id });
+    auditLogger.logEvent(ctx, "HR_STORE_HOLIDAY_REMOVED", "hr_store_holidays", req.params.id, "success", {});
+
+    res.json({ message: "Removed." });
   });
 
   // ─── Emergency contacts ───────────────────────────────────────────────────
@@ -676,10 +756,10 @@ export function registerHrRoutes(app: Express, { isAuthenticated }: RouteMiddlew
     res.json({ message: "Removed." });
   });
 
-  // ─── Disciplinary records (manager-only) ─────────────────────────────────
+  // ─── Disciplinary records (managers write; the staff member can only read their own) ───
 
   app.get("/api/hr/staff/:staffId/disciplinary", isAuthenticated, async (req: Request, res: Response) => {
-    const staffMember = await authorizeStaffAccess(req, res, req.params.staffId, { managerOnly: true });
+    const staffMember = await authorizeStaffAccess(req, res, req.params.staffId);
     if (!staffMember) return;
     res.json(await hrDisciplinaryService.list(staffMember.id));
   });

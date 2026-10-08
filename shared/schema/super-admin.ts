@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { organisations } from "./organisations";
@@ -96,7 +96,10 @@ export const superAdminAuditLogs = pgTable("super_admin_audit_logs", {
   ipAddress: text("ip_address").notNull(),
   details: jsonb("details"), // JSON payload detailing old/new parameters
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("idx_sa_audit_logs_created").on(table.createdAt.desc()),
+  index("idx_sa_audit_logs_action_created").on(table.action, table.createdAt.desc()),
+]);
 
 export const superAdminAuditLogsRelations = relations(superAdminAuditLogs, ({ one }) => ({
   admin: one(superAdmins, { fields: [superAdminAuditLogs.adminId], references: [superAdmins.id] }),

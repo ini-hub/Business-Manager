@@ -406,17 +406,30 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
           activeBusinessId ? storage.getBusinessById(activeBusinessId) : Promise.resolve(undefined),
           storage.getUser(sessionUser.id),
         ]);
-        const splitPhone = ownerUser?.phone ? splitNormalizedPhone(ownerUser.phone) : undefined;
+        // Seed from the owner's existing record in this business, if any, so a
+        // detail they've set for this business (work email, number) carries to
+        // the new store; otherwise from their login identity.
+        const businessStoreIds = activeBusinessId
+          ? new Set((await storage.getStores(activeBusinessId)).map((st) => st.id))
+          : new Set<string>();
+        const sibling = (await storage.getAllStaffByUserId(sessionUser.id)).find(
+          (r) => r.role === "owner" && businessStoreIds.has(r.storeId) && r.storeId !== store.id,
+        );
+        const splitPhone = sibling
+          ? (sibling.mobileNumber ? { localNumber: sibling.mobileNumber, countryCode: sibling.countryCode } : undefined)
+          : ownerUser?.phone ? splitNormalizedPhone(ownerUser.phone) : undefined;
         const ownerFullName = ownerUser?.name || (business?.name ? `${business.name} Owner` : "Business Owner");
-        const { firstName, lastName } = splitFullName(ownerFullName);
+        const split = splitFullName(ownerFullName);
+        const firstName = sibling?.firstName || split.firstName;
+        const lastName = sibling ? (sibling.lastName ?? "") : split.lastName;
         await storage.createStaff({
           storeId: store.id,
           userId: sessionUser.id,
           name: "", // recomputed from firstName/lastName by StaffRepository.createStaff
           firstName: firstName || ownerFullName,
           lastName,
-          email: ownerUser?.email || sessionUser.email || "owner@example.com",
-          mobileNumber: splitPhone?.localNumber || "0000000000",
+          email: sibling?.email || ownerUser?.email || sessionUser.email || "owner@example.com",
+          mobileNumber: splitPhone?.localNumber || "", // email-only signup: no real number yet; IdentitySync fills it on phone verification
           countryCode: splitPhone?.countryCode || "+234",
           role: "owner",
           payPerMonth: 0,

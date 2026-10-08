@@ -23,6 +23,7 @@ export function formatZodErrors(errors: any[]): string {
 // TTL cache for store-access checks — avoids 2 sequential DB queries per request
 const _accessCache = new Map<string, { authorized: boolean; expires: number }>();
 const _ACCESS_TTL = 5 * 60 * 1000; // 5 minutes
+const _BUSINESS_ACCESS_TTL = 60 * 1000;
 
 // Purge expired entries every 10 minutes so the Map doesn't grow unboundedly
 setInterval(() => {
@@ -89,11 +90,17 @@ export async function checkBusinessAccess(businessId: string, req: Request, res:
     res.status(401).json({ error: "Authentication required." });
     return false;
   }
+  // Only a granted result is cached, and briefly: a user just added to an organisation is never turned
+  // away by a stale "no", and a removed member loses access within a minute.
+  const cacheKey = `b:${userId}:${businessId}`;
+  const cached = _accessCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return true;
   const member = await storage.getOrganisationMember(userId, businessId);
   if (!member) {
     res.status(403).json({ error: "Unauthorized access to business data." });
     return false;
   }
+  _accessCache.set(cacheKey, { authorized: true, expires: Date.now() + _BUSINESS_ACCESS_TTL });
   return true;
 }
 
@@ -233,7 +240,7 @@ export function broadcastChange(req: Request, resource: string, storeId?: string
   }
 }
 
-export async function triggerAutoRecalculate(storeId: string, dateStr: string): Promise<void> {
+async function recalculatePendingPeriod(storeId: string, dateStr: string): Promise<void> {
   try {
     const periods = await storage.getPayrollPeriods(storeId);
     const pendingPeriod = periods.find(p => p.status === "pending" && p.startDate <= dateStr && p.endDate >= dateStr);
@@ -244,4 +251,32 @@ export async function triggerAutoRecalculate(storeId: string, dateStr: string): 
   } catch (err) {
     console.error("Auto-recalculate error:", err);
   }
+}
+
+// Every sale, attendance edit and approval asks for a recalculation, and one recalculation is dozens of
+// statements. Run at most one per store+date at a time; requests that arrive while it runs collapse into a
+// single follow-up run (which sees all of their data), instead of N overlapping runs that also race each
+// other's delete-and-reinsert of the period's rows.
+const recalcInFlight = new Map<string, { rerun: boolean; promise: Promise<void> }>();
+
+export function triggerAutoRecalculate(storeId: string, dateStr: string): Promise<void> {
+  const key = `${storeId}:${dateStr}`;
+  const running = recalcInFlight.get(key);
+  if (running) {
+    running.rerun = true;
+    return running.promise;
+  }
+  const entry = { rerun: false, promise: Promise.resolve() };
+  entry.promise = (async () => {
+    try {
+      do {
+        entry.rerun = false;
+        await recalculatePendingPeriod(storeId, dateStr);
+      } while (entry.rerun);
+    } finally {
+      recalcInFlight.delete(key);
+    }
+  })();
+  recalcInFlight.set(key, entry);
+  return entry.promise;
 }

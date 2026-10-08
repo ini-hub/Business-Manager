@@ -14,7 +14,8 @@ import {
   type StockTransferItem, type Inventory,
   type Store
 } from "@shared/schema";
-import { eq, and, or, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
+import { adjustStock, recordStockMovements } from "../lib/stockLedger";
 
 /** The status a transfer sits in while the other branch decides whether to take it on. */
 const awaitingResponseStatus = (t: { kind: string }) => (t.kind === "request" ? "requested" : "pending");
@@ -44,6 +45,25 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
       fromStore: storeMap.get(r.transfer.fromStoreId)!,
       toStore: storeMap.get(r.transfer.toStoreId)!,
     }));
+  }
+
+  /**
+   * One page of transfers into or out of a store, newest first, with the total. Only the stores named on
+   * this page are loaded to label them (getStockTransfers reads every store on the platform for that).
+   */
+  async getStockTransfersPage(storeId: string, page: { limit: number; offset: number }): Promise<{ rows: (StockTransfer & { fromStore: Store; toStore: Store })[]; total: number }> {
+    const where = or(eq(stockTransfers.fromStoreId, storeId), eq(stockTransfers.toStoreId, storeId));
+    const [transfers, [{ total }]] = await Promise.all([
+      db.select().from(stockTransfers).where(where).orderBy(desc(stockTransfers.createdAt), desc(stockTransfers.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(stockTransfers).where(where),
+    ]);
+    const storeIds = Array.from(new Set(transfers.flatMap((t) => [t.fromStoreId, t.toStoreId])));
+    const named = storeIds.length > 0 ? await db.select().from(stores).where(inArray(stores.id, storeIds)) : [];
+    const storeMap = new Map(named.map((s) => [s.id, s]));
+    return {
+      rows: transfers.map((t) => ({ ...t, fromStore: storeMap.get(t.fromStoreId)!, toStore: storeMap.get(t.toStoreId)! })),
+      total,
+    };
   }
 
   async getStockTransfer(id: string): Promise<(StockTransfer & { fromStore: Store; toStore: Store; items: (StockTransferItem & { inventory: Inventory })[] }) | undefined> {
@@ -164,10 +184,15 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
           const sourcePrevQty = line.inv.quantity;
           const sourceNewQty = sourcePrevQty - line.item.quantity;
 
-          await tx
-            .update(inventory)
-            .set({ quantity: sourceNewQty })
-            .where(eq(inventory.id, line.inv.id));
+          await adjustStock(tx, {
+            storeId: transfer.fromStoreId,
+            inventoryId: line.inv.id,
+            delta: -line.item.quantity,
+            reason: "transfer_out",
+            refType: "stock_transfer",
+            refId: id,
+            actorUserId: approvedByUserId || null,
+          });
 
           // Log inventory activity for source transfer
           auditLogger.logDataModification(
@@ -228,10 +253,15 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
             destNewQty = destPrevQty + line.item.quantity;
 
             // Update existing destination inventory
-            await tx
-              .update(inventory)
-              .set({ quantity: destNewQty })
-              .where(eq(inventory.id, destInvId));
+            await adjustStock(tx, {
+              storeId: transfer.toStoreId,
+              inventoryId: destInvId,
+              delta: line.item.quantity,
+              reason: "transfer_in",
+              refType: "stock_transfer",
+              refId: id,
+              actorUserId: approvedByUserId || null,
+            });
 
             // Log inventory activity for destination transfer (existing item)
             auditLogger.logDataModification(
@@ -297,6 +327,17 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
               .returning();
 
             destInvId = newDestItem.id;
+            await recordStockMovements(tx, [{
+              storeId: transfer.toStoreId,
+              inventoryId: destInvId,
+              reason: "transfer_in",
+              before: 0,
+              after: line.item.quantity,
+              refType: "stock_transfer",
+              refId: id,
+              actorUserId: approvedByUserId || null,
+              note: "Created at destination by transfer",
+            }]);
 
             // Log inventory activity for destination transfer (new item)
             auditLogger.logDataModification(
@@ -514,10 +555,15 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
         const sourcePrevQty = line.inv.quantity;
         const sourceNewQty = sourcePrevQty - confirmedQty;
 
-        await tx
-          .update(inventory)
-          .set({ quantity: sourceNewQty })
-          .where(eq(inventory.id, line.inv.id));
+        await adjustStock(tx, {
+          storeId: transfer.fromStoreId,
+          inventoryId: line.inv.id,
+          delta: -confirmedQty,
+          reason: "transfer_out",
+          refType: "stock_transfer",
+          refId: id,
+          actorUserId: userId,
+        });
 
         // Log inventory activity for source transfer
         auditLogger.logDataModification(
@@ -578,10 +624,15 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
           destNewQty = destPrevQty + confirmedQty;
 
           // Update existing destination inventory
-          await tx
-            .update(inventory)
-            .set({ quantity: destNewQty })
-            .where(eq(inventory.id, destInvId));
+          await adjustStock(tx, {
+            storeId: transfer.toStoreId,
+            inventoryId: destInvId,
+            delta: confirmedQty,
+            reason: "transfer_in",
+            refType: "stock_transfer",
+            refId: id,
+            actorUserId: userId,
+          });
 
           // Log inventory activity for destination transfer (existing item)
           auditLogger.logDataModification(
@@ -647,6 +698,17 @@ export class StockTransferRepository extends BaseRepository<typeof stockTransfer
             .returning();
 
           destInvId = newDestItem.id;
+          await recordStockMovements(tx, [{
+            storeId: transfer.toStoreId,
+            inventoryId: destInvId,
+            reason: "transfer_in",
+            before: 0,
+            after: confirmedQty,
+            refType: "stock_transfer",
+            refId: id,
+            actorUserId: userId,
+            note: "Created at destination by transfer",
+          }]);
 
           // Log inventory activity for destination transfer (new item)
           auditLogger.logDataModification(

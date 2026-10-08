@@ -189,6 +189,8 @@ export async function createFixture(opts?: { payPerMonth?: number }): Promise<Fi
  * a database holding other data still cannot take anything else with it.
  */
 async function destroyStore(storeId: string, businessId: string): Promise<void> {
+  // The stock ledger cascades from inventory, but a test may leave inventory behind.
+  await db.execute(sql`DELETE FROM stock_movements WHERE store_id = ${storeId}`);
   // payroll_deductions references repayments, credit_entries and
   // salary_advances, so it has to go before all three.
   await db.execute(sql`DELETE FROM payroll_deductions WHERE store_id = ${storeId}`);

@@ -43,6 +43,7 @@ export const organisations = pgTable("organisations", {
   activatedAt: timestamp("activated_at"), // set once, on the org's first-ever completed sale
   defaultWalkInCustomerId: varchar("default_walk_in_customer_id"), // cached id of the auto-provisioned trial walk-in customer
   defaultTrialStaffId: varchar("default_trial_staff_id"), // cached id of the auto-provisioned trial default staff record
+  partnerCode: text("partner_code"), // shareable code other businesses use to request a partnership; unique where set (migration 0113)
 });
 
 export const organisationsRelations = relations(organisations, ({ many }) => ({

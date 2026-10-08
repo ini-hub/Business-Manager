@@ -20,6 +20,7 @@ import {
 } from "@shared/schema";
 import { eq, and, or, ilike, asc, desc, sql, count, gt, inArray } from "drizzle-orm";
 import { searchTokens, infix } from "../lib/searchTerms";
+import { recordStockMovements } from "../lib/stockLedger";
 import { assertWithinCountLimit, getBusinessIdForStore } from "../lib/entitlements";
 
 export interface PaginationOptions {
@@ -143,13 +144,42 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
         if (businessId) await assertWithinCountLimit(tx, businessId, "item_count");
       }
       const [newItem] = await tx.insert(inventory).values(item).returning();
+      await recordStockMovements(tx, [{
+        storeId: newItem.storeId,
+        inventoryId: newItem.id,
+        reason: "opening_balance",
+        before: 0,
+        after: Number(newItem.quantity),
+        note: "Opening stock when the item was created",
+      }]);
       return newItem;
     });
   }
 
-  async updateInventoryItem(id: string, itemData: Partial<InsertInventory>): Promise<Inventory | undefined> {
-    const [updated] = await db.update(inventory).set(itemData).where(eq(inventory.id, id)).returning();
-    return updated;
+  async updateInventoryItem(id: string, itemData: Partial<InsertInventory>, actor?: { userId?: string | null; staffId?: string | null }): Promise<Inventory | undefined> {
+    if (itemData.quantity === undefined) {
+      const [updated] = await db.update(inventory).set(itemData).where(eq(inventory.id, id)).returning();
+      return updated;
+    }
+    // A direct quantity edit overwrites stock, so read the real prior value under a lock and
+    // put the difference in the ledger. Otherwise the edit would be invisible to stock history.
+    return db.transaction(async (tx) => {
+      const [prior] = await tx.select({ quantity: inventory.quantity, storeId: inventory.storeId })
+        .from(inventory).where(eq(inventory.id, id)).for("update");
+      if (!prior) return undefined;
+      const [updated] = await tx.update(inventory).set(itemData).where(eq(inventory.id, id)).returning();
+      await recordStockMovements(tx, [{
+        storeId: prior.storeId,
+        inventoryId: id,
+        reason: "manual_edit",
+        before: Number(prior.quantity),
+        after: Number(updated.quantity),
+        actorUserId: actor?.userId ?? null,
+        actorStaffId: actor?.staffId ?? null,
+        note: "Quantity edited directly on the item",
+      }]);
+      return updated;
+    });
   }
 
   async deleteInventoryItem(id: string): Promise<boolean> {
@@ -302,6 +332,57 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
       }
       // If the atomic update found no rows (concurrent deduction already consumed
       // this batch), we skip it and let the next batch absorb the remainder.
+    }
+  }
+
+  /**
+   * deductFIFO for many items at once: one select for every item's batches, the allocation worked out in
+   * memory in the same expiry-then-created order, and one guarded UPDATE for all of them. A checkout used to
+   * call deductFIFO per cart line (a select plus an update per batch each time).
+   *
+   * Equivalent to calling deductFIFO per item: each batch update only applies if the batch still holds what
+   * was planned from it, and a batch that a concurrent writer already drained is handed back to deductFIFO,
+   * which re-reads and lets the next batch absorb the remainder. Stock beyond the batches' total is ignored,
+   * as in deductFIFO. The deduction is numeric on the way in, so a fractional draw-down on an integer batch
+   * rounds instead of failing the sale.
+   */
+  async deductFIFOMany(deductions: Map<string, number>, externalTx?: any): Promise<void> {
+    const client = externalTx || db;
+    const wanted = Array.from(deductions.entries()).filter(([, qty]) => qty > 0);
+    if (wanted.length === 0) return;
+
+    const batches: { id: string; inventoryId: string; quantity: number }[] = await client
+      .select({ id: inventoryBatches.id, inventoryId: inventoryBatches.inventoryId, quantity: inventoryBatches.quantity })
+      .from(inventoryBatches)
+      .where(and(inArray(inventoryBatches.inventoryId, wanted.map(([id]) => id)), gt(inventoryBatches.quantity, 0)))
+      .orderBy(asc(inventoryBatches.expiryDate), asc(inventoryBatches.createdAt));
+
+    const remaining = new Map(wanted);
+    const plan: { id: string; inventoryId: string; take: number }[] = [];
+    for (const batch of batches) {
+      const left = remaining.get(batch.inventoryId) ?? 0;
+      if (left <= 0) continue;
+      const take = Math.min(batch.quantity, left);
+      plan.push({ id: batch.id, inventoryId: batch.inventoryId, take });
+      remaining.set(batch.inventoryId, left - take);
+    }
+    if (plan.length === 0) return;
+
+    const values = sql.join(plan.map((p) => sql`(${p.id}::varchar, ${p.take}::numeric)`), sql`, `);
+    const result = await client.execute(sql`
+      UPDATE inventory_batches AS b SET quantity = b.quantity - v.d
+      FROM (VALUES ${values}) AS v(id, d)
+      WHERE b.id = v.id AND b.quantity >= v.d
+      RETURNING b.id
+    `);
+    const applied = new Set((result.rows as { id: string }[]).map((r) => r.id));
+
+    const shortfall = new Map<string, number>();
+    for (const p of plan) {
+      if (!applied.has(p.id)) shortfall.set(p.inventoryId, (shortfall.get(p.inventoryId) ?? 0) + p.take);
+    }
+    for (const [inventoryId, qty] of Array.from(shortfall.entries())) {
+      await this.deductFIFO(inventoryId, qty, externalTx);
     }
   }
 

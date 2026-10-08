@@ -1,3 +1,4 @@
+import { parsePage, paginated } from "../lib/pagination";
 import { Router, Request, Response } from "express";
 import { BaseController } from "./BaseController";
 import { storage } from "../storage";
@@ -100,41 +101,23 @@ export class CreditController extends BaseController {
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
 
+      const filters = { status, minOutstanding, maxOutstanding, customerId, search, startDate, endDate };
+      const page = parsePage(req.query);
+
       if (storeId === "all") {
         const stores = await this.getUserStores(req);
-        if (stores.length === 0) return this.ok(res, []);
+        if (stores.length === 0) return this.ok(res, paginated([], 0, page));
 
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            const list = await storage.creditRepo.getCreditLedger(s.id, {
-              status,
-              minOutstanding,
-              maxOutstanding,
-              customerId,
-              search,
-              startDate,
-              endDate,
-            });
-            return list.map(item => ({ ...item, storeName: s.name }));
-          })
-        );
-        const merged = responses.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        return this.ok(res, merged);
+        // One query across every store the user may see, paged as a whole and newest first.
+        const { rows, total } = await storage.creditRepo.getCreditLedger(stores.map((s) => s.id), filters, page);
+        const storeNames = new Map(stores.map((s) => [s.id, s.name]));
+        return this.ok(res, paginated(rows.map((item) => ({ ...item, storeName: storeNames.get(item.storeId) })), total, page));
       }
 
       if (!(await this.checkStoreAccess(storeId, req, res))) return res;
 
-      const ledger = await storage.creditRepo.getCreditLedger(storeId, {
-        status,
-        minOutstanding,
-        maxOutstanding,
-        customerId,
-        search,
-        startDate,
-        endDate,
-      });
-
-      return this.ok(res, ledger);
+      const { rows, total } = await storage.creditRepo.getCreditLedger(storeId, filters, page);
+      return this.ok(res, paginated(rows, total, page));
     } catch (e) {
       console.error("Credit ledger controller error:", e);
       return this.error(res, "Could not load credit ledger. Please try again.");

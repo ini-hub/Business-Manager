@@ -17,8 +17,10 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "logos:migrate": "tsx scripts/migrate-logos-to-s3.ts",
     "analytics:parity": "tsx scripts/analytics-parity.ts",
+    "perf:explain": "tsx scripts/perf-explain.ts",
     "features:sync": "tsx scripts/sync-features.ts",
     "payroll:postings:parity": "tsx scripts/payroll-postings-parity.ts",
+    "stock:ledger:parity": "tsx scripts/stock-ledger-parity.ts",
     "payroll:postings:backfill": "tsx scripts/backfill-payroll-postings.ts",
     "db:push": "drizzle-kit push"
   },
