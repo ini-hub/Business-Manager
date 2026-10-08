@@ -1,3 +1,5 @@
+import { parsePage, paginated } from "../lib/pagination";
+import { buildPayrollReport } from "../lib/payrollReport";
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import {
@@ -77,29 +79,26 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!staff) return res.status(404).json({ error: "Staff record not found for this user." });
 
       const storeId = staff.storeId;
-      // Get latest approved payroll period
-      const periods = await storage.getPayrollPeriods(storeId);
-      const activePeriod = periods.find(p => p.status === "approved" || p.status === "pending");
-      
+      // The store's current approved-or-pending period, fetched on its own rather than by loading every period
+      // the store has ever had and searching.
+      const activePeriod = await storage.getOpenPayrollPeriod(storeId);
+
       if (!activePeriod) {
         return res.json({ earnings: 0, attendance: { present: 0, absent: 0 } });
       }
 
-      const entries = await storage.getPayrollEntries(activePeriod.id);
-      const entry = entries.find(e => e.staffId === staff.id);
-      const attendance = await storage.getAttendanceRecords(storeId, { 
-        staffId: staff.id, 
-        startDate: activePeriod.startDate, 
-        endDate: activePeriod.endDate 
-      });
-
-      const present = attendance.filter(r => r.status === "present" || r.status === "leave" || r.status === "holiday").length;
-      const absent = attendance.filter(r => r.status === "absent").length;
+      // Three independent reads, so one round trip's wait instead of three. Only this person's rows are read
+      // (the old code loaded the whole store's entries to pick out one, and every attendance record to count).
+      const [entry, attendance, deductions] = await Promise.all([
+        storage.getPayrollEntryForStaff(activePeriod.id, staff.id),
+        storage.getAttendanceCounts(storeId, staff.id, activePeriod.startDate, activePeriod.endDate),
+        storage.getPayrollDeductions(activePeriod.id, staff.id),
+      ]);
+      const { present, absent } = attendance;
 
       // What this person will actually be handed. `earnings` stays on the raw
       // pre-deduction figure for compatibility, but the dashboard leads with
       // takeHomePay — showing the gross made staff expect more than they got.
-      const deductions = await storage.getPayrollDeductions(activePeriod.id, staff.id);
       const split = splitPay(entry?.netPay || 0, deductions.reduce((s, d) => s + Number(d.amount), 0));
 
       res.json({
@@ -128,24 +127,28 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const staff = await storage.getStaffByUserId(user.id, req.query.storeId as string | undefined);
       if (!staff) return res.status(404).json({ error: "Staff record not found for this user." });
 
-      const periods = await storage.getPayrollPeriods(staff.storeId);
-      const paidPeriods = periods.filter(p => p.status === "paid");
-      
-      const history = await Promise.all(paidPeriods.map(async p => {
-        const entries = await storage.getPayrollEntries(p.id);
-        const entry = entries.find(e => e.staffId === staff.id);
-        const deductions = await storage.getPayrollDeductions(p.id, staff.id);
+      const paidPeriods = await storage.getPaidPayrollPeriods(staff.storeId);
+      const periodIds = paidPeriods.map(p => p.id);
+      // This person's pay and deductions across all those periods in two queries (it used to fetch the whole
+      // store's entries, and a deductions query, once per period).
+      const [netPayByPeriod, deductionsByPeriod] = await Promise.all([
+        storage.getNetPayForStaff(staff.id, periodIds),
+        storage.getDeductionTotalsForStaff(staff.id, periodIds),
+      ]);
+
+      const history = paidPeriods.map(p => {
+        const netPay = netPayByPeriod.get(p.id) || 0;
         return {
           id: p.id,
           label: `${p.startDate} to ${p.endDate} (${p.periodType})`,
           periodType: p.periodType,
           startDate: p.startDate,
           endDate: p.endDate,
-          netPay: entry?.netPay || 0,
-          ...splitPay(entry?.netPay || 0, deductions.reduce((s, d) => s + Number(d.amount), 0)),
+          netPay,
+          ...splitPay(netPay, deductionsByPeriod.get(p.id) || 0),
           paidAt: p.paidAt || p.createdAt
         };
-      }));
+      });
 
       // Filtered on gross, not take-home: a period fully consumed by deductions
       // is still one the staff member worked and should see in their history.
@@ -596,8 +599,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const advances = await storage.getSalaryAdvances(storeId, req.query.staffId as string | undefined);
-      res.json(advances);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.getSalaryAdvancesPage(storeId, req.query.staffId as string | undefined, page);
+      res.json(paginated(rows, total, page));
     } catch (e) { res.status(500).json({ error: "Could not fetch advances." }); }
   });
 
@@ -814,23 +818,10 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!storeId) return res.status(400).json({ error: "storeId required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const periods = await storage.getPayrollPeriods(storeId);
-      const report = await Promise.all(periods.map(async (p) => {
-        const entries = await storage.getPayrollEntries(p.id);
-        const totalGross = entries.reduce((s, e) => s + (e.grossCommission || 0), 0);
-        const totalTransport = entries.reduce((s, e) => s + (e.totalTransport || 0), 0);
-        const deductions = await storage.getPayrollDeductions(p.id);
-        // totalTakeHome is the cash that left, floored per person — it is not
-        // totalNetPay − totalDeductions, because one person's surplus cannot
-        // absorb another's shortfall.
-        const { totalGross: totalNet, totalDeductions, totalTakeHome, totalShortfall } =
-          splitPeriod(entries, deductions);
-        return {
-          id: p.id, periodType: p.periodType, startDate: p.startDate, endDate: p.endDate,
-          status: p.status, staffCount: entries.length,
-          totalGrossCommission: totalGross, totalTransport, totalDeductions,
-          totalNetPay: totalNet, totalTakeHome, totalShortfall, paidAt: p.paidAt,
-        };
-      }));
+      // Every period's people and deductions in two queries, then grouped here. This used to run two queries
+      // per period (a store with 36 periods meant 72 round trips, each entry carrying its calculation JSON).
+      const { entries, deductions } = await storage.getPeriodSummaryInputs(periods.map(p => p.id));
+      const report = buildPayrollReport(periods, entries, deductions);
       res.json(report);
     } catch (e) { res.status(500).json({ error: "Could not generate report." }); }
   });
@@ -912,8 +903,9 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const expenses = await storage.getExpenses(storeId, startDate, endDate, type, inventoryId);
-      res.json(expenses);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.getExpensesPage(storeId, { startDate, endDate, type, inventoryId }, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch expenses." });
     }

@@ -18,11 +18,13 @@ export default function SettingsPaymentIntegrationsPage() {
 
   return (
     <div className="space-y-6">
-      <SettingsPageHeader title="Payments" description="Connect Flutterwave, Stripe or Paystack for this store's own checkout." scope="store" />
+      <SettingsPageHeader title="Payments" description="Where transfers land, plus Flutterwave, Stripe or Paystack for this store's own checkout." scope="store" />
       {!currentStore || currentStore.id === "all" ? (
         <NoStoreSelected icon={CreditCard} action="configure payment integrations" />
       ) : (
-        <StoreIntegrationsSection />
+        <>
+          <StoreIntegrationsSection />
+        </>
       )}
     </div>
   );

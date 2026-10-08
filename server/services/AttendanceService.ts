@@ -449,6 +449,10 @@ class AttendanceService {
     return this.punchRepo.getPunchesInRange(storeId, startDate, endDate);
   }
 
+  listPunchesPage(storeId: string, startDate: string, endDate: string, page: { limit: number; offset: number }) {
+    return this.punchRepo.getPunchesInRangePage(storeId, startDate, endDate, page);
+  }
+
   /**
    * The attendance log: day-status rows joined with their raw punches, grouped by
    * ISO week per staff member, and paginated over those (staff × week) groups.
@@ -630,6 +634,10 @@ class AttendanceService {
 
   listRetroRequests(storeId: string, options: { staffId?: string; status?: string } = {}) {
     return this.punchRepo.getRetroRequests(storeId, options);
+  }
+
+  listRetroRequestsPage(storeId: string, options: { staffId?: string; status?: string }, page: { limit: number; offset: number }) {
+    return this.punchRepo.getRetroRequestsPage(storeId, options, page);
   }
 
   /**

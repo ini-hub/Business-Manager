@@ -449,6 +449,14 @@ export const FEATURES = [
     screens: ["/stock-transfers"], gatedScreens: ["/stock-transfers"],
   },
   {
+    key: "partner_transfers", section: "management", groupParent: "inventory_management", module: "Inventory & Catalog", name: "Partner Transfers", description: "Share stock with partner businesses on the platform and keep track of what is owed, in money or in goods.",
+    category: "inventory_mgmt", tier: "free", active: true, sortOrder: 425,
+    // Free on purpose: every partner a business brings in is another business on the platform.
+    domains: ["partners", "partner-transfers", "partner-ledger"],
+    screens: ["/partners", "/partners/transfers/new", "/partners/transfers/:id", "/partners/ledger"],
+    dependsOn: ["inventory_management"],
+  },
+  {
     key: "inventory_audit", section: "management", groupParent: "inventory_management", module: "Inventory & Catalog", name: "Stock Audit", description: "Stock counts with a variance report.",
     category: "inventory_mgmt", tier: "paid_flat", grandfather: true, active: true, sortOrder: 430,
     price: { monthly: 1500, annual: 15000 }, // REVIEW: placeholder price

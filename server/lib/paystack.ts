@@ -136,3 +136,33 @@ export function isValidPaystackSignature(rawBody: Buffer | undefined, signature:
 export async function verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): Promise<boolean> {
   return isValidPaystackSignature(rawBody, signature, await getSecretKey());
 }
+
+export type PaystackBank = { name: string; code: string; slug: string };
+
+const BANK_LIST_TTL_MS = 24 * 60 * 60 * 1000;
+let bankListCache: { banks: PaystackBank[]; fetchedAt: number } | null = null;
+
+/** Nigerian banks, cached for a day: the list barely changes and every Settings visit would otherwise hit Paystack. */
+export async function listBanks(): Promise<PaystackBank[]> {
+  if (bankListCache && Date.now() - bankListCache.fetchedAt < BANK_LIST_TTL_MS) return bankListCache.banks;
+  const result = await paystackRequest<{ data: Array<{ name: string; code: string; slug: string; active?: boolean; is_deleted?: boolean | null }> }>(
+    "/bank?country=nigeria&perPage=200&use_cursor=false",
+    { method: "GET" },
+  );
+  const banks = (result.data ?? [])
+    .filter((b) => b.active !== false && !b.is_deleted)
+    .map((b) => ({ name: b.name, code: b.code, slug: b.slug }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  bankListCache = { banks, fetchedAt: Date.now() };
+  return banks;
+}
+
+/** Looks the account up at the bank; the returned name is what the bank has on file. */
+export async function resolveAccount(accountNumber: string, bankCode: string): Promise<{ accountName: string; accountNumber: string }> {
+  const params = new URLSearchParams({ account_number: accountNumber, bank_code: bankCode });
+  const result = await paystackRequest<{ data: { account_name: string; account_number: string } }>(
+    `/bank/resolve?${params.toString()}`,
+    { method: "GET" },
+  );
+  return { accountName: result.data.account_name, accountNumber: result.data.account_number };
+}

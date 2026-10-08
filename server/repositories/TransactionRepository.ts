@@ -1,5 +1,7 @@
 import { db } from "../db";
 import {
+  salePaymentLegs,
+  storePaymentAccounts,
   transactions,
   checkouts,
   orders,
@@ -74,15 +76,18 @@ function buildTransactionFromRow(row: {
   };
 }
 
-async function resolveReceiptPrefix(
-  tx: any,
+export async function resolveReceiptPrefix(
+  conn: any,
   storeId: string
 ): Promise<string> {
-  const [store] = await tx.select().from(stores).where(eq(stores.id, storeId));
+  // The store row is needed for the business id; the settings row is independent, so read it alongside.
+  const [[store], [storeSetting]] = await Promise.all([
+    conn.select().from(stores).where(eq(stores.id, storeId)),
+    conn.select().from(settings).where(eq(settings.storeId, storeId)),
+  ]);
   if (!store) return "RCP";
 
-  const [storeSetting] = await tx.select().from(settings).where(eq(settings.storeId, storeId));
-  const [business] = await tx.select().from(businesses).where(eq(businesses.id, store.businessId));
+  const [business] = await conn.select().from(businesses).where(eq(businesses.id, store.businessId));
 
   if (storeSetting?.receiptPrefix && storeSetting.receiptPrefix !== "RCP") {
     return storeSetting.receiptPrefix;
@@ -121,41 +126,89 @@ export class TransactionRepository {
     return updated;
   }
 
-  async updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean> {
+  async updateCheckoutPaymentMethod(
+    checkoutId: string,
+    paymentMethod: string,
+    paymentStatus: string,
+    opts: { accountId?: string; actorUserId?: string } = {},
+  ): Promise<boolean | "bad_account"> {
     const [primaryCheckout] = await db.select().from(checkouts).where(eq(checkouts.id, checkoutId));
     if (!primaryCheckout) return false;
 
-    const result = await db.update(checkouts)
-      .set({ paymentMethod, paymentStatus })
-      .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber))
-      .returning();
-    return result.length > 0;
+    let account: typeof storePaymentAccounts.$inferSelect | undefined;
+    if (opts.accountId) {
+      [account] = await db.select().from(storePaymentAccounts).where(and(
+        eq(storePaymentAccounts.id, opts.accountId),
+        eq(storePaymentAccounts.storeId, primaryCheckout.storeId),
+        eq(storePaymentAccounts.isActive, true),
+      ));
+      if (!account) return "bad_account";
+    }
+
+    return db.transaction(async (tx) => {
+      const result = await tx.update(checkouts)
+        .set({ paymentMethod, paymentStatus })
+        .where(eq(checkouts.receiptNumber, primaryCheckout.receiptNumber))
+        .returning();
+
+      // Keep the receipt's payment legs telling the same story. Only a one-leg receipt can be re-pointed
+      // unambiguously; a split keeps its legs, and the account report shows them as recorded.
+      const legs = await tx.select().from(salePaymentLegs).where(and(
+        eq(salePaymentLegs.storeId, primaryCheckout.storeId),
+        eq(salePaymentLegs.receiptNumber, primaryCheckout.receiptNumber),
+      ));
+      if (legs.length === 1 && primaryCheckout.paymentMethod !== "split") {
+        const needsConfirm = paymentMethod === "transfer" || paymentMethod === "flutterwave";
+        // Marking the payment completed is a person vouching that the money arrived.
+        const confirmed = needsConfirm && paymentStatus === "completed";
+        await tx.update(salePaymentLegs).set({
+          method: paymentMethod,
+          paymentAccountId: paymentMethod === "transfer" ? (account?.id ?? legs[0].paymentAccountId) : null,
+          accountLabel: paymentMethod === "transfer" ? (account?.label ?? legs[0].accountLabel) : null,
+          accountDetail: paymentMethod === "transfer"
+            ? (account ? ([account.bankName, account.accountNumber].filter(Boolean).join(" · ") || null) : legs[0].accountDetail)
+            : null,
+          confirmationStatus: confirmed ? "confirmed" : needsConfirm ? "pending" : "not_required",
+          confirmationSource: confirmed ? "manual" : null,
+          confirmedAt: confirmed ? new Date() : null,
+          confirmedByUserId: confirmed ? (opts.actorUserId ?? null) : null,
+        }).where(eq(salePaymentLegs.id, legs[0].id));
+      }
+      return result.length > 0;
+    });
   }
 
   // ─── Receipt number counter ───────────────────────────────────────────────
-  async getNextAvailableTransactionNumber(tx: any, storeId: string): Promise<string> {
-    const prefix = await resolveReceiptPrefix(tx, storeId);
-
-    const [counter] = await tx.select().from(storeCounters).where(eq(storeCounters.storeId, storeId));
-    if (!counter) {
-      await tx.insert(storeCounters).values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 });
-      return `${prefix}-TN-1`;
-    }
-
-    const nextNum = counter.nextTransactionNumber;
-    await tx.update(storeCounters)
-      .set({ nextTransactionNumber: nextNum + 1 })
-      .where(eq(storeCounters.id, counter.id));
-
-    return `${prefix}-TN-${nextNum}`;
+  /**
+   * Allocates the next receipt number for a store.
+   *
+   * One atomic upsert: the counter row is created on the store's first sale and incremented on every later
+   * one inside a single statement, so two concurrent sales can never read the same value (the old
+   * select-then-write let both take number N) and the first sales of a new store cannot collide on insert.
+   * The increment holds the counter row's lock until the surrounding transaction commits, so callers should
+   * allocate as late as they can. Pass `prefix` (from resolveReceiptPrefix, read before the transaction) to
+   * keep the three prefix lookups out of that window.
+   */
+  async getNextAvailableTransactionNumber(tx: any, storeId: string, prefix?: string): Promise<string> {
+    const resolvedPrefix = prefix ?? (await resolveReceiptPrefix(tx, storeId));
+    const [counter] = await tx
+      .insert(storeCounters)
+      .values({ storeId, nextCustomerNumber: 1, nextTransactionNumber: 2 })
+      .onConflictDoUpdate({
+        target: storeCounters.storeId,
+        set: { nextTransactionNumber: sql`${storeCounters.nextTransactionNumber} + 1` },
+      })
+      .returning({ next: storeCounters.nextTransactionNumber });
+    return `${resolvedPrefix}-TN-${counter.next - 1}`;
   }
 
   // ─── Transactions ─────────────────────────────────────────────────────────
   async getTransactions(
-    storeId: string,
+    storeId: string | string[],
     filters: TransactionFilters = {}
   ): Promise<TransactionWithRelations[]> {
-    const conditions = [eq(transactions.storeId, storeId)];
+    if (Array.isArray(storeId) && storeId.length === 0) return [];
+    const conditions = [Array.isArray(storeId) ? inArray(transactions.storeId, storeId) : eq(transactions.storeId, storeId)];
     if (filters.startDate) conditions.push(gte(transactions.transactionDate, filters.startDate));
     if (filters.endDate) conditions.push(lte(transactions.transactionDate, filters.endDate));
 
@@ -233,6 +286,92 @@ export class TransactionRepository {
       inventory: { name: r.inventoryName, type: r.inventoryType },
       customer: { name: r.customerName },
     }));
+  }
+
+  /**
+   * One page of receipts, decided entirely in SQL: which receipts exist, which the viewer may see, which match
+   * the search, how many there are in total, and which fall on this page. Only the page's line ids come back,
+   * so the work no longer grows with the store's whole history (the old path loaded an index row for every
+   * line ever sold and grouped them in Node before slicing).
+   *
+   * Reproduces the grouping the list has always used:
+   *  - a receipt is its lines grouped by receipt number (falling back to the checkout id, then the line id);
+   *  - its representative line is the newest non-addendum line (else the oldest), and the receipt is dated,
+   *    searched and ordered by that line;
+   *  - the viewer's staff scope passes a receipt if the representative line's cashier, or ANY line's lead or
+   *    assisting staff, is in scope. An empty scope sees nothing.
+   * Search is a case-insensitive substring match over the receipt number, the representative line's id,
+   * its item name and its customer name.
+   */
+  async getReceiptPage(
+    storeIds: string[],
+    opts: { startDate?: Date; endDate?: Date; customerId?: string; scope?: ReadonlySet<string> | null; search?: string; offset: number; limit: number },
+  ): Promise<{ keys: string[]; lineIds: string[]; total: number }> {
+    const empty = { keys: [] as string[], lineIds: [] as string[], total: 0 };
+    if (storeIds.length === 0) return empty;
+    const scopeIds = opts.scope ? Array.from(opts.scope) : null;
+    if (scopeIds && scopeIds.length === 0) return empty; // fails closed, like filterToScope
+
+    const list = (ids: string[]) => sql.join(ids.map((id) => sql`${id}`), sql`, `);
+    // Bound as ISO strings cast to timestamp: a raw Date parameter is formatted in the Node process's local
+    // zone by the driver, but transaction_date holds naive UTC (Drizzle's column comparisons convert for us;
+    // a hand-written statement has to do it itself).
+    const dateFilter = sql`${opts.startDate ? sql`AND t.transaction_date >= ${opts.startDate.toISOString()}::timestamp` : sql``} ${opts.endDate ? sql`AND t.transaction_date <= ${opts.endDate.toISOString()}::timestamp` : sql``}`;
+    const scopeTest = scopeIds
+      ? sql`(r.staff_id IN (${list(scopeIds)}) OR r.others_in_scope)`
+      : sql`TRUE`;
+    const pattern = opts.search ? `%${opts.search.replace(/[\\%_]/g, "\\$&")}%` : null;
+    const searchTest = pattern
+      ? sql`(COALESCE(r.receipt_number, '') ILIKE ${pattern} ESCAPE '\\' OR r.line_id ILIKE ${pattern} ESCAPE '\\' OR r.inv_name ILIKE ${pattern} ESCAPE '\\' OR r.cust_name ILIKE ${pattern} ESCAPE '\\')`
+      : sql`TRUE`;
+    const othersInScope = scopeIds
+      ? sql`bool_or(l.lead IN (${list(scopeIds)}) OR l.a1 IN (${list(scopeIds)}) OR l.a2 IN (${list(scopeIds)})) OVER (PARTITION BY l.gkey)`
+      : sql`FALSE`;
+
+    const result = await db.execute(sql`
+      WITH lines AS (
+        SELECT t.id AS line_id, t.transaction_date AS tdate, c.is_addendum AS addendum, c.receipt_number,
+               c.staff_id, c.lead_staff_id AS lead, c.assisting_staff1_id AS a1, c.assisting_staff2_id AS a2,
+               COALESCE(NULLIF(c.receipt_number, ''), t.checkout_id, t.id) AS gkey,
+               i.name AS inv_name, cu.name AS cust_name
+        FROM transactions t
+        JOIN checkouts c ON c.id = t.checkout_id
+        JOIN inventory i ON i.id = t.inventory_id
+        JOIN customers cu ON cu.id = t.customer_id
+        WHERE t.store_id IN (${list(storeIds)}) ${dateFilter} ${opts.customerId ? sql`AND t.customer_id = ${opts.customerId}` : sql``}
+      ),
+      ranked AS (
+        SELECT l.*,
+               row_number() OVER (PARTITION BY l.gkey ORDER BY COALESCE(l.addendum, false) ASC, l.tdate DESC, l.line_id) AS rn,
+               ${othersInScope} AS others_in_scope
+        FROM lines l
+      ),
+      groups AS (
+        SELECT r.gkey, r.tdate
+        FROM ranked r
+        WHERE r.rn = 1 AND ${scopeTest} AND ${searchTest}
+      ),
+      page AS (
+        SELECT g.gkey, g.tdate, count(*) OVER () AS total
+        FROM groups g
+        ORDER BY g.tdate DESC, g.gkey
+        LIMIT ${opts.limit} OFFSET ${opts.offset}
+      )
+      SELECT p.gkey, p.total, l.line_id
+      FROM page p JOIN lines l ON l.gkey = p.gkey
+      ORDER BY p.tdate DESC, p.gkey, l.tdate DESC, l.line_id
+    `);
+
+    const rows = result.rows as { gkey: string; total: string | number; line_id: string }[];
+    if (rows.length === 0) {
+      // Past the last page: no rows to read the total from, so count the receipts instead.
+      if (opts.offset === 0) return empty;
+      const counted = await this.getReceiptPage(storeIds, { ...opts, offset: 0, limit: 1 });
+      return { keys: [], lineIds: [], total: counted.total };
+    }
+    const keys: string[] = [];
+    for (const r of rows) if (keys[keys.length - 1] !== r.gkey) keys.push(r.gkey);
+    return { keys, lineIds: rows.map((r) => r.line_id), total: Number(rows[0].total) };
   }
 
   /** Full transactions for specific line ids, newest first (same shape as getTransactions). */

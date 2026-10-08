@@ -1,3 +1,4 @@
+import { invalidateReports } from "./lib/reportCache";
 import { WebSocketServer, WebSocket } from "ws";
 import { Server, IncomingMessage } from "http";
 import { verifyToken } from "./auth";
@@ -135,5 +136,11 @@ export function broadcastDataChange(
   storeId?: string,
   action?: string,
 ): void {
+  // Every mutation announces itself here, so this is the one place cached reports are told their data moved.
+  try {
+    invalidateReports(businessId, storeId);
+  } catch {
+    // a cache problem must never stop the broadcast
+  }
   broadcast(businessId, { __msgType: "data_change", resource, storeId, action });
 }

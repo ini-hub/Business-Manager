@@ -4,7 +4,21 @@ import { format } from "date-fns";
 import { formatCurrency } from "@/lib/currency-utils";
 import { apiRequest } from "@/lib/queryClient";
 
+export type ReceiptPaymentLeg = {
+  id: string;
+  method: string;
+  amount: number;
+  accountLabel: string | null;
+  accountDetail: string | null;
+  confirmationStatus: "not_required" | "pending" | "confirmed";
+  reference: string | null;
+  cashTendered: number | null;
+  changeGiven: number | null;
+  changeOwed: number | null;
+};
+
 interface ReceiptPayload {
+  paymentLegs?: ReceiptPaymentLeg[];
   business: { name: string } | null;
   store: { name: string; currency: string; phone?: string | null; address?: string | null } | null;
   settings: { receiptPrefix: string; receiptThankYouMessage?: string | null; loyaltyPointValue?: number } | null;
@@ -90,7 +104,7 @@ function paymentLabel(method: string) {
 }
 
 export function ReceiptView({ payload }: ReceiptViewProps) {
-  const { business, store, settings, checkout, items = [], customer, staff, creditEntry, lastUpdate } = payload;
+  const { business, store, settings, checkout, items = [], customer, staff, creditEntry, lastUpdate, paymentLegs = [] } = payload;
   const currency = store?.currency ?? "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
   const isVoided = checkout?.isVoided;
@@ -107,7 +121,13 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
   const refundedSum = items.reduce((sum, item) => sum + (item.order?.refundedAmount ?? 0), 0);
   const netTotalCharged = Math.max(0, totalChargedSum - refundedSum);
   const bookingDepositAmount = checkout?.bookingDepositAmount ?? 0;
-  const balanceCollectedTodaySum = Math.max(0, netTotalCharged - bookingDepositAmount);
+  // totalCharged is the gross sale value; store credit settles part of it without cash changing hands.
+  const storeCreditApplied = checkout?.paymentMethod === "store_credit"
+    ? Math.max(0, netTotalCharged - bookingDepositAmount)
+    : Array.isArray(checkout?.splitPayments)
+      ? checkout.splitPayments.filter((sp: any) => sp.method === "store_credit").reduce((sum: number, sp: any) => sum + Number(sp.amount || 0), 0)
+      : 0;
+  const balanceCollectedTodaySum = Math.max(0, netTotalCharged - bookingDepositAmount - storeCreditApplied);
   const loyaltyPointValue = settings?.loyaltyPointValue ?? 10;
   let pointsRedeemed = checkout?.pointsRedeemed ?? 0;
   let loyaltyDiscount = pointsRedeemed * loyaltyPointValue;
@@ -268,6 +288,13 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
         <span>{fmt(netTotalCharged)}</span>
       </div>
       
+      {storeCreditApplied > 0 && (
+        <div className="flex justify-between text-xs mt-1 text-emerald-600 font-semibold">
+          <span>Store Credit Applied</span>
+          <span>− {fmt(storeCreditApplied)}</span>
+        </div>
+      )}
+
       {bookingDepositAmount > 0 && (
         <>
           <div className="flex justify-between text-xs mt-1 text-emerald-600">
@@ -279,6 +306,13 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
             <span>{fmt(balanceCollectedTodaySum)}</span>
           </div>
         </>
+      )}
+
+      {storeCreditApplied > 0 && bookingDepositAmount <= 0 && (
+        <div className="flex justify-between font-bold text-sm mt-1">
+          <span>AMOUNT PAID</span>
+          <span>{fmt(balanceCollectedTodaySum)}</span>
+        </div>
       )}
 
       <div className="border-t border-dashed border-gray-400 my-2" />
@@ -297,6 +331,40 @@ export function ReceiptView({ payload }: ReceiptViewProps) {
             <div key={idx} className="flex justify-between text-xs mb-1">
               <span className="text-gray-500 text-xs italic">- {paymentLabel(split.method)}:</span>
               <span className="italic">{fmt(split.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {paymentLegs.some((l) => l.method === "transfer" || (l.method === "cash" && ((l.changeGiven ?? 0) > 0 || (l.changeOwed ?? 0) > 0))) && (
+        <div className="mb-2 pl-2 border-l-2 border-gray-300 text-xs space-y-0.5">
+          {paymentLegs.filter((l) => l.method === "transfer").map((l) => (
+            <div key={l.id}>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Paid into:</span>
+                <span>{l.accountLabel ?? "Bank account"}</span>
+              </div>
+              {l.accountDetail && <div className="text-gray-500 text-right">{l.accountDetail}</div>}
+              {l.reference && (
+                <div className="flex justify-between"><span className="text-gray-500">Reference:</span><span>{l.reference}</span></div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Status:</span>
+                <span className={l.confirmationStatus === "confirmed" ? "" : "text-amber-600 font-semibold"}>
+                  {l.confirmationStatus === "confirmed" ? "Payment confirmed" : "Awaiting confirmation"}
+                </span>
+              </div>
+            </div>
+          ))}
+          {paymentLegs.filter((l) => l.method === "cash" && ((l.changeGiven ?? 0) > 0 || (l.changeOwed ?? 0) > 0)).map((l) => (
+            <div key={l.id}>
+              <div className="flex justify-between"><span className="text-gray-500">Cash received:</span><span>{fmt(l.cashTendered ?? l.amount)}</span></div>
+              {(l.changeGiven ?? 0) > 0 && (
+                <div className="flex justify-between"><span className="text-gray-500">Change given:</span><span>{fmt(l.changeGiven ?? 0)}</span></div>
+              )}
+              {(l.changeOwed ?? 0) > 0 && (
+                <div className="flex justify-between font-semibold"><span className="text-gray-500">Change owed (store credit):</span><span>{fmt(l.changeOwed ?? 0)}</span></div>
+              )}
             </div>
           ))}
         </div>

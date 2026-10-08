@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useMemo, useState } from "react";
 import { BackButton } from "@/components/back-button";
 import { useQuery } from "@tanstack/react-query";
@@ -135,8 +136,10 @@ function PaymentReceiptDialog({ payment, onOpenChange }: { payment: Subscription
 export default function PaymentHistoryPage() {
   const [selectedPayment, setSelectedPayment] = useState<SubscriptionPayment | null>(null);
 
+  // The page is searched and filtered here, so it needs every payment; the walk keeps each request bounded.
   const { data: payments = [], isLoading } = useQuery<SubscriptionPayment[]>({
     queryKey: ["/api/billing/payments"],
+    queryFn: () => fetchAllPages<SubscriptionPayment>("/api/billing/payments"),
   });
 
   const tableData = useMemo(

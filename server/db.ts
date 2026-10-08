@@ -2,6 +2,7 @@ import "./lib/loadEnv";
 import { Pool, types } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
+import { installQueryCounter } from "./lib/queryCounter";
 
 // Automatically parse decimal/numeric columns (OID 1700) as numbers
 types.setTypeParser(1700, (val: string) => parseFloat(val));
@@ -50,6 +51,8 @@ export const pool = new Pool({
 // An idle pooled connection dropped by Neon/pooler emits 'error' on the pool;
 // with no listener that would crash the process. pg-pool discards the client.
 pool.on("error", (err) => console.warn("[db] idle client error:", err.message));
+
+installQueryCounter(pool);
 
 export const db = drizzle(pool, { schema });
 

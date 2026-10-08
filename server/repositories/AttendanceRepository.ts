@@ -26,6 +26,42 @@ export class AttendanceRepository {
       .orderBy(asc(attendanceRecords.date));
   }
 
+  /** One page of attendance records (oldest day first) with the total, for the same filters as getAttendanceRecords. */
+  async getAttendanceRecordsPage(
+    storeId: string,
+    options: { staffId?: string; staffIds?: string[]; startDate?: string; endDate?: string },
+    page: { limit: number; offset: number },
+  ): Promise<{ rows: AttendanceRecord[]; total: number }> {
+    const conditions: any[] = [eq(attendanceRecords.storeId, storeId)];
+    if (options.staffId) conditions.push(eq(attendanceRecords.staffId, options.staffId));
+    else if (options.staffIds && options.staffIds.length > 0) conditions.push(inArray(attendanceRecords.staffId, options.staffIds));
+    if (options.startDate) conditions.push(gte(attendanceRecords.date, options.startDate));
+    if (options.endDate) conditions.push(lte(attendanceRecords.date, options.endDate));
+    const where = and(...conditions);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(attendanceRecords).where(where).orderBy(asc(attendanceRecords.date), asc(attendanceRecords.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(attendanceRecords).where(where),
+    ]);
+    return { rows, total };
+  }
+
+  /**
+   * Days present (present, leave or holiday all count) and days absent for one person over a date range,
+   * counted by the database instead of loading every record to count them in Node.
+   */
+  async getAttendanceCounts(storeId: string, staffId: string, startDate: string, endDate: string): Promise<{ present: number; absent: number }> {
+    const [row] = await db.select({
+      present: sql<number>`(count(*) FILTER (WHERE ${attendanceRecords.status} IN ('present', 'leave', 'holiday')))::int`,
+      absent: sql<number>`(count(*) FILTER (WHERE ${attendanceRecords.status} = 'absent'))::int`,
+    }).from(attendanceRecords).where(and(
+      eq(attendanceRecords.storeId, storeId),
+      eq(attendanceRecords.staffId, staffId),
+      gte(attendanceRecords.date, startDate),
+      lte(attendanceRecords.date, endDate),
+    ));
+    return { present: row?.present ?? 0, absent: row?.absent ?? 0 };
+  }
+
   async upsertAttendanceRecord(data: InsertAttendanceRecord): Promise<AttendanceRecord> {
     const existing = await db.select().from(attendanceRecords).where(
       and(

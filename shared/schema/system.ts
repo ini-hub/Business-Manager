@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, jsonb, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, bigint, timestamp, jsonb, primaryKey } from "drizzle-orm/pg-core";
 
 // ── Persistent Email Queue ──────────────────────────────────────────────────
 export const pendingEmails = pgTable("pending_emails", {
@@ -116,4 +116,21 @@ export const healthMetricsHourly = pgTable(
     latencyHist: jsonb("latency_hist").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
   },
   (table) => [primaryKey({ columns: [table.hour, table.instanceId] })],
+);
+
+// One row per (hour, server instance, route template). Same histogram buckets as health_metrics_hourly;
+// total_ms / total_queries are sums, divide by requests for the mean.
+export const healthRouteMetricsHourly = pgTable(
+  "health_route_metrics_hourly",
+  {
+    hour: timestamp("hour").notNull(),
+    instanceId: text("instance_id").notNull(),
+    route: text("route").notNull(),
+    requests: integer("requests").notNull().default(0),
+    serverErrors: integer("server_errors").notNull().default(0),
+    totalMs: bigint("total_ms", { mode: "number" }).notNull().default(0),
+    totalQueries: bigint("total_queries", { mode: "number" }).notNull().default(0),
+    latencyHist: jsonb("latency_hist").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+  },
+  (table) => [primaryKey({ columns: [table.hour, table.instanceId, table.route] })],
 );

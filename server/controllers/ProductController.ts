@@ -1,3 +1,4 @@
+import { parsePage, paginated } from "../lib/pagination";
 import { Router, Request, Response } from "express";
 import { BaseController } from "./BaseController";
 import { storage } from "../storage";
@@ -160,8 +161,7 @@ export class ProductController extends BaseController {
       }
 
       // Check archived items — unique constraint still applies to soft-deleted records
-      const archived = (await storage.getArchivedProducts(data.storeId))
-        .find((p: any) => p.name.toLowerCase() === data.name.toLowerCase());
+      const archived = await storage.findArchivedProductByName(data.storeId, data.name);
       if (archived) {
         return this.conflict(res, `archived:An item named "${data.name}" is currently archived.`);
       }
@@ -272,8 +272,9 @@ export class ProductController extends BaseController {
       const storeId = req.query.storeId as string;
       if (!storeId) return this.badRequest(res, "Please select a store first.");
       if (!(await this.checkStoreAccess(storeId, req, res))) return res;
-      const items = await storage.getArchivedProducts(storeId);
-      return this.ok(res, items);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.getArchivedProductsPage(storeId, page);
+      return this.ok(res, paginated(rows, total, page));
     } catch {
       return this.error(res, "We couldn't load archived items. Please try again.");
     }

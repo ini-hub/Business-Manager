@@ -8,7 +8,7 @@ import {
   type InsertWhatsappBroadcast,
   type WhatsappBroadcast,
 } from "@shared/schema";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { pickOptedInCustomerIds } from "../lib/whatsappOptIn";
 
 export class BroadcastRepository {
@@ -49,6 +49,16 @@ export class BroadcastRepository {
 
   async listBroadcasts(storeId: string) {
     return db.select().from(whatsappBroadcasts).where(eq(whatsappBroadcasts.storeId, storeId)).orderBy(desc(whatsappBroadcasts.createdAt));
+  }
+
+  /** One page of a store's broadcasts, newest first, with the total. */
+  async listBroadcastsPage(storeId: string, page: { limit: number; offset: number }) {
+    const where = eq(whatsappBroadcasts.storeId, storeId);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(whatsappBroadcasts).where(where).orderBy(desc(whatsappBroadcasts.createdAt)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(whatsappBroadcasts).where(where),
+    ]);
+    return { rows, total };
   }
 
   async getRecipients(broadcastId: string) {

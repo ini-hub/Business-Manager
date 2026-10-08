@@ -50,6 +50,26 @@ export default function SystemHealth() {
     refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 
+  const { data: endpointData } = useQuery({
+    queryKey: ["/api/admin/system/endpoints", range],
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/admin/system/endpoints?range=${range}`);
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+  const endpoints: {
+    route: string;
+    requests: number;
+    serverErrors: number;
+    avgMs: number;
+    p50: number;
+    p95: number;
+    avgQueries: number;
+    totalSeconds: number;
+  }[] = endpointData?.endpoints ?? [];
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -276,6 +296,51 @@ export default function SystemHealth() {
           </div>
         </Card>
       </div>
+
+      {/* Slowest endpoints */}
+      <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-2xl" data-testid="health-endpoints">
+        <CardHeader className="bg-background/20 p-6 border-b border-border/40">
+          <CardTitle className="text-base font-bold text-foreground">Slowest Endpoints</CardTitle>
+          <CardDescription className="text-xs text-muted-foreground">
+            Ranked by total time the server spent on the route. A high statements-per-request figure on a busy route usually means a query is running once per row (N+1). Percentiles are approximate (bucketed).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-semibold">
+              <thead className="bg-background/40 text-muted-foreground uppercase text-[11px] tracking-wider border-b border-border">
+                <tr>
+                  <th className="px-6 py-4">Route</th>
+                  <th className="px-4 py-4 text-right">Requests</th>
+                  <th className="px-4 py-4 text-right">Avg</th>
+                  <th className="px-4 py-4 text-right">p95</th>
+                  <th className="px-4 py-4 text-right">DB stmts / req</th>
+                  <th className="px-4 py-4 text-right">Total time</th>
+                  <th className="px-4 py-4 text-right">5xx</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {endpoints.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-muted-foreground">No endpoint timings recorded in this window yet.</td>
+                  </tr>
+                )}
+                {endpoints.map((e) => (
+                  <tr key={e.route} className="hover:bg-card/30 transition-colors">
+                    <td className="px-6 py-3 font-mono text-foreground break-all">{e.route}</td>
+                    <td className="px-4 py-3 text-right font-mono">{e.requests.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right font-mono">{e.avgMs} ms</td>
+                    <td className={`px-4 py-3 text-right font-mono ${e.p95 >= 1500 ? "text-rose-600 dark:text-rose-400" : e.p95 >= 500 ? "text-amber-600 dark:text-amber-400" : ""}`}>{e.p95} ms</td>
+                    <td className={`px-4 py-3 text-right font-mono ${e.avgQueries >= 20 ? "text-rose-600 dark:text-rose-400" : e.avgQueries >= 8 ? "text-amber-600 dark:text-amber-400" : ""}`}>{e.avgQueries}</td>
+                    <td className="px-4 py-3 text-right font-mono">{e.totalSeconds.toLocaleString()} s</td>
+                    <td className="px-4 py-3 text-right font-mono">{e.serverErrors}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recent Failing Requests / Errors */}
       <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in duration-300">

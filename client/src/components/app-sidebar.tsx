@@ -21,6 +21,7 @@ import {
   Wallet, BookOpen,
   CalendarClock,
   ArrowLeftRight,
+  Handshake,
   Truck,
   FileText,
   Building2,
@@ -132,6 +133,12 @@ const managementItems: MenuItem[] = [
     url: "/stock-transfers",
     icon: ArrowLeftRight,
     allowedRoles: ["owner", "manager"],
+  },
+  {
+    title: "Partners",
+    url: "/partners",
+    icon: Handshake,
+    allowedRoles: ["owner", "manager", "staff"],
   },
   {
     title: "Purchase Orders",

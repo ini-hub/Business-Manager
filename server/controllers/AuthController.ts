@@ -47,13 +47,14 @@ export class AuthController extends BaseController {
       // someone swap in a new number with no verification step at all.
       const updates: Partial<User> = { name, profilePhotoUrl };
 
+      const before = name !== undefined ? await storage.getUser(userId) : undefined;
       const updated = await storage.updateUser(userId, updates);
 
       // Keep every staff row this account is linked to in step - see
       // IdentitySync. Only when the caller actually sent a name: an
       // undefined name here means "leave it alone", not "clear it".
       if (name !== undefined) {
-        await syncUserIdentityToLinkedStaff(userId, { name });
+        await syncUserIdentityToLinkedStaff(userId, { name }, { name: before?.name });
       }
 
       return this.ok(res, serializeUser(updated));
@@ -194,7 +195,7 @@ export class AuthController extends BaseController {
       // Keep every staff row this account is linked to in step - see
       // IdentitySync. Without this, self-servicing a login email here would
       // leave staff.email (the HR record) permanently stale.
-      await syncUserIdentityToLinkedStaff(userId, { email: user.pendingEmail });
+      await syncUserIdentityToLinkedStaff(userId, { email: user.pendingEmail }, { email: user.email });
 
       return this.ok(res, serializeUser(updated));
     } catch (error) {
@@ -326,7 +327,7 @@ export class AuthController extends BaseController {
 
       // Keep every staff row this account is linked to in step - see
       // IdentitySync (mirrors updateProfile's name sync below).
-      await syncUserIdentityToLinkedStaff(userId, { phone: user.pendingPhone });
+      await syncUserIdentityToLinkedStaff(userId, { phone: user.pendingPhone }, { phone: user.phone });
 
       return this.ok(res, serializeUser(updated));
     } catch (error) {

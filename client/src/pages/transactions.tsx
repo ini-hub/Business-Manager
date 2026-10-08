@@ -9,7 +9,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, Wallet } from "lucide-react";
+import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, Wallet, TrendingDown } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
@@ -50,7 +50,19 @@ export default function Transactions() {
   // Resolve Pending inline dialog state
   const [resolveTx, setResolveTx] = useState<TransactionWithRelations | null>(null);
 
-  const [saleFilters, setSaleFilters] = useState<SaleFilterState>(EMPTY_SALE_FILTERS);
+  // Deep links (dashboard banner) can pre-apply the date range and the loss filter.
+  const [saleFilters, setSaleFilters] = useState<SaleFilterState>(() => {
+    const q = new URLSearchParams(search);
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const from = q.get("startDate");
+    const to = q.get("endDate");
+    return {
+      ...EMPTY_SALE_FILTERS,
+      lossOnly: q.get("filter") === "loss",
+      dateFrom: from && day.test(from) ? from : null,
+      dateTo: to && day.test(to) ? to : null,
+    };
+  });
 
   // The date range from the Filters sheet is the server-side scope (so pagination stays
   // correct); with none set, all transactions load, paginated.
@@ -70,32 +82,14 @@ export default function Transactions() {
   const { data: transactions = [], isLoading } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id, stores.map(s => s.id).join(","), dateParams, page],
     queryFn: async () => {
-      if (currentStore?.id === "all" && stores.length > 0) {
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            try {
-              const res = await fetch(`/api/transactions?storeId=${s.id}&${dateParams}`);
-              if (!res.ok) return [];
-              const list = await res.json() as TransactionWithRelations[];
-              return list.map(item => ({ ...item, storeName: s.name }));
-            } catch {
-              return [];
-            }
-          })
-        );
-        setTotalPages(1);
-        return responses.flat().sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
-      }
+      // One page at a time, for a single store or for "all stores" alike (the server pages both).
       const dateStr = dateParams ? `&${dateParams}` : "";
       const res = await fetch(`/api/transactions?storeId=${currentStore?.id}${dateStr}&page=${page}&limit=${PAGE_LIMIT}`);
       if (!res.ok) throw new Error("Failed to fetch transactions");
       const json = await res.json();
-      if (Array.isArray(json)) {
-        setTotalPages(1);
-        return json;
-      }
       setTotalPages(json.pagination?.totalPages ?? 1);
-      return json.data as TransactionWithRelations[];
+      const rows = json.data as TransactionWithRelations[];
+      return currentStore?.id === "all" ? rows.map((item: any) => ({ ...item, storeName: item.store?.name })) : rows;
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
@@ -326,6 +320,15 @@ export default function Transactions() {
             <CreditCard className="h-3 w-3 text-muted-foreground" />
             <span className="text-sm capitalize">{tx.checkout?.paymentMethod ?? "cash"}</span>
           </div>
+          {(tx.checkout?.lossAmount ?? 0) > 0 && !tx.checkout?.isVoided && (
+            <span
+              className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border text-red-700 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 dark:text-red-400"
+              title="Sold below cost"
+              data-testid="badge-loss-sale"
+            >
+              <TrendingDown className="h-3 w-3" aria-hidden="true" /> LOSS SALE
+            </span>
+          )}
           {tx.checkout?.paymentStatus === "pending" && !tx.checkout?.isVoided && (
             <button
               className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors"
@@ -398,6 +401,7 @@ export default function Transactions() {
       staffId: tx.checkout?.staff?.id ?? null,
       inventoryType: tx.inventory?.type ?? null,
       isStaffPurchase: !!(tx.customer as any)?.staffId,
+      lossAmount: tx.checkout?.isVoided ? 0 : Number(tx.checkout?.lossAmount ?? 0),
       isReturned: !!(tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0),
     }));
   }, [filteredTransactions]);
@@ -697,8 +701,18 @@ export default function Transactions() {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-medium text-sm truncate">{row.customerName || "Unknown"}</span>
-                                <span className={cn("font-mono font-medium text-sm shrink-0", (isVoidedRow || isReturnedRow) && "opacity-50 line-through")}>
-                                  {formatCurrency(row.amount)}
+                                <span className="flex items-center gap-1.5 shrink-0">
+                                  {row.lossAmount > 0 && (
+                                    <span
+                                      className="flex items-center gap-0.5 text-[11px] font-semibold px-1.5 rounded border text-red-700 border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 dark:text-red-400"
+                                      data-testid="badge-loss-sale-mobile"
+                                    >
+                                      <TrendingDown className="h-3 w-3" aria-hidden="true" /> Loss
+                                    </span>
+                                  )}
+                                  <span className={cn("font-mono font-medium text-sm", (isVoidedRow || isReturnedRow) && "opacity-50 line-through")}>
+                                    {formatCurrency(row.amount)}
+                                  </span>
                                 </span>
                               </div>
                               <div className="flex items-center justify-between gap-2 mt-0.5">
@@ -732,7 +746,7 @@ export default function Transactions() {
                   ))
                 )}
               </div>
-              {currentStore?.id !== "all" && totalPages > 1 && (
+              {totalPages > 1 && (
                 <Pagination className="mt-4">
                   <PaginationContent>
                     <PaginationItem>

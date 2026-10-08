@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { getStoreTimezone, toUtcStart, toUtcEnd, storeLocalDate } from "../lib/dateUtils";
-import { eq, and, gte, lte, gt, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, gt, inArray, sql } from "drizzle-orm";
 import {
   payrollPeriods,
   payrollEntries,
@@ -158,20 +158,27 @@ class PayrollService {
       // carry-forward deduction either - it would be orphaned with no
       // payroll entry to attach to, and reappear the moment they become
       // payable again with no entry to actually recover it from in between.
-      for (const prev of prevEntries.filter(p => payableStaffIds.has(p.staffId))) {
-        const existing = await db.select().from(payrollDeductions).where(
-          and(
+      const carriers = prevEntries.filter(p => payableStaffIds.has(p.staffId));
+      if (carriers.length > 0) {
+        // One lookup for who already has a carry-forward line, one insert for the rest (this used to run a
+        // select and an insert per previous entry). A person owed from several earlier periods still gets a
+        // single line: the first entry in order wins, as before.
+        const alreadyCarrying = new Set(
+          (await db.select({ staffId: payrollDeductions.staffId }).from(payrollDeductions).where(and(
             eq(payrollDeductions.periodId, periodId),
-            eq(payrollDeductions.staffId, prev.staffId),
             eq(payrollDeductions.type, "carry_forward"),
-          )
+            inArray(payrollDeductions.staffId, Array.from(new Set(carriers.map(c => c.staffId)))),
+          ))).map(r => r.staffId),
         );
-        if (existing.length === 0) {
+        const newLines: (typeof payrollDeductions.$inferInsert)[] = [];
+        for (const prev of carriers) {
+          if (alreadyCarrying.has(prev.staffId)) continue;
+          alreadyCarrying.add(prev.staffId);
           const src = prevPaidPeriods.find(p => p.id === prev.periodId);
           const label = src
             ? `Balance carried from ${src.startDate} – ${src.endDate}`
             : "Balance carried from previous period";
-          await db.insert(payrollDeductions).values({
+          newLines.push({
             periodId,
             storeId: period.storeId,
             staffId: prev.staffId,
@@ -180,6 +187,7 @@ class PayrollService {
             amount: prev.carryForwardAmount,
           });
         }
+        if (newLines.length > 0) await db.insert(payrollDeductions).values(newLines);
       }
     }
 
@@ -481,10 +489,10 @@ class PayrollService {
     }
 
     const results: PayrollEntryWithStaff[] = [];
+    const pendingEntries: (typeof payrollEntries.$inferInsert)[] = [];
 
     // Process calculations per staff member
     for (const [staffId, totals] of Array.from(staffTotals.entries())) {
-      const staffMember = staffMap.get(staffId)!;
       const comp = resolvedComp.get(staffId)!;
 
       // 1. Calculate Attendance Pay
@@ -626,52 +634,51 @@ class PayrollService {
       const storedOffDayPay        = isFixed ? 0 : offDayPay;
       const storedTotalTransport   = isFixed ? 0 : totalAttendancePay;
 
-      const [entry] = await db.insert(payrollEntries)
-        .values({
-          periodId,
-          storeId: period.storeId,
-          staffId,
-          activeDays: totals.activeDays,
-          passiveDays: totals.passiveDays,
-          leaveDays: totals.leaveDays,
-          holidayDays: totals.holidayDays,
-          offDays: totals.offDays,
-          absentDays: totals.absentDays,
-          activeTransport:  storedActiveTransport,
-          passiveTransport: storedPassiveTransport,
-          leavePay:         storedLeavePay,
-          holidayPay:       storedHolidayPay,
-          offDayPay:        storedOffDayPay,
-          totalTransport:   storedTotalTransport,
-          grossCommission,
-          netPay,
-          calculationDetails: calculationDetailsSnapshot,
-          updatedAt: new Date(),
-        })
+      pendingEntries.push({
+        periodId,
+        storeId: period.storeId,
+        staffId,
+        activeDays: totals.activeDays,
+        passiveDays: totals.passiveDays,
+        leaveDays: totals.leaveDays,
+        holidayDays: totals.holidayDays,
+        offDays: totals.offDays,
+        absentDays: totals.absentDays,
+        activeTransport:  storedActiveTransport,
+        passiveTransport: storedPassiveTransport,
+        leavePay:         storedLeavePay,
+        holidayPay:       storedHolidayPay,
+        offDayPay:        storedOffDayPay,
+        totalTransport:   storedTotalTransport,
+        grossCommission,
+        netPay,
+        calculationDetails: calculationDetailsSnapshot,
+        updatedAt: new Date(),
+      });
+    }
+
+    // Every person's entry in one statement (this used to be one round trip per staff member). Same columns are
+    // overwritten on conflict as before; results keep the order the people were processed in.
+    if (pendingEntries.length > 0) {
+      const overwritten = [
+        "activeDays", "passiveDays", "leaveDays", "holidayDays", "offDays", "absentDays",
+        "activeTransport", "passiveTransport", "leavePay", "holidayPay", "offDayPay", "totalTransport",
+        "grossCommission", "netPay", "calculationDetails",
+      ] as const;
+      const upserted = await db.insert(payrollEntries)
+        .values(pendingEntries)
         .onConflictDoUpdate({
           target: [payrollEntries.periodId, payrollEntries.staffId],
           set: {
-            activeDays: totals.activeDays,
-            passiveDays: totals.passiveDays,
-            leaveDays: totals.leaveDays,
-            holidayDays: totals.holidayDays,
-            offDays: totals.offDays,
-            absentDays: totals.absentDays,
-            activeTransport:  storedActiveTransport,
-            passiveTransport: storedPassiveTransport,
-            leavePay:         storedLeavePay,
-            holidayPay:       storedHolidayPay,
-            offDayPay:        storedOffDayPay,
-            totalTransport:   storedTotalTransport,
-            grossCommission,
-            netPay,
-            calculationDetails: calculationDetailsSnapshot,
+            ...Object.fromEntries(overwritten.map((key) => [key, sql.raw(`excluded."${payrollEntries[key].name}"`)])),
             updatedAt: new Date(),
           },
         })
         .returning();
-
-      results.push({ ...entry, staff: staffMember });
+      const byStaff = new Map(upserted.map((entry) => [entry.staffId, entry]));
+      for (const row of pendingEntries) {
+        results.push({ ...byStaff.get(row.staffId)!, staff: staffMap.get(row.staffId)! });
+      }
     }
 
     // Propose a charge for any day attendance flagged late — late_arrival

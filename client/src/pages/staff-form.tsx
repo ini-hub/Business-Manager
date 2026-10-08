@@ -602,7 +602,7 @@ export default function StaffFormPage() {
                     <FormField control={form.control} name="role" render={({ field }) => (
                       <FormItem>
                         <FormLabel className="flex items-center gap-2"><Shield className="h-3 w-3" />Access Role</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value || "staff"}>
+                        <Select disabled={field.value === "owner"} onValueChange={field.onChange} value={field.value || "staff"}>
                           <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
                           <SelectContent>
                             {/* Not a real choice - "owner" is only ever set by the

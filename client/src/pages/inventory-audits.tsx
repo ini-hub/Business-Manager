@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { BackButton } from "@/components/back-button";
 import { AddButton } from "@/components/add-button";
@@ -59,7 +60,7 @@ export default function InventoryAuditsPage() {
 
   const { data: auditsRaw = [], isLoading: isLoadingAudits } = useMultiStoreQuery<StockAudit>(
     "/api/stock-audits",
-    { enabled: !!currentStore }
+    { enabled: !!currentStore, fetchList: (storeId) => fetchAllPages<StockAudit>(`/api/stock-audits?storeId=${storeId}`) }
   );
   const auditsList = [...auditsRaw].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

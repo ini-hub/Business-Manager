@@ -10,8 +10,11 @@ import {
   settings,
   stores,
 } from "@shared/schema";
-import { eq, and, gte, lte, count, countDistinct, sql } from "drizzle-orm";
+import { eq, and, gte, lte, count, countDistinct, sql, inArray, asc } from "drizzle-orm";
 import type { SalesRepository } from "./SalesRepository";
+
+/** The dashboard shows at most this many stock alerts; the counts alongside it are exact. */
+const LOW_STOCK_LIST_LIMIT = 20;
 
 export class AnalyticsRepository {
   constructor(private salesRepo: SalesRepository) {}
@@ -30,16 +33,24 @@ export class AnalyticsRepository {
       ...(endDate   ? [lte(checkouts.createdAt, toUtcEnd(endDate,   tz))] : []),
     );
 
+    // Stock alerts use the store-wide threshold unless an item sets its own reorder point. Resolved inside the
+    // query, so counting and listing the alerts needs no prior round trip for the settings row. A threshold of 0
+    // means "unset" (the old `|| 5`).
+    const storeThreshold = sql`COALESCE(NULLIF((SELECT ${settings.lowStockThreshold} FROM ${settings} WHERE ${settings.storeId} = ${storeId}), 0), 5)`;
+    const itemThreshold = sql`COALESCE(${inventory.reorderPoint}, ${storeThreshold})`;
+
     // All queries run in parallel
     const [
       [{ total: totalCustomers }],
       [{ total: totalStaff }],
       [{ total: totalCheckouts }],
       [{ total: uniqueCustomersInPeriod }],
-      allInventory,
+      [inventoryCounts],
+      lowStockItems,
       settingsRows,
       plSummary,
       revenueMixRows,
+      [lossRow],
     ] = await Promise.all([
       db.select({ total: count() }).from(customers).where(customerDateFilter),
       db.select({ total: count() }).from(staff).where(eq(staff.storeId, storeId)),
@@ -48,33 +59,47 @@ export class AnalyticsRepository {
         .from(transactions)
         .innerJoin(checkouts, eq(checkouts.id, transactions.checkoutId))
         .where(checkoutDateFilter),
-      db.select().from(inventory).where(eq(inventory.storeId, storeId)),
+      // Counted by the database. This used to load every inventory row (a full `select *`) on each dashboard
+      // load just to count and filter them in Node. (Soft-deleted items are still counted, as before.)
+      //
+      // Supplies are stock and run out, so they belong in the low-stock alert - running dry on shampoo stops
+      // services just as surely as running dry on retail. Services are stockless and never alert.
+      db.select({
+        total: sql<number>`count(*)::int`,
+        products: sql<number>`(count(*) FILTER (WHERE ${inventory.type} = 'product'))::int`,
+        services: sql<number>`(count(*) FILTER (WHERE ${inventory.type} = 'service'))::int`,
+        supplies: sql<number>`(count(*) FILTER (WHERE ${inventory.type} = 'supply'))::int`,
+        outOfStock: sql<number>`(count(*) FILTER (WHERE ${inventory.type} IN ('product', 'supply') AND ${inventory.quantity} <= ${itemThreshold} AND ${inventory.quantity} = 0))::int`,
+        lowStock: sql<number>`(count(*) FILTER (WHERE ${inventory.type} IN ('product', 'supply') AND ${inventory.quantity} <= ${itemThreshold} AND ${inventory.quantity} <> 0))::int`,
+      }).from(inventory).where(eq(inventory.storeId, storeId)),
+      // Only the most urgent alerts travel to the browser (out of stock first, then lowest stock); the counts
+      // above are exact, and the full list lives on the inventory screen.
+      db.select().from(inventory).where(and(
+        eq(inventory.storeId, storeId),
+        inArray(inventory.type, ["product", "supply"]),
+        sql`${inventory.quantity} <= ${itemThreshold}`,
+      )).orderBy(sql`CASE WHEN ${inventory.quantity} = 0 THEN 0 ELSE 1 END`, asc(inventory.quantity), asc(inventory.name)).limit(LOW_STOCK_LIST_LIMIT),
       db.select().from(settings).where(eq(settings.storeId, storeId)),
       this.salesRepo.getProfitLossSummary(storeId, startDate, endDate),
       this.getRevenueMixByType(storeId, startDate, endDate),
+      // A receipt is one checkouts row per line; count receipts, sum the per-line shortfall.
+      db.select({
+        receipts: sql<number>`count(distinct ${checkouts.receiptNumber})::int`,
+        amount: sql<number>`coalesce(sum(${checkouts.lossAmount}::numeric), 0)::float8`,
+      }).from(checkouts).where(and(checkoutDateFilter, sql`${checkouts.lossAmount}::numeric > 0`)),
     ]);
 
     const lowStockThreshold = settingsRows[0]?.lowStockThreshold || 5;
-    const products  = allInventory.filter((i) => i.type === "product");
-    const services  = allInventory.filter((i) => i.type === "service");
-    const supplies  = allInventory.filter((i) => i.type === "supply");
-    // Supplies are stock and run out, so they belong in the low-stock alert —
-    // running dry on shampoo stops services just as surely as running dry on retail.
-    // Per-item reorderPoint overrides the store-wide threshold when set.
-    const lowStockItems = [...products, ...supplies].filter((p) => {
-      const threshold = p.reorderPoint != null ? p.reorderPoint : lowStockThreshold;
-      return p.quantity <= threshold;
-    });
-    const outOfStockCount = lowStockItems.filter((p) => p.quantity === 0).length;
-    const lowStockCount = lowStockItems.length - outOfStockCount;
+    const outOfStockCount = inventoryCounts.outOfStock;
+    const lowStockCount = inventoryCounts.lowStock;
 
     return {
       totalCustomers,
       totalStaff,
-      totalInventory: allInventory.length,
-      totalProducts:  products.length,
-      totalServices:  services.length,
-      totalSupplies:  supplies.length,
+      totalInventory: inventoryCounts.total,
+      totalProducts:  inventoryCounts.products,
+      totalServices:  inventoryCounts.services,
+      totalSupplies:  inventoryCounts.supplies,
       totalTransactions: totalCheckouts,
       uniqueCustomersInPeriod,
       totalRevenue:    plSummary.totalRevenue,
@@ -86,6 +111,7 @@ export class AnalyticsRepository {
       lowStockItems,
       outOfStockCount,
       lowStockCount,
+      lossSales: { count: Number(lossRow?.receipts ?? 0), amount: Number(lossRow?.amount ?? 0) },
     };
   }
 
@@ -188,25 +214,18 @@ export class AnalyticsRepository {
     if (startDate) conditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
     if (endDate) conditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
 
-    const rows = await db
+    // Net of refunds with the tax part of a refund excluded, floored at zero per line, split by item type.
+    // Anything that is not a service counts as a product here (unlike the P&L, which tests both directions).
+    const net = sql`GREATEST(0, ${orders.totalPrice} - (COALESCE(${orders.refundedAmount}, 0) - COALESCE(${orders.taxRefunded}, 0)))`;
+    const [row] = await db
       .select({
-        inventoryType: inventory.type,
-        revenue: orders.totalPrice,
-        refundedAmount: orders.refundedAmount,
-        taxRefunded: orders.taxRefunded,
+        services: sql<number>`COALESCE(SUM(${net}) FILTER (WHERE ${inventory.type} = 'service'), 0)::float8`,
+        products: sql<number>`COALESCE(SUM(${net}) FILTER (WHERE ${inventory.type} IS DISTINCT FROM 'service'), 0)::float8`,
       })
       .from(orders)
       .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
       .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
       .where(and(...conditions));
-
-    let services = 0;
-    let products = 0;
-    for (const row of rows) {
-      const net = Math.max(0, row.revenue - ((row.refundedAmount || 0) - (row.taxRefunded || 0)));
-      if (row.inventoryType === "service") services += net;
-      else products += net;
-    }
-    return { services, products };
+    return { services: row?.services ?? 0, products: row?.products ?? 0 };
   }
 }

@@ -628,11 +628,13 @@ function Footer() {
     <footer className="kp-footer kp-dark">
       <div className="kp-wrap kp-footer-in">
         <KowopeLogo />
-        <p>&copy; {new Date().getFullYear()} Kowope</p>
-        <nav aria-label="Legal">
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/terms">Terms</Link>
-        </nav>
+        <div className="kp-footer-meta">
+          <span>&copy; {new Date().getFullYear()}</span>
+          <nav aria-label="Legal">
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+          </nav>
+        </div>
       </div>
     </footer>
   );

@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { AddButton } from "@/components/add-button";
 import { useLocation } from "wouter";
@@ -70,10 +71,7 @@ export default function StockTransfersPage() {
   // Fetch Transfers
   const { data: transfers = [], isLoading: isLoadingTransfers } = useQuery<TransferWithStores[]>({
     queryKey: ["/api/stock-transfers", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/stock-transfers?storeId=${currentStore!.id}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllPages<TransferWithStores>(`/api/stock-transfers?storeId=${currentStore!.id}`),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
@@ -81,11 +79,7 @@ export default function StockTransfersPage() {
   const draftsStoreId = currentStore?.id && currentStore.id !== "all" ? currentStore.id : null;
   const { data: draftsList = [] } = useQuery<any[]>({
     queryKey: ["/api/stock-transfer-drafts", draftsStoreId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/stock-transfer-drafts?storeId=${draftsStoreId}`);
-      if (!res.ok) throw new Error("Failed to load drafts");
-      return res.json();
-    },
+    queryFn: () => fetchAllPages<any>(`/api/stock-transfer-drafts?storeId=${draftsStoreId}`),
     enabled: !!draftsStoreId,
   });
   const discardDraft = async (id: string) => {

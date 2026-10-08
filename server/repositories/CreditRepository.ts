@@ -138,7 +138,7 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
   }
 
   async getCreditLedger(
-    storeId: string,
+    storeIds: string | string[],
     filters?: {
       status?: string[];
       minOutstanding?: number;
@@ -147,9 +147,13 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       search?: string;
       startDate?: string;
       endDate?: string;
-    }
-  ): Promise<any[]> {
-    const conditions = [eq(creditEntries.storeId, storeId)];
+    },
+    /** One page at a time: the ledger has a row for every credit sale the store has ever made. */
+    page?: { limit: number; offset: number },
+  ): Promise<{ rows: any[]; total: number }> {
+    const ids = Array.isArray(storeIds) ? storeIds : [storeIds];
+    if (ids.length === 0) return { rows: [], total: 0 };
+    const conditions: any[] = [ids.length === 1 ? eq(creditEntries.storeId, ids[0]) : inArray(creditEntries.storeId, ids)];
 
     if (filters?.customerId) {
       conditions.push(eq(creditEntries.customerId, filters.customerId));
@@ -175,7 +179,14 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       conditions.push(lte(creditEntries.createdAt, new Date(filters.endDate)));
     }
 
-    const rows = await db
+    // Search by customer name or phone, in the query so paging and the total agree with it.
+    if (filters?.search) {
+      const pattern = `%${filters.search.replace(/[\\%_]/g, "\\$&")}%`;
+      conditions.push(sql`(${customers.name} ILIKE ${pattern} ESCAPE '\\' OR ${customers.mobileNumber} LIKE ${pattern} ESCAPE '\\')`);
+    }
+    const where = and(...conditions);
+
+    const base = db
       .select({
         credit: creditEntries,
         customer: customers,
@@ -184,14 +195,21 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       .from(creditEntries)
       .innerJoin(customers, eq(creditEntries.customerId, customers.id))
       .leftJoin(checkouts, eq(creditEntries.linkedTransactionId, checkouts.id))
-      .where(and(...conditions))
-      .orderBy(desc(creditEntries.createdAt));
+      .where(where)
+      .orderBy(desc(creditEntries.createdAt), desc(creditEntries.id));
+    const [rows, [{ total }]] = await Promise.all([
+      page ? base.limit(page.limit).offset(page.offset) : base,
+      db.select({ total: sql<number>`count(*)::int` })
+        .from(creditEntries)
+        .innerJoin(customers, eq(creditEntries.customerId, customers.id))
+        .where(where),
+    ]);
 
     const txIdByCheckout = await resolveTransactionIdsForCheckouts(
       rows.map((r) => r.checkout?.id).filter((id): id is string => !!id)
     );
 
-    let mapped = rows.map((r) => ({
+    const mapped = rows.map((r) => ({
       ...r.credit,
       customer: {
         name: r.customer.name,
@@ -204,16 +222,6 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
       receiptNumber: r.checkout?.receiptNumber || null,
       transactionId: r.checkout ? txIdByCheckout.get(r.checkout.id) ?? null : null,
     }));
-
-    // Filter by search keyword on customer name or phone if supplied
-    if (filters?.search) {
-      const q = filters.search.toLowerCase();
-      mapped = mapped.filter(
-        (m) =>
-          m.customer.name.toLowerCase().includes(q) ||
-          (m.customer.phone && m.customer.phone.includes(q))
-      );
-    }
 
     // Auto-compute overdue status for the returned list
     const now = new Date();
@@ -258,12 +266,14 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
     // action silently vanishing. Only written-off rows need the payroll lookup.
     const writtenOffIds = mapped.filter(m => m.status === "written_off").map(m => m.id);
     const linkedByEntry = await staffCreditPeriodStatusFor(writtenOffIds);
-    const tz = await getStoreTimezone(storeId);
+    // Each row is judged in its own store's timezone (several stores can share one page).
+    const timezones = new Map<string, string>();
+    await Promise.all(Array.from(new Set(mapped.map((m) => m.storeId))).map(async (id) => timezones.set(id, await getStoreTimezone(id))));
 
-    return mapped.map((item) => {
+    const withTotals = mapped.map((item) => {
       const guard = item.status === "written_off"
         ? canRestoreWriteOff(item, {
-            now, timezone: tz, linkedPeriodStatus: linkedByEntry.get(item.id)?.periodStatus,
+            now, timezone: timezones.get(item.storeId) ?? "Africa/Lagos", linkedPeriodStatus: linkedByEntry.get(item.id)?.periodStatus,
           })
         : { allowed: false, reason: undefined };
       return {
@@ -273,6 +283,7 @@ export class CreditRepository extends BaseRepository<typeof creditEntries> {
         restoreBlockedReason: guard.allowed ? null : guard.reason ?? null,
       };
     });
+    return { rows: withTotals, total };
   }
 
   async createCreditEntry(data: InsertCreditEntry): Promise<CreditEntry> {

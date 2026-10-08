@@ -386,7 +386,7 @@ export default function StaffPage() {
         label: "HR Profile",
         gate: "staff_hr_archive",
         icon: <UserSquare2 className="h-4 w-4" />,
-        onClick: () => setLocation(`/staffs/${staff.id}/hr-profile`),
+        onClick: () => setLocation(`/staffs/${staff.id}?tab=hr-personal`),
         testId: `button-hr-profile-${staff.id}`,
       },
     ];
@@ -771,6 +771,7 @@ export default function StaffPage() {
                   emptyAction={
                     <Button size="sm" className="gap-2" onClick={() => guardCap(() => setLocation("/staffs/new"))}><Plus className="h-4 w-4" />Add Staff Member</Button>
                   }
+                  onRowClick={(staff) => setLocation(appendReturnTo(`/staffs/${staff.id}`, location, search))}
                   onVisibleDataChange={setVisibleStaffRows}
                   urlKey="active"
                   showCardChevron
@@ -800,6 +801,7 @@ export default function StaffPage() {
                   emptyTitle="No Archived Staff"
                   emptyMessage="Archived staff members will appear here. Their history is preserved for payroll and audit records."
                   emptyIcon={<Archive className="h-6 w-6" />}
+                  onRowClick={(staff) => setLocation(appendReturnTo(`/staffs/${staff.id}`, location, search))}
                   onVisibleDataChange={setVisibleStaffRows}
                   urlKey="archivedTbl"
                   showCardChevron

@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
+import { invalidateFeatureCatalogCache } from "./entitlements";
 import { featureCatalog, featureDependencies, featureFlags, organisations, orgFeatureEntitlements, type FeatureCatalog } from "@shared/schema";
 import { FEATURES, getFeatureDef, launchesForReview, type FeatureDef } from "@shared/features";
 
@@ -98,7 +99,7 @@ export async function publishFeature(
   price?: { priceMonthly?: number | null; priceAnnual?: number | null },
   lookup: (key: string) => FeatureDef | undefined = getFeatureDef,
 ): Promise<PublishResult | null> {
-  return db.transaction(async (tx) => {
+  const published = await db.transaction(async (tx) => {
     const [row] = await tx.select().from(featureCatalog).where(eq(featureCatalog.id, id)).for("update");
     if (!row || row.reviewStatus !== "pending_review") return null;
     const [feature] = await tx
@@ -118,6 +119,8 @@ export async function publishFeature(
       : 0;
     return { feature, grandfathered };
   });
+  if (published) invalidateFeatureCatalogCache(); // after commit, so a concurrent read cannot re-cache the old rows
+  return published;
 }
 
 export async function syncFeatureRegistry(
@@ -310,6 +313,7 @@ export async function syncFeatureRegistry(
   } catch (error) {
     if (!(error instanceof DryRunRollback)) throw error;
   }
+  if (!options.dryRun) invalidateFeatureCatalogCache();
 
   return report;
 }

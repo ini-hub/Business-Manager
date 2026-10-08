@@ -2,6 +2,7 @@ import "./lib/loadEnv";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { recordRequest, startHealthMetricsFlush } from "./lib/healthMetrics";
+import { runWithRequestStats, type RequestStats } from "./lib/queryCounter";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import helmet from "helmet";
@@ -10,6 +11,7 @@ import { buildCspDirectives } from "./csp";
 import { startBookingReminderService } from "./services/BookingReminderService";
 import { startWhatsAppConversationTimeoutSweeper } from "./services/WhatsAppBookingConversationEngine";
 import { startCreditReminderService } from "./services/CreditReminderService";
+import { startPartnerReminderService } from "./services/PartnerReminderService";
 import { startTrialReminderService } from "./services/TrialReminderService";
 import { startFeatureSunsetReminderService } from "./services/FeatureSunsetReminderService";
 import { startAttendanceDayCloseService } from "./services/AttendanceDayCloseService";
@@ -58,9 +60,22 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Route template for per-route telemetry ("GET /api/payroll/periods/:id/entries"). Matched routes use
+// their Express pattern; anything unmatched (404s, scanners) is collapsed so ids and junk paths cannot
+// blow up the number of distinct keys.
+function routeKey(req: Request, path: string): string {
+  const pattern = req.route?.path;
+  // Most routes are declared with their full "/api/..." pattern; only prefix a router-relative one.
+  if (typeof pattern === "string") return `${req.method} ${pattern.startsWith("/api") ? "" : req.baseUrl}${pattern}`;
+  return `${req.method} ${path.split("/").slice(0, 3).join("/")}/(unmatched)`;
+}
+
+const SLOW_REQUEST_MS = parseInt(process.env.SLOW_REQUEST_MS || "1000");
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
+  const stats: RequestStats = { queries: 0 };
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   // Only capture the response body in development for debugging — never in production
@@ -83,9 +98,12 @@ app.use((req, res, next) => {
           method: req.method,
           path,
           businessId: (req as any).user?.businessId,
+          route: routeKey(req, path),
+          queries: stats.queries,
         });
       }
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (duration >= SLOW_REQUEST_MS) logLine += ` [slow, ${stats.queries} db statements]`;
       if (isDev && capturedJsonResponse) {
         const body = JSON.stringify(capturedJsonResponse);
         logLine += ` :: ${body.length > 200 ? body.slice(0, 200) + "…" : body}`;
@@ -94,7 +112,7 @@ app.use((req, res, next) => {
     }
   });
 
-  next();
+  runWithRequestStats(stats, next);
 });
 
 (async () => {
@@ -159,6 +177,7 @@ app.use((req, res, next) => {
   startBookingReminderService();
   startWhatsAppConversationTimeoutSweeper();
   startCreditReminderService();
+  startPartnerReminderService();
   startTrialReminderService();
   startFeatureSunsetReminderService();
   startAttendanceDayCloseService();

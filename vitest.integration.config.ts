@@ -88,6 +88,8 @@ export default defineConfig({
       // process, and a test run has no business holding production secrets.
       JWT_SECRET: "integration-test-jwt-secret-not-a-real-key",
       SESSION_SECRET: "integration-test-session-secret-not-a-real-key",
+      // The full router (server/routes.ts) also loads the admin console's auth module.
+      JWT_ADMIN_SECRET: "integration-test-admin-jwt-secret-not-a-real-key",
     },
     // Real Postgres round-trips, plus a schema migration on first run.
     testTimeout: 60_000,

@@ -33,6 +33,9 @@ import {
 import { eq, and, ilike, count } from "drizzle-orm";
 import { seedDefaultHrConfig } from "../lib/hrDefaults";
 import { assertWithinCountLimit } from "../lib/entitlements";
+import { createTtlCache } from "../lib/ttlCache";
+
+const settingsCache = createTtlCache<string, Settings>(10_000);
 
 export class BusinessRepository {
   // ─── Organisations ────────────────────────────────────────────────────────
@@ -307,10 +310,18 @@ export class BusinessRepository {
 
   // ─── Settings ─────────────────────────────────────────────────────────────
   async getSettings(storeId: string): Promise<Settings> {
-    const [row] = await db.select().from(settings).where(eq(settings.storeId, storeId));
-    if (row) return row;
-    const [inserted] = await db.insert(settings).values({ storeId }).returning();
-    return inserted;
+    // Read on most store-scoped requests and twice per checkout. upsertSettings is the only writer and
+    // invalidates; the short TTL covers a write made on another instance. Callers get a copy.
+    const row = await settingsCache.get(storeId, async () => {
+      const [found] = await db.select().from(settings).where(eq(settings.storeId, storeId));
+      if (found) return found;
+      // DO NOTHING + re-read: concurrent first requests for a new store must not fail on the unique store_id.
+      const [inserted] = await db.insert(settings).values({ storeId }).onConflictDoNothing().returning();
+      if (inserted) return inserted;
+      const [created] = await db.select().from(settings).where(eq(settings.storeId, storeId));
+      return created;
+    });
+    return { ...row };
   }
 
   async upsertSettings(storeId: string, data: Partial<InsertSettings>): Promise<Settings> {
@@ -321,6 +332,7 @@ export class BusinessRepository {
         set: { ...data, updatedAt: new Date() },
       })
       .returning();
+    settingsCache.invalidate(storeId);
     return updated;
   }
 

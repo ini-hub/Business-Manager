@@ -63,7 +63,8 @@ import {
   repayments, auditLogs,
   type AuditLog,
   type Product,
-  type InsertProduct
+  type InsertProduct,
+  type PaymentLegInput,
 } from "@shared/schema";
 import { db, type DbExecutor } from "./db";
 import { eq, sql, desc, and, inArray, gte, lte } from "drizzle-orm";
@@ -76,6 +77,7 @@ import { ExpenseRepository } from "./repositories/ExpenseRepository";
 import { CreditRepository } from "./repositories/CreditRepository";
 import { VendorRepository } from "./repositories/VendorRepository";
 import { CashRegisterRepository } from "./repositories/CashRegisterRepository";
+import { PaymentAccountRepository } from "./repositories/PaymentAccountRepository";
 import { StockAuditRepository } from "./repositories/StockAuditRepository";
 import { QuoteRepository } from "./repositories/QuoteRepository";
 import { PurchaseOrderRepository } from "./repositories/PurchaseOrderRepository";
@@ -230,6 +232,8 @@ interface IStorage {
   updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
   deleteProduct(id: string): Promise<boolean>;
   getArchivedProducts(storeId: string): Promise<any[]>;
+  getArchivedProductsPage(storeId: string, page: { limit: number; offset: number }): Promise<{ rows: any[]; total: number }>;
+  findArchivedProductByName(storeId: string, name: string): Promise<{ id: string } | undefined>;
   restoreProduct(id: string): Promise<boolean>;
   getProductByIdRaw(id: string): Promise<any>;
 
@@ -242,7 +246,7 @@ interface IStorage {
   getVariantByDimensions(productId: string, variantDimensions: Record<string, string> | null | undefined): Promise<Inventory | undefined>;
   countVariants(productId: string): Promise<number>;
   createInventoryItem(item: InsertInventory): Promise<Inventory>;
-  updateInventoryItem(id: string, item: Partial<InsertInventory>): Promise<Inventory | undefined>;
+  updateInventoryItem(id: string, item: Partial<InsertInventory>, actor?: { userId?: string | null; staffId?: string | null }): Promise<Inventory | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
   hasInventoryTransactions(id: string): Promise<boolean>;
   getBundleComponents(parentInventoryId: string): Promise<any[]>;
@@ -256,8 +260,9 @@ interface IStorage {
   updateCheckoutPaymentStatus(id: string, status: "pending" | "completed" | "failed"): Promise<Checkout | undefined>;
 
   // Transactions
-  getTransactions(storeId: string, filters?: TransactionFilters): Promise<TransactionWithRelations[]>;
+  getTransactions(storeId: string | string[], filters?: TransactionFilters): Promise<TransactionWithRelations[]>;
   getTransactionIndex(storeIds: string[], filters?: TransactionFilters): Promise<any[]>;
+  getReceiptPage(storeIds: string[], opts: Parameters<TransactionRepository["getReceiptPage"]>[1]): ReturnType<TransactionRepository["getReceiptPage"]>;
   getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]>;
   getTransactionById(id: string): Promise<TransactionWithRelations | null>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
@@ -309,6 +314,7 @@ interface IStorage {
     lowStockItems: Inventory[];
     outOfStockCount: number;
     lowStockCount: number;
+    lossSales: { count: number; amount: number };
   }>;
 
   // Chart Data
@@ -330,7 +336,9 @@ interface IStorage {
       commissionSplit?: "standard" | "equal";
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit" | "store_credit";
-    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>;
+    splitPayments?: PaymentLegInput[];
+    paymentDetail?: Omit<PaymentLegInput, "method" | "amount">;
+    actorUserId?: string;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
@@ -408,6 +416,7 @@ interface IStorage {
     costOfServicesSold: number;
     grossProfit: number;
     discountsGiven: number;
+    discountsCount: number;
     discountsList: Array<{
       receiptNumber: string;
       discountAmount: number;
@@ -463,7 +472,7 @@ interface IStorage {
   } | null>;
 
   // Update payment method/status post-checkout
-  updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean>;
+  updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string, opts?: { accountId?: string; actorUserId?: string }): Promise<boolean | "bad_account">;
 
   // Correct who performed each service line post-sale
   updateServiceStaff(data: Parameters<SalesRepository["updateServiceStaff"]>[0]): ReturnType<SalesRepository["updateServiceStaff"]>;
@@ -527,6 +536,7 @@ interface IStorage {
   creditRepo: CreditRepository;
   vendorRepo: VendorRepository;
   cashRegisterRepo: CashRegisterRepository;
+  paymentAccountRepo: PaymentAccountRepository;
   stockAuditRepo: StockAuditRepository;
   inventoryRepo: InventoryRepository;
   quoteRepo: QuoteRepository;
@@ -544,6 +554,7 @@ class DatabaseStorage implements IStorage {
   public readonly creditRepo = new CreditRepository();
   public readonly vendorRepo = new VendorRepository();
   public readonly cashRegisterRepo = new CashRegisterRepository();
+  public readonly paymentAccountRepo = new PaymentAccountRepository();
   public readonly stockAuditRepo = new StockAuditRepository();
   public readonly quoteRepo = new QuoteRepository();
   public readonly purchaseOrderRepo = new PurchaseOrderRepository();
@@ -920,6 +931,14 @@ class DatabaseStorage implements IStorage {
     return this.productRepo.hardDeleteProduct(id);
   }
 
+  async getArchivedProductsPage(storeId: string, page: { limit: number; offset: number }) {
+    return this.productRepo.getArchivedProductsPage(storeId, page);
+  }
+
+  async findArchivedProductByName(storeId: string, name: string) {
+    return this.productRepo.findArchivedProductByName(storeId, name);
+  }
+
   async getArchivedProducts(storeId: string): Promise<any[]> {
     return this.productRepo.getArchivedProducts(storeId);
   }
@@ -965,8 +984,8 @@ class DatabaseStorage implements IStorage {
     return this.inventoryRepo.createInventoryItem(item);
   }
 
-  async updateInventoryItem(id: string, itemData: Partial<InsertInventory>): Promise<Inventory | undefined> {
-    return this.inventoryRepo.updateInventoryItem(id, itemData);
+  async updateInventoryItem(id: string, itemData: Partial<InsertInventory>, actor?: { userId?: string | null; staffId?: string | null }): Promise<Inventory | undefined> {
+    return this.inventoryRepo.updateInventoryItem(id, itemData, actor);
   }
 
   async deleteInventoryItem(id: string): Promise<boolean> {
@@ -1006,11 +1025,15 @@ class DatabaseStorage implements IStorage {
     return this.transactionRepo.getTransactionIndex(storeIds, filters);
   }
 
+  async getReceiptPage(storeIds: string[], opts: Parameters<TransactionRepository["getReceiptPage"]>[1]) {
+    return this.transactionRepo.getReceiptPage(storeIds, opts);
+  }
+
   async getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]> {
     return this.transactionRepo.getTransactionsByIds(ids);
   }
 
-  async getTransactions(storeId: string, filters?: TransactionFilters): Promise<TransactionWithRelations[]> {
+  async getTransactions(storeId: string | string[], filters?: TransactionFilters): Promise<TransactionWithRelations[]> {
     return this.transactionRepo.getTransactions(storeId, filters);
   }
 
@@ -1034,8 +1057,8 @@ class DatabaseStorage implements IStorage {
     return this.transactionRepo.getReceiptPayload(checkoutId);
   }
 
-  async updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string): Promise<boolean> {
-    return this.transactionRepo.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus);
+  async updateCheckoutPaymentMethod(checkoutId: string, paymentMethod: string, paymentStatus: string, opts?: { accountId?: string; actorUserId?: string }): Promise<boolean | "bad_account"> {
+    return this.transactionRepo.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus, opts);
   }
 
   async searchTransactions(storeIds: string[], query: string): Promise<any[]> {
@@ -1116,6 +1139,7 @@ class DatabaseStorage implements IStorage {
     costOfServicesSold: number;
     grossProfit: number;
     discountsGiven: number;
+    discountsCount: number;
     discountsList: Array<{
       receiptNumber: string;
       discountAmount: number;
@@ -1126,6 +1150,10 @@ class DatabaseStorage implements IStorage {
     }>;
   }> {
     return this.salesRepo.getProfitLossSummary(storeId, startDate, endDate);
+  }
+
+  async assessLoss(storeId: string, items: Array<{ inventoryId: string; quantity: number; unitPrice: number }>) {
+    return this.salesRepo.assessLoss(storeId, items);
   }
 
   async processCheckout(data: {
@@ -1142,7 +1170,9 @@ class DatabaseStorage implements IStorage {
       commissionSplit?: "standard" | "equal";
     }>;
     paymentMethod: "cash" | "transfer" | "flutterwave" | "credit" | "split" | "deposit" | "store_credit";
-    splitPayments?: Array<{method: "cash" | "transfer" | "flutterwave" | "credit" | "store_credit", amount: number}>;
+    splitPayments?: PaymentLegInput[];
+    paymentDetail?: Omit<PaymentLegInput, "method" | "amount">;
+    actorUserId?: string;
     discountAmount?: number;
     discountPercent?: number;
     discountReason?: string;
@@ -1217,6 +1247,10 @@ class DatabaseStorage implements IStorage {
     return this.salesRepo.listDrafts(storeId);
   }
 
+  async listDraftsPage(storeId: string, page: { limit: number; offset: number }) {
+    return this.salesRepo.listDraftsPage(storeId, page);
+  }
+
   async getDraft(id: string, storeId: string) {
     return this.salesRepo.getDraft(id, storeId);
   }
@@ -1243,6 +1277,7 @@ class DatabaseStorage implements IStorage {
     lowStockItems: Inventory[];
     outOfStockCount: number;
     lowStockCount: number;
+    lossSales: { count: number; amount: number };
   }> {
     return this.analyticsRepo.getDashboardStats(storeId, startDate, endDate);
   }
@@ -1281,6 +1316,14 @@ class DatabaseStorage implements IStorage {
   }
 
   // ─── Attendance Repo Delegation ────────────────────────────────────────────
+  async getAttendanceRecordsPage(
+    storeId: string,
+    options: { staffId?: string; staffIds?: string[]; startDate?: string; endDate?: string },
+    page: { limit: number; offset: number },
+  ) {
+    return this.attendanceRepo.getAttendanceRecordsPage(storeId, options, page);
+  }
+
   async getAttendanceRecords(storeId: string, options: {
     staffId?: string;
     startDate?: string;
@@ -1336,6 +1379,14 @@ class DatabaseStorage implements IStorage {
   }
 
   // ─── Payroll Repo Delegation ───────────────────────────────────────────────
+  async getOpenPayrollPeriod(storeId: string) { return this.payrollRepo.getOpenPayrollPeriod(storeId); }
+  async getPaidPayrollPeriods(storeId: string) { return this.payrollRepo.getPaidPayrollPeriods(storeId); }
+  async getPayrollEntryForStaff(periodId: string, staffId: string) { return this.payrollRepo.getPayrollEntryForStaff(periodId, staffId); }
+  async getNetPayForStaff(staffId: string, periodIds: string[]) { return this.payrollRepo.getNetPayForStaff(staffId, periodIds); }
+  async getDeductionTotalsForStaff(staffId: string, periodIds: string[]) { return this.payrollRepo.getDeductionTotalsForStaff(staffId, periodIds); }
+  async getPeriodSummaryInputs(periodIds: string[]) { return this.payrollRepo.getPeriodSummaryInputs(periodIds); }
+  async getAttendanceCounts(storeId: string, staffId: string, startDate: string, endDate: string) { return this.attendanceRepo.getAttendanceCounts(storeId, staffId, startDate, endDate); }
+
   async getPayrollPeriods(storeId: string): Promise<PayrollPeriod[]> {
     return this.payrollRepo.getPayrollPeriods(storeId);
   }
@@ -1527,6 +1578,36 @@ class DatabaseStorage implements IStorage {
    * that period is never paid or deleted, with nothing in the raw column
    * telling a manager that's what happened.
    */
+  /** One page of salary advances (newest first) with the total; same row shape as getSalaryAdvances. */
+  async getSalaryAdvancesPage(storeId: string, staffId: string | undefined, page: { limit: number; offset: number }): Promise<{ rows: any[]; total: number }> {
+    const conditions: any[] = [eq(salaryAdvances.storeId, storeId)];
+    if (staffId) conditions.push(eq(salaryAdvances.staffId, staffId));
+    const where = and(...conditions);
+    const [rows, [{ total }], tz] = await Promise.all([
+      db.select({ advance: salaryAdvances, period: payrollPeriods })
+        .from(salaryAdvances)
+        .leftJoin(payrollPeriods, eq(salaryAdvances.recoveredPeriodId, payrollPeriods.id))
+        .where(where)
+        .orderBy(desc(salaryAdvances.createdAt), desc(salaryAdvances.id))
+        .limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(salaryAdvances).where(where),
+      getStoreTimezone(storeId),
+    ]);
+    const now = new Date();
+    return {
+      total,
+      rows: rows.map((r) => {
+        const guard = canRestoreManualRecovery(r.advance, { now, timezone: tz });
+        return {
+          ...r.advance,
+          reservedPeriod: r.period && { id: r.period.id, startDate: r.period.startDate, endDate: r.period.endDate, status: r.period.status },
+          canRestoreManualRecovery: guard.allowed,
+          restoreManualRecoveryBlockedReason: guard.allowed ? null : guard.reason ?? null,
+        };
+      }),
+    };
+  }
+
   async getSalaryAdvances(storeId: string, staffId?: string): Promise<any[]> {
     const conditions: any[] = [eq(salaryAdvances.storeId, storeId)];
     if (staffId) conditions.push(eq(salaryAdvances.staffId, staffId));
@@ -1809,6 +1890,14 @@ class DatabaseStorage implements IStorage {
     return this.expenseRepo.deleteExpenseCategory(id);
   }
 
+  async getExpensesPage(
+    storeId: string,
+    filters: { startDate?: string; endDate?: string; type?: "all" | "general" | "linked" | "service" | "product"; inventoryId?: string },
+    page: { limit: number; offset: number },
+  ) {
+    return this.expenseRepo.getExpensesPage(storeId, filters, page);
+  }
+
   async getExpenses(
     storeId: string,
     startDate?: string,
@@ -1926,6 +2015,41 @@ class DatabaseStorage implements IStorage {
 
   async notifyAllStaff(storeId: string, type: string, message: string): Promise<void> {
     return this.notificationRepo.notifyAllStaff(storeId, type, message);
+  }
+
+  /**
+   * One page of a business's audit trail, newest first, with the total. Scoped to the business through its
+   * users in a single join (the unpaged read above first loads every user into an IN list).
+   */
+  async getAuditLogsPage(businessId: string, filters: {
+    action?: string;
+    resource?: string;
+    resourceId?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }, page: { limit: number; offset: number }): Promise<{ rows: (AuditLog & { userName: string | null; userEmail: string | null })[]; total: number }> {
+    const conditions: any[] = [eq(users.businessId, businessId)];
+    if (filters.action) conditions.push(eq(auditLogs.action, filters.action));
+    if (filters.resource) conditions.push(eq(auditLogs.resource, filters.resource));
+    if (filters.resourceId) conditions.push(eq(auditLogs.resourceId, filters.resourceId));
+    if (filters.startDate) conditions.push(gte(auditLogs.timestamp, filters.startDate));
+    if (filters.endDate) conditions.push(lte(auditLogs.timestamp, filters.endDate));
+    const where = and(...conditions);
+
+    const [rows, [{ total }]] = await Promise.all([
+      db.select({ log: auditLogs, userName: users.name, userEmail: users.email })
+        .from(auditLogs)
+        .innerJoin(users, eq(users.id, auditLogs.userId))
+        .where(where)
+        .orderBy(desc(auditLogs.timestamp), desc(auditLogs.id))
+        .limit(page.limit)
+        .offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` })
+        .from(auditLogs)
+        .innerJoin(users, eq(users.id, auditLogs.userId))
+        .where(where),
+    ]);
+    return { rows: rows.map((r) => ({ ...r.log, userName: r.userName ?? null, userEmail: r.userEmail ?? null })), total };
   }
 
   async getAuditLogs(businessId: string, filters?: {

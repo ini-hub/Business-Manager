@@ -76,6 +76,7 @@ export class AnalyticsService {
       costOfServicesSold,
       grossProfit,
       discountsGiven,
+      discountsCount,
       discountsList,
     } = await storage.getProfitLossSummary(storeId, startDate, endDate);
 
@@ -164,6 +165,7 @@ export class AnalyticsService {
       costOfServicesSold,
       grossProfit,
       discountsGiven,
+      discountsCount,
       discountsList,
       totalOperationalExpenses,
       directSuppliesFromExpenses,

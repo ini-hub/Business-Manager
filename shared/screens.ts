@@ -5,9 +5,9 @@
  * App.tsx disagree, so it cannot drift.
  */
 export const APP_SCREEN_PATHS: readonly string[] = [
-  "/", "/customers", "/customers/new", "/customers/:id/edit", "/customers/:id",
+  "/", "/customers", "/customers/new", "/customers/:id/edit", "/customers/:id/activity", "/customers/:id",
   "/staff", "/staff/attendance", "/staff/performance", "/staff/payroll", "/staff/payroll/:periodId", "/staff/hr-profile",
-  "/staffs", "/staffs/new", "/staffs/:id/edit", "/staffs/:id/hr-profile", "/staffs/attendance", "/staffs/performance",
+  "/staffs", "/staffs/new", "/staffs/:id/edit", "/staffs/:id/activity", "/staffs/:id/hr-profile", "/staffs/attendance", "/staffs/performance", "/staffs/:id",
   "/inventory", "/inventory/new", "/inventory/audits/new", "/inventory/:id/edit", "/inventory/:id/restock", "/inventory/:id",
   "/sales/new", "/transactions", "/transactions/:id",
   "/profit-loss", "/expenses", "/expenses/new", "/expenses/categories", "/expenses/:id/edit", "/credit-sales",
@@ -23,6 +23,7 @@ export const APP_SCREEN_PATHS: readonly string[] = [
   "/vendors", "/vendors/new", "/vendors/:id/edit", "/vendors/:vendorId/bills/new", "/vendors/bills/:billId/pay",
   "/quotes", "/leaderboard", "/purchase-orders", "/purchase-orders/new", "/purchase-orders/:id/edit", "/purchase-orders/:id", "/stock-transfers",
   "/analytics", "/analytics/dashboards", "/analytics/dashboards/:id",
-  "/bookings/calendar", "/customers/insights", "/inventory/audits", "/payroll/:periodId", "/quotes/new",
+  "/bookings/calendar", "/customers/insights", "/inventory/audits", "/payroll/:periodId", "/quotes/new", "/quotes/:id",
   "/staffs/performance/analytics", "/stock-transfers/new", "/transactions/register-shifts",
+  "/partners", "/partners/transfers/new", "/partners/transfers/:id", "/partners/ledger",
 ];

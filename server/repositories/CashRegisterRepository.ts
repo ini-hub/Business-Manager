@@ -6,7 +6,7 @@ import {
   type CashRegisterSession,
   type CashDrop,
 } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 
 export class CashRegisterRepository extends BaseRepository<typeof cashRegisterSessions> {
   constructor() {
@@ -19,6 +19,18 @@ export class CashRegisterRepository extends BaseRepository<typeof cashRegisterSe
       .from(cashRegisterSessions)
       .where(eq(cashRegisterSessions.storeId, storeId))
       .orderBy(desc(cashRegisterSessions.openedAt));
+  }
+
+  /** One page of a store's register sessions, newest first, with the total (there is one per shift, forever). */
+  async getSessionsPage(storeIds: string | string[], page: { limit: number; offset: number }): Promise<{ rows: CashRegisterSession[]; total: number }> {
+    const ids = Array.isArray(storeIds) ? storeIds : [storeIds];
+    if (ids.length === 0) return { rows: [], total: 0 };
+    const where = ids.length === 1 ? eq(cashRegisterSessions.storeId, ids[0]) : inArray(cashRegisterSessions.storeId, ids);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(cashRegisterSessions).where(where).orderBy(desc(cashRegisterSessions.openedAt), desc(cashRegisterSessions.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(cashRegisterSessions).where(where),
+    ]);
+    return { rows, total };
   }
 
   async getActiveSession(storeId: string): Promise<CashRegisterSession | undefined> {

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import { Check, ChevronDown, ChevronUp } from "lucide-react"
+import { Check, ChevronDown, ChevronUp, Search } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -67,36 +67,80 @@ const SelectScrollDownButton = React.forwardRef<
 SelectScrollDownButton.displayName =
   SelectPrimitive.ScrollDownButton.displayName
 
+// Four ~36px rows plus the viewport's p-1 padding.
+const SELECT_LIST_MAX_HEIGHT = "152px"
+
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
-  <SelectPrimitive.Portal>
-    <SelectPrimitive.Content
-      ref={ref}
-      className={cn(
-        "relative z-50 max-h-[--radix-select-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
-        position === "popper" &&
-          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
-        className
-      )}
-      position={position}
-      {...props}
-    >
-      <SelectScrollUpButton />
-      <SelectPrimitive.Viewport
+>(({ className, children, position = "popper", ...props }, ref) => {
+  const [search, setSearch] = React.useState("")
+  const [noMatches, setNoMatches] = React.useState(false)
+  const listRef = React.useRef<HTMLDivElement>(null)
+
+  // Radix items are plain children, so filter by toggling `hidden` on the
+  // rendered options. Runs every render so async-loaded options are filtered too.
+  React.useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const q = search.trim().toLowerCase()
+    let visible = 0
+    list.querySelectorAll<HTMLElement>('[role="option"]').forEach((el) => {
+      const match = !q || (el.textContent ?? "").toLowerCase().includes(q)
+      el.hidden = !match
+      if (match) visible++
+    })
+    setNoMatches(visible === 0)
+  })
+
+  return (
+    <SelectPrimitive.Portal>
+      <SelectPrimitive.Content
+        ref={ref}
         className={cn(
-          "p-1",
+          "relative z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
           position === "popper" &&
-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+            "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+          className
         )}
+        position={position}
+        {...props}
       >
-        {children}
-      </SelectPrimitive.Viewport>
-      <SelectScrollDownButton />
-    </SelectPrimitive.Content>
-  </SelectPrimitive.Portal>
-))
+        <div className="flex items-center gap-2 border-b px-3">
+          <Search className="h-4 w-4 shrink-0 opacity-50" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Keep Radix typeahead/selection from swallowing typing.
+              if (e.key === "ArrowDown" || e.key === "Enter") {
+                e.preventDefault()
+                listRef.current
+                  ?.querySelector<HTMLElement>('[role="option"]:not([hidden])')
+                  ?.focus()
+              } else if (e.key !== "Escape") {
+                e.stopPropagation()
+              }
+            }}
+            placeholder="Search..."
+            className="h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            data-testid="select-search"
+          />
+        </div>
+        <SelectPrimitive.Viewport
+          ref={listRef}
+          className="p-1"
+          style={{ maxHeight: SELECT_LIST_MAX_HEIGHT }}
+        >
+          {children}
+          {noMatches && (
+            <div className="py-3 text-center text-sm text-muted-foreground">No results found.</div>
+          )}
+        </SelectPrimitive.Viewport>
+      </SelectPrimitive.Content>
+    </SelectPrimitive.Portal>
+  )
+})
 SelectContent.displayName = SelectPrimitive.Content.displayName
 
 const SelectLabel = React.forwardRef<

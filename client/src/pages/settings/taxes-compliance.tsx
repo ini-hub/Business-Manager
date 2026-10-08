@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Trash2, X } from "lucide-react";
@@ -74,10 +75,8 @@ export default function TaxesCompliancePage() {
   // Fetch Transactions for VAT reporting
   const { data: transactions = [], isLoading: isLoadingTransactions } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/transactions?storeId=${currentStore?.id}`);
-      return res.json();
-    },
+    // VAT totals add up every receipt, so this reads them all (page by page).
+    queryFn: () => fetchAllPages<Transaction>(`/api/transactions?storeId=${currentStore?.id}`),
     enabled: !!currentStore?.id,
   });
 

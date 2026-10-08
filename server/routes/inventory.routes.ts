@@ -277,7 +277,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
         }
       }
 
-      const updatedItem = await storage.updateInventoryItem(req.params.id, data);
+      const updatedItem = await storage.updateInventoryItem(req.params.id, data, { userId: getUserId(req) });
       if (!updatedItem) {
         return res.status(404).json({ error: "This item no longer exists. It may have been deleted." });
       }

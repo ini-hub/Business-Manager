@@ -9,7 +9,7 @@ import {
   type VendorBill,
   type InsertVendorBill,
 } from "@shared/schema";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, sql } from "drizzle-orm";
 
 export class VendorRepository extends BaseRepository<typeof vendors> {
   constructor() {
@@ -88,6 +88,18 @@ export class VendorRepository extends BaseRepository<typeof vendors> {
       ...r.bill,
       vendor: r.vendor,
     }));
+  }
+
+  /** One page of a store's vendor bills, newest first, with the total. */
+  async getVendorBillsPage(storeId: string, page: { limit: number; offset: number }): Promise<{ rows: (VendorBill & { vendor: Vendor })[]; total: number }> {
+    const where = eq(vendorBills.storeId, storeId);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select({ bill: vendorBills, vendor: vendors }).from(vendorBills)
+        .innerJoin(vendors, eq(vendorBills.vendorId, vendors.id))
+        .where(where).orderBy(desc(vendorBills.createdAt), desc(vendorBills.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(vendorBills).innerJoin(vendors, eq(vendorBills.vendorId, vendors.id)).where(where),
+    ]);
+    return { rows: rows.map((r) => ({ ...r.bill, vendor: r.vendor })), total };
   }
 
   async getVendorBill(id: string): Promise<(VendorBill & { vendor: Vendor }) | undefined> {

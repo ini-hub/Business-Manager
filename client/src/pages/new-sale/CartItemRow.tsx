@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
-import { Minus, Plus, Trash2, UserCog, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import { Minus, Plus, Trash2, UserCog, ChevronDown, ChevronUp, AlertCircle, TrendingDown } from "lucide-react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -24,12 +24,15 @@ import { cn } from "@/lib/utils";
 import { StaffPresenter, EntityDisplay } from "@/components/oop-ui/EntityDisplayPresenter";
 import type { Staff } from "@shared/schema";
 import type { CartItem } from "./types";
+import type { LossLine } from "./useLossCheck";
 import { quantityStep, parseQuantityInput, formatQuantity } from "@/lib/quantity-utils";
 
 interface CartItemRowProps {
   item: CartItem;
   staffList: Staff[];
   formatCurrency: (v: number) => string;
+  /** Set when the server says this line is priced below full cost. Never blocks the sale. */
+  loss?: LossLine;
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onSetExactQuantity: (itemId: string, qty: number) => void;
   onUpdatePrice: (itemId: string, price: number) => void;
@@ -53,6 +56,7 @@ export function CartItemRow({
   item,
   staffList,
   formatCurrency,
+  loss,
   onUpdateQuantity,
   onSetExactQuantity,
   onUpdatePrice,
@@ -70,6 +74,8 @@ export function CartItemRow({
       "flex flex-col gap-2 p-3 rounded-lg bg-muted/50 border-l-4",
       missingLead
         ? "border border-destructive/40"
+        : loss
+          ? "border border-red-500/60 border-l-red-600 bg-red-50/60 dark:bg-red-950/20"
         : isService
           ? "border-l-violet-500 dark:border-l-violet-400"
           : "border-l-sky-500 dark:border-l-sky-400"
@@ -79,6 +85,17 @@ export function CartItemRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <p className="font-medium text-sm leading-snug">{item.inventory.name}</p>
+            {loss && (
+              <Badge
+                variant="secondary"
+                className="text-[11px] h-4 py-0 bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 shrink-0 gap-1"
+                data-testid={`badge-loss-${item.inventory.id}`}
+              >
+                <TrendingDown className="h-3 w-3" aria-hidden="true" />
+                <span className="sm:hidden">Loss</span>
+                <span className="hidden sm:inline">Loss {formatCurrency(loss.lossAmount)}</span>
+              </Badge>
+            )}
             {item.customPrice !== item.inventory.sellingPrice && (
               <Badge variant="secondary" className="text-[11px] h-4 py-0 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 shrink-0">
                 Custom
@@ -179,6 +196,11 @@ export function CartItemRow({
         <span className="text-[11px] text-muted-foreground shrink-0">
           List: {formatCurrency(item.inventory.sellingPrice)}
         </span>
+        {loss && (
+          <span className="text-[11px] font-medium text-red-600 dark:text-red-400 w-full" role="status">
+            Below cost, you lose {formatCurrency(loss.lossAmount)} on this line.
+          </span>
+        )}
       </div>
 
       {/* Fractional presets */}

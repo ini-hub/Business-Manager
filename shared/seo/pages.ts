@@ -190,7 +190,7 @@ export const DASHBOARD_TITLE = "Dashboard | Kowope";
 export const PRIVATE_SEGMENTS: readonly string[] = [
   "activate", "analytics", "auth", "bookings", "broadcasts", "complete-profile", "credit-sales",
   "customers", "data-usage", "expenses", "guarantor", "help-support", "inventory", "leaderboard",
-  "legal", "my-booking", "onboarding", "payroll", "profile", "profit-loss", "purchase-orders",
+  "legal", "my-booking", "onboarding", "partners", "payroll", "profile", "profit-loss", "purchase-orders",
   "quotes", "reports", "sales", "settings", "staff", "staffs", "stock-transfers", "super-admin",
   "transactions", "vendors", "verify",
 ];

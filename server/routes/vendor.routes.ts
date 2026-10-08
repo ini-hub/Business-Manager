@@ -1,3 +1,4 @@
+import { parsePage, paginated } from "../lib/pagination";
 import express, { type Express, type Request, type Response } from "express";
 import { storage } from "../storage";
 import {
@@ -91,8 +92,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const result = await storage.vendorRepo.getVendorBills(storeId);
-      res.json(result);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.vendorRepo.getVendorBillsPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch vendor bills." });
     }
@@ -288,8 +290,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const result = await storage.stockAuditRepo.getAudits(storeId);
-      res.json(result);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.stockAuditRepo.getAuditsPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch stock audits." });
     }
@@ -387,22 +390,20 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
 
+      const page = parsePage(req.query);
       if (storeId === "all") {
         const stores = await getUserStores(req);
-        if (stores.length === 0) return res.json([]);
-        const list = await Promise.all(
-          stores.map(async (s) => {
-            const quotes = await storage.quoteRepo.getQuotes(s.id);
-            return quotes.map(q => ({ ...q, storeName: s.name }));
-          })
-        );
-        return res.json(list.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+        if (stores.length === 0) return res.json(paginated([], 0, page));
+        // One query across every store the user may see, paged as a whole and newest first.
+        const { rows, total } = await storage.quoteRepo.getQuotesPage(stores.map((s) => s.id), page);
+        const names = new Map(stores.map((s) => [s.id, s.name]));
+        return res.json(paginated(rows.map((q) => ({ ...q, storeName: names.get(q.storeId) })), total, page));
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const list = await storage.quoteRepo.getQuotes(storeId);
-      res.json(list);
+      const { rows, total } = await storage.quoteRepo.getQuotesPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch quotes." });
     }
@@ -513,8 +514,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const list = await storage.purchaseOrderRepo.getPurchaseOrders(storeId);
-      res.json(list);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.purchaseOrderRepo.getPurchaseOrdersPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch purchase orders." });
     }
@@ -892,8 +894,9 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const list = await storage.stockTransferRepo.getStockTransfers(storeId);
-      res.json(list);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.stockTransferRepo.getStockTransfersPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch stock transfers." });
     }

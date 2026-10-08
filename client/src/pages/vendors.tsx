@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { AddButton } from "@/components/add-button";
@@ -93,20 +94,15 @@ export default function VendorsPage() {
 
   const { data: bills = [] } = useQuery<(VendorBill & { vendorName?: string })[]>({
     queryKey: ["/api/vendors/bills", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/vendors/bills?storeId=${currentStore!.id}`);
-      return res.json();
-    },
+    // Per-vendor billed/paid totals are summed over every bill, so the screen walks the pages.
+    queryFn: () => fetchAllPages<any>(`/api/vendors/bills?storeId=${currentStore!.id}`),
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 
   const { isDisabled } = useEntitlements();
   const { data: vendorPOs = [] } = useQuery<{ vendorId: string; status: string; createdAt: string }[]>({
     queryKey: ["/api/purchase-orders", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/purchase-orders?storeId=${currentStore!.id}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllPages<any>(`/api/purchase-orders?storeId=${currentStore!.id}`),
     enabled: !isDisabled("purchase_order_tracking") && !!currentStore?.id && currentStore.id !== "all",
   });
 

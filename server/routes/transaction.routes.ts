@@ -1,7 +1,9 @@
+import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
-import { checkoutInScope, filterToScope, resolveTransactionScope } from "../lib/transactionAccess";
+import { checkoutInScope, resolveTransactionScope } from "../lib/transactionAccess";
 import { storage } from "../storage";
 import { auditLogger } from "../audit";
+import { getCheckoutMoneyDetails } from "../lib/checkoutAuditDetails";
 import { getClientIp, getUserStores, broadcastChange, getAuditContext } from './helpers';
 import { staffCreditDeductionService } from "../services/StaffCreditDeductionService";
 
@@ -12,7 +14,7 @@ export type RouteMiddlewares = {
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
 
-function groupTransactions(txs: any[]): any[] {
+export function groupTransactions(txs: any[]): any[] {
   const groupedMap = new Map<string, any[]>();
   for (const tx of txs) {
     const key = tx.checkout?.receiptNumber || tx.checkoutId || tx.id;
@@ -27,7 +29,7 @@ function groupTransactions(txs: any[]): any[] {
     // transaction list links to the original sale, not an addendum appended later.
     const firstTx = group.find((t: any) => !t.checkout?.isAddendum) ?? group[group.length - 1];
     let totalAmount = 0, totalTotalPrice = 0, totalTotalCharged = 0, totalQuantity = 0;
-    let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0, totalTaxRefunded = 0;
+    let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0, totalTaxRefunded = 0, totalLossAmount = 0;
     for (const item of group) {
       totalAmount += Number(item.amount) || 0;
       totalTotalPrice += Number(item.checkout?.totalPrice) || 0;
@@ -38,6 +40,7 @@ function groupTransactions(txs: any[]): any[] {
       totalSubtotal += Number(item.checkout?.subtotal) || 0;
       totalDiscountAmount += Number(item.checkout?.discountAmount) || 0;
       totalTaxRefunded += Number(item.checkout?.taxRefunded) || 0;
+      totalLossAmount += Number(item.checkout?.lossAmount) || 0;
     }
     const hasService = group.some((t: any) => t.inventory?.type === "service");
     const hasProduct = group.some((t: any) => t.inventory?.type === "product");
@@ -74,6 +77,7 @@ function groupTransactions(txs: any[]): any[] {
         returnedQuantity: totalReturnedQuantity,
         refundedAmount: totalRefundedAmount,
         taxRefunded: totalTaxRefunded,
+        lossAmount: totalLossAmount,
         totalCharged: totalTotalCharged,
         basketItemCount: group.length,
       },
@@ -83,32 +87,21 @@ function groupTransactions(txs: any[]): any[] {
 }
 
 /**
- * One page of receipts, newest first. Grouping, staff scope and search run over a
- * narrow per-line index; only the lines on the requested page are then loaded in
- * full. Receipts are grouped exactly as before, so the response is unchanged.
+ * One page of receipts, newest first. Which receipts exist, the viewer's staff scope, the search and the
+ * paging all run in SQL (storage.getReceiptPage); only the lines on the requested page are then loaded in
+ * full and merged into receipts exactly as before, so the response shape is unchanged.
  */
-async function pageOfReceipts(storeIds: string[], filters: { startDate?: Date; endDate?: Date }, scope: Set<string> | null, search: string | undefined, page: number, limit: number) {
-  const index = await storage.getTransactionIndex(storeIds, filters);
-  let groups = filterToScope(groupTransactions(index), scope);
-  if (search) {
-    const sLower = search.toLowerCase();
-    groups = groups.filter(tx =>
-      String(tx.checkout?.receiptNumber || "").toLowerCase().includes(sLower) ||
-      String(tx.id || "").toLowerCase().includes(sLower) ||
-      String(tx.inventory?.name || "").toLowerCase().includes(sLower) ||
-      String(tx.customer?.name || "").toLowerCase().includes(sLower)
-    );
-  }
-  groups.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
-  const total = groups.length;
-  const offset = (page - 1) * limit;
-  const pageKeys = new Set(groups.slice(offset, offset + limit).map(g => g.checkout?.receiptNumber || g.checkoutId || g.id));
-  const lineIds = index
-    .filter(t => pageKeys.has(t.checkout?.receiptNumber || t.checkoutId || t.id))
-    .map(t => t.id);
+async function pageOfReceipts(storeIds: string[], filters: { startDate?: Date; endDate?: Date; customerId?: string }, scope: Set<string> | null, search: string | undefined, page: number, limit: number) {
+  const { keys, lineIds, total } = await storage.getReceiptPage(storeIds, {
+    ...filters,
+    scope,
+    search: search || undefined,
+    offset: (page - 1) * limit,
+    limit,
+  });
   const full = groupTransactions(await storage.getTransactionsByIds(lineIds));
   const byKey = new Map(full.map(g => [g.checkout?.receiptNumber || g.checkoutId || g.id, g]));
-  const data = groups.slice(offset, offset + limit).map(g => byKey.get(g.checkout?.receiptNumber || g.checkoutId || g.id)).filter(Boolean);
+  const data = keys.map(k => byKey.get(k)).filter(Boolean);
   return { data, total };
 }
 
@@ -122,58 +115,35 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         return res.status(400).json({ error: "Please select a store first." });
       }
 
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
+      // Always one page of receipts, newest first (page 1 at the default size when none is asked for): the
+      // list grows with every sale and must never come back whole. Screens that need every receipt walk the
+      // pages (client/src/lib/paginated.ts).
+      const pageReq = parsePage(req.query);
 
       // Parse optional server-side date filters
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      if ((startDate && Number.isNaN(startDate.getTime())) || (endDate && Number.isNaN(endDate.getTime()))) {
+        return res.status(400).json({ error: "That date range isn't valid. Please check the dates and try again." });
+      }
       const filters = { startDate, endDate };
+      const search = req.query.search as string | undefined;
 
       if (storeId === "all") {
         const stores = await getUserStores(req);
-        if (stores.length === 0) {
-          return res.json(page > 0 && limit > 0 ? { transactions: [], total: 0, pages: 0 } : []);
-        }
+        if (stores.length === 0) return res.json(paginated([], 0, pageReq));
 
+        // Non-owner/manager users only see their own checkouts (business setting).
         const scope = await resolveTransactionScope((req as any).user, stores.map(s => s.id));
-
-        if (page > 0 && limit > 0) {
-          const { data, total } = await pageOfReceipts(stores.map(s => s.id), filters, scope, req.query.search as string | undefined, page, limit);
-          const totalPages = Math.ceil(total / limit);
-          return res.json({
-            data,
-            pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
-          });
-        }
-
-        // Non-owner/manager users only see their own checkouts (business setting). Filtered
-        // after grouping so a merged multi-service receipt is never cut down to some of its lines.
-        const allTxs = await Promise.all(
-          stores.map(s => storage.getTransactions(s.id, filters))
-        );
-        const grouped = filterToScope(groupTransactions(allTxs.flat()), scope);
-
-        grouped.sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
-        return res.json(grouped);
+        const { data, total } = await pageOfReceipts(stores.map(s => s.id), filters, scope, search, pageReq.page, pageReq.limit);
+        return res.json(paginated(data, total, pageReq));
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const scope = await resolveTransactionScope((req as any).user, [storeId]);
-
-      if (page > 0 && limit > 0) {
-        const { data, total } = await pageOfReceipts([storeId], filters, scope, req.query.search as string | undefined, page, limit);
-        const totalPages = Math.max(1, Math.ceil(total / limit));
-        return res.json({
-          data,
-          pagination: { total, page, limit, totalPages, hasMore: page < totalPages },
-        });
-      }
-
-      const grouped = filterToScope(groupTransactions(await storage.getTransactions(storeId, filters)), scope);
-
-      res.json(grouped);
+      const { data, total } = await pageOfReceipts([storeId], filters, scope, search, pageReq.page, pageReq.limit);
+      res.json(paginated(data, total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your transactions. Please try again." });
     }
@@ -202,16 +172,16 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
 
   app.get("/api/customers/:id/transactions", isAuthenticated, async (req: any, res) => {
     try {
-      const txs = await storage.getTransactionsByCustomer(req.params.id);
+      const pageReq = parsePage(req.query);
+      const customer = await storage.getCustomer(req.params.id);
+      // A customer belongs to one store; an unknown customer simply has no transactions.
+      if (!customer) return res.json(paginated([], 0, pageReq));
+      if (!(await checkStoreAccess(customer.storeId, req, res))) return;
 
-      // Verify the user has access to at least one store for this customer's transactions
-      if (txs.length > 0) {
-        const storeId = txs[0].storeId;
-        if (!(await checkStoreAccess(storeId, req, res))) return;
-      }
-
-      const scope = await resolveTransactionScope(req.user, txs.map((t) => t.storeId));
-      res.json(filterToScope(groupTransactions(txs), scope));
+      // This customer's receipts, newest first, one page at a time (a regular can have thousands).
+      const scope = await resolveTransactionScope(req.user, [customer.storeId]);
+      const { data, total } = await pageOfReceipts([customer.storeId], { customerId: customer.id }, scope, undefined, pageReq.page, pageReq.limit);
+      res.json(paginated(data, total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load customer transactions. Please try again." });
     }
@@ -230,7 +200,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       if (scope && !receiptCheckouts.some((c: any) => checkoutInScope(c, scope))) {
         return res.status(403).json({ error: "You can only view receipts for transactions you took part in." });
       }
-      res.json(payload);
+      const paymentLegs = await storage.paymentAccountRepo.getLegsForReceipt(payload.checkout.storeId, payload.checkout.receiptNumber);
+      res.json({ ...payload, paymentLegs });
     } catch (error) {
       console.error("Receipt API Error:", error);
       res.status(500).json({ error: "Could not load receipt data." });
@@ -270,7 +241,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         userId,
         ip: getClientIp(req),
         status: "success",
-        details: { reason: reason.trim() },
+        details: { reason: reason.trim(), ...(await getCheckoutMoneyDetails([checkoutId]).catch(() => ({}))) },
       });
 
       // The void may have cancelled a staff member's own debt (a checkout rung
@@ -301,13 +272,17 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
   app.patch("/api/transactions/:checkoutId/payment-status", requireRole("owner", "manager"), async (req: any, res) => {
     try {
       const { checkoutId } = req.params;
-      const { paymentMethod, paymentStatus } = req.body;
+      const { paymentMethod, paymentStatus, accountId } = req.body;
       const validMethods = ["cash", "transfer", "pos", "flutterwave"];
       const validStatuses = ["completed", "pending"];
       if (!validMethods.includes(paymentMethod)) return res.status(400).json({ error: "Invalid payment method." });
       if (!validStatuses.includes(paymentStatus)) return res.status(400).json({ error: "Invalid payment status." });
 
-      const ok = await storage.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus);
+      const ok = await storage.updateCheckoutPaymentMethod(checkoutId, paymentMethod, paymentStatus, {
+        accountId: paymentMethod === "transfer" && typeof accountId === "string" ? accountId : undefined,
+        actorUserId: req.user?.id,
+      });
+      if (ok === "bad_account") return res.status(400).json({ error: "The selected payment account is not active for this store." });
       if (!ok) return res.status(404).json({ error: "Transaction not found." });
 
       auditLogger.log({

@@ -39,6 +39,7 @@ export const attendanceRecords = pgTable("attendance_records", {
 }, (table) => [
   unique("attendance_staff_date_unique").on(table.storeId, table.staffId, table.date),
   index("idx_attendance_staff_date").on(table.staffId, table.date),
+  index("idx_attendance_store_date").on(table.storeId, table.date),
 ]);
 
 export const attendanceRecordsRelations = relations(attendanceRecords, ({ one }) => ({

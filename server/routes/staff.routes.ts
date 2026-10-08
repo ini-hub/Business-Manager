@@ -227,6 +227,9 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       };
       delete sanitizedBody.contract;
       const data = insertStaffSchema.parse(sanitizedBody);
+      if (data.role === "owner") {
+        return res.status(400).json({ error: "The owner role can't be assigned to a staff member." });
+      }
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
 
       // Phone pre-check, before any staff row is created. sanitizePhoneNumber
@@ -450,6 +453,14 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       delete sanitizedBody.name;
       const data = insertStaffSchema.partial().parse(sanitizedBody);
 
+      // The owner's access role is fixed: it is set once at store creation and
+      // cannot be edited here, and "owner" cannot be handed to anyone else.
+      if (staffMember.role === "owner") {
+        delete data.role;
+      } else if (data.role === "owner") {
+        return res.status(400).json({ error: "The owner role can't be assigned to a staff member." });
+      }
+
       // ── Email change ────────────────────────────────────────────────────
       // staff.email and users.email are two different things: the first is the
       // HR record, the second is a credential. Updating only the first (which
@@ -595,7 +606,12 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // branch since it never needs re-verification, just a mirrored write.)
       const nameChanged = (data.firstName !== undefined || data.lastName !== undefined) && updatedStaffMember.name !== staffMember.name;
       if (nameChanged && staffMember.userId) {
-        await syncStaffNameToLinkedUser(staffMember.id, staffMember.userId, updatedStaffMember.name);
+        // Only while the person hasn't activated their account: after that the
+        // login name is theirs (it shows in every business they belong to), and
+        // this edit stays on this business's staff record.
+        const nameStore = await storage.getStore(staffMember.storeId);
+        const nameMember = nameStore ? await storage.getOrganisationMember(staffMember.userId, nameStore.businessId) : null;
+        if (nameMember?.status === "pending") await syncStaffNameToLinkedUser(staffMember.id, staffMember.userId, updatedStaffMember.name);
       }
 
       // Keep the HR "complete profile" personal fields (first_name/last_name/

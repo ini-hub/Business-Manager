@@ -63,6 +63,7 @@ export const inventory = pgTable("inventory", {
   commissionSplitBusinessShare: integer("commission_split_business_share").default(80).notNull(),
   commissionSplitStaffShare: integer("commission_split_staff_share").default(20).notNull(),
   isBundle: boolean("is_bundle").default(false).notNull(),
+  sharedWithPartners: boolean("shared_with_partners").notNull().default(false), // partners may see and request this item (migration 0118)
   productId: varchar("product_id").notNull().references(() => products.id),
   sku: text("sku"),
   barcode: text("barcode"),

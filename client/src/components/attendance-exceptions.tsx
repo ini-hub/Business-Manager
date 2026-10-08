@@ -1,3 +1,6 @@
+import { fetchAllPages } from "@/lib/paginated";
+import { usePaged } from "@/hooks/usePaged";
+import { PagerBar } from "@/components/pager-bar";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,22 +77,22 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
   const { data: punches = [], isLoading } = useQuery<Punch[]>({
     queryKey: ["/api/attendance/punches", storeId, startDate, endDate],
     queryFn: async () => {
-      const res = await fetch(`/api/attendance/punches?storeId=${storeId}&startDate=${startDate}&endDate=${endDate}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        // The shared-device check looks across the whole window, so this reads every punch in it (page by page).
+        return await fetchAllPages<Punch>(`/api/attendance/punches?storeId=${storeId}&startDate=${startDate}&endDate=${endDate}`);
+      } catch {
+        return [];
+      }
     },
     enabled: !!storeId,
   });
 
-  const { data: requests = [] } = useQuery<RetroRequest[]>({
-    queryKey: ["/api/attendance/retro-requests", storeId],
-    queryFn: async () => {
-      const res = await fetch(`/api/attendance/retro-requests?storeId=${storeId}`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!storeId,
-  });
+  // Pending requests come first, so the ones waiting on a decision are always on page one.
+  const { rows: requests, pagination: requestPages, setPage: setRequestPage, isFetching: requestsFetching } = usePaged<RetroRequest>(
+    ["/api/attendance/retro-requests", storeId],
+    "/api/attendance/retro-requests",
+    { params: { storeId }, pageSize: 10, enabled: !!storeId },
+  );
 
   const { data: devices = [] } = useQuery<Device[]>({
     queryKey: ["/api/attendance/devices", storeId],
@@ -200,6 +203,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
               ))}
             </div>
           )}
+          <PagerBar pagination={requestPages} onPage={setRequestPage} busy={requestsFetching} noun="requests" />
         </CardContent>
       </Card>
 

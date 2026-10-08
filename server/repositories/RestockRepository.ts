@@ -11,10 +11,11 @@ import {
   type Inventory,
   type CostStrategy,
 } from "@shared/schema";
-import { eq, and, count, desc } from "drizzle-orm";
+import { eq, and, count, desc, sql } from "drizzle-orm";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 import { postSupplyPurchaseExpense, localDateString } from "../services/SupplyCostingService";
 import { getStoreTimezone } from "../lib/dateUtils";
+import { recordStockMovements } from "../lib/stockLedger";
 
 export class RestockRepository {
   async getRestockEvents(inventoryId: string): Promise<(RestockEvent & { staff: Staff | null; user: User | null })[]> {
@@ -121,10 +122,24 @@ export class RestockRepository {
     const newSellingPrice = data.newSellingPrice ?? previousSellingPrice;
 
     const result = await db.transaction(async (tx) => {
+      // Relative, not absolute: previousQuantity was read before this transaction, so writing
+      // newQuantity back would erase any sale that landed in between.
       const [updatedInventory] = await tx.update(inventory)
-        .set({ quantity: newQuantity, costPrice: newCostPrice, sellingPrice: newSellingPrice })
+        .set({ quantity: sql`${inventory.quantity} + ${data.quantityAdded}`, costPrice: newCostPrice, sellingPrice: newSellingPrice })
         .where(eq(inventory.id, data.inventoryId))
         .returning();
+
+      await recordStockMovements(tx, [{
+        storeId: data.storeId,
+        inventoryId: data.inventoryId,
+        reason: data.reason === "Opening Stock" ? "opening_balance" : "restock",
+        before: Number(updatedInventory.quantity) - data.quantityAdded,
+        after: Number(updatedInventory.quantity),
+        refType: "restock",
+        actorStaffId: data.staffId ?? null,
+        actorUserId: data.userId ?? null,
+        note: data.reason || "Regular Restock",
+      }]);
 
       const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
         storeId: data.storeId,

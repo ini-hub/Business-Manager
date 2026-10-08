@@ -1,3 +1,4 @@
+import { parsePage, pagination } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { db } from "../db";
@@ -33,15 +34,11 @@ export function registerAuditLogRoutes(
         ? toUtcEnd(req.query.endDate as string, tz)
         : undefined;
 
-      const logs = await storage.getAuditLogs(businessId, {
-        action,
-        resource,
-        resourceId,
-        startDate,
-        endDate,
-      });
-
-      res.json({ logs });
+      // Newest first, one page at a time (the trail only ever grows). `logs` keeps its name so existing readers
+      // still work; `pagination` says how much more there is.
+      const page = parsePage(req.query, { defaultLimit: 100, maxLimit: 200 });
+      const { rows, total } = await storage.getAuditLogsPage(businessId, { action, resource, resourceId, startDate, endDate }, page);
+      res.json({ logs: rows, pagination: pagination(total, page) });
     } catch (error) {
       console.error("GET /api/audit-logs error:", error);
       res.status(500).json({ error: "Could not fetch audit logs." });

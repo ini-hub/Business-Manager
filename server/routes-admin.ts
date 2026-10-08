@@ -46,7 +46,7 @@ import {
   publishLegalDocumentVersionSchema,
   createLegalDocumentSchema
 } from "@shared/schema";
-import { grantFeatureEntitlement } from "./lib/entitlements";
+import { grantFeatureEntitlement, invalidateFeatureCatalogCache } from "./lib/entitlements";
 import { publishFeature } from "./lib/featureSync";
 import { listPendingReview } from "./lib/featureReviewNotice";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
@@ -58,7 +58,7 @@ import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
 import { generateAdminToken, isAdminAuthenticated, requireAdminRole } from "./auth-admin";
 import { broadcastDataChange, getConnectedClientCount } from "./websocket";
-import { getRangeStats, parseRange, RANGES } from "./lib/healthMetrics";
+import { getRangeStats, getRouteStats, parseRange, RANGES } from "./lib/healthMetrics";
 import { sendOtpEmail, sendPasswordChangedEmail, sendAdminInviteEmail, sendAdminMfaResetEmail } from "./email";
 import { generateActivationCode, activationCodeExpiry, normalizeActivationCode } from "./lib/activation-code";
 import { checkResendCooldown } from "./lib/otp-cooldown";
@@ -2295,6 +2295,7 @@ adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["s
       })
       .where(eq(featureFlags.id, id))
       .returning();
+    invalidateFeatureCatalogCache();
 
     await writeAuditLog(req, "toggle_feature_flag", flag.name, { status, scopedOrgIds });
 
@@ -2320,6 +2321,7 @@ adminRouter.delete("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(
     }
 
     await db.delete(featureFlags).where(eq(featureFlags.id, id));
+    invalidateFeatureCatalogCache();
 
     await writeAuditLog(req, "delete_feature_flag", flag.name);
 
@@ -2403,6 +2405,7 @@ adminRouter.post("/feature-catalog", isAdminAuthenticated, requireAdminRole(["su
       const [row] = await tx.insert(featureCatalog).values({ ...parsed.data, flagId: flag.id }).returning();
       return row;
     });
+    invalidateFeatureCatalogCache();
     await writeAuditLog(req, "create_feature_catalog_entry", created.key, { category: created.category, tierType: created.tierType });
     return res.json({ success: true, feature: created });
   } catch (error) {
@@ -2448,6 +2451,7 @@ adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole([
       .set({ ...patch.data, updatedAt: new Date() })
       .where(eq(featureCatalog.id, id))
       .returning();
+    invalidateFeatureCatalogCache();
 
     await writeAuditLog(req, "update_feature_catalog_pricing", existing.key, { before: existing, after: patch.data });
     return res.json({ success: true, feature: updated });
@@ -2870,6 +2874,17 @@ adminRouter.post("/announcements/broadcast-email", isAdminAuthenticated, require
 // ----------------------------------------------------
 
 const fmtMs = (ms: number) => `${Math.round(ms)}ms`;
+
+// Slowest endpoints: per-route latency, error count and mean DB statements per request, heaviest first.
+adminRouter.get("/system/endpoints", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const range = parseRange(req.query.range);
+    return res.json({ range, endpoints: await getRouteStats(range) });
+  } catch (error) {
+    console.error("System endpoints error:", error);
+    return res.status(500).json({ error: "We couldn't load endpoint timings. Please try again." });
+  }
+});
 
 adminRouter.get("/system/health", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {

@@ -1,3 +1,4 @@
+import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { auditLogger } from "../audit";
@@ -33,8 +34,9 @@ export function registerCashRoutes(app: Express, { isAuthenticated, requireRole,
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
-      const sessions = await storage.cashRegisterRepo.getSessions(storeId);
-      res.json(sessions);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.cashRegisterRepo.getSessionsPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not fetch register sessions." });
     }

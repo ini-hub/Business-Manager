@@ -19,6 +19,8 @@ import { hrPersonalProfileService } from "./HrPersonalProfileService";
  * failure on the mirrored write never breaks the caller's own update.
  */
 
+const LEGACY_PLACEHOLDER_MOBILE = "0000000000";
+
 /** Call after a manager edits staff.name via PATCH /api/staff/:id. */
 export async function syncStaffNameToLinkedUser(
   staffId: string,
@@ -45,6 +47,14 @@ export async function syncStaffNameToLinkedUser(
 export async function syncUserIdentityToLinkedStaff(
   userId: string,
   fields: { name?: string; email?: string; phone?: string },
+  /**
+   * The account's identity values from BEFORE this change. When given, a staff
+   * row only follows a field if it still holds that old value (or is blank /
+   * the legacy "0000000000" placeholder) - a row whose business has set its
+   * own different value (e.g. a work email) is left alone. Omit to overwrite
+   * every linked row unconditionally.
+   */
+  previous?: { name?: string | null; email?: string | null; phone?: string | null },
 ): Promise<void> {
   if (fields.name === undefined && fields.email === undefined && fields.phone === undefined) return;
 
@@ -79,16 +89,40 @@ export async function syncUserIdentityToLinkedStaff(
     console.error(`[IdentitySync] failed to look up staff rows linked to user ${userId}:`, err);
     return;
   }
+
+  const prevName = previous?.name ? splitFullName(previous.name) : undefined;
+  const prevPhone = previous?.phone ? splitNormalizedPhone(previous.phone) : undefined;
+  const blank = (v?: string | null) => !v || !v.trim() || v === LEGACY_PLACEHOLDER_MOBILE;
+
   for (const staffRow of linkedStaff) {
+    let rowFields = staffFields;
+    if (previous) {
+      rowFields = {};
+      if (staffFields.firstName !== undefined) {
+        const follows = (blank(staffRow.firstName) && blank(staffRow.lastName)) ||
+          (!!prevName && staffRow.firstName === prevName.firstName && (staffRow.lastName ?? "") === (prevName.lastName ?? ""));
+        if (follows) { rowFields.firstName = staffFields.firstName; rowFields.lastName = staffFields.lastName; }
+      }
+      if (staffFields.email !== undefined) {
+        const prev = previous.email?.toLowerCase();
+        if (blank(staffRow.email) || (!!prev && staffRow.email?.toLowerCase() === prev)) rowFields.email = staffFields.email;
+      }
+      if (staffFields.mobileNumber !== undefined) {
+        const follows = blank(staffRow.mobileNumber) ||
+          (!!prevPhone && staffRow.mobileNumber === prevPhone.localNumber && staffRow.countryCode === prevPhone.countryCode);
+        if (follows) { rowFields.mobileNumber = staffFields.mobileNumber; rowFields.countryCode = staffFields.countryCode; }
+      }
+      if (Object.keys(rowFields).length === 0) continue;
+    }
     try {
-      await storage.updateStaff(staffRow.id, staffFields);
+      await storage.updateStaff(staffRow.id, rowFields);
     } catch (err) {
       // Most likely staff_email_unique/staff_store_mobile_unique (storeId,
       // email/mobileNumber) already taken by a different staff row at the
       // same store - a real, if rare, edge case. Best-effort means we skip
       // that one row rather than fail the account holder's own
       // profile/email/phone update over it.
-      console.error(`[IdentitySync] failed to mirror user ${userId}'s ${Object.keys(staffFields).join("/")} onto staff ${staffRow.id}:`, err);
+      console.error(`[IdentitySync] failed to mirror user ${userId}'s ${Object.keys(rowFields).join("/")} onto staff ${staffRow.id}:`, err);
     }
   }
 }

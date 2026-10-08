@@ -111,7 +111,7 @@ describe("feature registry", () => {
     expect(Array.from(API_DOMAIN_OWNERS.keys()).sort()).toEqual([
       "accounting", "analytics", "attendance", "audit-logs", "auth", "billing", "bookings", "business", "cash-register",
       "contract", "custom-roles", "customers", "expense-categories", "expenses", "funnel-events", "gamification", "guarantor", "hr", "inventory", "inventory-drafts", "legal",
-      "my-booking", "notifications", "orders", "payments", "payroll", "products", "profile-completion", "profit-loss",
+      "my-booking", "notifications", "orders", "partner-ledger", "partner-transfers", "partners", "payments", "payroll", "products", "profile-completion", "profit-loss",
       "promotions", "purchase-orders", "quotes", "sales", "settings", "staff", "stock-audits", "stock-transfer-drafts",
       "stock-transfers", "stores", "support", "tax-rates", "transactions", "vendors", "webhooks", "whatsapp",
     ]);

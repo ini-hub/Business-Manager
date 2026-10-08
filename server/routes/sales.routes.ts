@@ -1,6 +1,8 @@
+import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { splitFullName } from "@shared/name-utils";
+import { splitNormalizedPhone } from "@shared/phone-utils";
 import {
   customers,
   inventory,
@@ -10,11 +12,13 @@ import { z } from "zod";
 import { db } from "../db";
 import { eq, inArray } from "drizzle-orm";
 import { auditLogger } from "../audit";
+import { getCheckoutMoneyDetails } from "../lib/checkoutAuditDetails";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, formatZodErrors, checkBusinessAccess, broadcastChange } from './helpers';
+import { getUserId, formatZodErrors, checkBusinessAccess, broadcastChange, getAuditContext } from './helpers';
 import { isOrgTrialing } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getRequestEntitlements, featureNotPurchasedBody } from "../lib/entitlements";
+import { cachedReport, storeTag, businessTag, businessAggregateTag } from "../lib/reportCache";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -22,6 +26,19 @@ export type RouteMiddlewares = {
   requireManagerOrOwner: any;
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
+
+/**
+ * A per-store report, served from the short-lived report cache. Callers must have authorised the store first.
+ * Entries are dropped as soon as anything in the store is written (see broadcastDataChange), and expire on
+ * their own after 30s.
+ */
+function storeReport<T>(req: Request, name: string, storeId: string, params: unknown, load: () => Promise<T>): Promise<T> {
+  const businessId = (req as any).user?.businessId as string | undefined;
+  return cachedReport({ name, tags: businessId ? [storeTag(storeId), businessTag(businessId)] : [storeTag(storeId)], params }, load);
+}
+
+// Orgs this process has already seen with activated_at set (see the checkout handler).
+const activatedOrgs = new Set<string>();
 
 export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== PROFIT & LOSS ==========
@@ -72,6 +89,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
             costOfServicesSold: 0,
             grossProfit: 0,
             discountsGiven: 0,
+            discountsCount: 0,
             discountsList: [],
             totalOperationalExpenses: 0,
             directSuppliesFromExpenses: 0,
@@ -91,7 +109,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         const summaries = await Promise.all(
           stores.map(async (store) => {
             try {
-              return await analyticsService.getProfitLossSummary(store.id, startDate, endDate);
+              return await storeReport(req, "profitLossSummary", store.id, { startDate, endDate }, () => analyticsService.getProfitLossSummary(store.id, startDate, endDate));
             } catch (err) {
               console.error(`Error calculating PL for store ${store.id}:`, err);
               return null;
@@ -112,6 +130,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           costOfServicesSold: 0,
           grossProfit: 0,
           discountsGiven: 0,
+          discountsCount: 0,
           discountsList: [] as any[],
           totalOperationalExpenses: 0,
           directSuppliesFromExpenses: 0,
@@ -141,6 +160,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           consolidated.costOfServicesSold += s.costOfServicesSold || 0;
           consolidated.grossProfit += s.grossProfit || 0;
           consolidated.discountsGiven += s.discountsGiven || 0;
+          consolidated.discountsCount += s.discountsCount || 0;
           consolidated.totalOperationalExpenses += s.totalOperationalExpenses || 0;
           consolidated.directSuppliesFromExpenses += s.directSuppliesFromExpenses || 0;
           consolidated.directSuppliesFromRecipes += s.directSuppliesFromRecipes || 0;
@@ -180,7 +200,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         return res.json(consolidated);
       } else {
         if (!(await checkStoreAccess(storeId, req, res))) return;
-        const summary = await analyticsService.getProfitLossSummary(storeId, startDate, endDate);
+        const summary = await storeReport(req, "profitLossSummary", storeId, { startDate, endDate }, () => analyticsService.getProfitLossSummary(storeId, startDate, endDate));
         res.json(summary);
       }
     } catch (error) {
@@ -222,13 +242,14 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
             lowStockItems: [],
             outOfStockCount: 0,
             lowStockCount: 0,
+            lossSales: { count: 0, amount: 0 },
           });
         }
 
         const summaries = await Promise.all(
           stores.map(async (store) => {
             try {
-              return await storage.getDashboardStats(store.id, from, to);
+              return await storeReport(req, "dashboardStats", store.id, { from, to }, () => storage.getDashboardStats(store.id, from, to));
             } catch (err) {
               console.error(`Error calculating dashboard stats for store ${store.id}:`, err);
               return null;
@@ -254,6 +275,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           lowStockItems: [] as any[],
           outOfStockCount: 0,
           lowStockCount: 0,
+          lossSales: { count: 0, amount: 0 },
         };
 
         const lowStockIds = new Set<string>();
@@ -276,6 +298,8 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           consolidated.revenueMix.products += s.revenueMix?.products || 0;
           consolidated.outOfStockCount += s.outOfStockCount || 0;
           consolidated.lowStockCount += s.lowStockCount || 0;
+          consolidated.lossSales.count += s.lossSales?.count || 0;
+          consolidated.lossSales.amount += s.lossSales?.amount || 0;
           if (s.lowStockItems) {
             for (const item of s.lowStockItems) {
               if (!lowStockIds.has(item.id)) {
@@ -287,14 +311,14 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         }
 
         // De-duplicate customer count across all stores under this business
-        consolidated.totalCustomers = await storage.getBusinessCustomerCount(businessId, from, to);
+        consolidated.totalCustomers = await cachedReport({ name: "businessCustomerCount", tags: [businessAggregateTag(businessId)], params: { from, to } }, () => storage.getBusinessCustomerCount(businessId, from, to));
 
         return res.json(consolidated);
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
       
-      const stats = await storage.getDashboardStats(storeId, from, to);
+      const stats = await storeReport(req, "dashboardStats", storeId, { from, to }, () => storage.getDashboardStats(storeId, from, to));
       res.json(stats);
     } catch (error) {
       console.error("Dashboard Stats Error:", error);
@@ -321,7 +345,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         const storeTrends = await Promise.all(
           stores.map(async (s) => {
             try {
-              return await storage.getSalesTrends(s.id, from, to);
+              return await storeReport(req, "salesTrends", s.id, { from, to }, () => storage.getSalesTrends(s.id, from, to));
             } catch (err) {
               return [];
             }
@@ -345,7 +369,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const data = await storage.getSalesTrends(storeId, from, to);
+      const data = await storeReport(req, "salesTrends", storeId, { from, to }, () => storage.getSalesTrends(storeId, from, to));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load sales trends. Please try again." });
@@ -371,7 +395,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         const storeRevenues = await Promise.all(
           stores.map(async (s) => {
             try {
-              return await storage.getRevenueByType(s.id, from, to);
+              return await storeReport(req, "revenueByType", s.id, { from, to }, () => storage.getRevenueByType(s.id, from, to));
             } catch (err) {
               return [];
             }
@@ -396,7 +420,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const data = await storage.getRevenueByType(storeId, from, to);
+      const data = await storeReport(req, "revenueByType", storeId, { from, to }, () => storage.getRevenueByType(storeId, from, to));
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load revenue data. Please try again." });
@@ -445,6 +469,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       if (!staffId) {
         const fullUser = await storage.getUser(user.id);
         const { firstName, lastName } = splitFullName(fullUser?.name || "Owner");
+        const trialPhone = fullUser?.phone ? splitNormalizedPhone(fullUser.phone) : undefined;
         const staffMember = await storage.createStaff({
           storeId,
           userId: user.id,
@@ -452,7 +477,9 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
           firstName,
           lastName,
           email: fullUser?.email || `owner-${user.id}@trial.local`,
-          mobileNumber: fullUser?.phone || "0000000000",
+          mobileNumber: trialPhone?.localNumber || "",
+          countryCode: trialPhone?.countryCode || "+234",
+          role: "owner",
           payPerMonth: 0,
         } as any);
         staffId = staffMember.id;
@@ -470,6 +497,19 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
   });
 
   // ========== SALES CHECKOUT ==========
+  const paymentLegDetailSchema = z.object({
+    accountId: z.string().optional(),
+    reference: z.string().trim().max(120).optional(),
+    senderName: z.string().trim().max(120).optional(),
+    confirmed: z.boolean().optional(),
+    cashTendered: z.number().min(0).optional(),
+    changeOwed: z.number().min(0).optional(),
+  });
+  const paymentLegSchema = paymentLegDetailSchema.extend({
+    method: z.enum(["cash", "transfer", "flutterwave", "credit", "store_credit"]),
+    amount: z.number().min(0.01),
+  });
+
   const checkoutSchema = z.object({
     storeId: z.string(),
     customerId: z.string(),
@@ -486,10 +526,9 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       })
     ),
     paymentMethod: z.enum(["cash", "transfer", "flutterwave", "credit", "split", "deposit", "store_credit"]).default("cash"),
-    splitPayments: z.array(z.object({
-      method: z.enum(["cash", "transfer", "flutterwave", "credit", "store_credit"]),
-      amount: z.number().min(0.01)
-    })).optional(),
+    splitPayments: z.array(paymentLegSchema).optional(),
+    // Detail for a single-method payment (a split carries it on each leg instead).
+    paymentDetail: paymentLegDetailSchema.optional(),
     discountAmount: z.number().min(0).optional(),
     discountPercent: z.number().min(0).optional(),
     discountReason: z.string().optional(),
@@ -505,6 +544,25 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     // Replay guard: the offline outbox (client/src/components/offline-sync-manager.tsx)
     // resends the same id on every retry of one queued sale.
     clientCheckoutId: z.string().optional(),
+  });
+
+  // Below-cost check for the cart. Allowed sales are never blocked; this only powers the warning.
+  app.post("/api/sales/loss-check", isAuthenticated, async (req, res) => {
+    try {
+      const body = z.object({
+        storeId: z.string(),
+        items: z.array(z.object({
+          inventoryId: z.string(),
+          quantity: z.number().min(0.01),
+          unitPrice: z.number().min(0),
+        })).max(200),
+      }).parse(req.body);
+      if (!(await checkStoreAccess(body.storeId, req, res))) return;
+      res.json({ lines: await storage.assessLoss(body.storeId, body.items) });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid request." });
+      res.status(500).json({ error: "Could not check item costs." });
+    }
   });
 
   app.post("/api/sales/checkout", isAuthenticated, async (req, res) => {
@@ -537,7 +595,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       // Batch-load all inventory items for validation instead of N queries
       const invItemIds = data.items.map(i => i.inventoryId);
       const invItems = invItemIds.length > 0
-        ? await db.select().from(inventory).where(inArray(inventory.id, invItemIds))
+        ? await db.select({ id: inventory.id, name: inventory.name, allowFractional: inventory.allowFractional }).from(inventory).where(inArray(inventory.id, invItemIds))
         : [];
       const invItemMap = new Map(invItems.map(i => [i.id, i]));
 
@@ -573,24 +631,31 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         bookingDepositMethod: data.bookingDepositMethod,
         balanceCollectedToday: data.balanceCollectedToday,
         splitPayments: data.splitPayments,
+        paymentDetail: data.paymentDetail,
+        actorUserId: getUserId(req) ?? undefined,
         pointsRedeemed: data.pointsRedeemed,
         clientCheckoutId: data.clientCheckoutId,
       });
 
       if (!result.success) {
-        auditLogger.logDataModification("checkout", undefined, getUserId(req), "CHECKOUT", false, result.message);
+        auditLogger.logEvent(await getAuditContext(req, { storeId: data.storeId }), "CHECKOUT", "checkout", undefined, "failure", { errorMessage: result.message });
         return res.status(400).json({ error: result.message });
       }
 
-      auditLogger.logDataModification("checkout", result.checkoutIds?.[0], getUserId(req), "CHECKOUT", true);
+      auditLogger.logEvent(await getAuditContext(req, { storeId: data.storeId }), "CHECKOUT", "checkout", result.checkoutIds?.[0], "success", {
+        details: await getCheckoutMoneyDetails(result.checkoutIds ?? []).catch(() => ({})),
+      });
 
       // First-ever completed sale for this org - the activation signal that
       // future mid-trial nudges key off, independent of billing status.
+      // Once an org is known to be activated this process never looks again, so a normal sale costs nothing here.
       const businessId = (req as any).user?.businessId;
-      if (businessId) {
-        logFunnelEvent(businessId, "checkout_completed", { storeId: data.storeId });
+      if (businessId && !activatedOrgs.has(businessId)) {
         storage.getBusinessById(businessId).then((business) => {
-          if (business && !business.activatedAt) {
+          if (!business) return;
+          activatedOrgs.add(businessId);
+          if (!business.activatedAt) {
+            logFunnelEvent(businessId, "checkout_completed", { storeId: data.storeId });
             storage.updateBusiness(businessId, { activatedAt: new Date() }).catch(console.error);
           }
         }).catch(console.error);
@@ -651,8 +716,9 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const drafts = await storage.listDrafts(storeId);
-      res.json(drafts);
+      const page = parsePage(req.query);
+      const { rows, total } = await storage.listDraftsPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not load drafts." });
     }

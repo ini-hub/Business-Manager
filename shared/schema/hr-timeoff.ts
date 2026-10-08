@@ -1,8 +1,9 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, unique, index, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, unique, uniqueIndex, index, numeric, date, boolean } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { staff } from "./staff";
 import { users } from "./auth";
+import { stores } from "./stores";
 
 // See migrations/0067_hr_time_off.sql for the full rationale.
 export const hrLeaveTypeEnum = ["annual", "sick", "bereavement", "maternity"] as const;
@@ -87,3 +88,34 @@ export const reviewHrTimeOffRequestSchema = z.object({
   note: z.string().trim().max(1000).optional(),
 });
 export type ReviewHrTimeOffRequestInput = z.infer<typeof reviewHrTimeOffRequestSchema>;
+
+// Holidays a store observes (migrations/0119). Recurring ones repeat on the
+// same month/day every year; one-off ones (e.g. a movable Eid date) don't.
+export const hrStoreHolidays = pgTable("hr_store_holidays", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  name: text("name").notNull(),
+  holidayDate: date("holiday_date").notNull(),
+  recursYearly: boolean("recurs_yearly").notNull().default(false),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_hr_store_holidays_store_date_name").on(table.storeId, table.holidayDate, sql`lower(${table.name})`),
+  index("idx_hr_store_holidays_store").on(table.storeId, table.holidayDate),
+]);
+export type HrStoreHoliday = typeof hrStoreHolidays.$inferSelect;
+
+export const createHrStoreHolidaysSchema = z.object({
+  holidays: z.array(z.object({
+    name: z.string().trim().min(1).max(120),
+    holidayDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    recursYearly: z.boolean().default(false),
+  })).min(1).max(50),
+});
+export type CreateHrStoreHolidaysInput = z.infer<typeof createHrStoreHolidaysSchema>;
+
+export const setHrLeaveAllowanceSchema = z.object({
+  leaveType: z.enum(hrLeaveTypeEnum),
+  totalDays: z.number().min(0).max(366),
+});
+export type SetHrLeaveAllowanceInput = z.infer<typeof setHrLeaveAllowanceSchema>;

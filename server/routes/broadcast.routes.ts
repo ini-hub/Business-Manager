@@ -1,3 +1,4 @@
+import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { db } from "../db";
 import { inArray } from "drizzle-orm";
@@ -42,8 +43,9 @@ export function registerBroadcastRoutes(app: Express, { isAuthenticated, require
     if (!(await checkStoreAccess(storeId, req, res))) return;
 
     try {
-      const list = await broadcastRepository.listBroadcasts(storeId);
-      res.json(list);
+      const page = parsePage(req.query);
+      const { rows, total } = await broadcastRepository.listBroadcastsPage(storeId, page);
+      res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Failed to load broadcasts." });
     }

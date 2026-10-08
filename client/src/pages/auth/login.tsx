@@ -20,16 +20,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { legalDocHref } from "@/lib/legal-docs";
 import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
 import { Spinner } from "@/components/ui/loader";
+import { SESSION_EXPIRED_PARAM } from "@/lib/queryClient";
 
 export default function Login() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  // Sent here by handleSessionExpired (lib/queryClient.ts) when the session ended mid-use.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has(SESSION_EXPIRED_PARAM)) return;
+    const idle = params.get(SESSION_EXPIRED_PARAM) === "idle";
+    toast({
+      title: idle ? "Signed out for inactivity" : "Your session has expired",
+      description: idle
+        ? "You were inactive for a while, so we signed you out for your security. Log in to pick up where you left off."
+        : "For your security you were signed out. Please log in again to continue.",
+    });
+    params.delete(SESSION_EXPIRED_PARAM);
+    const qs = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : ""));
+  }, []);
   const [step, setStep] = useState<
     "identifier" | "password" | "activation_code" | "create_password" | "sign_contract" | "legal_consent" | "verify_otp" | "org_select" | "almost_there" | "verify_email_change"
   >("identifier");
   const [identifier, setIdentifier] = useState("");
   const [identifierDisplay, setIdentifierDisplay] = useState("");
-  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("phone");
+  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [isPasswordValid, setIsPasswordValid] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
@@ -776,8 +793,8 @@ export default function Login() {
                 onValueChange={(v) => setLoginMethod(v as "email" | "phone")}
               >
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="phone" data-testid="tab-login-phone">Phone</TabsTrigger>
                   <TabsTrigger value="email" data-testid="tab-login-email">Email</TabsTrigger>
+                  <TabsTrigger value="phone" data-testid="tab-login-phone">Phone</TabsTrigger>
                 </TabsList>
               </Tabs>
 

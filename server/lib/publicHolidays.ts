@@ -34,17 +34,19 @@ export interface UpcomingHoliday {
 /** Every configured holiday for `countryCode`, projected onto the next occurrence from today. */
 export function getPublicHolidays(countryCode: string): UpcomingHoliday[] {
   const holidays = HOLIDAYS_BY_COUNTRY[countryCode.toUpperCase()] ?? HOLIDAYS_BY_COUNTRY.NG;
-  const today = new Date();
-  const currentYear = today.getFullYear();
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const startOfToday = new Date(currentYear, now.getMonth(), now.getDate());
+  const pad = (n: number) => String(n).padStart(2, "0");
 
   return holidays
     .map(({ date, name }) => {
       const [month, day] = date.split("-").map(Number);
-      let occurrence = new Date(currentYear, month - 1, day);
-      if (occurrence < today) {
-        occurrence = new Date(currentYear + 1, month - 1, day);
-      }
-      return { date: occurrence.toISOString().slice(0, 10), name };
+      // Build the ISO string from the calendar parts directly. Going through
+      // toISOString() converts local midnight to UTC, which shifts the date
+      // back a day on any server running ahead of UTC (e.g. Lagos, UTC+1).
+      const year = new Date(currentYear, month - 1, day) < startOfToday ? currentYear + 1 : currentYear;
+      return { date: `${year}-${pad(month)}-${pad(day)}`, name };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 }

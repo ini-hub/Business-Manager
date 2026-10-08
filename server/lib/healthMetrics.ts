@@ -8,7 +8,7 @@
 import { randomUUID } from "crypto";
 import { sql, gte, lt } from "drizzle-orm";
 import { db } from "../db";
-import { healthMetricsHourly } from "@shared/schema";
+import { healthMetricsHourly, healthRouteMetricsHourly } from "@shared/schema";
 
 const HOUR_MS = 3600_000;
 const RETENTION_MS = 35 * 24 * HOUR_MS;
@@ -45,8 +45,21 @@ interface HourAgg {
   hist: number[];
 }
 
+interface RouteAgg {
+  requests: number;
+  serverErrors: number;
+  totalMs: number;
+  totalQueries: number;
+  hist: number[];
+}
+
+/** Bounds memory: routes beyond this per hour are folded into OTHER_ROUTE. */
+const MAX_ROUTES_PER_HOUR = 400;
+const OTHER_ROUTE = "(other)";
+
 const instanceId = randomUUID();
 const hours = new Map<number, HourAgg>();
+const routeHours = new Map<number, Map<string, RouteAgg>>();
 let errors: ErrorSample[] = [];
 
 const emptyHist = () => new Array(LATENCY_BOUNDS.length + 1).fill(0);
@@ -64,8 +77,30 @@ export function recordRequest(s: {
   method: string;
   path: string;
   businessId?: string;
+  /** Route template, e.g. "GET /api/payroll/periods/:id/entries". Omit to skip per-route stats. */
+  route?: string;
+  /** DB statements issued while serving the request (see queryCounter.ts). */
+  queries?: number;
 }): void {
   const h = hourOf(s.at);
+  if (s.route) {
+    let byRoute = routeHours.get(h);
+    if (!byRoute) {
+      byRoute = new Map();
+      routeHours.set(h, byRoute);
+    }
+    const key = byRoute.has(s.route) || byRoute.size < MAX_ROUTES_PER_HOUR ? s.route : OTHER_ROUTE;
+    let r = byRoute.get(key);
+    if (!r) {
+      r = { requests: 0, serverErrors: 0, totalMs: 0, totalQueries: 0, hist: emptyHist() };
+      byRoute.set(key, r);
+    }
+    r.requests++;
+    r.totalMs += Math.round(s.ms);
+    r.totalQueries += s.queries ?? 0;
+    r.hist[bucketIndex(s.ms)]++;
+    if (s.status >= 500) r.serverErrors++;
+  }
   let agg = hours.get(h);
   if (!agg) {
     agg = { requests: 0, serverErrors: 0, hist: emptyHist() };
@@ -105,6 +140,43 @@ export async function flushHealthMetrics(): Promise<void> {
       latencyHist: a.hist,
     }));
   for (const h of Array.from(hours.keys())) if (h < keep) hours.delete(h);
+
+  const routeRows: (typeof healthRouteMetricsHourly.$inferInsert)[] = [];
+  for (const [h, byRoute] of Array.from(routeHours.entries())) {
+    if (h < keep) {
+      routeHours.delete(h);
+      continue;
+    }
+    for (const [route, a] of Array.from(byRoute.entries())) {
+      routeRows.push({
+        hour: new Date(h),
+        instanceId,
+        route,
+        requests: a.requests,
+        serverErrors: a.serverErrors,
+        totalMs: a.totalMs,
+        totalQueries: a.totalQueries,
+        latencyHist: a.hist,
+      });
+    }
+  }
+  // Chunked: a hundred-odd routes x 2 hours stays well under the bind-parameter limit.
+  for (let i = 0; i < routeRows.length; i += 200) {
+    await db
+      .insert(healthRouteMetricsHourly)
+      .values(routeRows.slice(i, i + 200))
+      .onConflictDoUpdate({
+        target: [healthRouteMetricsHourly.hour, healthRouteMetricsHourly.instanceId, healthRouteMetricsHourly.route],
+        set: {
+          requests: sql`excluded.requests`,
+          serverErrors: sql`excluded.server_errors`,
+          totalMs: sql`excluded.total_ms`,
+          totalQueries: sql`excluded.total_queries`,
+          latencyHist: sql`excluded.latency_hist`,
+        },
+      });
+  }
+
   if (rows.length === 0) return;
   await db
     .insert(healthMetricsHourly)
@@ -195,6 +267,61 @@ export async function getRangeStats(range: HealthRange, now = Date.now()): Promi
   };
 }
 
+export interface RouteStat {
+  route: string;
+  requests: number;
+  serverErrors: number;
+  avgMs: number;
+  p50: number;
+  p95: number;
+  /** Mean DB statements per request; a high value on a hot route is the N+1 signal. */
+  avgQueries: number;
+  /** requests x mean time: where the server actually spends its time. */
+  totalSeconds: number;
+}
+
+/** Per-route latency for the range, merged across instances. Sorted by total time spent, heaviest first. */
+export async function getRouteStats(range: HealthRange, now = Date.now(), limit = 40): Promise<RouteStat[]> {
+  const since = now - RANGES[range];
+  await flushHealthMetrics();
+
+  const rows = await db
+    .select()
+    .from(healthRouteMetricsHourly)
+    .where(gte(healthRouteMetricsHourly.hour, new Date(hourOf(since))));
+
+  const merged = new Map<string, RouteAgg>();
+  for (const r of rows) {
+    let a = merged.get(r.route);
+    if (!a) {
+      a = { requests: 0, serverErrors: 0, totalMs: 0, totalQueries: 0, hist: emptyHist() };
+      merged.set(r.route, a);
+    }
+    a.requests += r.requests;
+    a.serverErrors += r.serverErrors;
+    a.totalMs += Number(r.totalMs);
+    a.totalQueries += Number(r.totalQueries);
+    r.latencyHist.forEach((n, i) => {
+      if (i < a!.hist.length) a!.hist[i] += n;
+    });
+  }
+
+  return Array.from(merged.entries())
+    .filter(([, a]) => a.requests > 0)
+    .map(([route, a]) => ({
+      route,
+      requests: a.requests,
+      serverErrors: a.serverErrors,
+      avgMs: Math.round(a.totalMs / a.requests),
+      p50: percentileFromHist(a.hist, 50),
+      p95: percentileFromHist(a.hist, 95),
+      avgQueries: Math.round((a.totalQueries / a.requests) * 10) / 10,
+      totalSeconds: Math.round(a.totalMs / 1000),
+    }))
+    .sort((x, y) => y.totalSeconds - x.totalSeconds || y.p95 - x.p95)
+    .slice(0, limit);
+}
+
 let timer: NodeJS.Timeout | undefined;
 
 /** Start the periodic flush and old-row cleanup. Idempotent. */
@@ -204,9 +331,13 @@ export function startHealthMetricsFlush(): void {
   timer = setInterval(() => {
     flushHealthMetrics().catch((e) => console.error("[HealthMetrics] flush failed:", e));
     if (++ticks % 60 === 0) {
+      const cutoff = new Date(Date.now() - RETENTION_MS);
       db.delete(healthMetricsHourly)
-        .where(lt(healthMetricsHourly.hour, new Date(Date.now() - RETENTION_MS)))
+        .where(lt(healthMetricsHourly.hour, cutoff))
         .catch((e) => console.error("[HealthMetrics] cleanup failed:", e));
+      db.delete(healthRouteMetricsHourly)
+        .where(lt(healthRouteMetricsHourly.hour, cutoff))
+        .catch((e) => console.error("[HealthMetrics] route cleanup failed:", e));
     }
   }, FLUSH_INTERVAL_MS);
   timer.unref();
@@ -215,5 +346,6 @@ export function startHealthMetricsFlush(): void {
 /** Test hook. */
 export function resetHealthMetrics(): void {
   hours.clear();
+  routeHours.clear();
   errors = [];
 }

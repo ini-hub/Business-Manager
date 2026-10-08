@@ -355,6 +355,12 @@ input[type="number"] {
    group so any of them can appear anywhere in the DOM (e.g. inside a Radix
    Dialog portal) — we don't rely on being a direct child of <body>. */
 @media print {
+  /* Quote detail page: drop the app shell's layout height so the proforma
+     starts at the top of page one (visibility:hidden alone keeps the space). */
+  html.print-quote #root {
+    display: none !important;
+  }
+
   /* Hide everything, then re-reveal only the print target and its
      descendants. This works regardless of how deeply nested the target is
      (unlike `body > *:not(#id)`, which breaks for anything portal-rendered). */

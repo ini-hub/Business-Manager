@@ -1,5 +1,7 @@
+import { parsePage } from "../lib/pagination";
+import { pagedSelect, totalOf } from "../lib/pagedQuery";
 import type { Express } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
 import { stockTransferDrafts } from "@shared/schema";
@@ -20,10 +22,13 @@ export function registerStockTransferDraftRoutes(app: Express, { requireManagerO
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required" });
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const rows = await db.select().from(stockTransferDrafts)
-        .where(eq(stockTransferDrafts.storeId, storeId))
-        .orderBy(desc(stockTransferDrafts.updatedAt));
-      res.json(rows);
+      const page = parsePage(req.query);
+      const where = eq(stockTransferDrafts.storeId, storeId);
+      res.json(await pagedSelect(
+        page,
+        ({ limit, offset }) => db.select().from(stockTransferDrafts).where(where).orderBy(desc(stockTransferDrafts.updatedAt)).limit(limit).offset(offset),
+        () => totalOf(db.select({ total: sql<number>`count(*)::int` }).from(stockTransferDrafts).where(where)),
+      ));
     } catch {
       res.status(500).json({ error: "Could not load drafts." });
     }

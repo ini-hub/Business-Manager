@@ -629,7 +629,7 @@ export default function ProfitLossPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-muted-foreground">Discounts Given</span>
                         <Badge variant="outline" className="text-xs bg-red-500/10 text-red-500 border-red-500/20 font-normal font-mono">
-                          {summary?.discountsList?.length || 0} tx
+                          {summary?.discountsCount ?? summary?.discountsList?.length ?? 0} tx
                         </Badge>
                       </div>
                       <div className="flex items-center gap-2 font-mono text-red-500">

@@ -14,7 +14,7 @@ import {
   type InsertExpenseCategory,
   type ExpenseWithCategory,
 } from "@shared/schema";
-import { eq, and, gte, lte, asc, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, asc, desc, inArray, sql } from "drizzle-orm";
 
 export type ExpenseWithLinks = ExpenseWithCategory & {
   linkedProducts: { productId: string; productName: string }[];
@@ -81,6 +81,50 @@ export class ExpenseRepository extends BaseRepository<typeof expenses> {
       linkedProducts: linkMap.get(e.id) ?? [],
       allocationDriver: e.allocationDriver ?? "count",
     })) as ExpenseWithLinks[];
+  }
+
+  /**
+   * One page of a store's expenses, newest first, with the total, filtered in SQL. The list endpoint uses this;
+   * getExpenses below stays for the reports that need every expense in a period.
+   *
+   * "general" means not tied to any item (no legacy item and no linked items), "linked" is the opposite;
+   * "service" and "product" follow the type of the legacy linked item.
+   */
+  async getExpensesPage(
+    storeId: string,
+    filters: { startDate?: string; endDate?: string; type?: "all" | "general" | "linked" | "service" | "product"; inventoryId?: string },
+    page: { limit: number; offset: number },
+  ): Promise<{ rows: ExpenseWithLinks[]; total: number }> {
+    const hasLinks = sql`EXISTS (SELECT 1 FROM ${expenseLinkedItems} WHERE ${expenseLinkedItems.expenseId} = ${expenses.id})`;
+    const conditions: any[] = [eq(expenses.storeId, storeId), eq(expenses.isDeleted, false)];
+    if (filters.startDate) conditions.push(gte(expenses.date, filters.startDate));
+    if (filters.endDate) conditions.push(lte(expenses.date, filters.endDate));
+    if (filters.inventoryId && filters.inventoryId !== "none" && filters.inventoryId !== "all") {
+      conditions.push(eq(expenses.inventoryId, filters.inventoryId));
+    }
+    if (filters.type === "service") conditions.push(eq(inventory.type, "service"));
+    else if (filters.type === "product") conditions.push(eq(inventory.type, "product"));
+    else if (filters.type === "general") conditions.push(sql`${expenses.inventoryId} IS NULL AND NOT ${hasLinks}`);
+    else if (filters.type === "linked") conditions.push(sql`(${expenses.inventoryId} IS NOT NULL OR ${hasLinks})`);
+    const where = and(...conditions);
+
+    const [rows, [{ total }]] = await Promise.all([
+      db.select({ expense: expenses, category: expenseCategories, inventory: inventory })
+        .from(expenses)
+        .leftJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+        .leftJoin(inventory, eq(expenses.inventoryId, inventory.id))
+        .where(where)
+        .orderBy(desc(expenses.date), desc(expenses.id))
+        .limit(page.limit)
+        .offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` })
+        .from(expenses)
+        .leftJoin(inventory, eq(expenses.inventoryId, inventory.id))
+        .where(where),
+    ]);
+
+    const mapped = rows.map((r) => ({ ...r.expense, category: r.category!, inventory: r.inventory || undefined }));
+    return { rows: await this.attachLinkedProducts(mapped), total };
   }
 
   async getExpenses(
