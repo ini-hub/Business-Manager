@@ -11,7 +11,8 @@
  */
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import type { StorePaymentAccount } from "@shared/schema";
 import { CheckCircle2, BookOpen, CreditCard, Calendar, StickyNote, ChevronRight, ArrowLeft } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -65,6 +66,15 @@ export function ResolvePendingDialog({
 
   // Mark as Paid state
   const [payMethod, setPayMethod] = useState("cash");
+  const [accountId, setAccountId] = useState("");
+
+  const { data: accounts = [] } = useQuery<StorePaymentAccount[]>({
+    queryKey: ["/api/sales/payment-accounts", storeId],
+    enabled: open && !!storeId,
+    queryFn: async () => (await apiRequest("GET", `/api/sales/payment-accounts?storeId=${storeId}`)).json(),
+  });
+  // Falls back to the store's default so the common case is one tap.
+  const effectiveAccountId = accountId || accounts.find(a => a.isDefault)?.id || accounts[0]?.id || "";
 
   // Convert to Credit state
   const [dueDate, setDueDate] = useState("");
@@ -82,6 +92,7 @@ export function ResolvePendingDialog({
       apiRequest("PATCH", `/api/transactions/${checkoutId}/payment-status`, {
         paymentMethod: payMethod,
         paymentStatus: "completed",
+        accountId: payMethod === "transfer" && effectiveAccountId ? effectiveAccountId : undefined,
       }),
     onSuccess: () => {
       toast({ title: "Payment recorded", description: `${receiptNumber} marked as paid via ${payMethod}.` });
@@ -124,6 +135,7 @@ export function ResolvePendingDialog({
   const handleClose = () => {
     setMode("choose");
     setPayMethod("cash");
+    setAccountId("");
     setDueDate("");
     setUpfrontPaid("");
     setNotes("");
@@ -219,6 +231,22 @@ export function ResolvePendingDialog({
                 </SelectContent>
               </Select>
             </div>
+
+            {payMethod === "transfer" && accounts.length > 0 && (
+              <div className="space-y-2">
+                <Label>Paid into</Label>
+                <Select value={effectiveAccountId} onValueChange={setAccountId}>
+                  <SelectTrigger className="h-11"><SelectValue placeholder="Select the receiving account" /></SelectTrigger>
+                  <SelectContent>
+                    {accounts.map(a => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {[a.label, a.accountNumber ? `····${a.accountNumber.slice(-4)}` : null].filter(Boolean).join(" ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <Separator />
             <div className="flex gap-3">
