@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
@@ -71,10 +72,7 @@ export default function PayrollAdvancesPage() {
 
   const { data: advances = [], refetch } = useQuery<any[]>({
     queryKey: ["/api/payroll/advances", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/payroll/advances?storeId=${currentStore?.id}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllPages<any>(`/api/payroll/advances?storeId=${currentStore?.id}`),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 

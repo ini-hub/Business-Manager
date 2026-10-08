@@ -1,3 +1,5 @@
+import { usePaged } from "@/hooks/usePaged";
+import { PagerBar } from "@/components/pager-bar";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/page-header";
@@ -86,15 +88,11 @@ export default function StaffAttendancePage() {
     enabled: !!currentStore?.id,
   });
 
-  const { data: requests = [] } = useQuery<RetroRequest[]>({
-    queryKey: ["/api/attendance/retro-requests", currentStore?.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/attendance/retro-requests?storeId=${currentStore?.id}&self=1`, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!currentStore?.id,
-  });
+  const { rows: requests, pagination: requestPages, setPage: setRequestPage, isFetching: requestsFetching } = usePaged<RetroRequest>(
+    ["/api/attendance/retro-requests", currentStore?.id],
+    "/api/attendance/retro-requests",
+    { params: { storeId: currentStore?.id, self: 1 }, pageSize: 10, enabled: !!currentStore?.id },
+  );
 
   const groups = data?.groups ?? [];
   const totals = useMemo(
@@ -248,6 +246,7 @@ export default function StaffAttendancePage() {
                 </Badge>
               </div>
             ))}
+            <PagerBar pagination={requestPages} onPage={setRequestPage} busy={requestsFetching} noun="requests" />
           </CardContent>
         </Card>
       )}

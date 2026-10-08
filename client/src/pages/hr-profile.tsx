@@ -40,6 +40,7 @@ export default function HrProfilePage() {
     queryFn: async () => (await apiRequest("GET", "/api/hr/sections")).json(),
   });
 
+  const { data: staffRecord } = useQuery<{ storeId: string }>({ queryKey: [`/api/staff/${staffId}`], enabled: !!staffId && canManage });
   const isEnabled = (section: string) => sections.find((s) => s.section === section)?.isEnabled ?? true;
 
   if (!staffId) {
@@ -67,17 +68,17 @@ export default function HrProfilePage() {
           {isEnabled("emergency") && <TabsTrigger value="emergency" data-testid="tab-hr-emergency">Emergency</TabsTrigger>}
           {isEnabled("documents") && <TabsTrigger value="documents" data-testid="tab-hr-documents">Documents</TabsTrigger>}
           {isEnabled("benefits") && <TabsTrigger value="benefits" data-testid="tab-hr-benefits">Benefits</TabsTrigger>}
-          {canManage && isEnabled("disciplinary") && <TabsTrigger value="disciplinary" data-testid="tab-hr-disciplinary">Disciplinary</TabsTrigger>}
+          {isEnabled("disciplinary") && <TabsTrigger value="disciplinary" data-testid="tab-hr-disciplinary">Disciplinary</TabsTrigger>}
           {isEnabled("guarantor") && <TabsTrigger value="guarantor" data-testid="tab-hr-guarantor">Guarantor</TabsTrigger>}
         </TabsList>
 
         {isEnabled("personal") && <TabsContent value="personal"><PersonalTab staffId={staffId} /></TabsContent>}
         {isEnabled("job") && <TabsContent value="job"><JobTab staffId={staffId} canManage={canManage} /></TabsContent>}
-        {isEnabled("time_off") && <TabsContent value="time_off"><TimeOffTab staffId={staffId} canManage={canManage} /></TabsContent>}
+        {isEnabled("time_off") && <TabsContent value="time_off"><TimeOffTab staffId={staffId} storeId={staffRecord?.storeId} canManage={canManage && !isViewingSelf} /></TabsContent>}
         {isEnabled("emergency") && <TabsContent value="emergency"><EmergencyContactsTab staffId={staffId} basePath="/api/hr" /></TabsContent>}
         {isEnabled("documents") && <TabsContent value="documents"><DocumentsTab staffId={staffId} /></TabsContent>}
         {isEnabled("benefits") && <TabsContent value="benefits"><BenefitsTab staffId={staffId} /></TabsContent>}
-        {canManage && isEnabled("disciplinary") && <TabsContent value="disciplinary"><DisciplinaryTab staffId={staffId} /></TabsContent>}
+        {isEnabled("disciplinary") && <TabsContent value="disciplinary"><DisciplinaryTab staffId={staffId} canManage={canManage && !isViewingSelf} /></TabsContent>}
         {isEnabled("guarantor") && <TabsContent value="guarantor"><GuarantorTab staffId={staffId} basePath="/api/hr" /></TabsContent>}
       </Tabs>
     </div>

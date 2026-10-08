@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useMemo } from "react";
 import type { TransactionWithRelations } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -190,8 +191,16 @@ export default function AttendancePage() {
   const userRole = user?.role || "staff";
   const canEdit = userRole === "manager" || userRole === "owner";
 
-  const [view, setView] = useState<"daily" | "monthly" | "sixmonth" | "yearly" | "schedules" | "exceptions" | "log">("daily");
-  const [currentDate, setCurrentDate] = useState(new Date());
+  // Deep link from the staff detail page: ?view=monthly&month=YYYY-MM&staffId=...
+  const deepLink = useMemo(() => new URLSearchParams(window.location.search), []);
+  const linkedStaffId = deepLink.get("staffId");
+  const [view, setView] = useState<"daily" | "monthly" | "sixmonth" | "yearly" | "schedules" | "exceptions" | "log">(
+    deepLink.get("view") === "monthly" ? "monthly" : "daily",
+  );
+  const [currentDate, setCurrentDate] = useState(() => {
+    const m = /^(\d{4})-(\d{2})$/.exec(deepLink.get("month") ?? "");
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, 1) : new Date();
+  });
   const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>("present");
 
   const dailyDate = format(currentDate, "yyyy-MM-dd");
@@ -203,6 +212,8 @@ export default function AttendancePage() {
   });
 
   const activeStaff = staffList.filter(s => !s.isArchived);
+  // Monthly view narrows to the linked staff member; the others stay on the roster for all views.
+  const monthlyStaff = linkedStaffId ? activeStaff.filter(s => s.id === linkedStaffId) : activeStaff;
 
   // Date ranges per view
   const { startDate, endDate } = useMemo(() => {
@@ -225,10 +236,8 @@ export default function AttendancePage() {
 
   const { data: records = [], isLoading } = useQuery<AttendanceRecord[]>({
     queryKey: ["/api/attendance", currentStore?.id, startDate, endDate],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/attendance?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}`);
-      return res.json();
-    },
+    // The grid and its summaries cover the whole window, so this reads every record in it (page by page).
+    queryFn: () => fetchAllPages<AttendanceRecord>(`/api/attendance?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}`),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
@@ -273,10 +282,8 @@ export default function AttendancePage() {
   // Fetch transactions to resolve active vs passive status dynamically
   const { data: transactions = [] } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/transactions", currentStore?.id],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/transactions?storeId=${currentStore?.id}`);
-      return res.json();
-    },
+    // Builds the set of staff-and-day pairs doing service work, so it reads every receipt (page by page).
+    queryFn: () => fetchAllPages<TransactionWithRelations>(`/api/transactions?storeId=${currentStore?.id}`),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 
@@ -529,7 +536,7 @@ export default function AttendancePage() {
 
     return (
       <div className="space-y-6">
-        {activeStaff.map(s => {
+        {monthlyStaff.map(s => {
           const summary = getSummary(s.id);
           return (
             <Card key={s.id}>

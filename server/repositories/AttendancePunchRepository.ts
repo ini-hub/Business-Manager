@@ -63,6 +63,21 @@ export class AttendancePunchRepository {
     )).orderBy(desc(attendancePunches.effectiveAt));
   }
 
+  /** One page of {@link getPunchesInRange} (newest first) with the total. */
+  async getPunchesInRangePage(storeId: string, startDate: string, endDate: string, page: { limit: number; offset: number }): Promise<{ rows: AttendancePunch[]; total: number }> {
+    const where = and(
+      eq(attendancePunches.storeId, storeId),
+      gte(attendancePunches.localDate, startDate),
+      lte(attendancePunches.localDate, endDate),
+      isNull(attendancePunches.voidedAt),
+    );
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(attendancePunches).where(where).orderBy(desc(attendancePunches.effectiveAt), desc(attendancePunches.id)).limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(attendancePunches).where(where),
+    ]);
+    return { rows, total };
+  }
+
   /** Same as {@link getPunchesInRange}, narrowed to one or more staff — the log view. */
   async getPunchesInRangeForStaff(storeId: string, staffIds: string[], startDate: string, endDate: string): Promise<AttendancePunch[]> {
     if (staffIds.length === 0) return [];
@@ -183,6 +198,28 @@ export class AttendancePunchRepository {
     return await db.select().from(attendanceRetroRequests)
       .where(and(...conditions))
       .orderBy(desc(attendanceRetroRequests.createdAt));
+  }
+
+  /**
+   * One page of missed-clock-in requests with the total. Pending requests come first (they are the ones
+   * waiting on a manager, so an old one can never be buried on a later page), then newest first.
+   */
+  async getRetroRequestsPage(
+    storeId: string,
+    options: { staffId?: string; status?: string },
+    page: { limit: number; offset: number },
+  ): Promise<{ rows: AttendanceRetroRequest[]; total: number }> {
+    const conditions: any[] = [eq(attendanceRetroRequests.storeId, storeId)];
+    if (options.staffId) conditions.push(eq(attendanceRetroRequests.staffId, options.staffId));
+    if (options.status) conditions.push(eq(attendanceRetroRequests.status, options.status));
+    const where = and(...conditions);
+    const [rows, [{ total }]] = await Promise.all([
+      db.select().from(attendanceRetroRequests).where(where)
+        .orderBy(sql`(${attendanceRetroRequests.status} = 'pending') DESC`, desc(attendanceRetroRequests.createdAt))
+        .limit(page.limit).offset(page.offset),
+      db.select({ total: sql<number>`count(*)::int` }).from(attendanceRetroRequests).where(where),
+    ]);
+    return { rows, total };
   }
 
   async getRetroRequestById(id: string): Promise<AttendanceRetroRequest | undefined> {

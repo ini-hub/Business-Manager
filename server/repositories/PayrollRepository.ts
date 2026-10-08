@@ -16,7 +16,7 @@ import {
   type CommissionBreakdown,
   type PayslipRecord,
 } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { payrollService } from "../services/PayrollService";
 
 export class PayrollRepository {
@@ -24,6 +24,73 @@ export class PayrollRepository {
     return await db.select().from(payrollPeriods)
       .where(eq(payrollPeriods.storeId, storeId))
       .orderBy(desc(payrollPeriods.createdAt));
+  }
+
+  /** The store's current approved-or-pending period, newest first (what the staff dashboard shows). */
+  async getOpenPayrollPeriod(storeId: string): Promise<PayrollPeriod | undefined> {
+    const [period] = await db.select().from(payrollPeriods)
+      .where(and(eq(payrollPeriods.storeId, storeId), inArray(payrollPeriods.status, ["approved", "pending"])))
+      .orderBy(desc(payrollPeriods.createdAt))
+      .limit(1);
+    return period;
+  }
+
+  /** The store's paid periods, newest first. */
+  async getPaidPayrollPeriods(storeId: string): Promise<PayrollPeriod[]> {
+    return await db.select().from(payrollPeriods)
+      .where(and(eq(payrollPeriods.storeId, storeId), eq(payrollPeriods.status, "paid")))
+      .orderBy(desc(payrollPeriods.createdAt));
+  }
+
+  /** One person's entry in one period (the full row), without loading everyone else's. */
+  async getPayrollEntryForStaff(periodId: string, staffId: string) {
+    const [entry] = await db.select().from(payrollEntries)
+      .where(and(eq(payrollEntries.periodId, periodId), eq(payrollEntries.staffId, staffId)));
+    return entry;
+  }
+
+  /** One person's net pay in each of the given periods. */
+  async getNetPayForStaff(staffId: string, periodIds: string[]): Promise<Map<string, number>> {
+    if (periodIds.length === 0) return new Map();
+    const rows = await db.select({ periodId: payrollEntries.periodId, netPay: payrollEntries.netPay })
+      .from(payrollEntries)
+      .where(and(eq(payrollEntries.staffId, staffId), inArray(payrollEntries.periodId, periodIds)));
+    return new Map(rows.map((r) => [r.periodId, r.netPay || 0]));
+  }
+
+  /** One person's non-waived deductions summed per period, by the database. */
+  async getDeductionTotalsForStaff(staffId: string, periodIds: string[]): Promise<Map<string, number>> {
+    if (periodIds.length === 0) return new Map();
+    const rows = await db
+      .select({ periodId: payrollDeductions.periodId, total: sql<number>`COALESCE(SUM(${payrollDeductions.amount}), 0)::float8` })
+      .from(payrollDeductions)
+      .where(and(eq(payrollDeductions.staffId, staffId), eq(payrollDeductions.isWaived, false), inArray(payrollDeductions.periodId, periodIds)))
+      .groupBy(payrollDeductions.periodId);
+    return new Map(rows.map((r) => [r.periodId, r.total]));
+  }
+
+  /**
+   * Narrow per-person rows for several periods at once: just what a period total needs (no staff join, no
+   * calculation JSON). Entries keep the "highest net pay first" order the per-period reads use, so totals
+   * accumulate in the same order as before. Waived deductions are excluded, as in getPayrollDeductions.
+   */
+  async getPeriodSummaryInputs(periodIds: string[]) {
+    if (periodIds.length === 0) return { entries: [], deductions: [] };
+    const [entries, deductions] = await Promise.all([
+      db.select({
+        periodId: payrollEntries.periodId,
+        staffId: payrollEntries.staffId,
+        grossCommission: payrollEntries.grossCommission,
+        totalTransport: payrollEntries.totalTransport,
+        netPay: payrollEntries.netPay,
+      }).from(payrollEntries).where(inArray(payrollEntries.periodId, periodIds)).orderBy(desc(payrollEntries.netPay)),
+      db.select({
+        periodId: payrollDeductions.periodId,
+        staffId: payrollDeductions.staffId,
+        amount: payrollDeductions.amount,
+      }).from(payrollDeductions).where(and(inArray(payrollDeductions.periodId, periodIds), eq(payrollDeductions.isWaived, false))),
+    ]);
+    return { entries, deductions };
   }
 
   async getPayrollPeriod(id: string): Promise<PayrollPeriod | undefined> {

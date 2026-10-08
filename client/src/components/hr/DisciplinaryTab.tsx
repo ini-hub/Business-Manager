@@ -14,8 +14,8 @@ import { Spinner } from "@/components/ui/loader";
 
 interface DisciplinaryRecord { id: string; incidentDate: string; closedDate: string | null; complaintIssuedBy: string | null; description: string; action: string | null }
 
-/** Manager/owner-only, per server/routes/hr.routes.ts authorizeStaffAccess({ managerOnly: true }). */
-export function DisciplinaryTab({ staffId }: { staffId: string }) {
+/** Managers add records; the staff member sees their own read-only (writes are managerOnly in server/routes/hr.routes.ts). */
+export function DisciplinaryTab({ staffId, canManage }: { staffId: string; canManage: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const url = `/api/hr/staff/${staffId}/disciplinary`;
@@ -39,7 +39,7 @@ export function DisciplinaryTab({ staffId }: { staffId: string }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">Disciplinary Records</CardTitle>
-        <Dialog open={open} onOpenChange={setOpen}>
+        {canManage && <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="button-add-disciplinary-record"><Plus className="h-4 w-4 mr-1" />Add</Button></DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add disciplinary record</DialogTitle></DialogHeader>
@@ -58,7 +58,7 @@ export function DisciplinaryTab({ staffId }: { staffId: string }) {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
       </CardHeader>
       <CardContent>
         {isLoading ? <Spinner className="h-5 w-5 animate-spin text-muted-foreground" /> : (

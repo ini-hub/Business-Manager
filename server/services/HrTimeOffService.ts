@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
   hrTimeOffBalances,
@@ -9,12 +9,20 @@ import {
   type HrTimeOffRequest,
   type HrTimeOffHistoryEntry,
   type CreateHrTimeOffRequestInput,
+  type SetHrLeaveAllowanceInput,
 } from "@shared/schema";
 
 type ReviewOutcome =
   | { kind: "approved"; request: HrTimeOffRequest; balance: HrTimeOffBalance }
   | { kind: "rejected"; request: HrTimeOffRequest }
-  | { kind: "not_pending"; reason: string };
+  | { kind: "not_pending"; reason: string }
+  | { kind: "insufficient"; reason: string };
+
+export class TimeOffRequestError extends Error {}
+
+const DAY_MS = 86_400_000;
+const inclusiveSpanDays = (start: string, end: string) =>
+  Math.round((Date.parse(end) - Date.parse(start)) / DAY_MS) + 1;
 
 const ALL_LEAVE_TYPES: HrLeaveType[] = ["annual", "sick", "bereavement", "maternity"];
 
@@ -46,17 +54,70 @@ class HrTimeOffService {
     return db.select().from(hrTimeOffHistory).where(conditions).orderBy(desc(hrTimeOffHistory.date));
   }
 
+  /**
+   * Staff can only ask for what their allowance covers: available minus
+   * what is already waiting on approval. The balance row is locked so two
+   * concurrent requests can't both spend the same days.
+   */
   async createRequest(staffId: string, input: CreateHrTimeOffRequestInput): Promise<HrTimeOffRequest> {
-    const [row] = await db.insert(hrTimeOffRequests).values({
+    const span = inclusiveSpanDays(input.startDate, input.endDate);
+    if (!Number.isFinite(span) || span < 1) throw new TimeOffRequestError("The end date can't be before the start date.");
+    if (input.daysRequested > span) throw new TimeOffRequestError(`You asked for ${input.daysRequested} day(s) but those dates only span ${span}.`);
+
+    return db.transaction(async (tx) => {
+      const [balance] = await tx.select().from(hrTimeOffBalances)
+        .where(and(eq(hrTimeOffBalances.staffId, staffId), eq(hrTimeOffBalances.leaveType, input.leaveType)))
+        .for("update");
+
+      const open = await tx.select().from(hrTimeOffRequests).where(and(
+        eq(hrTimeOffRequests.staffId, staffId),
+        inArray(hrTimeOffRequests.status, ["pending", "approved"]),
+      ));
+      const overlaps = open.some((r) => r.startDate <= input.endDate && r.endDate >= input.startDate);
+      if (overlaps) throw new TimeOffRequestError("You already have a request that overlaps these dates.");
+
+      const pendingDays = open
+        .filter((r) => r.status === "pending" && r.leaveType === input.leaveType)
+        .reduce((sum, r) => sum + Number(r.daysRequested), 0);
+      const remaining = Number(balance?.available ?? 0) - pendingDays;
+      if (input.daysRequested > remaining) {
+        throw new TimeOffRequestError(
+          remaining > 0
+            ? `You only have ${remaining} ${input.leaveType} leave day(s) left to request.`
+            : `You have no ${input.leaveType} leave days left to request. Ask your manager about your allowance.`,
+        );
+      }
+
+      const [row] = await tx.insert(hrTimeOffRequests).values({
+        staffId,
+        leaveType: input.leaveType,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        daysRequested: input.daysRequested,
+        reason: input.reason,
+        status: "pending",
+      }).returning();
+      return row;
+    });
+  }
+
+  /**
+   * Sets the total days a staff member is allowed for a leave type. Written
+   * through the ledger as an earned-days delta so history stays truthful;
+   * the total can't drop below what has already been used.
+   */
+  async setAllowance(staffId: string, input: SetHrLeaveAllowanceInput): Promise<HrTimeOffBalance> {
+    const [existing] = await db.select().from(hrTimeOffBalances)
+      .where(and(eq(hrTimeOffBalances.staffId, staffId), eq(hrTimeOffBalances.leaveType, input.leaveType)));
+    const used = Number(existing?.used ?? 0);
+    if (input.totalDays < used) throw new TimeOffRequestError(`${used} day(s) are already used, so the allowance can't be less than that.`);
+    const delta = input.totalDays - Number(existing?.earned ?? 0);
+    return this.adjustBalance({
       staffId,
       leaveType: input.leaveType,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      daysRequested: input.daysRequested,
-      reason: input.reason,
-      status: "pending",
-    }).returning();
-    return row;
+      earnedDelta: delta,
+      description: `Allowance set to ${input.totalDays} day(s)`,
+    });
   }
 
   async approve(requestId: string, reviewedByUserId: string): Promise<ReviewOutcome> {
@@ -66,6 +127,11 @@ class HrTimeOffService {
     }
 
     const result = await db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(hrTimeOffBalances)
+        .where(and(eq(hrTimeOffBalances.staffId, request.staffId), eq(hrTimeOffBalances.leaveType, request.leaveType)))
+        .for("update");
+      if (Number(locked?.available ?? 0) < Number(request.daysRequested)) return null;
+
       const [updatedRequest] = await tx.update(hrTimeOffRequests)
         .set({ status: "approved", reviewedByUserId, reviewedAt: new Date() })
         .where(eq(hrTimeOffRequests.id, requestId))
@@ -100,6 +166,7 @@ class HrTimeOffService {
       return { request: updatedRequest, balance };
     });
 
+    if (!result) return { kind: "insufficient", reason: "This staff member no longer has enough leave days. Raise their allowance first." };
     return { kind: "approved", ...result };
   }
 
