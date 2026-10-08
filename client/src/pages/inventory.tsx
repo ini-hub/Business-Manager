@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useMemo, useEffect } from "react";
 import { LimitNudge } from "@/components/billing/LimitNudge";
 import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
@@ -169,7 +170,13 @@ export default function InventoryPage() {
 
   const { data: archivedList = [], isLoading: isLoadingArchived } = useMultiStoreQuery<ProductWithVariants>(
     "/api/products/archived",
-    { enabled: filterType === "archived" || isExportDialogOpen, staleTime: STALE_TIMES.reference }
+    {
+      enabled: filterType === "archived" || isExportDialogOpen,
+      staleTime: STALE_TIMES.reference,
+      // Archived items are searched and exported here, so the screen needs them all; walking the pages keeps
+      // each request bounded.
+      fetchList: (storeId) => fetchAllPages<ProductWithVariants>(`/api/products/archived?storeId=${storeId}`),
+    }
   );
 
   // Saved "New item" wizard sessions. Per-store (the endpoint takes one storeId), and
@@ -178,11 +185,7 @@ export default function InventoryPage() {
   const draftsStoreId = currentStore?.id && currentStore.id !== "all" ? currentStore.id : null;
   const { data: draftsList = [], isLoading: isLoadingDrafts } = useQuery<any[]>({
     queryKey: ["/api/inventory-drafts", draftsStoreId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory-drafts?storeId=${draftsStoreId}`);
-      if (!res.ok) throw new Error("Failed to load drafts");
-      return res.json();
-    },
+    queryFn: () => fetchAllPages<any>(`/api/inventory-drafts?storeId=${draftsStoreId}`),
     enabled: !isDisabled("inventory_drafts") && !!draftsStoreId,
   });
   const discardDraft = async (id: string) => {

@@ -53,9 +53,9 @@
 
 @media (min-width: 1024px) {
   .ks { flex-direction: row; }
-  .ks-side { display: flex; flex-direction: column; justify-content: flex-start; gap: 64px; flex: 0 0 43.75%; position: sticky; top: 0; height: 100vh; padding: 48px; background: var(--kp-ink); color: #fff; }
+  .ks-side { display: flex; flex-direction: column; justify-content: flex-start; gap: 64px; flex: 0 0 33.333%; position: sticky; top: 0; height: 100vh; padding: 48px; background: var(--kp-ink); color: #fff; }
   .ks-side-logo { align-self: flex-start; }
-  .ks-side h2 { font-size: 40px; line-height: 1.1; font-weight: 700; letter-spacing: -1px; color: #fff; max-width: 12em; }
+  .ks-side h2 { font-size: 32px; line-height: 1.15; font-weight: 700; letter-spacing: -.8px; color: #fff; max-width: 12em; }
   .ks-side-sub { margin-top: 16px; font-size: 16px; color: var(--kp-line); max-width: 30em; }
   .ks-points { display: flex; flex-direction: column; gap: 12px; margin-top: 32px; font-size: 15px; color: #fff; }
   .ks-points li { display: flex; gap: 12px; align-items: center; }
@@ -70,7 +70,7 @@
    address full width, then password beside confirm. */
 @media (min-width: 768px) {
   .ks-body:has(.ks-form) { max-width: 640px; }
-  .ks .ks-form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .ks .ks-form { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 20px; }
   .ks .ks-form > .ks-stack { display: contents; }
   .ks .ks-card .ks-form > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
   .ks .ks-form > .ks-phone { order: 1; }
@@ -81,7 +81,7 @@
 @media (min-width: 1024px) and (max-height: 860px) {
   .ks-body:has(.ks-form) { margin-top: 24px; }
   .ks .ks-head { margin-bottom: 24px; }
-  .ks .ks-form { gap: 16px; }
+  .ks .ks-form { gap: 22px 20px; }
   .ks-side { padding: 32px 48px; }
 }
 @media (min-width: 1024px) {
@@ -113,7 +113,7 @@
   .ks-side-logo { display: inline-flex; align-items: center; height: 44px; }
   .ks-side > div { margin-top: calc(var(--ks-head-top) - 48px - 44px); }
   .ks-center { justify-content: flex-start; }
-  .ks .ks-center .ks-body, .ks .ks-center .ks-body:has(.ks-form) { margin-top: 0; padding-top: calc(var(--ks-head-top) + 6px); }
+  .ks .ks-center .ks-body, .ks .ks-center .ks-body:has(.ks-form) { margin-top: 0; padding-top: calc(var(--ks-head-top) + 2px); }
 }
 @media (min-width: 1024px) and (max-height: 860px) {
   .ks { --ks-head-top: 112px; }
@@ -174,4 +174,16 @@
   .ks .ks-otp-field { margin-top: 28px; }
   .ks .ks-otp-primary { margin-top: 24px; }
   .ks .ks-otp-resend { margin-top: 16px; }
+}
+
+/* 1/3 split: form block starts at the top, level with the Kowope logo, and the
+   fields get more air. The sign-up form scrolls on short screens. */
+@media (min-width: 1024px) {
+  .ks-center { justify-content: flex-start; }
+  .ks .ks-center .ks-body:has(.ks-form) { max-width: 680px; }
+  .ks .ks-head { margin-bottom: 40px; }
+  .ks .ks-form label { display: block; margin-bottom: 2px; }
+}
+@media (min-width: 1024px) and (max-height: 860px) {
+  .ks .ks-head { margin-bottom: 28px; }
 }

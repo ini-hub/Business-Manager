@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -32,9 +33,7 @@ export default function RegisterShifts() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/cash-register/sessions?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
+              const list = await fetchAllPages<any>(`/api/cash-register/sessions?storeId=${s.id}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -43,9 +42,11 @@ export default function RegisterShifts() {
         );
         return responses.flat().sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime());
       }
-      const res = await fetch(`/api/cash-register/sessions?storeId=${currentStore?.id}`);
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        return await fetchAllPages<any>(`/api/cash-register/sessions?storeId=${currentStore?.id}`);
+      } catch {
+        return [];
+      }
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });

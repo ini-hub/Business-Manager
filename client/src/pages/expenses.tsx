@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { AddButton } from "@/components/add-button";
 import { Link, useLocation, useSearch } from "wouter";
@@ -150,9 +151,9 @@ export default function ExpensesPage() {
               const params = new URLSearchParams({ storeId: s.id });
               if (dateRange.from) params.append("startDate", dateRange.from);
               if (dateRange.to) params.append("endDate", dateRange.to);
-              const res = await fetch(`/api/expenses?${params.toString()}`);
-              if (!res.ok) return [];
-              const list = await res.json() as ExpenseWithCategory[];
+              // The screen totals, searches and exports the whole period, so it walks the pages (each request
+              // stays bounded however long the history is).
+              const list = await fetchAllPages<ExpenseWithCategory>(`/api/expenses?${params.toString()}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -164,8 +165,7 @@ export default function ExpensesPage() {
       const params = new URLSearchParams({ storeId: currentStore!.id });
       if (dateRange.from) params.append("startDate", dateRange.from);
       if (dateRange.to) params.append("endDate", dateRange.to);
-      const res = await apiRequest("GET", `/api/expenses?${params.toString()}`);
-      return res.json();
+      return fetchAllPages<ExpenseWithCategory>(`/api/expenses?${params.toString()}`);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });

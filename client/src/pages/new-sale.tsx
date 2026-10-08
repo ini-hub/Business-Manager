@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useCountLimitGuard } from "@/hooks/useCountLimitGuard";
 import { useState, useEffect, useRef } from "react";
@@ -21,7 +22,8 @@ import {
   CheckCircle2,
   WifiOff,
   FileEdit,
-  ChevronDown
+  ChevronDown,
+  TrendingDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -83,8 +85,12 @@ import { CashRegisterDialogs } from "./new-sale/CashRegisterDialogs";
 import { SupervisorOverrideDialog } from "./new-sale/SupervisorOverrideDialog";
 import { DraftsSheet } from "./new-sale/DraftsSheet";
 import type { CartItem } from "./new-sale/types";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { TransferFields, CashFields, type LegDetail } from "./new-sale/PaymentLegFields";
+import { useLossCheck } from "./new-sale/useLossCheck";
+import type { StorePaymentAccount } from "@shared/schema";
 
-type SplitPayment = { method: "cash" | "transfer" | "credit", amount: number };
+type SplitPayment = { method: "cash" | "transfer" | "credit", amount: number } & LegDetail;
 
 // Fresh array each call — split rows are edited in place by index.
 const defaultSplitPayments = (): SplitPayment[] => [
@@ -118,10 +124,47 @@ export default function NewSale() {
   const [splitPayments, setSplitPayments] = useState<SplitPayment[]>(defaultSplitPayments);
   const [creditUpfrontPaid, setCreditUpfrontPaid] = useState<number>(0);
 
+  const [paymentDetail, setPaymentDetail] = useState<LegDetail>({});
+  const [lossConfirmOpen, setLossConfirmOpen] = useState(false);
+
+  // Accounts the store receives transfers into. Empty means transfers stay unassigned.
+  const { data: paymentAccounts = [] } = useQuery<StorePaymentAccount[]>({
+    queryKey: ["/api/sales/payment-accounts", currentStore?.id],
+    enabled: !!currentStore?.id && currentStore.id !== "all",
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/sales/payment-accounts?storeId=${currentStore?.id}`);
+      return res.json();
+    },
+  });
+  const defaultAccountId = paymentAccounts.find((a) => a.isDefault)?.id ?? paymentAccounts[0]?.id;
+
+  // Pre-select the store's default account on every transfer leg that has none yet.
+  useEffect(() => {
+    if (!defaultAccountId) return;
+    if (paymentMethod === "transfer" && !paymentDetail.accountId) {
+      setPaymentDetail((d) => ({ ...d, accountId: defaultAccountId }));
+    }
+    if (paymentMethod === "split" && splitPayments.some((sp) => sp.method === "transfer" && !sp.accountId)) {
+      setSplitPayments((prev) => prev.map((sp) => (sp.method === "transfer" && !sp.accountId ? { ...sp, accountId: defaultAccountId } : sp)));
+    }
+  }, [defaultAccountId, paymentMethod, paymentDetail.accountId, splitPayments]);
+
+  const { byItem: lossByItem, totalLoss, hasLoss } = useLossCheck(
+    currentStore && currentStore.id !== "all" ? currentStore.id : undefined,
+    cart,
+  );
+
   const updateSplitPayment = (index: number, field: "method" | "amount", value: string | number) => {
     const newSplits = [...splitPayments];
     newSplits[index] = { ...newSplits[index], [field]: value };
+    // A row that stops being cash/transfer must not carry the other method's detail into the payload.
+    if (field === "method") {
+      newSplits[index] = { method: newSplits[index].method, amount: newSplits[index].amount };
+    }
     setSplitPayments(newSplits);
+  };
+  const updateSplitDetail = (index: number, detail: LegDetail) => {
+    setSplitPayments((prev) => prev.map((sp, i) => (i === index ? { ...sp, ...detail } : sp)));
   };
 
   const removeSplitPayment = (index: number) => {
@@ -396,9 +439,11 @@ export default function NewSale() {
   const { data: drafts = [], refetch: refetchDrafts } = useQuery<any[]>({
     queryKey: ["/api/sales/drafts", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/sales/drafts?storeId=${currentStore?.id}`);
-      if (!res.ok) return [];
-      return res.json();
+      try {
+        return await fetchAllPages<any>(`/api/sales/drafts?storeId=${currentStore?.id}`);
+      } catch {
+        return [];
+      }
     },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
@@ -411,6 +456,7 @@ export default function NewSale() {
     setSelectedStaff("");
     setPaymentMethod("cash");
     setSplitPayments(defaultSplitPayments());
+    setPaymentDetail({});
     setApplyDiscount(false);
     setRedeemPoints(false);
     setRedeemStoreCredit(false);
@@ -1002,6 +1048,12 @@ export default function NewSale() {
   const taxTotal = subtotalAfterPoints * (taxRatePercent / 100);
   const totalChargedBeforeCredit = subtotalAfterPoints + taxTotal;
 
+  // Store credit is applied automatically when a customer with a balance is selected;
+  // the cashier can switch it off from the panel below.
+  useEffect(() => {
+    setRedeemStoreCredit(Number(customerStoreCredit) > 0);
+  }, [selectedCustomer, customerStoreCredit > 0]);
+
   // Store Credit Redemption (applied on totalChargedBeforeCredit)
   const storeCreditRedeemed = redeemStoreCredit ? Math.min(customerStoreCredit, totalChargedBeforeCredit) : 0;
   const totalCharged = Math.max(0, totalChargedBeforeCredit - storeCreditRedeemed);
@@ -1044,7 +1096,17 @@ export default function NewSale() {
       const freshBalance = Math.max(0, freshTotalCharged - freshDepositAmount);
 
       let finalPaymentMethod = freshBalance === 0 && freshDepositAmount > 0 ? "deposit" : paymentMethod;
-      let finalSplitPayments = paymentMethod === "split" ? splitPayments.filter(s => s.amount > 0) : undefined;
+      // Only send the detail that belongs to each leg's method.
+      const legDetail = (method: string, d: LegDetail): LegDetail =>
+        method === "transfer"
+          ? { accountId: d.accountId, reference: d.reference || undefined, senderName: d.senderName || undefined, confirmed: d.confirmed }
+          : method === "cash"
+            ? { cashTendered: d.cashTendered, changeOwed: d.changeOwed }
+            : {};
+      let finalSplitPayments: any[] | undefined = paymentMethod === "split"
+        ? splitPayments.filter(s => s.amount > 0).map(({ method, amount, ...d }) => ({ method, amount, ...legDetail(method, d) }))
+        : undefined;
+      const singleDetail = paymentMethod !== "split" ? legDetail(paymentMethod, paymentDetail) : undefined;
 
       if (freshStoreCreditRedeemed > 0) {
         if (freshBalance === 0) {
@@ -1053,13 +1115,13 @@ export default function NewSale() {
         } else {
           if (paymentMethod === "split") {
             finalSplitPayments = [
-              ...splitPayments.filter(s => s.amount > 0),
+              ...(finalSplitPayments ?? []),
               { method: "store_credit", amount: freshStoreCreditRedeemed }
             ] as any[];
           } else {
             finalPaymentMethod = "split";
             finalSplitPayments = [
-              { method: paymentMethod as any, amount: freshBalance },
+              { method: paymentMethod as any, amount: freshBalance, ...singleDetail },
               { method: "store_credit", amount: freshStoreCreditRedeemed }
             ];
           }
@@ -1081,6 +1143,7 @@ export default function NewSale() {
         creditUpfrontPaid: paymentMethod === "credit" ? creditUpfrontPaid : undefined,
         creditDueDate: paymentMethod === "credit" ? (creditDueDate || undefined) : undefined,
         splitPayments: finalSplitPayments,
+        paymentDetail: finalSplitPayments ? undefined : singleDetail,
         bookingDepositAmount: freshDepositAmount > 0 ? freshDepositAmount : undefined,
         bookingDepositMethod: freshDepositMethod || undefined,
         balanceCollectedToday: freshBalance,
@@ -1185,6 +1248,17 @@ export default function NewSale() {
     if (serviceItemsMissingLead.length > 0) return "Please assign a lead staff member to all service items.";
     if (discountAmount > 0 && (!discountReason || !discountApprovedBy)) return "Discount requires both a reason and manager approval.";
     if (!isFullyCoveredByDeposit && paymentMethod === "split" && !splitIsValid) return "Split payment amounts must exactly match the balance due.";
+    if (!isFullyCoveredByDeposit) {
+      const legs: Array<{ method: string; amount: number; detail: LegDetail }> = paymentMethod === "split"
+        ? splitPayments.filter(sp => sp.amount > 0).map(sp => ({ method: sp.method, amount: sp.amount, detail: sp }))
+        : [{ method: paymentMethod, amount: balanceCollectedToday, detail: paymentDetail }];
+      if (paymentAccounts.length > 0 && legs.some(l => l.method === "transfer" && !l.detail.accountId)) {
+        return "Select the account each bank transfer was paid into.";
+      }
+      if (legs.some(l => l.method === "cash" && l.detail.cashTendered !== undefined && l.detail.cashTendered + 0.005 < l.amount)) {
+        return "Cash received is less than the cash amount due.";
+      }
+    }
     return null;
   };
 
@@ -1225,6 +1299,11 @@ export default function NewSale() {
 
     if (!activeSession) {
       setOpenRegisterDialogOpen(true);
+      return;
+    }
+    // Allowed, but the cashier must see it and agree once before it goes through.
+    if (hasLoss && !lossConfirmOpen) {
+      setLossConfirmOpen(true);
       return;
     }
     checkoutMutation.mutate();
@@ -1424,6 +1503,7 @@ export default function NewSale() {
                       item={item}
                       staffList={staffList}
                       formatCurrency={formatCurrency}
+                      loss={lossByItem.get(item.inventory.id)}
                       onUpdateQuantity={updateQuantity}
                       onSetExactQuantity={setExactQuantity}
                       onUpdatePrice={updateCustomPrice}
@@ -1655,6 +1735,14 @@ export default function NewSale() {
                 </div>
               )}
               {/* Customer Store Credit Panel */}
+              {selectedCustomer && customerStoreCredit > 0 && redeemStoreCredit && storeCreditRedeemed > 0 && (
+                <div role="status" className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400 flex items-start gap-2">
+                  <Sparkles className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Store credit of <strong>{formatCurrency(storeCreditRedeemed)}</strong> has been applied to this sale automatically. Toggle it off below to charge the full amount.
+                  </span>
+                </div>
+              )}
               {selectedCustomer && customerStoreCredit > 0 && (
                 <div className="w-full border border-primary/10 rounded-lg p-4 bg-primary/5 space-y-3 animate-fade-in">
                   <div className="flex items-center justify-between">
@@ -1739,6 +1827,19 @@ export default function NewSale() {
                       <span className="font-mono">- {formatCurrency(storeCreditRedeemed)}</span>
                     </div>
                   </>
+                )}
+
+                {hasLoss && (
+                  <div
+                    role="status"
+                    className="flex items-start gap-2 rounded-md border border-red-500/50 bg-red-50 dark:bg-red-950/30 p-2.5 text-xs text-red-700 dark:text-red-300"
+                    data-testid="banner-loss-sale"
+                  >
+                    <TrendingDown className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>
+                      <span className="font-semibold">Loss sale.</span> This cart is priced {formatCurrency(totalLoss)} below cost.
+                    </span>
+                  </div>
                 )}
 
                 <div className="flex justify-between items-center font-bold text-sm text-foreground pt-2 border-t">
@@ -2066,6 +2167,23 @@ export default function NewSale() {
                 </div>
               )}
 
+              {paymentMethod === "cash" && balanceCollectedToday > 0 && (
+                <div className="mt-3">
+                  <CashFields
+                    idPrefix="single-cash"
+                    due={balanceCollectedToday}
+                    value={paymentDetail}
+                    onChange={setPaymentDetail}
+                    formatCurrency={formatCurrency}
+                  />
+                </div>
+              )}
+              {paymentMethod === "transfer" && balanceCollectedToday > 0 && (
+                <div className="mt-3">
+                  <TransferFields idPrefix="single-transfer" accounts={paymentAccounts} value={paymentDetail} onChange={setPaymentDetail} />
+                </div>
+              )}
+
               {paymentMethod === "split" && balanceCollectedToday > 0 && (
                 <div className="mt-4 p-4 bg-muted/30 border border-border rounded-lg space-y-4 animate-in fade-in-50 duration-200">
                   <div className="flex items-center justify-between">
@@ -2085,7 +2203,8 @@ export default function NewSale() {
                   
                   <div className="space-y-3">
                     {splitPayments.map((split, index) => (
-                      <div key={index} className="flex gap-2 items-start relative group">
+                      <div key={index} className="space-y-2">
+                      <div className="flex gap-2 items-start relative group">
                         <div className="flex-1 space-y-1">
                           <Label className="text-[11px] text-muted-foreground uppercase font-medium">Method</Label>
                           <Select 
@@ -2132,6 +2251,13 @@ export default function NewSale() {
                             <Trash2 className="h-4 w-4" />
                           </IconButton>
                         )}
+                      </div>
+                      {split.method === "transfer" && (
+                        <TransferFields idPrefix={`split-${index}`} accounts={paymentAccounts} value={split} onChange={(d) => updateSplitDetail(index, d)} />
+                      )}
+                      {split.method === "cash" && split.amount > 0 && (
+                        <CashFields idPrefix={`split-${index}`} due={split.amount} value={split} onChange={(d) => updateSplitDetail(index, d)} formatCurrency={formatCurrency} />
+                      )}
                       </div>
                     ))}
                   </div>
@@ -2302,19 +2428,53 @@ export default function NewSale() {
                 )}
               </div>
             )}
+            {hasLoss && (
+              <div
+                role="status"
+                className="flex items-center justify-center gap-1.5 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-500/50 px-2 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300"
+                data-testid="strip-loss-sale"
+              >
+                <TrendingDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Loss {formatCurrency(totalLoss)} below cost
+              </div>
+            )}
             <Button
-              className="w-full"
+              className={cn("w-full h-11 lg:h-9", hasLoss && "bg-red-600 text-white hover:bg-red-700")}
               disabled={checkoutMutation.isPending}
               onClick={handleCheckoutClick}
               data-testid="button-checkout"
             >
               {checkoutMutation.isPending ? "Processing..." : (
-                <><CheckCircle className="mr-2 h-4 w-4" />{paymentMethod === "flutterwave" ? "Generate Payment Link" : "Complete Sale"}</>
+                <><CheckCircle className="mr-2 h-4 w-4" />{paymentMethod === "flutterwave" ? "Generate Payment Link" : hasLoss ? "Sell at a Loss" : "Complete Sale"}</>
               )}
             </Button>
           </div>
         </div>{/* end right panel */}
       </div>{/* end flex container */}
+
+      <AlertDialog open={lossConfirmOpen} onOpenChange={setLossConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <TrendingDown className="h-5 w-5" aria-hidden="true" /> Sell below cost?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This sale is priced {formatCurrency(totalLoss)} below what the items cost you. It will go through and be
+              marked as a loss sale in your reports.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogAction
+              className="h-11 sm:h-9 bg-transparent text-red-600 border border-red-600/40 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={() => { setLossConfirmOpen(false); checkoutMutation.mutate(); }}
+              data-testid="button-confirm-loss-sale"
+            >
+              Sell at a loss
+            </AlertDialogAction>
+            <AlertDialogCancel className="h-11 sm:h-9 mt-0 bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground">Review prices</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <CashRegisterDialogs
         openRegisterDialogOpen={openRegisterDialogOpen}
@@ -2392,7 +2552,7 @@ export default function NewSale() {
           <ShoppingCart className="h-5 w-5" />
           <span>Cart</span>
           {cart.length > 0 && (
-            <span className="absolute top-1.5 left-[calc(50%+6px)] h-4 w-4 rounded-full bg-primary text-[11px] font-bold text-primary-foreground flex items-center justify-center">
+            <span className={cn("absolute top-1.5 left-[calc(50%+6px)] h-4 w-4 rounded-full text-[11px] font-bold text-primary-foreground flex items-center justify-center", hasLoss ? "bg-red-600" : "bg-primary")} data-testid={hasLoss ? "tab-cart-loss" : undefined}>
               {cart.length}
             </span>
           )}

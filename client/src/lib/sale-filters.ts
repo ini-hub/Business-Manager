@@ -14,6 +14,7 @@ export interface SaleFilterState {
   returnsOnly: boolean;
   creditOnly: boolean;
   staffPurchasesOnly: boolean;
+  lossOnly: boolean;
   /** Inclusive local dates as yyyy-MM-dd; sent to the server as the query range. */
   dateFrom: string | null;
   dateTo: string | null;
@@ -28,6 +29,7 @@ export const EMPTY_SALE_FILTERS: SaleFilterState = {
   returnsOnly: false,
   creditOnly: false,
   staffPurchasesOnly: false,
+  lossOnly: false,
   dateFrom: null,
   dateTo: null,
 };
@@ -41,13 +43,14 @@ export interface FilterableSale {
   inventoryType: string | null;
   isReturned: boolean;
   isStaffPurchase: boolean;
+  lossAmount?: number;
 }
 
 export function saleMatchesFilters<T extends FilterableSale>(
   sale: T,
   filters: SaleFilterState
 ): boolean {
-  const { paymentMethod, staffId, itemType, amountMin, amountMax, returnsOnly, creditOnly, staffPurchasesOnly } = filters;
+  const { paymentMethod, staffId, itemType, amountMin, amountMax, returnsOnly, creditOnly, staffPurchasesOnly, lossOnly } = filters;
 
   if (paymentMethod && sale.paymentMethod !== paymentMethod) return false;
   if (staffId && sale.staffId !== staffId) return false;
@@ -57,6 +60,7 @@ export function saleMatchesFilters<T extends FilterableSale>(
   if (returnsOnly && !sale.isReturned) return false;
   if (creditOnly && sale.paymentStatus !== "pending") return false;
   if (staffPurchasesOnly && !sale.isStaffPurchase) return false;
+  if (lossOnly && !((sale.lossAmount ?? 0) > 0)) return false;
 
   return true;
 }
@@ -71,6 +75,7 @@ export function countActiveSaleFilters(filters: SaleFilterState): number {
   if (filters.returnsOnly) count++;
   if (filters.creditOnly) count++;
   if (filters.staffPurchasesOnly) count++;
+  if (filters.lossOnly) count++;
   return count;
 }
 
@@ -125,6 +130,7 @@ export function buildSaleFilterChips(
   if (filters.returnsOnly) chips.push({ key: "returnsOnly", label: "Returns" });
   if (filters.creditOnly) chips.push({ key: "creditOnly", label: "Credit" });
   if (filters.staffPurchasesOnly) chips.push({ key: "staffPurchasesOnly", label: "Staff purchases" });
+  if (filters.lossOnly) chips.push({ key: "lossOnly", label: "Loss sales" });
 
   return chips;
 }
@@ -139,6 +145,7 @@ export function clearSaleFilterChip(filters: SaleFilterState, key: SaleFilterChi
     case "returnsOnly": return { ...filters, returnsOnly: false };
     case "creditOnly": return { ...filters, creditOnly: false };
     case "staffPurchasesOnly": return { ...filters, staffPurchasesOnly: false };
+    case "lossOnly": return { ...filters, lossOnly: false };
     default: return filters;
   }
 }

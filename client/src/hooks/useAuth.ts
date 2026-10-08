@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, markIntentionalLogout } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
 
 // The API layers a `staffId` onto the raw user record: the caller's own linked
@@ -16,6 +16,7 @@ export function useAuth() {
   });
 
   const logout = async () => {
+    markIntentionalLogout();
     try {
       await apiRequest("POST", "/api/auth/logout");
       queryClient.clear();

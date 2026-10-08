@@ -43,7 +43,7 @@ export function SaleFiltersSheet({ filters, onApply, resultCountFor, currencySym
           : draft.amountMin != null ? `${money(draft.amountMin, currencySymbol)} or more`
           : draft.amountMax != null ? `Up to ${money(draft.amountMax, currencySymbol)}` : null;
         const staffName = staffOptions.find((s) => s.id === draft.staffId)?.name;
-        const saleTypes = [draft.returnsOnly && "Returns", draft.creditOnly && "Credit", draft.staffPurchasesOnly && "Staff purchases"].filter(Boolean) as string[];
+        const saleTypes = [draft.returnsOnly && "Returns", draft.creditOnly && "Credit", draft.staffPurchasesOnly && "Staff purchases", draft.lossOnly && "Loss sales"].filter(Boolean) as string[];
         return (
           <>
             <DateRangeSection from={draft.dateFrom} to={draft.dateTo} summary={saleDateRangeLabel(draft.dateFrom, draft.dateTo)} onChange={(dateFrom, dateTo) => patch({ dateFrom, dateTo })} />
@@ -52,13 +52,14 @@ export function SaleFiltersSheet({ filters, onApply, resultCountFor, currencySym
               label="Sale type"
               defaultOpen
               summary={saleTypes.join(", ")}
-              onClear={() => patch({ returnsOnly: false, creditOnly: false, staffPurchasesOnly: false })}
+              onClear={() => patch({ returnsOnly: false, creditOnly: false, staffPurchasesOnly: false, lossOnly: false })}
             >
               <SwitchRows
                 rows={[
                   { label: "Returns", checked: draft.returnsOnly, onChange: (v) => patch({ returnsOnly: v }), count: resultCountFor({ ...draft, returnsOnly: true }) },
                   { label: "Credit sales", checked: draft.creditOnly, onChange: (v) => patch({ creditOnly: v }), count: resultCountFor({ ...draft, creditOnly: true }) },
                   { label: "Staff purchases", checked: draft.staffPurchasesOnly, onChange: (v) => patch({ staffPurchasesOnly: v }), count: resultCountFor({ ...draft, staffPurchasesOnly: true }) },
+                  { label: "Loss sales", checked: draft.lossOnly, onChange: (v) => patch({ lossOnly: v }), count: resultCountFor({ ...draft, lossOnly: true }) },
                 ]}
               />
             </FilterSection>

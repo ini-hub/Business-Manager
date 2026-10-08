@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { Gated } from "@/components/billing/Gated";
 import { AddButton } from "@/components/add-button";
@@ -73,9 +74,7 @@ export default function PurchaseOrdersPage() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/vendors/bills?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
+              const list = await fetchAllPages<any>(`/api/vendors/bills?storeId=${s.id}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -84,8 +83,7 @@ export default function PurchaseOrdersPage() {
         );
         return responses.flat();
       }
-      const res = await apiRequest("GET", `/api/vendors/bills?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/vendors/bills?storeId=${currentStore!.id}`);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });
@@ -126,9 +124,7 @@ export default function PurchaseOrdersPage() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/purchase-orders?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as POWithVendor[];
+              const list = await fetchAllPages<POWithVendor>(`/api/purchase-orders?storeId=${s.id}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -137,8 +133,7 @@ export default function PurchaseOrdersPage() {
         );
         return responses.flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
-      const res = await apiRequest("GET", `/api/purchase-orders?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<POWithVendor>(`/api/purchase-orders?storeId=${currentStore!.id}`);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });

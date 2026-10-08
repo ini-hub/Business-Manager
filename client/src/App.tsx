@@ -1,7 +1,7 @@
 import { getFeatureDef, featureForScreen, type FeatureKey } from "@shared/features";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { useEffect, lazy, Suspense } from "react";
-import { queryClient } from "./lib/queryClient";
+import { queryClient, takeReturnPath } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { UpgradePromptDialog } from "@/components/billing/UpgradePromptDialog";
@@ -20,6 +20,7 @@ import { OrgSwitcher } from "@/components/org-switcher";
 import { useAuth } from "@/hooks/useAuth";
 import { SeoSync } from "@/components/seo-sync";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+import { IdleLogoutGuard } from "@/components/idle-logout-guard";
 import { Lock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -63,6 +64,7 @@ const CustomerInsights = lazy(() => import("@/pages/customer-insights"));
 const CustomerDetails = lazy(() => import("@/pages/customer-details"));
 const CustomerFormPage = lazy(() => import("@/pages/customer-form"));
 const StaffPage = lazy(() => import("@/pages/staff"));
+const StaffDetailsPage = lazy(() => import("@/pages/staff-details"));
 const StaffFormPage = lazy(() => import("@/pages/staff-form"));
 const HrProfilePage = lazy(() => import("@/pages/hr-profile"));
 const CompleteProfilePage = lazy(() => import("@/pages/complete-profile"));
@@ -110,11 +112,16 @@ const BookingFormPage = lazy(() => import("@/pages/booking-form"));
 const BookingDetailsPage = lazy(() => import("@/pages/booking-details"));
 const QuotesPage = lazy(() => import("@/pages/quotes"));
 const QuoteFormPage = lazy(() => import("@/pages/quote-form"));
+const QuoteDetailPage = lazy(() => import("@/pages/quote-detail"));
 const LeaderboardPage = lazy(() => import("@/pages/leaderboard"));
 const PurchaseOrdersPage = lazy(() => import("@/pages/purchase-orders"));
 const PurchaseOrderFormPage = lazy(() => import("@/pages/purchase-order-form"));
 const PurchaseOrderDetailPage = lazy(() => import("@/pages/purchase-order-detail"));
 const StockTransfersPage = lazy(() => import("@/pages/stock-transfers"));
+const PartnersPage = lazy(() => import("@/pages/partners"));
+const PartnerTransferNewPage = lazy(() => import("@/pages/partner-transfer-new"));
+const PartnerTransferDetailsPage = lazy(() => import("@/pages/partner-transfer-details"));
+const PartnerLedgerPage = lazy(() => import("@/pages/partner-ledger"));
 const StockTransferNewPage = lazy(() => import("@/pages/stock-transfer-new"));
 const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
 const BalanceSheetPage = lazy(() => import("@/pages/balance-sheet"));
@@ -383,6 +390,14 @@ function AuthenticatedLayout() {
   const { user } = useAuth();
   useRealtimeSync();
   const [location, setLocation] = useLocation();
+
+  // After a session-expired or idle sign-out, put the user back on the page they were on.
+  useEffect(() => {
+    if (location !== "/") return;
+    const back = takeReturnPath();
+    if (back) setLocation(back);
+  }, []);
+
   const sidebarStyle = {
     "--sidebar-width": "15.5rem",
     "--sidebar-width-icon": "3rem",
@@ -501,6 +516,7 @@ function AuthenticatedLayout() {
 
   return (
     <StoreProvider>
+      <IdleLogoutGuard />
       <SidebarProvider style={sidebarStyle as React.CSSProperties}>
         <div className="flex flex-col min-h-screen w-full">
           <div className="flex flex-1 w-full min-h-0">
@@ -544,7 +560,12 @@ function AuthenticatedLayout() {
                     <LimitGate limitType="customer_count"><CustomerFormPage /></LimitGate>
                   </Route>
                   <Route path="/customers/:id/edit" component={CustomerFormPage} />
-                  <Route path="/customers/:id" component={CustomerDetails} />
+                  <Route path="/customers/:id/activity">
+                    <CustomerDetails view="logs" />
+                  </Route>
+                  <Route path="/customers/:id">
+                    <CustomerDetails />
+                  </Route>
                   {/* Singular /staff/* = personal, identical for staff, manager, and
                       owner alike — no role branching, it's always "your own record".
                       Plural /staffs/* = admin (the roster, and every staff member's
@@ -569,7 +590,7 @@ function AuthenticatedLayout() {
                     {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
                   </Route>
                   <Route path="/staffs/:id/hr-profile">
-                    {user?.role === "staff" ? <NotAuthorized /> : <HrProfilePage />}
+                    {(params) => user?.role === "staff" ? <NotAuthorized /> : <Redirect to={`/staffs/${params.id}?tab=hr-personal`} />}
                   </Route>
                   <Route path="/staffs/attendance">
                     {user?.role === "staff" ? <NotAuthorized /> : <AttendancePage />}
@@ -579,6 +600,13 @@ function AuthenticatedLayout() {
                   </Route>
                   <Route path="/staffs/performance">
                     {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformance />}
+                  </Route>
+                  {/* After every literal /staffs/* route: ":id" would otherwise swallow "new", "attendance", etc. */}
+                  <Route path="/staffs/:id/activity">
+                    {user?.role === "staff" ? <NotAuthorized /> : <StaffDetailsPage view="logs" />}
+                  </Route>
+                  <Route path="/staffs/:id">
+                    {user?.role === "staff" ? <NotAuthorized /> : <StaffDetailsPage />}
                   </Route>
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/new">
@@ -678,6 +706,7 @@ function AuthenticatedLayout() {
                   <Route path="/vendors/:vendorId/bills/new" component={VendorBillNewPage} />
                   <Route path="/vendors/bills/:billId/pay" component={VendorBillPayPage} />
                   <Route path="/quotes/new" component={QuoteFormPage} />
+                  <Route path="/quotes/:id" component={QuoteDetailPage} />
                   <Route path="/quotes" component={QuotesPage} />
                   <Route path="/leaderboard" component={LeaderboardPage} />
                   <Route path="/purchase-orders/new" component={PurchaseOrderFormPage} />
@@ -687,6 +716,14 @@ function AuthenticatedLayout() {
                   <Route path="/stock-transfers">
                     {user?.role === "staff" ? <Redirect to="/" /> : <StockTransfersPage />}
                   </Route>
+                  <Route path="/partners/transfers/new">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <PartnerTransferNewPage />}
+                  </Route>
+                  <Route path="/partners/transfers/:id" component={PartnerTransferDetailsPage} />
+                  <Route path="/partners/ledger">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <PartnerLedgerPage />}
+                  </Route>
+                  <Route path="/partners" component={PartnersPage} />
                   <Route path="/stock-transfers/new">
                     {user?.role === "staff" ? <Redirect to="/" /> : <StockTransferNewPage />}
                   </Route>

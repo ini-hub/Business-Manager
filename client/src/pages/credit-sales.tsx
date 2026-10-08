@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useLocation, useSearch, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -124,10 +125,8 @@ export default function CreditSalesPage() {
 
   const { data: ledger = [], isLoading: isLedgerLoading, refetch: refetchLedger } = useQuery<any[]>({
     queryKey: ["/api/credit/ledger", storeId],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/credit/ledger?storeId=${storeId}`);
-      return res.json();
-    },
+    // The screen's cards and filters work over the whole ledger, so it walks the pages (bounded requests).
+    queryFn: () => fetchAllPages<any>(`/api/credit/ledger?storeId=${storeId}`),
     enabled: !!storeId,
   });
 

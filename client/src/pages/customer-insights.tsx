@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useMemo } from "react";
 import { BackButton } from "@/components/back-button";
 import { useQuery } from "@tanstack/react-query";
@@ -89,9 +90,7 @@ export default function CustomerInsights() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/transactions?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as any[];
+              const list = await fetchAllPages<any>(`/api/transactions?storeId=${s.id}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -100,9 +99,7 @@ export default function CustomerInsights() {
         );
         return responses.flat().sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
       }
-      const res = await fetch(`/api/transactions?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch transactions");
-      return res.json();
+      return fetchAllPages<any>(`/api/transactions?storeId=${currentStore?.id}`);
     },
     enabled: canSeeSpend && (currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id),
   });

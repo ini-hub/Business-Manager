@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useMemo } from "react";
 import { buildSlug, isUUID } from "@/lib/slug";
 import { useReturnTo, appendReturnTo } from "@/lib/return-to";
@@ -57,7 +58,8 @@ import { CustomerPhonesCard } from "@/components/CustomerPhonesCard";
 import { MergeProfilesDialog } from "@/components/MergeProfilesDialog";
 import { CustomerGamificationCard } from "@/components/gamification/CustomerGamificationCard";
 
-export default function CustomerDetails() {
+export default function CustomerDetails({ view = "overview" }: { view?: "overview" | "logs" }) {
+  const isLogs = view === "logs";
   // Credit / Booking tabs belong to their modules: hidden unless the module is available to this org.
   const { hasFeature, isLoading: entitlementsLoading } = useEntitlements();
   const showCreditTab = entitlementsLoading || hasFeature("credit_sale");
@@ -65,7 +67,10 @@ export default function CustomerDetails() {
   const [location, setLocation] = useLocation();
   const search = useSearch();
   const { backHref } = useReturnTo("/customers");
-  const [match, params] = useRoute("/customers/:id");
+  const [matchOverview, overviewParams] = useRoute("/customers/:id");
+  const [matchLogs, logsParams] = useRoute("/customers/:id/activity");
+  const match = matchOverview || matchLogs;
+  const params = overviewParams ?? logsParams;
   const { currentStore } = useStore();
   const customerId = params?.id;
   const { toast } = useToast();
@@ -167,15 +172,15 @@ export default function CustomerDetails() {
 
   const { data: transactions = [], isLoading: transactionsLoading } = useQuery<TransactionWithRelations[]>({
     queryKey: ["/api/customers", resolvedCustomerId, "transactions"],
+    // Total spent, last visit and the tab count are worked out from every receipt, so this reads them all
+    // (page by page).
+    queryFn: () => fetchAllPages<TransactionWithRelations>(`/api/customers/${resolvedCustomerId}/transactions`),
     enabled: !!resolvedCustomerId,
   });
 
   const { data: creditEntries = [], isLoading: creditLoading } = useQuery<any[]>({
     queryKey: ["/api/customers", resolvedCustomerId, "credit-ledger"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/credit/ledger?storeId=${currentStore?.id}&customerId=${resolvedCustomerId}`);
-      return res.json();
-    },
+    queryFn: () => fetchAllPages<any>(`/api/credit/ledger?storeId=${currentStore?.id}&customerId=${resolvedCustomerId}`),
     enabled: !!resolvedCustomerId && !!currentStore?.id,
   });
 
@@ -338,8 +343,21 @@ export default function CustomerDetails() {
           data-testid="button-back"
         >
           <ArrowLeft className="h-4 w-4" />
-          Customers
+          {isLogs ? customer.name : "Customers"}
         </button>
+        <div className="flex items-center gap-1">
+        {!isLogs && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => setLocation(appendReturnTo(`/customers/${customerId}/activity`, location, search))}
+            data-testid="button-customer-logs"
+          >
+            <Receipt className="mr-2 h-4 w-4" />
+            Logs & Activities
+          </Button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8" title="Customer menu" aria-label="Customer menu" data-testid="button-customer-menu">
@@ -377,6 +395,7 @@ export default function CustomerDetails() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
 
       <div className="flex items-start justify-between gap-3">
@@ -394,14 +413,22 @@ export default function CustomerDetails() {
             </p>
           </div>
         </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+        {Number(customer.storeCreditBalance) > 0 && (
+          <Badge variant="outline" className="border-sky-500 text-sky-600 bg-sky-500/5" data-testid="badge-store-credit">
+            Store credit owed: ₦{Number(customer.storeCreditBalance).toLocaleString()}
+          </Badge>
+        )}
         <Badge
           variant={customer.isArchived ? "secondary" : "default"}
-          className={cn("shrink-0", !customer.isArchived && "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300")}
+          className={cn(!customer.isArchived && "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300")}
         >
           {customer.isArchived ? "Archived" : "Active"}
         </Badge>
+        </div>
       </div>
 
+      {!isLogs && (<>
       <div className="flex items-center gap-2">
         {rawPhone && (
           <IconButton label="Call customer" variant="outline" className="h-10 w-10 rounded-full shrink-0" asChild data-testid="button-call">
@@ -518,6 +545,9 @@ export default function CustomerDetails() {
         </Alert>
       )}
 
+      </>)}
+
+      {isLogs && (
       <div className="space-y-6">
           <Card className="glassmorphism border border-border/80">
             <CardHeader className="pb-3 border-b">
@@ -767,6 +797,7 @@ export default function CustomerDetails() {
             </CardContent>
           </Card>
       </div>
+      )}
 
       <ConfirmDialog
         open={isArchiveConfirmOpen}

@@ -118,7 +118,7 @@ export function OrgSwitcher() {
             data-testid="button-org-switcher"
           >
             <span className="flex items-center gap-2 truncate">
-              <Building2 className="h-4 w-4 shrink-0 text-emerald-500" />
+              <Building2 className="h-4 w-4 shrink-0 text-primary" />
               <span className="truncate font-semibold">{currentOrg?.name || "Select Organisation..."}</span>
             </span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -166,9 +166,9 @@ export function OrgSwitcher() {
                     setNewOrgName("");
                     setCreateDialogOpen(true);
                   }}
-                  className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold cursor-pointer"
+                  className="flex items-center gap-2 text-primary font-semibold cursor-pointer"
                 >
-                  <Plus className="h-4 w-4 shrink-0 text-emerald-500" />
+                  <Plus className="h-4 w-4 shrink-0 text-primary" />
                   <span>Create Workspace</span>
                 </CommandItem>
               </CommandGroup>
@@ -178,19 +178,19 @@ export function OrgSwitcher() {
       </Popover>
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-md border-emerald-500/20 shadow-lg">
+        <DialogContent className="max-w-md shadow-lg">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-              <Building2 className="h-5 w-5 shrink-0 text-emerald-500" />
+            <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
+              <Building2 className="h-5 w-5 shrink-0 text-primary" />
               Create Business Workspace
             </DialogTitle>
-            <DialogDescription className="text-slate-500 dark:text-slate-400 text-sm">
+            <DialogDescription className="text-muted-foreground text-sm">
               Each workspace operates with its own isolated sales ledger, catalog, store locations, and staff assignments.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="business-name" className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              <Label htmlFor="business-name" className="text-sm font-semibold text-foreground">
                 Business Name
               </Label>
               <Input
@@ -198,7 +198,7 @@ export function OrgSwitcher() {
                 placeholder="e.g. Vanguard Retailers, Arewa Salon..."
                 value={newOrgName}
                 onChange={(e) => setNewOrgName(e.target.value)}
-                className="w-full h-10 border-slate-200 dark:border-slate-800 focus-visible:ring-emerald-500"
+                className="w-full h-10"
                 disabled={createMutation.isPending}
               />
             </div>
@@ -208,8 +208,7 @@ export function OrgSwitcher() {
               variant="outline"
               onClick={() => setCreateDialogOpen(false)}
               disabled={createMutation.isPending}
-              className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
+                          >
               Cancel
             </Button>
             <Button
@@ -225,7 +224,7 @@ export function OrgSwitcher() {
                 createMutation.mutate(newOrgName);
               }}
               disabled={createMutation.isPending}
-              className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold"
+              className="font-semibold"
             >
               {createMutation.isPending ? "Creating..." : "Create Workspace"}
             </Button>

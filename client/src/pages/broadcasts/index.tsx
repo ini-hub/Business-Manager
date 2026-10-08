@@ -1,3 +1,5 @@
+import { usePaged } from "@/hooks/usePaged";
+import { PagerBar } from "@/components/pager-bar";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MessageSquare, Send } from "lucide-react";
@@ -46,9 +48,11 @@ export default function BroadcastsPage() {
     enabled: !!storeId,
   });
 
-  const { data: broadcasts = [], refetch: refetchBroadcasts } = useQuery<Broadcast[]>({
-    queryKey: ["/api/whatsapp/broadcasts", storeId],
-    queryFn: async () => (await fetch(`/api/whatsapp/broadcasts?storeId=${storeId}`)).json(),
+  const {
+    rows: broadcasts, pagination: broadcastPages, setPage: setBroadcastPage, isFetching: broadcastsFetching, refetch: refetchBroadcasts,
+  } = usePaged<Broadcast>(["/api/whatsapp/broadcasts", storeId], "/api/whatsapp/broadcasts", {
+    params: { storeId },
+    pageSize: 10,
     enabled: !!storeId,
   });
 
@@ -196,6 +200,7 @@ export default function BroadcastsPage() {
               </div>
             </div>
           ))}
+          <PagerBar pagination={broadcastPages} onPage={setBroadcastPage} busy={broadcastsFetching} noun="broadcasts" />
         </CardContent>
       </Card>
     </div>

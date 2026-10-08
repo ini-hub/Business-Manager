@@ -277,10 +277,14 @@
 .kp-panel-btn { margin-top: 24px; min-width: 200px; }
 
 /* Footer */
-.kp-footer { background: var(--kp-ink); padding: 32px 0 96px; font-size: 14px; color: var(--kp-line-strong); }
-.kp-footer-in { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
-.kp-footer nav { display: flex; gap: 8px; }
-.kp-footer nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; text-decoration: underline; text-underline-offset: 3px; color: #fff; }
+.kp-footer { background: var(--kp-ink); padding: 8px 0 calc(80px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--kp-line-strong); }
+.kp-footer-in { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kp-footer .bm-resp { width: 22px; height: 22px; }
+.kp-footer .bm-word { font-size: 17px; }
+.kp-footer-meta { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.kp-footer nav { display: flex; }
+.kp-footer nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; color: #fff; }
+.kp-footer nav a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* Mobile sticky bar */
 .kp-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--kp-surface); border-top: 1px solid var(--kp-line); transition: transform .25s var(--kp-ease), visibility .25s; }
@@ -352,7 +356,7 @@
   .kp-q summary svg { display: none; }
   .kp-panel { padding: 64px 48px; }
   .kp-panel h2 { font-size: 40px; letter-spacing: -1px; }
-  .kp-footer { padding: 32px 0; }
+  .kp-footer { padding: 8px 0; }
 }
 
 @media (min-width: 1024px) {

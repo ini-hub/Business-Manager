@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Calendar, CreditCard, AlertCircle, Printer, Ban, Edit, ShoppingBag, Undo2, Tag, Plus, Droplet, UserCog, History, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Calendar, CreditCard, AlertCircle, Printer, Ban, Edit, ShoppingBag, Undo2, Tag, Plus, Droplet, UserCog, History, MoreHorizontal, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
 import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -408,6 +408,10 @@ export default function TransactionDetailsPage() {
   }
 
   const tx = transaction;
+  const receiptLoss: number = (receiptDetails?.items ?? []).reduce(
+    (sum: number, i: any) => sum + Number(i.checkout?.lossAmount || 0),
+    0,
+  );
 
   const statusBadge = isVoided ? (
     <Badge variant="destructive" className="text-xs px-3 py-1">Voided</Badge>
@@ -572,6 +576,17 @@ export default function TransactionDetailsPage() {
       <p className="text-sm text-muted-foreground -mt-4">
         {formatDate(tx.transactionDate)} · <span className="font-mono">{tx.checkout?.receiptNumber}</span>
       </p>
+
+      {!isVoided && receiptLoss > 0 && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-red-500/50 bg-red-50 dark:bg-red-950/30 p-2.5 text-xs text-red-700 dark:text-red-300"
+          data-testid="banner-loss-sale-detail"
+        >
+          <TrendingDown className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <span><span className="font-semibold">Loss sale.</span> Sold {formatCurrency(receiptLoss)} below cost.</span>
+        </div>
+      )}
 
       {/* Customer / Billed by — two compact tappable blocks */}
       <div className="grid grid-cols-2 gap-3">
@@ -957,6 +972,17 @@ export default function TransactionDetailsPage() {
                               Changed: <span className="font-mono text-foreground">{log.changedFields.join(", ")}</span>
                             </p>
                           )}
+                          {(() => {
+                            const d = log.details ?? {};
+                            const naira = (n: number) => `₦${Number(n).toLocaleString()}`;
+                            const lines: string[] = [];
+                            if (d.reason) lines.push(`Reason: ${d.reason}`);
+                            if (d.creditSaleAmount != null) lines.push(`Credit sale: ${naira(d.creditSaleAmount)} owed by customer${d.creditPaidUpfront ? ` (${naira(d.creditPaidUpfront)} paid upfront)` : ""}, outstanding ${naira(d.creditOutstanding)} [${d.creditStatus}]`);
+                            if (d.storeCreditOwedToCustomer != null) lines.push(`Store credit owed to customer: ${naira(d.storeCreditOwedToCustomer)}`);
+                            if (d.storeCreditRedeemed != null) lines.push(`Store credit redeemed: ${naira(d.storeCreditRedeemed)}`);
+                            if (d.storeCreditReversedByVoid != null) lines.push(`Store credit reversed by void: ${naira(d.storeCreditReversedByVoid)}`);
+                            return lines.map((l) => <p key={l} className="text-muted-foreground">{l}</p>);
+                          })()}
                           {log.errorMessage && (
                             <p className="text-red-600 dark:text-red-400 italic">{log.errorMessage}</p>
                           )}

@@ -50,7 +50,7 @@ const STORE_SETTINGS: SettingsCard[] = [
   { title: "Store details", icon: Receipt, href: "/settings/store-details", roles: ["owner", "manager"], summary: "Receipts, stock alerts, pay rules and loyalty" },
   { title: "Attendance", icon: Clock, href: "/settings/attendance", roles: ["owner", "manager"], summary: "Clock-in, location and lateness" },
   { title: "Credit reminders", icon: BookOpen, href: "/settings/credit-sales", roles: ["owner", "manager"], summary: "When customers who owe are reminded" },
-  { title: "Payments", icon: CreditCard, href: "/settings/payment-integrations", roles: ["owner", "manager"], summary: "Flutterwave, Stripe or Paystack" },
+  { title: "Payments", icon: CreditCard, href: "/settings/payment-integrations", roles: ["owner", "manager"], summary: "Transfer accounts, Flutterwave, Stripe or Paystack" },
   { title: "WhatsApp", icon: MessageSquare, href: "/settings/whatsapp-number", roles: ["owner", "manager"], summary: "The number customers get messages from" },
   { title: "Capital and assets", icon: Wallet, href: "/settings/capital-assets", roles: ["owner"], summary: "Feeds the balance sheet report" },
   { title: "Promotions", icon: Tag, href: "/settings/promotions", roles: ["owner", "manager"], summary: "Discounts that apply at checkout" },

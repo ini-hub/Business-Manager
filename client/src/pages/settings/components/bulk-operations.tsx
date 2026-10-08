@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useRef } from "react";
 import { fetchAllStaff } from "@/lib/staff-api";
 import { useStore } from "@/lib/store-context";
@@ -88,6 +89,8 @@ export function BulkOperationsSection() {
       let listData: any;
       if (type === "staff") {
         listData = await fetchAllStaff(currentStore.id);
+      } else if (type === "expenses") {
+        listData = await fetchAllPages(endpoint);
       } else {
         const res = await fetch(endpoint);
         if (!res.ok) throw new Error("Failed to fetch list.");

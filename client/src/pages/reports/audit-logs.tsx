@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { PagerBar } from "@/components/pager-bar";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ShieldCheck, Eye, AlertCircle, CheckCircle2, XCircle, EyeOff, ListChecks, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
@@ -94,13 +95,18 @@ export default function AuditLogsPage() {
     onError: () => toast({ title: "Bulk redact failed", variant: "destructive" }),
   });
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/audit-logs", queryParams],
+  // The trail only grows, so it is read one page at a time (newest first). Search, filters and sorting below
+  // narrow the page on screen; changing the date range starts again from the first page.
+  const [logPage, setLogPage] = useState(1);
+  useEffect(() => setLogPage(1), [queryParams]);
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ["/api/audit-logs", queryParams, logPage],
     queryFn: async () => {
-      const params = new URLSearchParams(queryParams);
+      const params = new URLSearchParams({ ...queryParams, page: String(logPage), limit: "200" });
       const res = await apiRequest("GET", `/api/audit-logs?${params}`);
       return res.json();
     },
+    placeholderData: keepPreviousData,
   });
 
   const allLogs: any[] = data?.logs || [];
@@ -315,6 +321,7 @@ export default function AuditLogsPage() {
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
           />
+          <PagerBar pagination={data?.pagination} onPage={setLogPage} busy={isFetching} noun="log entries" />
         </div>
       )}
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_TIMES } from "@/lib/queryClient";
-import { Users, UserCog, Package, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon, Trophy } from "lucide-react";
+import { Users, UserCog, Package, ShoppingCart, AlertTriangle, Plus, ChevronRight, ArrowUp, ArrowDown, PackagePlus, UserPlus, Calendar as CalendarIcon, Trophy, TrendingDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { PageHeader } from "@/components/page-header";
@@ -43,6 +43,7 @@ interface DashboardStats {
   lowStockItems: Inventory[];
   outOfStockCount?: number;
   lowStockCount?: number;
+  lossSales?: { count: number; amount: number };
 }
 
 type DatePreset = "today" | "7d" | "30d" | "month" | "year" | "all" | "custom";
@@ -155,6 +156,7 @@ export default function Dashboard() {
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
+    refetchOnWindowFocus: false, // the poll and WS already keep it fresh; a focus refetch re-runs the heavy stats
   });
 
   // Desktop-only comparison stats: same query, shifted to the preceding window
@@ -210,6 +212,7 @@ export default function Dashboard() {
     enabled: !isDisabled("pnl_statement") && (currentStore?.id === "all" ? !!business?.id : !!currentStore?.id),
     staleTime: STALE_TIMES.live,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
+    refetchOnWindowFocus: false, // the poll and WS already keep it fresh; a focus refetch re-runs the heavy stats
   });
 
   const { data: topCustomers = [] } = useQuery<any[]>({
@@ -249,6 +252,7 @@ export default function Dashboard() {
     enabled: currentStore?.id === "all" ? !!business?.id : !!currentStore?.id,
     staleTime: STALE_TIMES.live,
     refetchInterval: 5 * 60 * 1000, // 5-min fallback; WS broadcasts handle live invalidation
+    refetchOnWindowFocus: false, // the poll and WS already keep it fresh; a focus refetch re-runs the heavy stats
   });
 
   // Single-store only: a store IS the subject for business milestones, so
@@ -456,6 +460,20 @@ export default function Dashboard() {
         </Link>
       )}
 
+      {(stats?.lossSales?.count ?? 0) > 0 && (
+        <Link
+          href={`/transactions${deepLinkQuery ? `${deepLinkQuery}&` : "?"}filter=loss`}
+          className="flex items-center justify-between gap-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-3 py-3"
+          data-testid="banner-loss-sales"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-400">
+            <TrendingDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {stats!.lossSales!.count} loss sale{stats!.lossSales!.count === 1 ? "" : "s"} · {formatCurrency(stats!.lossSales!.amount)} below cost
+          </span>
+          <ChevronRight className="h-4 w-4 text-red-400 shrink-0" />
+        </Link>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         {headlineMetrics.map((tile) => (
           <Link key={tile.key} href={tile.href} className="rounded-lg bg-muted/50 p-3 block">
@@ -573,7 +591,7 @@ export default function Dashboard() {
               <AlertTriangle className="h-4 w-4 text-amber-500" /> Stock alerts
             </CardTitle>
             <Link href="/inventory" className="text-xs text-primary font-medium hover:underline">
-              All {stats?.lowStockItems?.length ?? 0}
+              All {(stats?.outOfStockCount ?? 0) + (stats?.lowStockCount ?? 0)}
             </Link>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -884,7 +902,7 @@ export default function Dashboard() {
                 <AlertTriangle className="h-4 w-4 text-amber-500" /> Stock alerts
               </CardTitle>
               <Link href="/inventory" className="text-xs text-primary font-medium hover:underline">
-                All {stats?.lowStockItems?.length ?? 0}
+                All {(stats?.outOfStockCount ?? 0) + (stats?.lowStockCount ?? 0)}
               </Link>
             </CardHeader>
             <CardContent className="space-y-3">

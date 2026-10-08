@@ -59,6 +59,60 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// --- Session expiry -------------------------------------------------------------------------------
+// The session is a 24h JWT, and /api/auth/user is cached forever, so an expired or revoked session would
+// otherwise leave the app looking signed in, with every page quietly failing. Any 401 from a data
+// endpoint while a user is cached (or a session_revoked WebSocket close) therefore ends the session
+// here: clear the cache and go to the login page, which shows a "session expired" message.
+// /api/auth/* 401s are credential failures (wrong password, bad supervisor PIN), and /api/admin/* has
+// its own auth, so neither counts.
+export const SESSION_EXPIRED_PARAM = "expired";
+const RETURN_PATH_KEY = "bm:returnTo";
+let sessionEnding = false;
+let loggingOut = false;
+
+/** Call before an intentional logout so the revoke it triggers is not mistaken for an expiry. */
+export function markIntentionalLogout(): void {
+  loggingOut = true;
+}
+
+/** Remember where the user was so the next login can put them back there. */
+export function saveReturnPath(): void {
+  try {
+    const { pathname, search } = window.location;
+    if (pathname !== "/" && !pathname.startsWith("/auth/") && !pathname.startsWith("/activate")) {
+      sessionStorage.setItem(RETURN_PATH_KEY, pathname + search);
+    }
+  } catch { /* storage unavailable: land on the default page */ }
+}
+
+/** One-shot read of the saved path. Only same-origin app paths are honoured. */
+export function takeReturnPath(): string | null {
+  try {
+    const path = sessionStorage.getItem(RETURN_PATH_KEY);
+    sessionStorage.removeItem(RETURN_PATH_KEY);
+    return path && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/auth/") ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+export function handleSessionExpired(): void {
+  if (sessionEnding || loggingOut || typeof window === "undefined") return;
+  // Only when we believe we were signed in; anonymous visitors hitting a 401 are not "expired".
+  if (!queryClient.getQueryData(["/api/auth/user"])) return;
+  const path = window.location.pathname;
+  if (path.startsWith("/auth/") || path.startsWith("/activate")) return;
+  sessionEnding = true;
+  saveReturnPath();
+  queryClient.clear();
+  window.location.replace(`/auth/login?${SESSION_EXPIRED_PARAM}=1`);
+}
+
+function isSessionLossResponse(url: string, res: Response): boolean {
+  return res.status === 401 && url.startsWith("/api/") && !url.startsWith("/api/auth/") && !url.startsWith("/api/admin/");
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -75,6 +129,8 @@ export async function apiRequest(
     body: rawBody ?? (data ? JSON.stringify(data) : undefined),
     credentials: "include",
   });
+
+  if (isSessionLossResponse(url, res)) handleSessionExpired();
 
   try {
     await throwIfResNotOk(res);
@@ -123,6 +179,7 @@ const getQueryFn: <T>(options: {
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
+    if (isSessionLossResponse(url, res)) handleSessionExpired();
 
     await throwIfResNotOk(res);
     return await res.json();
