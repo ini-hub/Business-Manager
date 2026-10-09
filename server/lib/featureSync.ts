@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { invalidateFeatureCatalogCache } from "./entitlements";
 import { featureCatalog, featureDependencies, featureFlags, organisations, orgFeatureEntitlements, type FeatureCatalog } from "@shared/schema";
-import { FEATURES, getFeatureDef, launchesForReview, type FeatureDef } from "@shared/features";
+import { FEATURES, getFeatureDef, launchesForReview, duplicateLimitTiers, type FeatureDef, type LimitTier } from "@shared/features";
 
 /**
  * Pushes the code registry (shared/features.ts) into feature_catalog,
@@ -138,6 +138,18 @@ export async function syncFeatureRegistry(
     // Two instances booting together (rolling deploy) must not both insert the same rows.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('feature_sync'))`);
     const existing = new Map((await tx.select().from(featureCatalog)).map((r) => [r.key, r]));
+
+    // The registry writes tier_capacity directly, so it has to hold the same no-duplicate-limit rule the admin
+    // catalog form enforces: against itself, and against admin-made tiers it does not define.
+    const definedKeys = new Set(features.map((f) => f.key));
+    const tiers: LimitTier[] = [
+      ...features.map((f) => ({ key: f.key, tierType: f.tier, limitType: f.limitType ?? null, tierCapacity: f.tierCapacity ?? null })),
+      ...Array.from(existing.values())
+        .filter((r) => !definedKeys.has(r.key))
+        .map((r) => ({ key: r.key, tierType: r.tierType, limitType: r.limitType, tierCapacity: r.tierCapacity })),
+    ];
+    const duplicates = duplicateLimitTiers(tiers);
+    if (duplicates.length > 0) throw new Error(`Feature sync refused: duplicate limit tiers. ${duplicates.join("; ")}.`);
     const publishNew = options.publishNew === true || existing.size === 0;
     const initialKeys = new Set(existing.keys());
     const flagsByName = new Map((await tx.select().from(featureFlags)).map((f) => [f.name, f]));

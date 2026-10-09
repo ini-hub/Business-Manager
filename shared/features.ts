@@ -1197,6 +1197,20 @@ export const REGISTRY_LIMIT_TIERS: readonly LimitTier[] = (FEATURES as readonly 
   tierCapacity: f.tierCapacity ?? null,
 }));
 
+/** Messages for capped tiers that share a limit type and capacity (a null capacity is unlimited): equal tiers cover each other. */
+export function duplicateLimitTiers(tiers: readonly LimitTier[]): string[] {
+  const seen = new Map<string, string>();
+  const problems: string[] = [];
+  for (const t of tiers) {
+    if (t.tierType !== "paid_metered_limit" || !t.limitType) continue;
+    const id = `${t.limitType}:${t.tierCapacity ?? "unlimited"}`;
+    const other = seen.get(id);
+    if (other) problems.push(`"${other}" and "${t.key}" both offer ${t.tierCapacity ?? "unlimited"} for ${t.limitType}`);
+    else seen.set(id, t.key);
+  }
+  return problems;
+}
+
 /**
  * What a count cap is once the org's owned tiers are counted: the free limit, raised to the biggest owned pack,
  * or unlimited when it holds a tier with no capacity (the original "unlimited" add-on).

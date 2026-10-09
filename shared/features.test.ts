@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  featureForScreen, gatedFeatureForScreen, disableImpact, disableRisk, checkDisableAllowed, resolveCountLimit, tiersNotAbove, validateTierSelection, otherTiers, keepBiggestTiers,
+  featureForScreen, gatedFeatureForScreen, disableImpact, disableRisk, checkDisableAllowed, resolveCountLimit, duplicateLimitTiers, REGISTRY_LIMIT_TIERS, tiersNotAbove, validateTierSelection, otherTiers, keepBiggestTiers,
   FEATURES, FEATURE_SECTIONS, FEATURE_ROUTE_RULES, getFeatureDef, API_DOMAIN_OWNERS, FREE_FEATURE_KEYS, PENDING_GATE_KEYS, validateRegistry,
   type FeatureDef,
 } from "./features";
@@ -215,5 +215,17 @@ describe("limit tiers read from catalog rows", () => {
     expect(validateTierSelection(["seats_10"], ["seats_40"], tiers)).toMatch(/already have/);
     expect(validateTierSelection(["seats_10", "seats_40"], [], tiers)).toMatch(/Choose one/);
     expect(validateTierSelection(["seats_40"], ["seats_10"], tiers)).toBeNull();
+  });
+});
+
+describe("duplicate limit tiers", () => {
+  it("finds none in the registry", () => {
+    expect(duplicateLimitTiers(REGISTRY_LIMIT_TIERS)).toEqual([]);
+  });
+  it("flags equal capacities within a limit type, but not across types or non-capped tiers", () => {
+    const t = (key: string, limitType: string, tierCapacity: number | null, tierType = "paid_metered_limit") => ({ key, tierType, limitType, tierCapacity });
+    expect(duplicateLimitTiers([t("a", "staff_seats", 10), t("b", "staff_seats", 10)])).toHaveLength(1);
+    expect(duplicateLimitTiers([t("a", "staff_seats", null), t("b", "staff_seats", null)])).toHaveLength(1);
+    expect(duplicateLimitTiers([t("a", "staff_seats", 10), t("b", "item_count", 10), t("c", "staff_seats", 10, "paid_flat")])).toEqual([]);
   });
 });
