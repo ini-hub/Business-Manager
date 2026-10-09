@@ -1854,8 +1854,9 @@ export async function registerRoutes(
 
   // Self-service contract review/sign/decline - gated by its own
   // contract_pending_token, not the normal auth middlewares, so it is
-  // registered standalone rather than through routeMiddlewares.
-  registerContractRoutes(app);
+  // registered standalone rather than through routeMiddlewares. (Only the
+  // signed-copy read, /api/contract/mine, uses a normal session.)
+  registerContractRoutes(app, { isAuthenticated });
   // Self-service HR profile completion + the guarantor's own sign/decline -
   // gated by their own pending tokens, same reasoning as registerContractRoutes.
   registerProfileCompletionRoutes(app);

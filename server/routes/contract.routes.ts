@@ -1,12 +1,13 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, RequestHandler, Response } from "express";
 import { storage } from "../storage";
 import { requireContractPendingToken } from "../auth";
-import { issueSession } from "../lib/authSessions";
+import { completeStaffActivation } from "../lib/authFlow";
 import { staffContractService } from "../services/StaffContractService";
 import { signContractSchema, declineContractSchema } from "@shared/schema";
-import { getClientIp } from "./helpers";
+import { getClientIp, type AuditContext } from "./helpers";
+import { auditLogger } from "../audit";
+import { sendContractSignedEmail } from "../email";
 import { z } from "zod";
-import { broadcastDataChange } from "../websocket";
 
 function getUserAgent(req: Request): string {
   const ua = req.headers["user-agent"];
@@ -21,7 +22,47 @@ function getUserAgent(req: Request): string {
  * requireContractPendingToken in server/auth.ts for why this token can never
  * become a normal session.
  */
-export function registerContractRoutes(app: Express): void {
+/**
+ * These routes run on a contract_pending_token, so there is no req.user for
+ * getAuditContext to read; the actor is the staff member the token was minted for.
+ */
+function auditContextFor(req: Request, staff: { storeId: string; name: string }, userId: string, businessId?: string): AuditContext {
+  return {
+    userId,
+    role: "staff",
+    name: staff.name,
+    businessId,
+    storeId: staff.storeId,
+    ip: getClientIp(req),
+    userAgent: getUserAgent(req),
+    channel: "web",
+  };
+}
+
+export function registerContractRoutes(app: Express, middlewares?: { isAuthenticated: RequestHandler }): void {
+  // The signed-in staff member's own copy of what they signed. Normal session
+  // auth (not the pending token): by the time anyone can read this they have
+  // signed at least once. Only signed versions are ever returned.
+  if (middlewares) {
+    app.get("/api/contract/mine", middlewares.isAuthenticated, async (req: Request, res: Response) => {
+      try {
+        const sessionUser = (req as any).user;
+        const sessionUserId: string | undefined = sessionUser?.userId || sessionUser?.id;
+        const staffId: string | undefined = sessionUser?.staffId
+          || (sessionUserId ? (await storage.getStaffByUserId(sessionUserId))?.id : undefined);
+        if (!staffId) return res.json({ contractStatus: "none", awaitingResignature: false, copies: [] });
+        const staff = await storage.getStaff(staffId);
+        if (!staff || staff.userId !== sessionUserId) {
+          return res.status(403).json({ error: "This contract is not associated with your account." });
+        }
+        res.json(await staffContractService.getSignedCopiesForStaff(staff.id));
+      } catch (error) {
+        console.error("Get my contract error:", error);
+        res.status(500).json({ error: "Could not load your contract. Please try again." });
+      }
+    });
+  }
+
   app.get("/api/contract/pending", requireContractPendingToken, async (req: Request, res: Response) => {
     try {
       const { staffContractId, userId } = (req as any).contractSession;
@@ -41,6 +82,8 @@ export function registerContractRoutes(app: Express): void {
       }
 
       res.json({
+        versionId: review.version.id,
+        isAmendment: await staffContractService.isAwaitingResignature(review.contract),
         contractType: review.version.contractType,
         contentText: review.version.contentText,
         fileOriginalName: review.version.fileOriginalName,
@@ -68,6 +111,7 @@ export function registerContractRoutes(app: Express): void {
 
       const outcome = await staffContractService.sign({
         staffContractId,
+        versionId: body.versionId,
         staffId: staff.id,
         userId,
         typedFullName: body.typedFullName,
@@ -80,12 +124,43 @@ export function registerContractRoutes(app: Express): void {
       if (outcome.kind === "name_mismatch") {
         return res.status(400).json({ error: outcome.reason, code: "name_mismatch" });
       }
+      if (outcome.kind === "version_changed") {
+        return res.status(409).json({ error: outcome.reason, code: "version_changed" });
+      }
       if (outcome.kind !== "signed") {
         return res.status(409).json({ error: outcome.reason });
       }
 
-      // Same tail as set-activated-password: the person is now fully
-      // activated, so this is where the real session actually begins.
+      const signedStore = await storage.getStore(staff.storeId);
+      auditLogger.logEvent(
+        auditContextFor(req, staff, userId, signedStore?.businessId),
+        "STAFF_CONTRACT_SIGNED", "staff", staff.id, "success",
+        { details: { versionId: outcome.signature.staffContractVersionId, contentHash: outcome.signature.contentHashAtSigning } },
+      );
+      void (async () => {
+        try {
+          const signer = await storage.getUser(userId);
+          const biz = signedStore?.businessId ? await storage.getBusinessById(signedStore.businessId) : undefined;
+          const version = review?.version;
+          if (signer?.email && version) {
+            await sendContractSignedEmail(signer.email, staff.name, biz?.name || "your workspace", {
+              versionNumber: version.versionNumber,
+              typedFullName: outcome.signature.typedFullName,
+              signedAt: outcome.signature.signedAt,
+              contentHash: outcome.signature.contentHashAtSigning,
+              contractType: version.contractType,
+              contentText: version.contentText,
+              fileOriginalName: version.fileOriginalName,
+            });
+          }
+        } catch (err) {
+          console.error("[StaffContract] Failed to send signed-copy email:", err);
+        }
+      })();
+
+      // Same tail as set-activated-password: HR-profile gate, then activation
+      // and the real session. A member who was already active once (a
+      // re-signature) keeps their activation date and skips the profile gate.
       const user = await storage.getUser(userId);
       const store = await storage.getStore(staff.storeId);
       const businessId = store?.businessId;
@@ -96,31 +171,10 @@ export function registerContractRoutes(app: Express): void {
       if (!member) {
         return res.status(500).json({ error: "No workspace association found." });
       }
-      const activatedMember = await storage.updateOrganisationMemberStatus(member.id, "active", new Date());
-      const business = await storage.getBusinessById(businessId);
-
-      const payload = {
-        userId: user.id,
-        organisationId: activatedMember.organisationId,
-        role: activatedMember.role,
-        staffId: activatedMember.staffId || undefined,
-        email: user.email || undefined,
-      };
-      await issueSession(req, res, payload);
       res.clearCookie("contract_pending_token");
-
-      broadcastDataChange(businessId, "staff", staff.storeId, "updated");
-
-      res.json({
-        message: "Contract signed. Welcome aboard!",
-        user: {
-          id: user.id,
-          email: user.email || user.phone || "",
-          role: activatedMember.role,
-          businessId,
-          isVerified: true,
-        },
-        business,
+      await completeStaffActivation(user, req, res, {
+        organisationId: businessId,
+        skipProfileGate: !!member.activatedAt,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -150,6 +204,7 @@ export function registerContractRoutes(app: Express): void {
 
       const outcome = await staffContractService.decline({
         staffContractId,
+        versionId: body.versionId,
         staffName: staff.name,
         businessName: business?.name || "your workspace",
         inviterEmail: inviter?.email || undefined,
@@ -159,9 +214,18 @@ export function registerContractRoutes(app: Express): void {
         userAgent: getUserAgent(req),
       });
 
+      if (outcome.kind === "version_changed") {
+        return res.status(409).json({ error: outcome.reason, code: "version_changed" });
+      }
       if (outcome.kind !== "declined") {
         return res.status(409).json({ error: outcome.reason });
       }
+
+      auditLogger.logEvent(
+        auditContextFor(req, staff, userId, businessId),
+        "STAFF_CONTRACT_DECLINED", "staff", staff.id, "success",
+        { details: { versionId: body.versionId, hasReason: !!body.reason } },
+      );
 
       res.clearCookie("contract_pending_token");
       res.json({ message: "Your decline has been recorded and your manager has been notified." });

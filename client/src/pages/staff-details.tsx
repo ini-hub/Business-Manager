@@ -57,6 +57,7 @@ type ContractDetail = {
   fileOriginalName?: string;
   signedGetUrl?: string;
   declinedReason?: string;
+  awaitingResignature?: boolean;
   signature?: { typedFullName: string; signedAt: string; ipAddress: string };
 };
 interface SectionConfig { section: string; isEnabled: boolean }
@@ -73,6 +74,7 @@ const HR_TABS = [
 ] as const;
 
 const contractLabel: Record<string, string> = {
+  not_applicable_existing_account: "Saved as a record",
   signed: "Contract signed",
   pending_signature: "Awaiting signature",
   declined: "Contract declined",
@@ -178,6 +180,18 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
     queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}`] });
     queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
   };
+
+  const requestSignatureMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `/api/staff/${staffId}/contract/request-signature`)).json(),
+    onSuccess: () => {
+      invalidateStaff();
+      queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}/contract`] });
+      toast({ title: "Signature requested", description: `${staff?.name || "They"} will be asked to sign the next time they log in.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Couldn't request signature", description: getUserFriendlyError(error), variant: "destructive" });
+    },
+  });
 
   const archiveMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/staff/${staffId}`),
@@ -591,7 +605,27 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
                 <EmptyRows icon={<FileSignature className="h-6 w-6" />} message="No contract has been attached yet. Add one from Edit." />
               ) : (
                 <div className="space-y-3 rounded-xl border p-4">
-                  <Badge variant="outline">{contractLabel[contractStatus] ?? contractStatus}</Badge>
+                  <Badge variant="outline">
+                    {contract?.awaitingResignature && contractStatus === "pending_signature"
+                      ? "Re-signature required"
+                      : contractLabel[contractStatus] ?? contractStatus}
+                  </Badge>
+                  {contractStatus === "not_applicable_existing_account" && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        This contract is saved as a record. {staff.name || "This staff member"} already has access, so they haven't been asked to sign it.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={requestSignatureMutation.isPending}
+                        onClick={() => requestSignatureMutation.mutate()}
+                        data-testid="button-request-contract-signature"
+                      >
+                        {requestSignatureMutation.isPending ? "Requesting…" : "Request signature"}
+                      </Button>
+                    </div>
+                  )}
                   {contract?.signature && (
                     <p className="text-sm">
                       Signed by <span className="font-medium">{contract.signature.typedFullName}</span> on{" "}

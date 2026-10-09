@@ -435,13 +435,22 @@ export default function Login() {
   const signContractMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/contract/sign", {
+        versionId: pendingContractQuery.data?.versionId,
         typedFullName: signTypedName.trim(),
         affirmedReadAndAgree: signAgreeChecked,
         consentedElectronicSignature: signConsentChecked,
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data.nextStep === "complete-profile") {
+        toast({
+          title: "Contract signed!",
+          description: data.message || "Please complete your profile to continue.",
+        });
+        setLocation("/complete-profile");
+        return;
+      }
       toast({
         title: "Contract signed!",
         description: "Welcome to Kowope.",
@@ -452,6 +461,8 @@ export default function Login() {
       setLocation("/");
     },
     onError: (error: Error) => {
+      // The manager replaced the contract while it was open: show the new one.
+      queryClient.invalidateQueries({ queryKey: ["/api/contract/pending"] });
       toast({
         title: "Could not sign contract",
         description: error.message || "Please try again.",
@@ -549,6 +560,7 @@ export default function Login() {
   const declineContractMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/contract/decline", {
+        versionId: pendingContractQuery.data?.versionId,
         reason: declineReason.trim() || undefined,
       });
       return response.json();
@@ -1191,6 +1203,12 @@ export default function Login() {
 
               {pendingContractQuery.data && !showDeclineForm && (
                 <>
+                  {pendingContractQuery.data.isAmendment && (
+                    <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 p-3 rounded-md text-xs" data-testid="banner-contract-amended">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>Your employer has updated your contract. The version you signed before stays on record; please review and sign the new one to continue.</span>
+                    </div>
+                  )}
                   <div className="border rounded-md p-3 max-h-64 overflow-y-auto bg-muted/30 text-sm">
                     {pendingContractQuery.data.contractType === "text" && (
                       <pre className="whitespace-pre-wrap font-sans">{pendingContractQuery.data.contentText}</pre>

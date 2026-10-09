@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import {
   staffContracts,
   staffContractVersions,
@@ -36,6 +36,13 @@ export class StaffContractRepository {
     return db.select().from(staffContractVersions)
       .where(eq(staffContractVersions.staffContractId, staffContractId))
       .orderBy(desc(staffContractVersions.versionNumber));
+  }
+
+  /** Every signature ever recorded for a contract (one per signed version). */
+  async getSignaturesForContract(staffContractId: string): Promise<StaffContractSignature[]> {
+    return db.select().from(staffContractSignatures)
+      .where(eq(staffContractSignatures.staffContractId, staffContractId))
+      .orderBy(desc(staffContractSignatures.signedAt));
   }
 
   async getSignatureForContract(staffContractId: string): Promise<StaffContractSignature | undefined> {
@@ -81,8 +88,11 @@ export class StaffContractRepository {
   }
 
   /**
-   * Replaces a not-yet-signed contract: inserts version N+1, stamps the
-   * previous current version's supersededAt, repoints currentVersionId.
+   * Replaces the current version: inserts version N+1, stamps the previous
+   * current version's supersededAt, repoints currentVersionId and returns the
+   * contract to pending_signature (clearing any earlier decline). Used both
+   * for replacing a not-yet-signed contract and for amending a signed one -
+   * in the latter case the earlier signature rows are left untouched.
    * Never mutates an existing version's content columns.
    */
   async addReplacementVersion(params: {
@@ -112,7 +122,15 @@ export class StaffContractRepository {
       }).returning();
 
       const [updated] = await tx.update(staffContracts)
-        .set({ currentVersionId: version.id, status: "pending_signature", updatedAt: new Date() })
+        .set({
+          currentVersionId: version.id,
+          status: "pending_signature",
+          declinedAt: null,
+          declinedReason: null,
+          declinedIp: null,
+          declinedUserAgent: null,
+          updatedAt: new Date(),
+        })
         .where(eq(staffContracts.id, params.contract.id))
         .returning();
 
@@ -120,7 +138,13 @@ export class StaffContractRepository {
     });
   }
 
-  /** Inserts the append-only signature row and flips the contract to 'signed', atomically. */
+  /**
+   * Flips the contract to 'signed' and inserts the append-only signature row,
+   * atomically. The status flip is conditional on the contract still being
+   * pending_signature on the expected version, so a concurrent sign/decline
+   * or a replacement can never produce a second outcome; returns undefined
+   * when the flip loses that race (nothing is inserted).
+   */
   async recordSignature(params: {
     staffContractId: string;
     staffContractVersionId: string;
@@ -132,23 +156,29 @@ export class StaffContractRepository {
     ipAddress: string;
     userAgent: string;
     contentHashAtSigning: string;
-  }): Promise<{ contract: StaffContract; signature: StaffContractSignature }> {
+  }): Promise<{ contract: StaffContract; signature: StaffContractSignature } | undefined> {
     return db.transaction(async (tx) => {
-      const [signature] = await tx.insert(staffContractSignatures).values(params).returning();
       const [contract] = await tx.update(staffContracts)
         .set({ status: "signed", updatedAt: new Date() })
-        .where(eq(staffContracts.id, params.staffContractId))
+        .where(and(
+          eq(staffContracts.id, params.staffContractId),
+          eq(staffContracts.status, "pending_signature"),
+          eq(staffContracts.currentVersionId, params.staffContractVersionId),
+        ))
         .returning();
+      if (!contract) return undefined;
+      const [signature] = await tx.insert(staffContractSignatures).values(params).returning();
       return { contract, signature };
     });
   }
 
   async recordDecline(params: {
     staffContractId: string;
+    staffContractVersionId: string;
     reason?: string;
     ipAddress: string;
     userAgent: string;
-  }): Promise<StaffContract> {
+  }): Promise<StaffContract | undefined> {
     const [contract] = await db.update(staffContracts)
       .set({
         status: "declined",
@@ -158,7 +188,11 @@ export class StaffContractRepository {
         declinedUserAgent: params.userAgent,
         updatedAt: new Date(),
       })
-      .where(eq(staffContracts.id, params.staffContractId))
+      .where(and(
+        eq(staffContracts.id, params.staffContractId),
+        eq(staffContracts.status, "pending_signature"),
+        eq(staffContracts.currentVersionId, params.staffContractVersionId),
+      ))
       .returning();
     return contract;
   }

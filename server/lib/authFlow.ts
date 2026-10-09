@@ -170,8 +170,21 @@ export async function completeLoginForUser(user: any, req: Request, res: Respons
  * POST /api/legal/consent-pending/accept once a first-time staff activation
  * accepts. Assumes the caller has already set the account's password.
  */
-export async function completeStaffActivation(user: any, req: Request, res: Response): Promise<void> {
-  const members = await storage.getOrganisationsByUserId(user.id);
+export async function completeStaffActivation(
+  user: any,
+  req: Request,
+  res: Response,
+  opts: {
+    /** Restrict to one workspace (the contract sign route knows exactly which). */
+    organisationId?: string;
+    /** Re-signing members were already active once; never retroactively gate them on the HR profile. */
+    skipProfileGate?: boolean;
+  } = {},
+): Promise<void> {
+  const allMembers = await storage.getOrganisationsByUserId(user.id);
+  const members = opts.organisationId
+    ? allMembers.filter((m: any) => m.organisationId === opts.organisationId)
+    : allMembers;
   let targetMember = members.find((m: any) => m.status === "partial") || members.find((m: any) => m.status === "pending")
     || members.find((m: any) => m.status === "contract_pending") || members.find((m: any) => m.status === "active");
   if (!targetMember) {
@@ -229,7 +242,7 @@ export async function completeStaffActivation(user: any, req: Request, res: Resp
   // first-time activation (never-yet-active member) is gated on required
   // HR profile sections - an already-active member re-running this path
   // (e.g. a password reset) is never retroactively blocked.
-  if (activatedStaff && targetMember.status !== "active") {
+  if (activatedStaff && targetMember.status !== "active" && !opts.skipProfileGate) {
     const gate = await isHrProfileComplete(activatedStaff.id, targetMember.organisationId);
     if (!gate.complete) {
       targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "profile_pending");
@@ -253,7 +266,12 @@ export async function completeStaffActivation(user: any, req: Request, res: Resp
   }
 
   if (targetMember.status !== "active") {
-    targetMember = await storage.updateOrganisationMemberStatus(targetMember.memberId || targetMember.id, "active", new Date());
+    targetMember = await storage.updateOrganisationMemberStatus(
+      targetMember.memberId || targetMember.id,
+      "active",
+      // Keep the original activation date for a member who is re-signing.
+      targetMember.activatedAt ? undefined : new Date(),
+    );
   }
 
   // Not authenticated yet (no req.user), so use broadcastDataChange directly

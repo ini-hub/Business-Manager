@@ -23,17 +23,20 @@ type NewVersionPayload = Omit<
 type AttachContractOutcome =
   | { kind: "attached"; contract: StaffContract; version: StaffContractVersion }
   | { kind: "replaced"; contract: StaffContract; version: StaffContractVersion }
+  | { kind: "amended"; contract: StaffContract; version: StaffContractVersion }
   | { kind: "refused_already_signed" }
   | { kind: "invalid"; reason: string };
 
 type SignOutcome =
   | { kind: "signed"; contract: StaffContract; signature: StaffContractSignature }
   | { kind: "not_pending"; reason: string }
-  | { kind: "name_mismatch"; reason: string };
+  | { kind: "name_mismatch"; reason: string }
+  | { kind: "version_changed"; reason: string };
 
 type DeclineOutcome =
   | { kind: "declined"; contract: StaffContract }
-  | { kind: "not_pending"; reason: string };
+  | { kind: "not_pending"; reason: string }
+  | { kind: "version_changed"; reason: string };
 
 interface ContractForReview {
   contract: StaffContract;
@@ -48,6 +51,15 @@ interface ContractForReview {
  * returns instead of throwing for expected states, one db.transaction per
  * multi-row write (delegated to StaffContractRepository).
  */
+/** Where /api/staff/contract-upload-url stages a business's uploads before they are attached. */
+export function contractStagingPrefix(businessId: string): string {
+  return `staff-contracts/pending/${businessId}/`;
+}
+
+type StaffContractStatusSelf = "pending_signature" | "signed" | "declined";
+
+const VERSION_CHANGED_REASON = "Your manager updated this contract while you were reading it. Please review the latest version before continuing.";
+
 class StaffContractService {
   private repo = new StaffContractRepository();
 
@@ -55,16 +67,23 @@ class StaffContractService {
 
   async attachContract(params: {
     staffId: string;
+    /** The uploader's business: file/image keys must live under its staging prefix. */
+    businessId: string;
     createdByUserId: string;
     input: AttachContractInput;
+    /**
+     * Explicit opt-in to amend an already-signed contract. The signed version
+     * and its signature stay on record untouched; a new version is added and
+     * the staff member must sign it. Without this a signed contract is refused.
+     */
+    amend?: boolean;
   }): Promise<AttachContractOutcome> {
-    const { staffId, createdByUserId, input } = params;
+    const { staffId, businessId, createdByUserId, input } = params;
     const existing = await this.repo.getByStaffId(staffId);
 
-    if (existing && existing.status === "signed") {
-      // A signed contract is a completed legal record - replacing its content
-      // here would silently invalidate what the staff member actually agreed
-      // to. Amending a signed contract is a distinct, not-yet-built feature.
+    if (existing && existing.status === "signed" && !params.amend) {
+      // A signed contract is a completed legal record - replacing it must be
+      // a deliberate amendment, never a silent overwrite.
       return { kind: "refused_already_signed" };
     }
 
@@ -83,6 +102,14 @@ class StaffContractService {
         altText: null,
       };
     } else {
+      // The key arrives from the client. Without this check a manager could
+      // point a contract at (or, via the scan-failure cleanup below, delete)
+      // another tenant's object. Must precede every storage call.
+      const stagingPrefix = contractStagingPrefix(businessId);
+      if (!input.storageKey.startsWith(stagingPrefix) || input.storageKey.split("/").includes("..")) {
+        return { kind: "invalid", reason: "That upload doesn't belong to this workspace. Please upload the file again." };
+      }
+
       if (!ALLOWED_CONTRACT_MIME_TYPES.includes(input.fileMimeType as any)) {
         return { kind: "invalid", reason: `File type ${input.fileMimeType} is not allowed.` };
       }
@@ -139,7 +166,7 @@ class StaffContractService {
         fileSizeBytes: meta.contentLength ?? input.fileSizeBytes,
         fileOriginalName: input.fileOriginalName,
         altText: input.contractType === "image" ? input.altText : null,
-        contentHash: this.hashObjectIdentity(permanentKey, meta),
+        contentHash: this.hashBytes(fileBuffer),
       };
     }
 
@@ -152,12 +179,13 @@ class StaffContractService {
       return { kind: "attached", contract, version };
     }
 
+    const wasSigned = existing.status === "signed";
     const { contract, version } = await this.repo.addReplacementVersion({
       contract: existing,
       createdByUserId,
       version: versionPayload,
     });
-    return { kind: "replaced", contract, version };
+    return { kind: wasSigned ? "amended" : "replaced", contract, version };
   }
 
   // ─── Lookups used by the auth flow (server/routes.ts) ───────────────────────
@@ -170,6 +198,67 @@ class StaffContractService {
   async getPendingContract(staffId: string): Promise<StaffContract | undefined> {
     const contract = await this.repo.getByStaffId(staffId);
     return contract?.status === "pending_signature" ? contract : undefined;
+  }
+
+  /**
+   * What a staff member is allowed to see of their own contract: only
+   * versions they actually signed (a manager's unsigned draft or an
+   * amendment awaiting signature is never exposed here), newest first.
+   */
+  async getSignedCopiesForStaff(staffId: string): Promise<{
+    contractStatus: "none" | StaffContractStatusSelf;
+    awaitingResignature: boolean;
+    copies: Array<{
+      versionNumber: number;
+      isCurrent: boolean;
+      contractType: string;
+      contentText?: string | null;
+      fileOriginalName?: string | null;
+      altText?: string | null;
+      signedGetUrl?: string;
+      signedAt: Date;
+      typedFullName: string;
+      contentHash: string;
+    }>;
+  }> {
+    const contract = await this.repo.getByStaffId(staffId);
+    if (!contract) return { contractStatus: "none", awaitingResignature: false, copies: [] };
+
+    const [versions, signatures] = await Promise.all([
+      this.repo.getAllVersions(contract.id),
+      this.repo.getSignaturesForContract(contract.id),
+    ]);
+    const versionById = new Map(versions.map(v => [v.id, v]));
+    const copies = await Promise.all(signatures.map(async (sig) => {
+      const v = versionById.get(sig.staffContractVersionId)!;
+      return {
+        versionNumber: v.versionNumber,
+        isCurrent: v.id === contract.currentVersionId,
+        contractType: v.contractType,
+        contentText: v.contentText,
+        fileOriginalName: v.fileOriginalName,
+        altText: v.altText,
+        signedGetUrl: v.storageKey ? await objectStorage.getSignedGetUrl(v.storageKey) : undefined,
+        signedAt: sig.signedAt,
+        typedFullName: sig.typedFullName,
+        contentHash: sig.contentHashAtSigning,
+      };
+    }));
+    copies.sort((a, b) => b.versionNumber - a.versionNumber);
+    return {
+      contractStatus: contract.status as StaffContractStatusSelf,
+      awaitingResignature: await this.isAwaitingResignature(contract),
+      copies,
+    };
+  }
+
+  /**
+   * True when a contract that was signed before is waiting for a fresh
+   * signature (an amendment), as opposed to a first-time signature.
+   */
+  async isAwaitingResignature(contract: StaffContract): Promise<boolean> {
+    if (contract.status !== "pending_signature") return false;
+    return !!(await this.repo.getSignatureForContract(contract.id));
   }
 
   /** The append-only signature audit record, once one exists. */
@@ -211,10 +300,16 @@ class StaffContractService {
     fileOriginalName?: string | null;
     altText?: string | null;
     signedGetUrl?: string;
+    signedAt?: Date;
+    signedByName?: string;
   }>> {
     const contract = await this.repo.getById(staffContractId);
     if (!contract) return [];
-    const versions = await this.repo.getAllVersions(staffContractId);
+    const [versions, signatures] = await Promise.all([
+      this.repo.getAllVersions(staffContractId),
+      this.repo.getSignaturesForContract(staffContractId),
+    ]);
+    const signatureByVersion = new Map(signatures.map(sig => [sig.staffContractVersionId, sig]));
 
     return Promise.all(versions.map(async (v) => {
       const [creator, signedGetUrl] = await Promise.all([
@@ -233,12 +328,16 @@ class StaffContractService {
         fileOriginalName: v.fileOriginalName,
         altText: v.altText,
         signedGetUrl,
+        signedAt: signatureByVersion.get(v.id)?.signedAt,
+        signedByName: signatureByVersion.get(v.id)?.typedFullName,
       };
     }));
   }
 
   async sign(params: {
     staffContractId: string;
+    /** The version the signer was shown; refused if it is no longer current. */
+    versionId: string;
     staffId: string;
     userId: string;
     typedFullName: string;
@@ -273,10 +372,13 @@ class StaffContractService {
     if (!contract || contract.status !== "pending_signature" || !contract.currentVersionId) {
       return { kind: "not_pending", reason: "This contract is not awaiting a signature." };
     }
+    if (contract.currentVersionId !== params.versionId) {
+      return { kind: "version_changed", reason: VERSION_CHANGED_REASON };
+    }
     const version = await this.repo.getVersionById(contract.currentVersionId);
     if (!version) return { kind: "not_pending", reason: "Contract content is missing." };
 
-    const { contract: updated, signature } = await this.repo.recordSignature({
+    const recorded = await this.repo.recordSignature({
       staffContractId: contract.id,
       staffContractVersionId: version.id,
       staffId: params.staffId,
@@ -288,12 +390,15 @@ class StaffContractService {
       userAgent: params.userAgent,
       contentHashAtSigning: version.contentHash,
     });
+    // Lost a race with a concurrent sign/decline/replacement.
+    if (!recorded) return { kind: "not_pending", reason: "This contract is not awaiting a signature." };
 
-    return { kind: "signed", contract: updated, signature };
+    return { kind: "signed", contract: recorded.contract, signature: recorded.signature };
   }
 
   async decline(params: {
     staffContractId: string;
+    versionId: string;
     staffName: string;
     businessName: string;
     inviterEmail?: string;
@@ -306,13 +411,18 @@ class StaffContractService {
     if (!contract || contract.status !== "pending_signature") {
       return { kind: "not_pending", reason: "This contract is not awaiting a signature." };
     }
+    if (contract.currentVersionId !== params.versionId) {
+      return { kind: "version_changed", reason: VERSION_CHANGED_REASON };
+    }
 
     const updated = await this.repo.recordDecline({
       staffContractId: contract.id,
+      staffContractVersionId: contract.currentVersionId,
       reason: params.reason,
       ipAddress: params.ipAddress,
       userAgent: params.userAgent,
     });
+    if (!updated) return { kind: "not_pending", reason: "This contract is not awaiting a signature." };
 
     if (params.inviterEmail) {
       try {
@@ -340,9 +450,9 @@ class StaffContractService {
    * new hire goes through - login interception, the sign-contract screen,
    * decline handling, the resend-invite refusal - none of which need to
    * know or care how the member arrived there. A no-op (returns false) if
-   * the member isn't currently 'active': someone still mid-onboarding
-   * already reaches contract_pending naturally through
-   * set-activated-password, so there's nothing for this to do.
+   * the member isn't currently 'active' (or finishing their profile after
+   * having signed): someone still mid-onboarding already reaches
+   * contract_pending naturally through set-activated-password.
    *
    * Deliberately does not touch anything in the caller's session - no
    * existing access-check in this app re-verifies organisation_members.
@@ -351,7 +461,9 @@ class StaffContractService {
    */
   async requireSignatureForActiveMember(userId: string, organisationId: string): Promise<boolean> {
     const member = await storage.getOrganisationMember(userId, organisationId);
-    if (member?.status !== "active") return false;
+    // profile_pending is included so an amendment made while someone is
+    // finishing their HR profile can't be skipped by completing the profile.
+    if (member?.status !== "active" && member?.status !== "profile_pending") return false;
     await storage.updateOrganisationMemberStatus(member.id, "contract_pending");
     return true;
   }
@@ -443,7 +555,8 @@ class StaffContractService {
   }
 
   private normalizeName(name: string): string {
-    return name.trim().toLowerCase().replace(/\s+/g, " ");
+    // NFC so "é" typed as one character or as e + accent compares equal.
+    return name.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ");
   }
 
   // ─── Hashing helpers ──────────────────────────────────────────────────────
@@ -452,16 +565,9 @@ class StaffContractService {
     return crypto.createHash("sha256").update(text, "utf8").digest("hex");
   }
 
-  /**
-   * We never re-download the uploaded bytes here (the whole point of the
-   * presigned-PUT flow is that this server never touches file bytes), so the
-   * "content identity" hashed is the object's key + the bucket's own ETag +
-   * size, which changes if and only if the underlying bytes do.
-   */
-  private hashObjectIdentity(storageKey: string, meta: { etag?: string; contentLength?: number }): string {
-    return crypto.createHash("sha256")
-      .update(`${storageKey}:${meta.etag ?? ""}:${meta.contentLength ?? ""}`, "utf8")
-      .digest("hex");
+  /** sha256 of the exact bytes the staff member will be shown (already in memory from the malware scan). */
+  private hashBytes(bytes: Buffer): string {
+    return crypto.createHash("sha256").update(bytes).digest("hex");
   }
 }
 

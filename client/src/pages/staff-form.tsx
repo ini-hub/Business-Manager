@@ -34,6 +34,7 @@ import { uploadContractFileToStaging } from "@/lib/contract-upload";
 import { useStore } from "@/lib/store-context";
 import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { PhoneInput } from "@/components/phone-input";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { splitNormalizedPhone, normalizePhoneForStorage } from "@shared/phone-utils";
 import { getCurrencyByCode } from "@/lib/currency-utils";
 import { z } from "zod";
@@ -161,6 +162,10 @@ export default function StaffFormPage() {
   // handling of requireSignature.
   const [requireSignatureOnAttach, setRequireSignatureOnAttach] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  // Amending a signed contract is a deliberate two-step: open the form, then
+  // confirm that the staff member will have to sign the new version.
+  const [isAmending, setIsAmending] = useState(false);
+  const [isAmendConfirmOpen, setIsAmendConfirmOpen] = useState(false);
 
   const { data: contractDetail } = useQuery<{
     contractStatus: StaffContractStatus;
@@ -171,6 +176,7 @@ export default function StaffFormPage() {
     signedGetUrl?: string;
     declinedAt?: string;
     declinedReason?: string;
+    awaitingResignature?: boolean;
     signature?: { typedFullName: string; signedAt: string; ipAddress: string };
     history?: Array<{
       id: string;
@@ -184,6 +190,8 @@ export default function StaffFormPage() {
       fileOriginalName?: string | null;
       altText?: string | null;
       signedGetUrl?: string;
+      signedAt?: string;
+      signedByName?: string;
     }>;
   }>({
     queryKey: [`/api/staff/${staffId}/contract`],
@@ -201,6 +209,7 @@ export default function StaffFormPage() {
           contractType: "text",
           contentText: contractText.trim(),
           requireSignature: requireSignatureOnAttach,
+          ...(isAmending ? { amend: true } : {}),
         });
         return res.json();
       }
@@ -212,10 +221,11 @@ export default function StaffFormPage() {
         ...uploaded,
         ...(contractType === "image" ? { altText: contractAltText.trim() } : {}),
         requireSignature: requireSignatureOnAttach,
+        ...(isAmending ? { amend: true } : {}),
       });
       return res.json();
     },
-    onSuccess: (data: { contractStatus: StaffContractStatus; requiredSignatureApplied?: boolean }) => {
+    onSuccess: (data: { contractStatus: StaffContractStatus; requiredSignatureApplied?: boolean; amended?: boolean }) => {
       queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/staff/${staffId}/contract`] });
       queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
@@ -224,7 +234,12 @@ export default function StaffFormPage() {
       // "will be asked to sign during onboarding" toast regardless of
       // whether that was ever going to happen (it wasn't, for an
       // already-active staff member left unchecked).
-      if (data.requiredSignatureApplied) {
+      if (data.amended) {
+        toast({
+          title: "Contract amended",
+          description: `${staffMember?.name || "The staff member"} must sign the new version${data.requiredSignatureApplied ? " the next time they log in" : ""}. The version they signed before stays on record.`,
+        });
+      } else if (data.requiredSignatureApplied) {
         toast({
           title: "Contract attached",
           description: `${staffMember?.name || "The staff member"} will be asked to sign it the next time they log in.`,
@@ -242,8 +257,11 @@ export default function StaffFormPage() {
       setContractAltText("");
       setContractFile(null);
       setRequireSignatureOnAttach(false);
+      setIsAmending(false);
+      setIsAmendConfirmOpen(false);
     },
     onError: (error: Error) => {
+      setIsAmendConfirmOpen(false);
       toast({ title: "Couldn't attach contract", description: getUserFriendlyError(error), variant: "destructive" });
     },
   });
@@ -687,7 +705,7 @@ export default function StaffFormPage() {
               <CardContent className="p-4 space-y-4">
                 <SectionHeader icon={<FileCheck className="h-3.5 w-3.5" />} label="Employment Contract" />
 
-                {staffMember?.contractStatus === "signed" ? (
+                {staffMember?.contractStatus === "signed" && !isAmending ? (
                   <div className="rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
                     <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-2">
                       <FileCheck className="h-3.5 w-3.5" /> Signed by {contractDetail?.signature?.typedFullName}
@@ -705,7 +723,9 @@ export default function StaffFormPage() {
                     {contractDetail?.contractType === "text" && contractDetail.contentText && (
                       <pre className="whitespace-pre-wrap text-[11px] text-muted-foreground bg-background/60 rounded p-2 max-h-32 overflow-y-auto">{contractDetail.contentText}</pre>
                     )}
-                    <p className="text-[11px] text-muted-foreground">Amending a signed contract isn't supported yet.</p>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setIsAmending(true)} data-testid="button-amend-contract">
+                      Amend contract
+                    </Button>
                   </div>
                 ) : (
                   <>
@@ -716,7 +736,23 @@ export default function StaffFormPage() {
                         <p className="text-muted-foreground">Attaching a new contract below will let them try again.</p>
                       </div>
                     )}
-                    {staffMember?.contractStatus === "pending_signature" && (
+                    {isAmending && (
+                      <div className="rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs space-y-1">
+                        <p className="font-medium">You are amending a signed contract.</p>
+                        <p className="text-muted-foreground">
+                          {staffMember?.name || "The staff member"} will have to review and sign the new version. What they signed before stays on record.
+                        </p>
+                        <button type="button" className="text-primary hover:underline" onClick={() => { setIsAmending(false); setContractType("none"); }}>
+                          Cancel amendment
+                        </button>
+                      </div>
+                    )}
+                    {staffMember?.contractStatus === "pending_signature" && contractDetail?.awaitingResignature && (
+                      <p className="text-xs text-muted-foreground">
+                        Awaiting a fresh signature on the amended contract. Attaching a new contract below replaces the amendment before they've signed it.
+                      </p>
+                    )}
+                    {staffMember?.contractStatus === "pending_signature" && !contractDetail?.awaitingResignature && (
                       <p className="text-xs text-muted-foreground">
                         Awaiting the staff member's signature. Attaching a new contract below replaces this one before they've signed.
                       </p>
@@ -782,7 +818,7 @@ export default function StaffFormPage() {
                       </div>
                     )}
 
-                    {staffId && contractType !== "none" && staffMember?.inviteStatus === "active" && (
+                    {staffId && contractType !== "none" && !isAmending && staffMember?.inviteStatus === "active" && (
                       <div className="flex items-start space-x-2 rounded-lg border p-3 bg-muted/20">
                         <Checkbox
                           id="require-signature-on-attach"
@@ -807,9 +843,9 @@ export default function StaffFormPage() {
                           ((contractType === "file" || contractType === "image") && !contractFile) ||
                           (contractType === "image" && !contractAltText.trim())
                         }
-                        onClick={() => attachContractMutation.mutate()}
+                        onClick={() => (isAmending ? setIsAmendConfirmOpen(true) : attachContractMutation.mutate())}
                       >
-                        {attachContractMutation.isPending ? "Attaching…" : "Attach Contract"}
+                        {attachContractMutation.isPending ? "Attaching…" : isAmending ? "Amend Contract" : "Attach Contract"}
                       </Button>
                     )}
                   </>
@@ -839,6 +875,11 @@ export default function StaffFormPage() {
                               {v.createdByName ? ` · attached by ${v.createdByName}` : ""}
                               {v.supersededAt ? ` · replaced ${new Date(v.supersededAt).toLocaleDateString()}` : ""}
                             </p>
+                            {v.signedAt && (
+                              <p className="text-emerald-700 dark:text-emerald-300">
+                                Signed by {v.signedByName} · {new Date(v.signedAt).toLocaleString()}
+                              </p>
+                            )}
                             {v.contractType === "text" && v.contentText && (
                               <pre className="whitespace-pre-wrap bg-muted/40 rounded p-2 max-h-24 overflow-y-auto">{v.contentText}</pre>
                             )}
@@ -1117,6 +1158,16 @@ export default function StaffFormPage() {
           </form>
         </Form>
       </div>
+
+      <ConfirmDialog
+        open={isAmendConfirmOpen}
+        onOpenChange={setIsAmendConfirmOpen}
+        title="Amend this signed contract?"
+        description={`${staffMember?.name || "The staff member"} will have to review and sign the new version before they can keep using the app after their next login. Until they do, they are excluded from payroll runs. The version they signed before stays on record.`}
+        confirmText="Amend and request signature"
+        onConfirm={() => attachContractMutation.mutate()}
+        isLoading={attachContractMutation.isPending}
+      />
 
       {/* Link Customer Dialog */}
       <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>

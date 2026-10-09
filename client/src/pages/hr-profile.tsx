@@ -15,6 +15,7 @@ import { BenefitsTab } from "@/components/hr/BenefitsTab";
 import { DisciplinaryTab } from "@/components/hr/DisciplinaryTab";
 import { GuarantorTab } from "@/components/hr/GuarantorTab";
 import { Spinner } from "@/components/ui/loader";
+import { MyContractTab, useMyContract } from "@/components/hr/MyContractTab";
 
 interface SectionConfig { section: string; isEnabled: boolean }
 
@@ -41,6 +42,9 @@ export default function HrProfilePage() {
   });
 
   const { data: staffRecord } = useQuery<{ storeId: string }>({ queryKey: [`/api/staff/${staffId}`], enabled: !!staffId && canManage });
+  // Only your own signed contract is shown here, and only once there is one.
+  const { data: myContract } = useMyContract(isViewingSelf);
+  const showContractTab = isViewingSelf && !!myContract && myContract.copies.length > 0;
   const isEnabled = (section: string) => sections.find((s) => s.section === section)?.isEnabled ?? true;
 
   if (!staffId) {
@@ -70,6 +74,7 @@ export default function HrProfilePage() {
           {isEnabled("benefits") && <TabsTrigger value="benefits" data-testid="tab-hr-benefits">Benefits</TabsTrigger>}
           {isEnabled("disciplinary") && <TabsTrigger value="disciplinary" data-testid="tab-hr-disciplinary">Disciplinary</TabsTrigger>}
           {isEnabled("guarantor") && <TabsTrigger value="guarantor" data-testid="tab-hr-guarantor">Guarantor</TabsTrigger>}
+          {showContractTab && <TabsTrigger value="contract" data-testid="tab-hr-contract">Contract</TabsTrigger>}
         </TabsList>
 
         {isEnabled("personal") && <TabsContent value="personal"><PersonalTab staffId={staffId} /></TabsContent>}
@@ -80,6 +85,7 @@ export default function HrProfilePage() {
         {isEnabled("benefits") && <TabsContent value="benefits"><BenefitsTab staffId={staffId} /></TabsContent>}
         {isEnabled("disciplinary") && <TabsContent value="disciplinary"><DisciplinaryTab staffId={staffId} canManage={canManage && !isViewingSelf} /></TabsContent>}
         {isEnabled("guarantor") && <TabsContent value="guarantor"><GuarantorTab staffId={staffId} basePath="/api/hr" /></TabsContent>}
+        {showContractTab && <TabsContent value="contract"><MyContractTab /></TabsContent>}
       </Tabs>
     </div>
   );

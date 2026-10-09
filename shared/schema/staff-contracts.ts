@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { staff } from "./staff";
 import { users } from "./auth";
@@ -79,6 +79,7 @@ export const staffContractSignatures = pgTable("staff_contract_signatures", {
   signedAt: timestamp("signed_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_staff_contract_signatures_staff").on(table.staffId),
+  uniqueIndex("uq_staff_contract_signatures_version").on(table.staffContractId, table.staffContractVersionId),
 ]);
 
 export const staffContractsRelations = relations(staffContracts, ({ one, many }) => ({
@@ -147,6 +148,9 @@ export const attachContractSchema = z.discriminatedUnion("contractType", [
 export type AttachContractInput = z.infer<typeof attachContractSchema>;
 
 export const signContractSchema = z.object({
+  // The version the signer was actually shown; rejected if the manager has
+  // since replaced it (StaffContractService.sign -> version_changed).
+  versionId: z.string().min(1, "Reload the page to review the current contract"),
   typedFullName: z.string().trim().min(1, "Type your full name to sign"),
   affirmedReadAndAgree: z.literal(true, {
     errorMap: () => ({ message: "You must confirm you have read and agree to the contract" }),
@@ -158,6 +162,7 @@ export const signContractSchema = z.object({
 export type SignContractInput = z.infer<typeof signContractSchema>;
 
 export const declineContractSchema = z.object({
+  versionId: z.string().min(1),
   reason: z.string().trim().max(2000).optional(),
 });
 export type DeclineContractInput = z.infer<typeof declineContractSchema>;

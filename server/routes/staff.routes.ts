@@ -9,7 +9,7 @@ import {
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { staffInviteService, type InviteOutcome, type ExistingLink } from "../services/StaffInviteService";
 import { syncStaffNameToLinkedUser, syncStaffToHrPersonalFields } from "../services/IdentitySync";
-import { staffContractService } from "../services/StaffContractService";
+import { staffContractService, contractStagingPrefix } from "../services/StaffContractService";
 import { objectStorage } from "../lib/objectStorage";
 import {
   insertStaffSchema, attachContractSchema,
@@ -67,6 +67,11 @@ export type RouteMiddlewares = {
   requireManagerOrOwner: any;
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
+
+/** The business whose staging prefix this manager's contract uploads use (and must be attached from). */
+function contractUploadBusinessId(req: any): string {
+  return req.user?.organisationId || req.user?.businessId || "unscoped";
+}
 
 export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // Stops one manager hammering the resend button. The per-invitee limit is a
@@ -353,6 +358,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (contractInput) {
         const contractOutcome = await staffContractService.attachContract({
           staffId: staffMember.id,
+          businessId: contractUploadBusinessId(req),
           createdByUserId: getUserId(req) || "",
           input: contractInput,
         });
@@ -735,9 +741,9 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(400).json({ error: `File type ${mimeType} is not allowed for contracts.` });
       }
 
-      const businessId = (req as any).user?.organisationId || (req as any).user?.businessId || "unscoped";
+      const businessId = contractUploadBusinessId(req);
       const safeName = sanitizeString(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
-      const storageKey = `staff-contracts/pending/${businessId}/${Date.now()}-${crypto.randomBytes(6).toString("hex")}-${safeName}`;
+      const storageKey = `${contractStagingPrefix(businessId)}${Date.now()}-${crypto.randomBytes(6).toString("hex")}-${safeName}`;
       const uploadUrl = await objectStorage.getSignedPutUrl(storageKey, mimeType);
 
       res.json({ uploadUrl, storageKey, maxFileSizeBytes: MAX_CONTRACT_FILE_SIZE_BYTES });
@@ -767,20 +773,25 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
 
       const outcome = await staffContractService.attachContract({
         staffId: staffMember.id,
+        businessId: contractUploadBusinessId(req),
         createdByUserId: getUserId(req) || "",
         input: parsed.data,
+        amend: req.body.amend === true,
       });
 
       if (outcome.kind === "invalid") {
         return res.status(400).json({ error: outcome.reason });
       }
       if (outcome.kind === "refused_already_signed") {
-        return res.status(409).json({ error: "This staff member has already signed their contract. Amending a signed contract isn't supported yet." });
+        return res.status(409).json({
+          error: "This staff member has already signed their contract. To change it, confirm that you are amending it - they will need to sign the new version.",
+          code: "amend_required",
+        });
       }
 
       const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
       auditLogger.logEvent(ctx, "STAFF_CONTRACT_ATTACHED", "staff", staffMember.id, "success", {
-        details: { contractType: parsed.data.contractType, replaced: outcome.kind === "replaced" },
+        details: { contractType: parsed.data.contractType, replaced: outcome.kind === "replaced", amended: outcome.kind === "amended" },
       });
 
       const businessId = (await storage.getStore(staffMember.storeId))?.businessId;
@@ -791,7 +802,9 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // through the normal pending_signature/contract_pending flow, so this
       // is a no-op for them (requiredSignatureApplied stays false).
       let requiredSignatureApplied = false;
-      const requireSignature = req.body.requireSignature === true;
+      // An amendment always needs a fresh signature - that is what makes it one.
+      const isAmendment = outcome.kind === "amended";
+      const requireSignature = req.body.requireSignature === true || isAmendment;
       if (requireSignature && staffMember.userId && businessId) {
         requiredSignatureApplied = await staffContractService.requireSignatureForActiveMember(staffMember.userId, businessId);
         if (requiredSignatureApplied) {
@@ -800,7 +813,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           const linkedUser = await storage.getUser(staffMember.userId);
           if (linkedUser?.email) {
             const business = await storage.getBusinessById(businessId);
-            sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your workspace")
+            sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your workspace", isAmendment)
               .catch((err) => console.error("[StaffContract] Failed to send signature-required notification:", err));
           }
         }
@@ -811,7 +824,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         : "pending_signature";
 
       broadcastChange(req, "staff", staffMember.storeId, "updated");
-      res.status(outcome.kind === "attached" ? 201 : 200).json({ contractStatus, requiredSignatureApplied });
+      res.status(outcome.kind === "attached" ? 201 : 200).json({ contractStatus, requiredSignatureApplied, amended: isAmendment });
     } catch (error) {
       console.error("Attach contract error:", error);
       res.status(500).json({ error: "Could not attach the contract. Please try again." });
@@ -857,6 +870,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         signedGetUrl: review?.signedGetUrl,
         declinedAt: contract.declinedAt,
         declinedReason: contract.declinedReason,
+        awaitingResignature: await staffContractService.isAwaitingResignature(contract),
         signature: signatureRecord
           ? {
               typedFullName: signatureRecord.typedFullName,
@@ -869,6 +883,53 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     } catch (error) {
       console.error("Get staff contract error:", error);
       res.status(500).json({ error: "Could not load this staff member's contract." });
+    }
+  });
+
+  // Ask an already-active staff member to sign a contract that was saved as
+  // a record only. Without this they sit at not_applicable_existing_account
+  // with no way to ever sign it. Same effect as ticking "Require signature"
+  // when attaching: the gate applies the next time they log in.
+  app.post("/api/staff/:id/contract/request-signature", requireManagerOrOwner, async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) {
+        return res.status(404).json({ error: "Staff member not found." });
+      }
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+
+      const contract = await staffContractService.getPendingContract(staffMember.id);
+      if (!contract) {
+        return res.status(409).json({ error: "This staff member has no contract awaiting a signature." });
+      }
+      const businessId = (await storage.getStore(staffMember.storeId))?.businessId;
+      if (!staffMember.userId || !businessId) {
+        return res.status(409).json({ error: "This staff member doesn't have a login yet - they'll be asked to sign when they set up their account." });
+      }
+
+      const applied = await staffContractService.requireSignatureForActiveMember(staffMember.userId, businessId);
+      if (!applied) {
+        return res.status(409).json({ error: "This staff member is already being asked to sign." });
+      }
+
+      const ctx = await getAuditContext(req, { storeId: staffMember.storeId });
+      auditLogger.logEvent(ctx, "STAFF_CONTRACT_SIGNATURE_REQUIRED", "staff", staffMember.id, "success", {});
+
+      const linkedUser = await storage.getUser(staffMember.userId);
+      if (linkedUser?.email) {
+        const business = await storage.getBusinessById(businessId);
+        const isAmendment = await staffContractService.isAwaitingResignature(contract);
+        sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your workspace", isAmendment)
+          .catch((err) => console.error("[StaffContract] Failed to send signature-required notification:", err));
+      }
+
+      broadcastChange(req, "staff", staffMember.storeId, "updated");
+      res.json({ contractStatus: await staffContractService.computeContractStatus(staffMember, businessId) });
+    } catch (error) {
+      console.error("Request contract signature error:", error);
+      res.status(500).json({ error: "Could not request the signature. Please try again." });
     }
   });
 

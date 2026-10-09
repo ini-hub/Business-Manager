@@ -249,25 +249,77 @@ export async function sendContractDeclinedEmail(
 export async function sendContractSignatureRequiredEmail(
   to: string,
   staffName: string,
-  businessName: string
+  businessName: string,
+  isAmendment = false
 ): Promise<void> {
   const safeStaff = escapeHtml(staffName);
   const safeBusiness = escapeHtml(businessName);
   const loginLink = `${APP_URL}/auth/login`;
 
   const html = renderEmail({
-    heading: "A contract needs your signature",
-    preheader: `Your manager at ${businessName} attached a contract`,
+    heading: isAmendment ? "Your contract has been updated" : "A contract needs your signature",
+    preheader: isAmendment
+      ? `Your manager at ${businessName} updated your contract`
+      : `Your manager at ${businessName} attached a contract`,
     body:
       para(`Hi <strong>${safeStaff}</strong>,`) +
-      para(`Your manager at <strong>${safeBusiness}</strong> has attached a contract that needs your review and signature. You'll be asked to sign it the next time you log in.`),
+      para(isAmendment
+        ? `Your manager at <strong>${safeBusiness}</strong> has updated your contract. The previous version you signed stays on record, but you'll need to review and sign the new one the next time you log in.`
+        : `Your manager at <strong>${safeBusiness}</strong> has attached a contract that needs your review and signature. You'll be asked to sign it the next time you log in.`),
     button: { label: "Log in", href: loginLink },
     signoff: `The ${safeBusiness} Team`,
   });
 
   await enqueueEmail({
     to,
-    subject: `A contract needs your signature — ${sanitizeHeaderValue(businessName)}`,
+    subject: `${isAmendment ? "Your contract has been updated" : "A contract needs your signature"} — ${sanitizeHeaderValue(businessName)}`,
+    html,
+  });
+}
+
+/**
+ * Sent to the staff member when they sign, so they hold their own copy.
+ * Text contracts are included in full; for a file/image the email carries
+ * the file name and a link to where it can be opened in the app (a storage
+ * link would expire within minutes). The content hash lets either side prove
+ * later that the document has not changed.
+ */
+export async function sendContractSignedEmail(
+  to: string,
+  staffName: string,
+  businessName: string,
+  signed: {
+    versionNumber: number;
+    typedFullName: string;
+    signedAt: Date;
+    contentHash: string;
+    contractType: string;
+    contentText?: string | null;
+    fileOriginalName?: string | null;
+  }
+): Promise<void> {
+  const safeStaff = escapeHtml(staffName);
+  const safeBusiness = escapeHtml(businessName);
+  const when = signed.signedAt.toUTCString();
+  const copy = signed.contractType === "text" && signed.contentText
+    ? callout(escapeHtml(signed.contentText).replace(/\n/g, "<br/>"), "brand")
+    : para(`The signed document (<strong>${escapeHtml(signed.fileOriginalName || "contract")}</strong>) is available any time under My HR Profile.`);
+
+  const html = renderEmail({
+    heading: "You signed your contract",
+    preheader: `Your signed copy for ${businessName}`,
+    body:
+      para(`Hi <strong>${safeStaff}</strong>,`) +
+      para(`This confirms that <strong>${escapeHtml(signed.typedFullName)}</strong> signed version ${signed.versionNumber} of the contract with <strong>${safeBusiness}</strong> on ${escapeHtml(when)}.`) +
+      copy +
+      muted(`Document fingerprint (SHA-256): ${escapeHtml(signed.contentHash)}`),
+    button: { label: "View in the app", href: `${APP_URL}/staff/hr-profile` },
+    signoff: `The ${safeBusiness} Team`,
+  });
+
+  await enqueueEmail({
+    to,
+    subject: `Your signed contract — ${sanitizeHeaderValue(businessName)}`,
     html,
   });
 }
