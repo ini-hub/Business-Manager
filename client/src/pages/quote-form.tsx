@@ -1,3 +1,4 @@
+import { CustomerSearchSelect } from "@/components/customer-search-select";
 import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -9,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useStore } from "@/lib/store-context";
@@ -20,7 +20,7 @@ import { ProductGrid } from "@/pages/new-sale/ProductGrid";
 import { QuoteItemRow } from "@/pages/quotes/QuoteItemRow";
 import type { QuoteCartItem } from "@/pages/quotes/types";
 import { cn } from "@/lib/utils";
-import type { Customer, Inventory } from "@shared/schema";
+import type { Inventory } from "@shared/schema";
 
 export default function QuoteFormPage() {
   const { currentStore } = useStore();
@@ -38,13 +38,6 @@ export default function QuoteFormPage() {
   const [builderView, setBuilderView] = useState<"items" | "review">("items");
 
   const { isDisabled } = useEntitlements();
-  const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["/api/customers", currentStore?.id],
-    queryFn: async () => {
-      return fetchAllPages<Customer>(`/api/customers?storeId=${currentStore!.id}`);
-    },
-    enabled: !isDisabled("customer_management") && !!currentStore?.id,
-  });
 
   // Open to any authenticated staff (unlike /api/products), so quoting stays non-manager-only.
   const { data: inventoryItems = [], isLoading: isLoadingInventory } = useQuery<Inventory[]>({
@@ -178,17 +171,7 @@ export default function QuoteFormPage() {
     {!isDisabled("customer_management") && (
     <div className="space-y-2">
       <Label htmlFor="customer">Customer Link (Optional)</Label>
-      <Select value={customerId || "none"} onValueChange={(v) => setCustomerId(v === "none" ? "" : v)}>
-        <SelectTrigger>
-          <SelectValue placeholder="Walk-in Customer" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="none">Walk-in / General</SelectItem>
-          {customers.map((c) => (
-            <SelectItem key={c.id} value={c.id}>{c.name} ({c.mobileNumber || "No Phone"})</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <CustomerSearchSelect storeId={currentStore!.id} value={customerId} onChange={setCustomerId} />
     </div>
     )}
 
