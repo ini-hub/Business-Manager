@@ -12,7 +12,7 @@ export const APP_SCREEN_PATHS: readonly string[] = [
   "/sales/new", "/transactions", "/transactions/:id",
   "/profit-loss", "/expenses", "/expenses/new", "/expenses/categories", "/expenses/:id/edit", "/credit-sales",
   "/bookings/new", "/bookings/:id/edit", "/bookings/:id", "/bookings",
-  "/broadcasts", "/reports", "/reports/service-profitability", "/reports/balance-sheet", "/reports/audit-logs",
+  "/broadcasts", "/reports", "/reports/service-profitability", "/reports/balance-sheet", "/reports/payment-accounts", "/reports/tax-returns", "/reports/audit-logs",
   "/payroll", "/payroll/new", "/payroll/advances", "/payroll/report", "/payroll/:periodId/staff/:staffId",
   "/profile", "/help-support",
   "/settings", "/settings/stores", "/settings/roles", "/settings/hr-profiles", "/settings/business", "/settings/store-settings",

@@ -366,6 +366,8 @@ export default function Transactions() {
     { key: "inventory.type", header: "Item Type" },
     { key: "checkout.totalPrice", header: "Amount" },
     { key: "checkout.isVoided", header: "Voided" },
+    { key: "paymentAccounts", header: "Paid Into" },
+    { key: "lossAmount", header: "Loss Amount" },
   ];
 
   const exportData = filteredTransactions.map((tx) => ({
@@ -377,6 +379,8 @@ export default function Transactions() {
       ...tx.checkout,
       isVoided: tx.checkout?.isVoided ? "Yes" : "No"
     },
+    paymentAccounts: Array.from(new Set((tx.paymentLegs ?? []).map((l) => l.accountLabel).filter(Boolean))).join(", "),
+    lossAmount: tx.checkout?.isVoided ? "" : Number(tx.checkout?.lossAmount ?? 0) || "",
   }));
 
   const tableData = useMemo(() => {
@@ -403,6 +407,8 @@ export default function Transactions() {
       isStaffPurchase: !!(tx.customer as any)?.staffId,
       lossAmount: tx.checkout?.isVoided ? 0 : Number(tx.checkout?.lossAmount ?? 0),
       isReturned: !!(tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0),
+      paymentAccountIds: (tx.paymentLegs ?? []).map((l) => l.paymentAccountId).filter((id): id is string => !!id),
+      paymentAccountLabels: Array.from(new Set((tx.paymentLegs ?? []).map((l) => l.accountLabel).filter(Boolean))).join(", "),
     }));
   }, [filteredTransactions]);
 
@@ -414,6 +420,14 @@ export default function Transactions() {
       if (row.staffId) map.set(row.staffId, row.staffName);
     });
     return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [tableData]);
+
+  const accountOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    tableData.forEach((row) => (row.paymentLegs ?? []).forEach((l) => {
+      if (l.paymentAccountId) map.set(l.paymentAccountId, l.accountLabel ?? "Account");
+    }));
+    return Array.from(map, ([id, label]) => ({ id, label }));
   }, [tableData]);
 
   const paymentMethods = useMemo(
@@ -467,7 +481,8 @@ export default function Transactions() {
   const saleFilterChips = buildSaleFilterChips(
     saleFilters,
     getCurrencyByCode(storeCurrency)?.symbol ?? "₦",
-    (staffId) => staffOptions.find((s) => s.id === staffId)?.name ?? "Staff"
+    (staffId) => staffOptions.find((s) => s.id === staffId)?.name ?? "Staff",
+    (accountId) => accountOptions.find((a) => a.id === accountId)?.label ?? "Account"
   );
 
   // "Filters" button badge counts sort as one more active thing, since sort now lives
@@ -538,6 +553,8 @@ export default function Transactions() {
       ...tx.checkout,
       isVoided: tx.checkout?.isVoided ? "Yes" : "No"
     },
+    paymentAccounts: Array.from(new Set((tx.paymentLegs ?? []).map((l) => l.accountLabel).filter(Boolean))).join(", "),
+    lossAmount: tx.checkout?.isVoided ? "" : Number(tx.checkout?.lossAmount ?? 0) || "",
   }));
 
   if (!currentStore) {
@@ -636,6 +653,7 @@ export default function Transactions() {
                     currencySymbol={getCurrencyByCode(storeCurrency)?.symbol ?? "₦"}
                     paymentMethods={paymentMethods}
                     staffOptions={staffOptions}
+                    accountOptions={accountOptions}
                     resultCountFor={(draft) => saleSearchedRows.filter((row) => saleMatchesFilters(row, draft)).length}
                     trigger={trigger}
                   />

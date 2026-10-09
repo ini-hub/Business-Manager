@@ -2141,7 +2141,8 @@ export class SalesRepository {
     redeemStoreCredit?: boolean;
     creditUpfrontPaid?: number;
     creditDueDate?: string;
-    splitPayments?: Array<{ method: string; amount: number }>;
+    splitPayments?: SaleDraft["splitPayments"];
+    paymentDetail?: SaleDraft["paymentDetail"];
   }): Promise<SaleDraft> {
     const [draft] = await db.insert(saleDrafts).values({
       storeId: data.storeId,
@@ -2160,6 +2161,7 @@ export class SalesRepository {
       creditUpfrontPaid: data.creditUpfrontPaid ?? 0,
       creditDueDate: data.creditDueDate ?? null,
       splitPayments: data.splitPayments ?? null,
+      paymentDetail: data.paymentDetail ?? null,
     }).returning();
     return draft;
   }
@@ -2178,7 +2180,8 @@ export class SalesRepository {
     redeemStoreCredit: boolean;
     creditUpfrontPaid: number;
     creditDueDate: string;
-    splitPayments: Array<{ method: string; amount: number }>;
+    splitPayments: SaleDraft["splitPayments"];
+    paymentDetail: SaleDraft["paymentDetail"];
   }>): Promise<SaleDraft | null> {
     const [draft] = await db.update(saleDrafts)
       .set({ ...data, updatedAt: new Date() })

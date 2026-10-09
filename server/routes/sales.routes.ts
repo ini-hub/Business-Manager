@@ -737,6 +737,15 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
+  const draftLegDetail = z.object({
+    accountId: z.string().optional(),
+    reference: z.string().optional(),
+    senderName: z.string().optional(),
+    confirmed: z.boolean().optional(),
+    cashTendered: z.number().optional(),
+    changeOwed: z.number().optional(),
+  });
+
   const draftSchema = z.object({
     storeId: z.string(),
     name: z.string().optional(),
@@ -765,7 +774,8 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     redeemStoreCredit: z.boolean().optional(),
     creditUpfrontPaid: z.number().optional(),
     creditDueDate: z.string().optional(),
-    splitPayments: z.array(z.object({ method: z.string(), amount: z.number() })).optional(),
+    splitPayments: z.array(z.object({ method: z.string(), amount: z.number() }).extend(draftLegDetail.shape)).optional(),
+    paymentDetail: z.object(draftLegDetail.shape).optional(),
   });
 
   function normalizeDraftCartData(cartData: any[]): any[] {

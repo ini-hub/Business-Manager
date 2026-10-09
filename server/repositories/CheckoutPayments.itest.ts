@@ -22,6 +22,7 @@ async function clearSales(storeId: string) {
   await db.execute(sql`DELETE FROM gamification_points_ledger WHERE store_id = ${s}`);
   await db.execute(sql`DELETE FROM gamification_badge_awards WHERE store_id = ${s}`);
   await db.execute(sql`DELETE FROM gamification_streaks WHERE store_id = ${s}`);
+  await db.execute(sql`DELETE FROM sale_drafts WHERE store_id = ${s}`);
   await db.execute(sql`DELETE FROM sale_payment_legs WHERE store_id = ${s}`);
   await db.execute(sql`DELETE FROM store_credit_transactions WHERE store_id = ${s}`);
   await db.execute(sql`DELETE FROM checkout_idempotency_keys WHERE store_id = ${s}`);
@@ -100,6 +101,11 @@ describe("transfer accounts", () => {
     expect(ok.success).toBe(true);
     const [leg] = await legsFor(f.storeId);
     expect(leg).toMatchObject({ method: "transfer", amount: 500, paymentAccountId: acct.id, accountLabel: "GTB main", confirmationStatus: "confirmed", confirmationSource: "manual", reference: "TRX1" });
+
+    // The ledger page reads these slim summaries, one statement for the whole page.
+    const summaries = await storage.paymentAccountRepo.getLegSummariesForReceipts([f.storeId], [leg.receiptNumber]);
+    expect(summaries).toEqual([{ storeId: f.storeId, receiptNumber: leg.receiptNumber, method: "transfer", amount: 500, paymentAccountId: acct.id, accountLabel: "GTB main", confirmationStatus: "confirmed" }]);
+    expect(await storage.paymentAccountRepo.getLegSummariesForReceipts([f.storeId], [])).toEqual([]);
   });
 
   it("rejects another store's account and records an unconfirmed transfer as pending", async () => {
@@ -230,5 +236,22 @@ describe("store credit redemption", () => {
     const res = await sell(f, item.id, 1, { paymentMethod: "store_credit", balanceCollectedToday: 0 });
     expect(res.success).toBe(true);
     expect(await balanceOf(f.customerId)).toBe(300);
+  });
+});
+
+describe("draft payment detail", () => {
+  it("keeps per-leg account, reference and cash detail through save, update and read", async () => {
+    const { f, item } = await shop();
+    const cartData = [{ inventoryId: item.id, name: item.name, type: "product", quantity: 1, customPrice: 500, totalPrice: 500, leadStaffId: null, assistingStaff1Id: null, assistingStaff2Id: null, commissionSplit: "standard" }];
+    const splitPayments = [
+      { method: "cash", amount: 200, cashTendered: 500, changeOwed: 300 },
+      { method: "transfer", amount: 300, accountId: "acct-1", reference: "TRF-9", senderName: "Ada", confirmed: false },
+    ];
+    const saved = await storage.saveDraft({ storeId: f.storeId, cartData, paymentMethod: "split", splitPayments });
+    expect((await storage.getDraft(saved.id, f.storeId))?.splitPayments).toEqual(splitPayments);
+
+    const paymentDetail = { accountId: "acct-2", reference: "TRF-10", confirmed: true };
+    await storage.updateDraft(saved.id, f.storeId, { paymentMethod: "transfer", paymentDetail });
+    expect((await storage.getDraft(saved.id, f.storeId))?.paymentDetail).toEqual(paymentDetail);
   });
 });

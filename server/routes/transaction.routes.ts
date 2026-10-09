@@ -101,7 +101,19 @@ async function pageOfReceipts(storeIds: string[], filters: { startDate?: Date; e
   });
   const full = groupTransactions(await storage.getTransactionsByIds(lineIds));
   const byKey = new Map(full.map(g => [g.checkout?.receiptNumber || g.checkoutId || g.id, g]));
-  const data = keys.map(k => byKey.get(k)).filter(Boolean);
+  const groups = keys.map(k => byKey.get(k)).filter(Boolean) as typeof full;
+  // One statement for the page's payment legs, so the ledger can show and filter on the account a sale paid into.
+  const legs = await storage.paymentAccountRepo.getLegSummariesForReceipts(storeIds, groups.map(g => g.checkout?.receiptNumber).filter(Boolean) as string[]);
+  const legsByReceipt = new Map<string, typeof legs>();
+  for (const l of legs) {
+    const k = `${l.storeId}:${l.receiptNumber}`;
+    legsByReceipt.set(k, [...(legsByReceipt.get(k) ?? []), l]);
+  }
+  const data = groups.map(g => ({
+    ...g,
+    paymentLegs: (legsByReceipt.get(`${g.checkout?.storeId}:${g.checkout?.receiptNumber}`) ?? [])
+      .map(({ storeId: _s, receiptNumber: _r, ...leg }) => leg),
+  }));
   return { data, total };
 }
 

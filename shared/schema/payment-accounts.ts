@@ -66,3 +66,41 @@ export const salePaymentLegs = pgTable("sale_payment_legs", {
 
 export type SalePaymentLeg = typeof salePaymentLegs.$inferSelect;
 export type InsertSalePaymentLeg = typeof salePaymentLegs.$inferInsert;
+
+// A bank account linked through the open-banking aggregator (Mono). One live connection per payment account.
+export const bankConnections = pgTable("bank_connections", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  paymentAccountId: varchar("payment_account_id").notNull().references(() => storePaymentAccounts.id),
+  provider: text("provider").notNull().default("mono"),
+  providerAccountId: text("provider_account_id").notNull(),
+  status: text("status").$type<"active" | "reauth_required" | "disconnected">().notNull().default("active"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_bank_connections_store").on(table.storeId),
+  uniqueIndex("bank_connections_provider_account").on(table.provider, table.providerAccountId),
+  uniqueIndex("bank_connections_one_live_per_account").on(table.paymentAccountId).where(sql`status <> 'disconnected'`),
+]);
+
+export const bankTransactions = pgTable("bank_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  connectionId: varchar("connection_id").notNull().references(() => bankConnections.id),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  externalId: text("external_id").notNull(),
+  direction: text("direction").$type<"credit" | "debit">().notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
+  narration: text("narration"),
+  postedAt: timestamp("posted_at").notNull(),
+  // Set when a credit was matched to a transfer leg and confirmed it.
+  matchedLegId: varchar("matched_leg_id").references(() => salePaymentLegs.id),
+  matchedAt: timestamp("matched_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("bank_transactions_external").on(table.connectionId, table.externalId),
+  index("idx_bank_transactions_store_posted").on(table.storeId, table.postedAt),
+]);
+
+export type BankConnection = typeof bankConnections.$inferSelect;
+export type BankTransaction = typeof bankTransactions.$inferSelect;

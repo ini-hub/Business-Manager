@@ -15,6 +15,8 @@ export interface SaleFilterState {
   creditOnly: boolean;
   staffPurchasesOnly: boolean;
   lossOnly: boolean;
+  /** A payment account the sale paid into (any of its legs). */
+  paymentAccountId: string | null;
   /** Inclusive local dates as yyyy-MM-dd; sent to the server as the query range. */
   dateFrom: string | null;
   dateTo: string | null;
@@ -30,6 +32,7 @@ export const EMPTY_SALE_FILTERS: SaleFilterState = {
   creditOnly: false,
   staffPurchasesOnly: false,
   lossOnly: false,
+  paymentAccountId: null,
   dateFrom: null,
   dateTo: null,
 };
@@ -44,6 +47,7 @@ export interface FilterableSale {
   isReturned: boolean;
   isStaffPurchase: boolean;
   lossAmount?: number;
+  paymentAccountIds?: string[];
 }
 
 export function saleMatchesFilters<T extends FilterableSale>(
@@ -61,6 +65,7 @@ export function saleMatchesFilters<T extends FilterableSale>(
   if (creditOnly && sale.paymentStatus !== "pending") return false;
   if (staffPurchasesOnly && !sale.isStaffPurchase) return false;
   if (lossOnly && !((sale.lossAmount ?? 0) > 0)) return false;
+  if (filters.paymentAccountId && !(sale.paymentAccountIds ?? []).includes(filters.paymentAccountId)) return false;
 
   return true;
 }
@@ -68,6 +73,7 @@ export function saleMatchesFilters<T extends FilterableSale>(
 export function countActiveSaleFilters(filters: SaleFilterState): number {
   let count = 0;
   if (filters.paymentMethod) count++;
+  if (filters.paymentAccountId) count++;
   if (filters.staffId) count++;
   if (filters.itemType) count++;
   if (filters.amountMin != null || filters.amountMax != null) count++;
@@ -104,12 +110,16 @@ export function saleDateRangeLabel(from: string | null, to: string | null): stri
 export function buildSaleFilterChips(
   filters: SaleFilterState,
   currencySymbol: string,
-  staffNameFor: (staffId: string) => string
+  staffNameFor: (staffId: string) => string,
+  accountLabelFor: (accountId: string) => string = (id) => id
 ): SaleFilterChip[] {
   const chips: SaleFilterChip[] = [];
 
   if (filters.paymentMethod) {
     chips.push({ key: "paymentMethod", label: filters.paymentMethod.charAt(0).toUpperCase() + filters.paymentMethod.slice(1) });
+  }
+  if (filters.paymentAccountId) {
+    chips.push({ key: "paymentAccountId", label: accountLabelFor(filters.paymentAccountId) });
   }
   if (filters.staffId) {
     chips.push({ key: "staffId", label: staffNameFor(filters.staffId) });
@@ -138,6 +148,7 @@ export function buildSaleFilterChips(
 export function clearSaleFilterChip(filters: SaleFilterState, key: SaleFilterChip["key"]): SaleFilterState {
   switch (key) {
     case "paymentMethod": return { ...filters, paymentMethod: null };
+    case "paymentAccountId": return { ...filters, paymentAccountId: null };
     case "staffId": return { ...filters, staffId: null };
     case "itemType": return { ...filters, itemType: null };
     case "amountRange": return { ...filters, amountMin: null, amountMax: null };

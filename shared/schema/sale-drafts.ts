@@ -5,6 +5,9 @@ import { users } from "./auth";
 import { customers } from "./customers";
 import { staff } from "./staff";
 
+/** Per-leg detail captured at the till; mirrors PaymentLegInput in sales.ts. */
+export type SaleDraftLegDetail = { accountId?: string; reference?: string; senderName?: string; confirmed?: boolean; cashTendered?: number; changeOwed?: number };
+
 // ── Sale Drafts ──────────────────────────────────────────────────────────────
 // Saved (but not yet committed) POS cart sessions. Nothing in here touches
 // inventory, revenue, or any financial record — it is purely a snapshot of
@@ -39,7 +42,8 @@ export const saleDrafts = pgTable("sale_drafts", {
   redeemStoreCredit: boolean("redeem_store_credit").notNull().default(false),
   creditUpfrontPaid: numeric("credit_upfront_paid", { precision: 12, scale: 2, mode: "number" }).default(0),
   creditDueDate: text("credit_due_date"),
-  splitPayments: jsonb("split_payments").$type<Array<{ method: string; amount: number }>>(),
+  splitPayments: jsonb("split_payments").$type<Array<{ method: string; amount: number } & SaleDraftLegDetail>>(),
+  paymentDetail: jsonb("payment_detail").$type<SaleDraftLegDetail>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

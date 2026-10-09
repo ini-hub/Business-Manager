@@ -78,6 +78,7 @@ import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerSupportRoutes } from "./routes/support.routes";
 import { registerCashRoutes } from "./routes/cash.routes";
 import { registerPaymentAccountRoutes } from "./routes/payment-accounts.routes";
+import { registerBankConnectionRoutes } from "./routes/bank-connections.routes";
 import { registerAuditLogRoutes } from "./routes/audit-logs.routes";
 import { registerAnalyticsRoutes } from "./routes/analytics.routes";
 import { registerAnalyticsViewRoutes } from "./routes/analytics-views.routes";
@@ -1898,6 +1899,7 @@ export async function registerRoutes(
   registerSupportRoutes(app, routeMiddlewares);
   registerCashRoutes(app, routeMiddlewares);
   registerPaymentAccountRoutes(app, routeMiddlewares);
+  registerBankConnectionRoutes(app, routeMiddlewares);
   registerAuditLogRoutes(app, routeMiddlewares);
 
   // Fails fast if the analytics catalog and its SQL bindings have drifted apart.
