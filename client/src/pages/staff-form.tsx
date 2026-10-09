@@ -32,7 +32,7 @@ import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { uploadContractFileToStaging } from "@/lib/contract-upload";
 import { useStore } from "@/lib/store-context";
-import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
+import { countryCodes } from "@/lib/phone-utils";
 import { PhoneInput } from "@/components/phone-input";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { splitNormalizedPhone, normalizePhoneForStorage } from "@shared/phone-utils";
@@ -47,7 +47,7 @@ const localStaffSchema = z.object({
   email: z.string().email("Valid email is required"),
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
-  mobileNumber: z.string().min(1, "Mobile number is required"),
+  mobileNumber: z.string().optional().default(""),
   workPhone: z.string().optional().default(""),
   payPerMonth: z.coerce.number().min(0),
   signedContract: z.boolean().default(false),
@@ -396,15 +396,11 @@ export default function StaffFormPage() {
   const [isPreparingContract, setIsPreparingContract] = useState(false);
 
   const onSubmit = async (data: any) => {
-    if (!staffId) {
-      const validation = validatePhoneNumber(data.mobileNumber, data.countryCode || "NG");
-      if (!validation.valid) { form.setError("mobileNumber", { message: validation.error }); return; }
-    }
     const payload: any = {
       ...data,
       commissionRateOverride: data.commissionRateOverride != null ? data.commissionRateOverride / 100 : null,
     };
-    if (staffId) { delete payload.mobileNumber; delete payload.countryCode; }
+    delete payload.mobileNumber; delete payload.countryCode;
 
     // The Contract section only offers this inline path on the create form
     // (staffId undefined) - once saved, attaching/replacing goes through its
@@ -624,36 +620,11 @@ export default function StaffFormPage() {
               <CardContent className="p-4 space-y-4">
                 <SectionHeader icon={<Phone className="h-3.5 w-3.5" />} label="Contact" />
 
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-                  <FormField control={form.control} name="countryCode" render={({ field }) => (
-                    <FormItem className="sm:col-span-2">
-                      <FormLabel>Country</FormLabel>
-                      <Select disabled={!!staffId} onValueChange={field.onChange} value={field.value || "NG"}>
-                        <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent className="max-h-[280px]">
-                          {countryCodes.map((c) => (
-                            <SelectItem key={c.code} value={c.code}>{c.dialCode}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="mobileNumber" render={({ field }) => (
-                    <FormItem className="sm:col-span-3">
-                      <FormLabel>Mobile Number <span className="text-destructive">*</span></FormLabel>
-                      <FormControl><Input placeholder="8012345678" className="h-11" disabled={!!staffId} {...field} /></FormControl>
-                      {staffId && <p className="text-xs text-muted-foreground">Set by the staff member in their profile. Their work number is managed in the HR profile.</p>}
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-
                 <FormField control={form.control} name="workPhone" render={({ field }) => {
                   const split = splitNormalizedPhone(field.value ?? "") ?? { countryCode: "+234", localNumber: field.value ?? "" };
                   return (
                     <FormItem>
-                      <FormLabel>Work Phone <span className="text-xs text-muted-foreground font-normal">(optional, same as the HR profile's Work Phone)</span></FormLabel>
+                      <FormLabel>Work Phone <span className="text-xs text-muted-foreground font-normal">(optional, same as the HR profile's Work Phone). Personal numbers are set by the staff member in their own profile.</span></FormLabel>
                       <PhoneInput
                         countryCode={split.countryCode}
                         phoneNumber={split.localNumber}
