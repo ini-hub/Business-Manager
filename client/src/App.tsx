@@ -158,10 +158,12 @@ const VerifyPayslipPage = lazy(() => import("@/pages/verify-payslip"));
 
 // Super Admin Portal (lazy — separate user segment)
 import AdminLayout from "@/components/admin/AdminLayout";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 import { FullScreenLoader, SplashScreen, useFirstLoad } from "@/components/ui/loader";
 const AdminDashboard = lazy(() => import("@/pages/admin/Dashboard"));
 const BusinessesList = lazy(() => import("@/pages/admin/BusinessesList"));
 const BusinessDetails = lazy(() => import("@/pages/admin/BusinessDetails"));
+const DeletedBusinesses = lazy(() => import("@/pages/admin/DeletedBusinesses"));
 const OnboardingPipeline = lazy(() => import("@/pages/admin/OnboardingPipeline"));
 const UsersList = lazy(() => import("@/pages/admin/UsersList"));
 const TransactionsMonitor = lazy(() => import("@/pages/admin/TransactionsMonitor"));
@@ -304,6 +306,7 @@ function SuperAdminRouter() {
             <Switch>
               <Route path="/super-admin" component={AdminDashboard} />
               <Route path="/super-admin/businesses" component={BusinessesList} />
+              <Route path="/super-admin/deleted-businesses" component={DeletedBusinesses} />
               <Route path="/super-admin/businesses/:id" component={BusinessDetails} />
               <Route path="/super-admin/onboarding" component={OnboardingPipeline} />
               <Route path="/super-admin/users" component={UsersList} />
@@ -539,6 +542,7 @@ function AuthenticatedLayout() {
           <div className="flex flex-1 w-full min-h-0">
           <AppSidebar />
           <SidebarInset className="flex flex-col flex-1 min-w-0">
+            {(user as any)?.impersonating && <ImpersonationBanner />}
             <LegalConsentBanner />
             <AnnouncementBanner />
             <header className="sticky top-0 z-50 flex h-16 items-center justify-between gap-4 border-b bg-background px-4 sm:px-8">

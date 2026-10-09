@@ -82,3 +82,16 @@ export async function revokeAllUserSessions(userId: string, reason: string): Pro
     revokeListeners.forEach((cb) => cb(r.id));
   }
 }
+
+/** Revokes every live session scoped to a business (it was deleted). Super-admin view sessions are included. */
+export async function revokeOrgSessions(organisationId: string, reason: string): Promise<void> {
+  const rows = await db
+    .update(authSessions)
+    .set({ revokedAt: new Date(), revokedReason: reason })
+    .where(and(eq(authSessions.organisationId, organisationId), isNull(authSessions.revokedAt)))
+    .returning({ id: authSessions.id });
+  for (const r of rows) {
+    activeCache.delete(r.id);
+    revokeListeners.forEach((cb) => cb(r.id));
+  }
+}

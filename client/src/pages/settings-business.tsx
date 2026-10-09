@@ -17,6 +17,7 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { formatCurrency } from "@/lib/currency-utils";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/loader";
+import { DeleteBusinessDialog } from "@/components/delete-business-dialog";
 
 type Draft = {
   name: string;
@@ -61,6 +62,7 @@ export default function SettingsBusinessPage() {
   const [draft, setDraft] = useState<Draft>(saved);
   const [tried, setTried] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   useEffect(() => { setDraft(saved); setTried(false); }, [saved]);
 
   const storeId = currentStore && currentStore.id !== "all" ? currentStore.id : undefined;
@@ -281,6 +283,13 @@ export default function SettingsBusinessPage() {
         />
       ) : (
         <p className="text-sm text-muted-foreground">Only the owner can change the business profile.</p>
+      )}
+
+      {isOwner && (
+        <Card title="Danger zone" hint="Closing the business signs everyone out. Your records are kept, and only our team can restore them.">
+          <Button variant="destructive" onClick={() => setDeleteOpen(true)} data-testid="button-delete-business">Delete this business</Button>
+          <DeleteBusinessDialog open={deleteOpen} onOpenChange={setDeleteOpen} businessName={business?.name ?? ""} />
+        </Card>
       )}
 
       <p className="text-sm text-muted-foreground">

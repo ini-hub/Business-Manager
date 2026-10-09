@@ -8,7 +8,9 @@ import { getAdminDashboardMetrics } from "./lib/adminDashboard";
 import { cachedReport } from "./lib/reportCache";
 import { z } from "zod";
 import { parseCookies } from "./lib/cookies";
-import { invalidateOrgAccess } from "./auth";
+import { invalidateOrgAccess, generateToken } from "./auth";
+import { purgeBusiness, restoreBusiness, BusinessDeletionError } from "./lib/businessDeletion";
+import { revokeOrgSessions } from "./lib/authSessions";
 import { getOverCapReport } from "./lib/overCapReport";
 import type { CountLimitType } from "./lib/entitlements";
 import { listApiRoutes } from "./lib/listRoutes";
@@ -25,7 +27,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { db } from "./db";
 import { eq, and, ne, like, desc, sql, gte, lte, count, inArray, or, isNull } from "drizzle-orm";
-import { customRoles } from "@shared/schema";
+import { customRoles, businessDeletionFeedback, authSessions } from "@shared/schema";
 import { PERMISSIONS_BY_MODULE, SYSTEM_ROLE_DEFAULTS, expandPermissions, normalizePermissions } from "@shared/permissions";
 import { invalidateRoleCache } from "./lib/roles";
 import {
@@ -1275,6 +1277,8 @@ adminRouter.delete("/businesses/:id", isAdminAuthenticated, requireAdminRole(["s
 
     // Log administrative override
     await writeAuditLog(req, "delete_business_soft", org.name, { reason });
+    await revokeOrgSessions(org.id, "business_deleted");
+    invalidateOrgAccess(org.id);
 
     return res.json({
       success: true,
@@ -1296,14 +1300,7 @@ adminRouter.post("/businesses/:id/cancel-deletion", isAdminAuthenticated, requir
       return res.status(404).json({ error: "Business account not found." });
     }
 
-    // Reset deletedAt fields
-    await db
-      .update(organisations)
-      .set({
-        deletedAt: null,
-        deletionReason: null,
-      })
-      .where(eq(organisations.id, org.id));
+    await restoreBusiness(org.id);
 
     // Log override
     await writeAuditLog(req, "cancel_business_deletion", org.name);
@@ -1312,6 +1309,109 @@ adminRouter.post("/businesses/:id/cancel-deletion", isAdminAuthenticated, requir
   } catch (error) {
     console.error("Cancel deletion error:", error);
     return res.status(500).json({ error: "Failed to restore deletion grace state." });
+  }
+});
+
+// ── Deleted businesses ────────────────────────────────────────────────────
+// Owner-deleted (or admin soft-deleted) businesses are kept in full. These
+// routes let a super admin list them with the owner's exit feedback, open one
+// in a read-only owner view, restore it, or purge it for good.
+adminRouter.get("/deleted-businesses", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (_req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: organisations.id,
+        name: organisations.name,
+        deletedAt: organisations.deletedAt,
+        deletionReason: organisations.deletionReason,
+        deletedByUserId: organisations.deletedByUserId,
+        createdAt: organisations.createdAt,
+      })
+      .from(organisations)
+      .where(sql`${organisations.deletedAt} is not null`)
+      .orderBy(desc(organisations.deletedAt));
+    const ids = rows.map((r) => r.id);
+    const feedback = ids.length
+      ? await db.select().from(businessDeletionFeedback).where(inArray(businessDeletionFeedback.organisationId, ids)).orderBy(desc(businessDeletionFeedback.createdAt))
+      : [];
+    const latest = new Map<string, (typeof feedback)[number]>();
+    for (const f of feedback) if (!latest.has(f.organisationId)) latest.set(f.organisationId, f);
+    return res.json(rows.map((r) => ({ ...r, feedback: latest.get(r.id) ?? null })));
+  } catch (error) {
+    console.error("List deleted businesses error:", error);
+    return res.status(500).json({ error: "Failed to load deleted businesses." });
+  }
+});
+
+// Feedback outlives a purge, so it has its own list.
+adminRouter.get("/deletion-feedback", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (_req: Request, res: Response) => {
+  try {
+    const rows = await db.select().from(businessDeletionFeedback).orderBy(desc(businessDeletionFeedback.createdAt)).limit(500);
+    return res.json(rows);
+  } catch (error) {
+    console.error("List deletion feedback error:", error);
+    return res.status(500).json({ error: "Failed to load feedback." });
+  }
+});
+
+// Opens a deleted business exactly as its owner sees it, read-only. Sets the
+// normal app cookie in this browser (the app shows an "exit" banner).
+adminRouter.post("/businesses/:id/view-as-owner", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const [org] = await db.select().from(organisations).where(eq(organisations.id, req.params.id)).limit(1);
+    if (!org) return res.status(404).json({ error: "Business account not found." });
+    const [owner] = await db
+      .select({ userId: organisationMembers.userId, email: users.email })
+      .from(organisationMembers)
+      .innerJoin(users, eq(users.id, organisationMembers.userId))
+      .where(and(eq(organisationMembers.organisationId, org.id), eq(organisationMembers.role, "owner")))
+      .limit(1);
+    if (!owner) return res.status(404).json({ error: "This business has no owner on record." });
+
+    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const [session] = await db
+      .insert(authSessions)
+      .values({ userId: owner.userId, organisationId: org.id, ipAddress: req.ip ?? null, userAgent: "super-admin view-as-owner", expiresAt })
+      .returning({ id: authSessions.id });
+    const token = generateToken({
+      userId: owner.userId,
+      organisationId: org.id,
+      role: "owner",
+      email: owner.email || undefined,
+      sid: session.id,
+      impersonatedBy: req.admin!.adminId,
+    });
+    res.cookie("jwt_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 2 * 60 * 60 * 1000,
+      sameSite: "lax",
+    });
+    await writeAuditLog(req, "view_business_as_owner", org.name, { organisationId: org.id, deleted: !!org.deletedAt });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("View as owner error:", error);
+    return res.status(500).json({ error: "Failed to open the business." });
+  }
+});
+
+// Delete forever. Only for a business that is already deleted, and the admin
+// must retype its name.
+adminRouter.delete("/businesses/:id/purge", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const [org] = await db.select().from(organisations).where(eq(organisations.id, req.params.id)).limit(1);
+    if (!org) return res.status(404).json({ error: "Business account not found." });
+    if (String(req.body?.confirmName ?? "").trim().toLowerCase() !== org.name.trim().toLowerCase()) {
+      return res.status(400).json({ error: "The name you typed doesn't match this business." });
+    }
+    // Written first so there is a record even if the purge is interrupted.
+    await writeAuditLog(req, "purge_business", org.name, { organisationId: org.id });
+    const result = await purgeBusiness(org.id);
+    return res.json({ success: true, message: `'${result.name}' was permanently deleted.` });
+  } catch (error) {
+    if (error instanceof BusinessDeletionError) return res.status(error.status).json({ error: error.message });
+    console.error("Purge business error:", error);
+    return res.status(500).json({ error: "Permanent deletion failed and nothing was removed." });
   }
 });
 

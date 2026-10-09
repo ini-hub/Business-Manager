@@ -29,6 +29,7 @@ import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError
 import { splitNormalizedPhone } from "@shared/phone-utils";
 import { splitFullName } from "@shared/name-utils";
 import { requirePermission } from "../lib/permissionGate";
+import { deleteBusinessSchema, deleteBusinessByOwner, BusinessDeletionError } from "../lib/businessDeletion";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -254,6 +255,25 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(400).json({ error: formatZodErrors(error.errors) });
       }
       res.status(500).json({ error: "We couldn't create the business. Please try again." });
+    }
+  });
+
+  // Owner closes the business. Soft delete only: the data is retained and a
+  // super admin can still open (and restore or purge) it. See lib/businessDeletion.ts.
+  app.post("/api/business/delete", requireRole("owner"), async (req, res) => {
+    try {
+      const businessId = (req as any).user?.businessId;
+      const userId = (req as any).user?.userId;
+      if (!businessId || !userId) return res.status(401).json({ error: "Authentication required." });
+      const input = deleteBusinessSchema.parse(req.body);
+      await deleteBusinessByOwner(businessId, userId, input);
+      res.clearCookie("jwt_token");
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof BusinessDeletionError) return res.status(error.status).json({ error: error.message });
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      console.error("Delete business error:", error);
+      res.status(500).json({ error: "We couldn't delete the business. Please try again." });
     }
   });
 

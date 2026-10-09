@@ -31,7 +31,7 @@ import {
   type InsertStoreIntegration,
   users,
 } from "@shared/schema";
-import { eq, and, ilike, count } from "drizzle-orm";
+import { eq, and, ilike, count, isNull } from "drizzle-orm";
 import { seedDefaultHrConfig } from "../lib/hrDefaults";
 import { assertWithinCountLimit } from "../lib/entitlements";
 import { createTtlCache } from "../lib/ttlCache";
@@ -58,7 +58,7 @@ export class BusinessRepository {
       })
       .from(organisationMembers)
       .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
-      .where(eq(organisationMembers.userId, userId));
+      .where(and(eq(organisationMembers.userId, userId), isNull(organisations.deletedAt)));
     return rows;
   }
 
