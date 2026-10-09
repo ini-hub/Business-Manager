@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Form } from "@/components/ui/form";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
@@ -21,6 +22,15 @@ import { StepSchedule } from "./step-schedule";
 import { StepSummary } from "./step-summary";
 import { bookingFormSchema, BookingFormValues, STEP_FIELDS, WizardStep, WIZARD_STEPS } from "./types";
 import { Spinner } from "@/components/ui/loader";
+
+function QuoteBanner({ quote, title, children }: { quote: { quoteRef: string }; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm" data-testid="quote-banner">
+      <p className="font-semibold">{title}</p>
+      <div className="text-muted-foreground mt-1">Booking from {quote.quoteRef}. {children}</div>
+    </div>
+  );
+}
 
 export default function BookingFormPage() {
   const { id } = useParams();
@@ -58,6 +68,46 @@ export default function BookingFormPage() {
     },
     enabled: isEditing,
   });
+
+  // "Book it" on an accepted quote: seed the customer, items and notes; the schedule is still the user's to pick.
+  const quoteId = isEditing ? null : new URLSearchParams(window.location.search).get("quoteId");
+  const { data: quote } = useQuery<any>({
+    queryKey: ["/api/quotes", quoteId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/quotes/${quoteId}`);
+      if (!res.ok) throw new Error("Quote not found");
+      return res.json();
+    },
+    enabled: !!quoteId,
+  });
+
+  useEffect(() => {
+    if (!quote || mutation.isSuccess) return;
+    if (quote.status !== "accepted") {
+      toast({
+        title: quote.status === "converted" ? "Quote Already Converted" : "Quote Can't Be Booked",
+        description: quote.status === "converted" ? "This quote has already been converted." : "Only an accepted quote can be booked.",
+        variant: "destructive",
+      });
+      setLocation(`/quotes/${quote.id}`);
+      return;
+    }
+    if (quote.customerId) form.setValue("customerId", quote.customerId);
+    if (quote.items?.length) {
+      form.setValue("bookingItems", quote.items.map((item: any) => ({
+        inventoryId: item.inventoryId,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+      })));
+    }
+    form.setValue("notes", quote.notes ?? "");
+    // The customer is already known, so start where the user still has something to confirm: the items.
+    if (quote.customerId) {
+      setCompletedSteps(new Set<WizardStep>(["customer"]));
+      setCurrentStep("items");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote]);
 
   // Pre-populate form once existing booking data arrives
   useEffect(() => {
@@ -113,6 +163,7 @@ export default function BookingFormPage() {
       const payload = {
         ...(isEditing ? {} : { storeId: currentStore?.id }),
         customerId: values.customerId,
+        quoteId: quoteId || undefined,
         type: values.type,
         scheduledAt: scheduledAt.toISOString(),
         expectedReadyAt: values.type === "order" && values.expectedReadyAt
@@ -145,6 +196,7 @@ export default function BookingFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      if (quoteId) queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
       toast({
         title: isEditing ? "Booking Updated" : "Booking Created",
         description: isEditing ? "Your changes have been saved." : "The booking has been successfully created.",
@@ -244,6 +296,19 @@ export default function BookingFormPage() {
           ) : (
             <div className="flex flex-col lg:flex-row gap-6 items-start">
               <div className="flex-grow min-w-0 flex flex-col gap-5">
+                {quote?.status === "accepted" && currentStep === "customer" && (
+                  <QuoteBanner quote={quote} title="No customer on this quote">
+                    Choose an existing customer or add a new one. The quote's items, prices and notes are already filled in for the next step.
+                  </QuoteBanner>
+                )}
+                {quote?.status === "accepted" && currentStep === "items" && (
+                  <QuoteBanner quote={quote} title={`Items from quote ${quote.quoteRef}`}>
+                    {quote.items.length} item{quote.items.length === 1 ? "" : "s"} carried over at the quoted prices. Add, remove or change anything that's different now, or confirm them as they are.
+                    <div className="mt-3">
+                      <Button type="button" size="sm" onClick={handleSidebarNext}>Items are complete, continue</Button>
+                    </div>
+                  </QuoteBanner>
+                )}
                 {currentStep === "customer" && <StepCustomer form={form} />}
                 {currentStep === "items" && <StepItems form={form} />}
                 {currentStep === "schedule" && <StepSchedule form={form} excludeBookingId={id} />}

@@ -537,6 +537,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
     creditUpfrontPaid: z.number().min(0).optional(),
     creditDueDate: z.string().optional(),
     bookingId: z.string().optional(),
+    quoteId: z.string().optional(),
     bookingDepositAmount: z.number().min(0).optional(),
     bookingDepositMethod: z.string().optional(),
     balanceCollectedToday: z.number().min(0).optional(),
@@ -627,6 +628,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         creditUpfrontPaid: data.creditUpfrontPaid,
         creditDueDate: data.creditDueDate,
         bookingId: data.bookingId,
+        quoteId: data.quoteId,
         bookingDepositAmount: data.bookingDepositAmount,
         bookingDepositMethod: data.bookingDepositMethod,
         balanceCollectedToday: data.balanceCollectedToday,
@@ -645,6 +647,10 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       auditLogger.logEvent(await getAuditContext(req, { storeId: data.storeId }), "CHECKOUT", "checkout", result.checkoutIds?.[0], "success", {
         details: await getCheckoutMoneyDetails(result.checkoutIds ?? []).catch(() => ({})),
       });
+
+      if (data.quoteId) {
+        auditLogger.logEvent(await getAuditContext(req, { storeId: data.storeId }), "QUOTE_CONVERT", "quote", data.quoteId, "success", { details: { target: "sale", checkoutId: result.checkoutIds?.[0] } });
+      }
 
       // First-ever completed sale for this org - the activation signal that
       // future mid-trial nudges key off, independent of billing status.

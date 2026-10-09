@@ -4,6 +4,9 @@ import { BaseController } from "./BaseController";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
 import { bulkUploadService } from "../services/BulkUploadService";
+import { auditLogger } from "../audit";
+import { getAuditContext } from "../routes/helpers";
+import { QuoteConversionError } from "../lib/quoteConversion";
 
 const bookingItemSchema = z.object({
   inventoryId: z.string().uuid("Valid inventory ID is required"),
@@ -15,6 +18,7 @@ const bookingItemSchema = z.object({
 const createBookingSchema = z.object({
   storeId: z.string().uuid("Store ID is required"),
   customerId: z.string().uuid("Customer ID is required"),
+  quoteId: z.string().uuid().optional(),
   type: z.enum(["appointment", "order"]),
   status: z.enum(["pending", "confirmed", "in_progress", "completed", "cancelled", "no_show", "rescheduled"]).optional(),
   scheduledAt: z.string().transform((value) => new Date(value)),
@@ -206,8 +210,12 @@ export class BookingController extends BaseController {
 
       const newBooking = await storage.createBooking(parsed as any);
       const items = await storage.getBookingItems(newBooking.id);
+      if (parsed.quoteId) {
+        auditLogger.logEvent(await getAuditContext(req, { storeId: parsed.storeId }), "QUOTE_CONVERT", "quote", parsed.quoteId, "success", { details: { target: "booking", bookingId: newBooking.id } });
+      }
       return this.created(res, { ...newBooking, items });
     } catch (error) {
+      if (error instanceof QuoteConversionError) return this.badRequest(res, error.message);
       console.error("CREATE BOOKING ERROR:", error);
       if (error instanceof z.ZodError) {
         return this.badRequest(res, error.errors.map((err) => err.message).join(". "));
@@ -249,7 +257,7 @@ export class BookingController extends BaseController {
       }
       if (!(await this.checkStoreAccess(existing.storeId, req, res))) return res;
 
-      const updateSchema = createBookingSchema.omit({ storeId: true }).partial().extend({
+      const updateSchema = createBookingSchema.omit({ storeId: true, quoteId: true }).partial().extend({
         bookingItems: z.array(bookingItemSchema).min(1).optional(),
       });
       const parsed = updateSchema.parse(req.body);

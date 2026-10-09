@@ -3,12 +3,16 @@ import { createPortal } from "react-dom";
 import { useLocation, useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
-  ArrowLeft, Check, MoreHorizontal, Printer, Download, MessageCircle, Trash2, ArrowRightLeft, Phone,
+  ArrowLeft, Check, MoreHorizontal, Printer, Download, MessageCircle, Trash2, ArrowRightLeft, Phone, CalendarPlus, CalendarIcon,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -84,7 +88,7 @@ function buildSteps(q: FullQuote): Step[] {
     { key: "draft", title: "Draft", sub: `Created ${fmtDate(q.createdAt)}`, state: state(0) },
     { key: "sent", title: "Sent", sub: idx >= 1 ? "Shared with client" : "Share with client", state: state(1) },
     { key: "accepted", title: "Accepted", sub: idx >= 2 ? "Client agreed" : "Awaiting client", state: state(2) },
-    { key: "converted", title: "Converted", sub: idx >= 3 ? "Turned into a sale" : "Convert to sale", state: state(3) },
+    { key: "converted", title: "Converted", sub: idx >= 3 ? (q.convertedBookingId ? "Turned into a booking" : "Turned into a sale") : "Book or sell", state: state(3) },
   ];
 }
 
@@ -131,7 +135,7 @@ export default function QuoteDetailPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const poweredBy = usePoweredByText();
-  const [confirm, setConfirm] = useState<null | "decline" | "delete">(null);
+  const [confirm, setConfirm] = useState<null | "decline" | "delete" | "convert">(null);
 
   const canManage = user?.role === "owner" || user?.role === "manager";
 
@@ -148,6 +152,21 @@ export default function QuoteDetailPage() {
     onSuccess: (status) => {
       queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
       toast({ title: "Status updated", description: `Quote marked as ${STATUS_LABEL[status].toLowerCase()}.` });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't update the quote", description: e.message, variant: "destructive" }),
+  });
+
+  const [newExpiry, setNewExpiry] = useState<Date | undefined>();
+  const setValidity = useMutation({
+    mutationFn: async (body: { validUntil?: string; extendDays?: number }) => {
+      const res = await apiRequest("PATCH", `/api/quotes/${id}/validity`, body);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Could not update the quote");
+      return res.json();
+    },
+    onSuccess: (q: Quote) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      setNewExpiry(undefined);
+      toast({ title: "Validity updated", description: `Valid until ${fmtDate(q.validUntil)}.` });
     },
     onError: (e: Error) => toast({ title: "Couldn't update the quote", description: e.message, variant: "destructive" }),
   });
@@ -199,6 +218,8 @@ export default function QuoteDetailPage() {
   const itemCount = quote.items.length;
   const customerName = quote.customer?.name ?? "Walk-in customer";
   const expired = !!quote.validUntil && open && new Date(quote.validUntil).getTime() < Date.now();
+  // An accepted quote that has lapsed can't be converted (the server enforces the same rule).
+  const lapsed = !!quote.validUntil && status === "accepted" && new Date(quote.validUntil).getTime() < Date.now();
 
   const handlePrint = () => printWithFormat("a4-document");
 
@@ -255,8 +276,12 @@ export default function QuoteDetailPage() {
     canManage && open
       ? { label: "Mark as accepted", icon: <Check className="h-4 w-4" />, onClick: () => setStatus.mutate("accepted") }
       : canManage && status === "accepted"
-        ? { label: "Convert to sale", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setStatus.mutate("converted") }
+        ? { label: "Convert to sale", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setConfirm("convert"), disabled: lapsed }
         : null;
+
+  const bookIt = canManage && status === "accepted"
+    ? { label: "Book it", icon: <CalendarPlus className="h-4 w-4" />, onClick: () => setLocation(`/bookings/new?quoteId=${id}`), disabled: lapsed }
+    : null;
 
   const canDelete = user?.role === "owner" && status === "draft";
 
@@ -268,6 +293,10 @@ export default function QuoteDetailPage() {
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={handlePrint}><Printer className="h-4 w-4 mr-2" />Print proforma</DropdownMenuItem>
         <DropdownMenuItem onClick={handleDownloadPdf}><Download className="h-4 w-4 mr-2" />Download PDF</DropdownMenuItem>
+        {/* On phones "Book it" takes Share's slot in the bottom bar, so Share moves here. */}
+        {bookIt && (
+          <DropdownMenuItem className="sm:hidden" onClick={handleShare}><MessageCircle className="h-4 w-4 mr-2" />Share</DropdownMenuItem>
+        )}
         {canManage && status === "draft" && (
           <DropdownMenuItem onClick={() => setStatus.mutate("sent")}>Mark as sent</DropdownMenuItem>
         )}
@@ -309,8 +338,13 @@ export default function QuoteDetailPage() {
             <Button variant="outline" className="gap-1 text-green-600 border-green-300 hover:bg-green-50 dark:border-green-900 dark:hover:bg-green-950" onClick={handleShare}>
               <MessageCircle className="h-4 w-4" /> Share
             </Button>
+            {bookIt && (
+              <Button variant="outline" className="gap-1" onClick={bookIt.onClick} disabled={bookIt.disabled}>
+                {bookIt.icon}{bookIt.label}
+              </Button>
+            )}
             {primary && (
-              <Button className="gap-1" onClick={primary.onClick} disabled={setStatus.isPending}>
+              <Button className="gap-1" onClick={primary.onClick} disabled={setStatus.isPending || ("disabled" in primary && primary.disabled)}>
                 {primary.icon}{primary.label}
               </Button>
             )}
@@ -324,6 +358,48 @@ export default function QuoteDetailPage() {
         </div>
       ) : (
         <Stepper steps={buildSteps(quote)} />
+      )}
+
+      {status === "converted" && (quote.convertedBookingId || quote.convertedSaleId) && (
+        <div className="rounded-xl border bg-card p-4 text-sm">
+          {quote.convertedBookingId
+            ? <>This quote became a booking. <Link href={`/bookings/${quote.convertedBookingId}`} className="text-primary hover:underline">Open the booking</Link></>
+            : "This quote was checked out as a sale."}
+        </div>
+      )}
+
+      {lapsed && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200 p-4 text-sm">
+          <p>This quote expired on {fmtDate(quote.validUntil)}, so it can't be booked or checked out.</p>
+          {canManage && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("justify-start font-normal bg-background text-foreground", !newExpiry && "text-muted-foreground")}>
+                    {newExpiry ? format(newExpiry, "PPP") : <span>Pick a new date</span>}
+                    <CalendarIcon className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={newExpiry}
+                    onSelect={setNewExpiry}
+                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button size="sm" variant="outline" disabled={!newExpiry || setValidity.isPending} onClick={() => setValidity.mutate({ validUntil: format(newExpiry!, "yyyy-MM-dd") })}>
+                Update date
+              </Button>
+              <span className="text-xs opacity-70">or</span>
+              <Button size="sm" disabled={setValidity.isPending} onClick={() => setValidity.mutate({ extendDays: 3 })}>
+                Override: add 3 days
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {expired && (
@@ -424,10 +500,16 @@ export default function QuoteDetailPage() {
       {/* Phone: sticky action bar */}
       <div className="sm:hidden fixed bottom-0 inset-x-0 z-30 border-t bg-background/95 backdrop-blur p-3 flex gap-2">
         {actionsMenu}
-        <Button variant="outline" className="flex-1 gap-1" onClick={handleShare}>
-          <MessageCircle className="h-4 w-4" /> Share
-        </Button>
-        {primary && <Button className="flex-1" onClick={primary.onClick} disabled={setStatus.isPending}>{primary.label}</Button>}
+        {bookIt ? (
+          <Button variant="outline" className="flex-1 gap-1" onClick={bookIt.onClick} disabled={bookIt.disabled}>
+            {bookIt.icon}{bookIt.label}
+          </Button>
+        ) : (
+          <Button variant="outline" className="flex-1 gap-1" onClick={handleShare}>
+            <MessageCircle className="h-4 w-4" /> Share
+          </Button>
+        )}
+        {primary && <Button className="flex-1" onClick={primary.onClick} disabled={setStatus.isPending || ("disabled" in primary && primary.disabled)}>{primary.label}</Button>}
       </div>
 
       {/* Printable proforma: parked off-screen for PDF capture, shown alone when printing. */}
@@ -505,18 +587,19 @@ export default function QuoteDetailPage() {
       <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm === "decline" ? "Mark this quote as declined?" : "Delete this draft?"}</AlertDialogTitle>
+            <AlertDialogTitle>{confirm === "decline" ? "Mark this quote as declined?" : confirm === "convert" ? "Proceed to checkout?" : "Delete this draft?"}</AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === "decline" && "A declined quote can't be accepted or converted to a sale."}
+              {confirm === "convert" && "The quote's items open in checkout, where you can add more before taking payment. The quote is marked converted once the sale completes."}
               {confirm === "delete" && "This permanently removes the draft."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Back</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => (confirm === "decline" ? setStatus.mutate("declined") : remove.mutate())}
+              onClick={() => (confirm === "decline" ? setStatus.mutate("declined") : confirm === "convert" ? setLocation(`/sales/new?quoteId=${id}`) : remove.mutate())}
             >
-              {confirm === "decline" ? "Mark declined" : "Delete draft"}
+              {confirm === "decline" ? "Mark declined" : confirm === "convert" ? "Proceed to checkout" : "Delete draft"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

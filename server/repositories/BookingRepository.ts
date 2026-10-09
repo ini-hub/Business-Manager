@@ -3,6 +3,7 @@ import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   bookings,
   bookingItems,
+  quotes,
   storeCounters,
   type Booking,
   type InsertBooking,
@@ -12,6 +13,7 @@ import {
 import { eq, and, or, inArray, gte, lte, lt, isNull, count, desc, sql } from "drizzle-orm";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 import { format } from "date-fns";
+import { quoteConversionError, QuoteConversionError } from "../lib/quoteConversion";
 import { toZonedTime } from "date-fns-tz";
 
 export class BookingRepository {
@@ -158,6 +160,12 @@ export class BookingRepository {
 
   async createBooking(data: InsertBooking & { bookingItems: InsertBookingItem[] }): Promise<Booking> {
     return db.transaction(async (tx) => {
+      if (data.quoteId) {
+        const [quote] = await tx.select().from(quotes).where(eq(quotes.id, data.quoteId)).for("update");
+        const quoteError = quoteConversionError(quote, data.storeId, "booking");
+        if (quoteError) throw new QuoteConversionError(quoteError);
+      }
+
       // Atomic allocation: creates the counter row if missing and serialises concurrent bookings.
       const [counter] = await tx
         .insert(storeCounters)
@@ -179,6 +187,7 @@ export class BookingRepository {
           storeId: data.storeId,
           customerId: data.customerId,
           bookingRef,
+          quoteId: data.quoteId ?? null,
           type: data.type,
           status: data.status,
           scheduledAt: data.scheduledAt,
@@ -204,6 +213,12 @@ export class BookingRepository {
           bookingId: booking.id,
         }));
         await tx.insert(bookingItems).values(bookingItemRows);
+      }
+
+      if (data.quoteId) {
+        await tx.update(quotes)
+          .set({ status: "converted", convertedBookingId: booking.id, updatedAt: new Date() })
+          .where(eq(quotes.id, data.quoteId));
       }
 
       return booking;

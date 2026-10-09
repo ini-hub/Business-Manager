@@ -72,6 +72,10 @@ export const quotes = pgTable("quotes", {
   totalPrice: numeric("total_price", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   notes: text("notes"),
   validUntil: timestamp("valid_until"),
+  // Set when the quote becomes a sale (checkouts.id) or a booking (bookings.id). Plain columns: the FKs live in
+  // migration 0121 because quotes <-> checkouts/bookings would otherwise be an import cycle.
+  convertedSaleId: varchar("converted_sale_id"),
+  convertedBookingId: varchar("converted_booking_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [

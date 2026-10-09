@@ -480,6 +480,15 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
 
       const { status } = req.body;
       if (!status) return res.status(400).json({ error: "Status is required." });
+      if (!["draft", "sent", "accepted", "declined"].includes(status)) {
+        // "converted" is only reachable by checking the quote out or booking it, which link the sale/booking.
+        return res.status(400).json({ error: status === "converted" ? "A quote is converted by booking it or checking it out." : "Invalid quote status." });
+      }
+      if (quote.status === "converted") return res.status(409).json({ error: "A converted quote can't change status." });
+      const role = (req as any).user?.role;
+      if ((status === "accepted" || status === "declined") && role !== "owner" && role !== "manager") {
+        return res.status(403).json({ error: "Only managers and owners can accept or decline a quote." });
+      }
 
       const userId = (req as any).user?.id;
       const updated = await storage.quoteRepo.updateQuoteStatus(req.params.id, status);
@@ -487,6 +496,40 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Could not update quote status." });
+    }
+  });
+
+  // Extend (or change) how long a quote stays valid. Body: { validUntil: ISO date } or { extendDays: n }.
+  // extendDays counts from the later of the current expiry and now, so an override always lands in the future.
+  app.patch("/api/quotes/:id/validity", requireManagerOrOwner, async (req, res) => {
+    try {
+      const quote = await storage.quoteRepo.getQuote(req.params.id);
+      if (!quote) return res.status(404).json({ error: "Quote not found." });
+      if (!(await checkStoreAccess(quote.storeId, req, res))) return;
+      if (quote.status === "converted" || quote.status === "declined") {
+        return res.status(409).json({ error: `A ${quote.status} quote's validity can't be changed.` });
+      }
+
+      const { validUntil, extendDays } = req.body ?? {};
+      let next: Date;
+      if (typeof extendDays === "number" && extendDays > 0 && extendDays <= 365) {
+        const base = quote.validUntil && new Date(quote.validUntil).getTime() > Date.now() ? new Date(quote.validUntil) : new Date();
+        next = new Date(base.getTime() + extendDays * 86_400_000);
+      } else if (validUntil) {
+        next = new Date(validUntil);
+        if (isNaN(next.getTime())) return res.status(400).json({ error: "Invalid date." });
+        // A date picker sends midnight; make the quote valid through the end of that day.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(validUntil))) next.setUTCHours(23, 59, 59, 999);
+        if (next.getTime() <= Date.now()) return res.status(400).json({ error: "Choose a date in the future." });
+      } else {
+        return res.status(400).json({ error: "validUntil or extendDays is required." });
+      }
+
+      const updated = await storage.quoteRepo.updateQuoteValidity(req.params.id, next);
+      auditLogger.log({ action: "QUOTE_VALIDITY_UPDATE", resource: "quote", resourceId: req.params.id, userId: (req as any).user?.id, ip: getClientIp(req), status: "success", details: { quoteId: req.params.id, from: quote.validUntil, to: next } });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Could not update quote validity." });
     }
   });
 

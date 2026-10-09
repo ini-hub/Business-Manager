@@ -349,6 +349,7 @@ interface IStorage {
     creditUpfrontPaid?: number;
     creditDueDate?: string;
     bookingId?: string;
+    quoteId?: string;
     bookingDepositAmount?: number;
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;
@@ -1189,6 +1190,7 @@ class DatabaseStorage implements IStorage {
     creditUpfrontPaid?: number;
     creditDueDate?: string;
     bookingId?: string;
+    quoteId?: string;
     bookingDepositAmount?: number;
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;

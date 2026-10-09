@@ -78,6 +78,7 @@ export const checkouts = pgTable("checkouts", {
   assistingStaff2Id: varchar("assisting_staff2_id").references(() => staff.id), // Optional assisting staff #2
   orderId: varchar("order_id").notNull().references(() => orders.id),
   bookingId: varchar("booking_id").references(() => bookings.id),
+  quoteId: varchar("quote_id"), // FK to quotes.id lives in migration 0121 (import cycle)
   bookingDepositAmount: numeric("booking_deposit_amount", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
   bookingDepositMethod: text("booking_deposit_method"),
   balanceCollectedToday: numeric("balance_collected_today", { precision: 12, scale: 2, mode: "number" }).notNull().default(0),
@@ -112,6 +113,7 @@ export const checkouts = pgTable("checkouts", {
   index("idx_checkouts_store_created").on(table.storeId, table.createdAt),
   index("idx_checkouts_receipt").on(table.receiptNumber),
   index("idx_checkouts_order").on(table.orderId),
+  index("idx_checkouts_quote").on(table.quoteId),
   index("idx_checkouts_created_live").on(table.createdAt).where(sql`is_voided = false`),
 ]);
 

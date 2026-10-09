@@ -16,6 +16,7 @@ import {
   creditEntries,
   repayments,
   bookings,
+  quotes,
   returnLogs,
   inventoryRestockEvents,
   storeCreditTransactions,
@@ -40,6 +41,7 @@ import { DEFAULT_LOYALTY_POINT_VALUE, DEFAULT_LOYALTY_POINTS_PER_CURRENCY } from
 import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
 import { gamificationRepository } from "./GamificationRepository";
 import { fullUnitCost, lineLossAmount } from "../lib/lossSale";
+import { quoteConversionError } from "../lib/quoteConversion";
 import { recordStockMovements, adjustStock } from "../lib/stockLedger";
 
 /**
@@ -455,6 +457,8 @@ export class SalesRepository {
     creditUpfrontPaid?: number;
     creditDueDate?: string;
     bookingId?: string;
+    /** Accepted quote being checked out; it is marked converted in the same transaction. */
+    quoteId?: string;
     bookingDepositAmount?: number;
     bookingDepositMethod?: string;
     balanceCollectedToday?: number;
@@ -749,6 +753,13 @@ export class SalesRepository {
           }
         }
 
+        if (data.quoteId) {
+          if (data.bookingId) throw new Error("A sale can come from a quote or a booking, not both.");
+          const [quote] = await tx.select().from(quotes).where(eq(quotes.id, data.quoteId)).for("update");
+          const quoteError = quoteConversionError(quote, data.storeId, "sale");
+          if (quoteError) throw new Error(quoteError);
+        }
+
         if (data.paymentMethod !== "store_credit" && Math.abs(balanceCollectedToday - (dueAfterDeposit - storeCreditUsed)) > 0.01) {
           throw new Error("Balance calculation mismatch.");
         }
@@ -927,6 +938,7 @@ export class SalesRepository {
             id: checkoutId,
             storeId: data.storeId,
             bookingId: data.bookingId || null,
+            quoteId: data.quoteId || null,
             staffId: data.staffId,
             leadStaffId: item.leadStaffId || null,
             assistingStaff1Id: item.assistingStaff1Id || null,
@@ -1273,6 +1285,12 @@ export class SalesRepository {
 
         if (data.bookingId) {
           await tx.update(bookings).set({ status: "completed" }).where(eq(bookings.id, data.bookingId));
+        }
+
+        if (data.quoteId) {
+          await tx.update(quotes)
+            .set({ status: "converted", convertedSaleId: checkoutIds[0], updatedAt: new Date() })
+            .where(eq(quotes.id, data.quoteId));
         }
 
         // Store-credit ledger rows reference the checkout, so they are written once it exists.

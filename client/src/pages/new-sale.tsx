@@ -601,6 +601,8 @@ export default function NewSale() {
 
   const searchParams = new URLSearchParams(window.location.search);
   const bookingId = searchParams.get("bookingId");
+  // Set when an accepted quote is being checked out ("Convert to sale" on the quote).
+  const quoteId = searchParams.get("quoteId");
   // Deep-linked from a customer's detail page "New sale" button.
   const preselectedCustomerId = searchParams.get("customerId");
 
@@ -612,6 +614,16 @@ export default function NewSale() {
       return res.json();
     },
     enabled: !isDisabled("booking_management") && !!bookingId,
+  });
+
+  const { data: quoteDetails } = useQuery<any>({
+    queryKey: ["/api/quotes", quoteId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/quotes/${quoteId}`);
+      if (!res.ok) throw new Error("Failed to fetch quote details");
+      return res.json();
+    },
+    enabled: !isDisabled("quotes_management") && !!quoteId,
   });
 
   // Discount Module Version 1.2 Option B states
@@ -791,6 +803,46 @@ export default function NewSale() {
       }
     }
   }, [bookingDetails, inventory]);
+
+  // Seed the cart from the quote once; after that the cart is the user's (they can add, edit and remove lines).
+  const quotePrefilled = useRef(false);
+  useEffect(() => {
+    if (!quoteDetails || quoteDetails.status !== "accepted" || quotePrefilled.current || inventory.length === 0 || cart.length > 0) return;
+    quotePrefilled.current = true;
+    if (quoteDetails.customerId) setSelectedCustomer(quoteDetails.customerId);
+    const newCart: CartItem[] = (quoteDetails.items ?? []).map((item: any) => {
+      const inv = inventory.find(i => i.id === item.inventoryId);
+      if (!inv) return null;
+      return {
+        inventory: inv,
+        quantity: item.quantity,
+        customPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        leadStaffId: null,
+        assistingStaff1Id: null,
+        assistingStaff2Id: null,
+        commissionSplit: "standard",
+        showAsst1: false,
+        showAsst2: false,
+      };
+    }).filter(Boolean) as CartItem[];
+    if (newCart.length < (quoteDetails.items ?? []).length) {
+      toast({ title: "Some quote items are no longer available", description: "They were left out of the cart.", variant: "destructive" });
+    }
+    setCart(newCart);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteDetails, inventory]);
+
+  useEffect(() => {
+    if (quoteDetails && quoteDetails.status !== "accepted" && !quotePrefilled.current) {
+      toast({
+        title: quoteDetails.status === "converted" ? "Quote Already Converted" : "Quote Can't Be Checked Out",
+        description: quoteDetails.status === "converted" ? "This quote has already been converted." : "Only an accepted quote can be converted to a sale.",
+        variant: "destructive",
+      });
+      setLocation(`/quotes/${quoteDetails.id}`);
+    }
+  }, [quoteDetails, setLocation, toast]);
 
   useEffect(() => {
     if (bookingDetails?.status === "completed") {
@@ -1131,6 +1183,7 @@ export default function NewSale() {
       const checkoutPayload = {
         storeId: currentStore?.id,
         bookingId: bookingId || undefined,
+        quoteId: quoteId || undefined,
         customerId: selectedCustomer || null,
         staffId: selectedStaff,
         items: orderData,
@@ -1195,6 +1248,12 @@ export default function NewSale() {
       const draftIdToDelete = activeDraftId;
 
       resetSaleState();
+
+      if (quoteId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+        // resetSaleState leaves the URL alone; drop the param so the page doesn't treat the next sale as this quote's.
+        window.history.replaceState(null, "", window.location.pathname);
+      }
 
       // Delete the active draft now that the sale is complete
       if (draftIdToDelete && currentStore?.id) {

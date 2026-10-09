@@ -21,6 +21,7 @@ export const bookings = pgTable("bookings", {
   storeId: varchar("store_id").notNull().references(() => stores.id),
   customerId: varchar("customer_id").notNull().references(() => customers.id),
   bookingRef: text("booking_ref").notNull().unique(),
+  quoteId: varchar("quote_id"), // quote this booking was created from; FK in migration 0121
   type: text("type").notNull(),
   status: text("status").notNull().default("pending"),
   scheduledAt: timestamp("scheduled_at").notNull(),

@@ -109,6 +109,15 @@ export class QuoteRepository extends BaseRepository<typeof quotes> {
     });
   }
 
+  async updateQuoteValidity(id: string, validUntil: Date): Promise<Quote | undefined> {
+    const [updated] = await db
+      .update(quotes)
+      .set({ validUntil, updatedAt: new Date() })
+      .where(eq(quotes.id, id))
+      .returning();
+    return updated;
+  }
+
   async updateQuoteStatus(id: string, status: string): Promise<Quote | undefined> {
     const [updated] = await db
       .update(quotes)
