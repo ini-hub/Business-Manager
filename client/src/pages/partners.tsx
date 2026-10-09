@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -102,7 +103,7 @@ export default function PartnersPage() {
   });
   const { data: ownProducts = [] } = useQuery<{ id: string; name: string; type: string; isDeleted: boolean; quantity: number }[]>({
     queryKey: ["/api/inventory", storeId, "partner-share"],
-    queryFn: async () => (await apiRequest("GET", `/api/inventory?storeId=${storeId}`)).json(),
+    queryFn: async () => fetchAllPages<any>(`/api/inventory?storeId=${storeId}`),
     enabled: shareOpen && !!storeId,
   });
 

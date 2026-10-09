@@ -82,14 +82,14 @@ export function BulkOperationsSection() {
         endpoint = `/api/inventory?storeId=${currentStore.id}`;
         filename = `${currentStore.name}_inventory_export.csv`;
       } else if (type === "customers") {
-        endpoint = `/api/customers?storeId=${currentStore.id}`;
+        endpoint = `/api/customers?storeId=${currentStore.id}&includeArchived=true`;
         filename = `${currentStore.name}_customers_export.csv`;
       }
 
       let listData: any;
       if (type === "staff") {
         listData = await fetchAllStaff(currentStore.id);
-      } else if (type === "expenses") {
+      } else if (type === "expenses" || type === "customers") {
         listData = await fetchAllPages(endpoint);
       } else {
         const res = await fetch(endpoint);

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { PagerBar } from "@/components/pager-bar";
 import { ShieldAlert, Search, Eye, AlertCircle, Clock, Activity, Filter } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
@@ -24,11 +25,14 @@ export default function AuditLogs() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
 
   // Query Audit Logs
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/admin/system/audit-logs", searchTerm, selectedAction],
+  const [logPage, setLogPage] = useState(1);
+  useEffect(() => setLogPage(1), [searchTerm, selectedAction]);
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ["/api/admin/system/audit-logs", searchTerm, selectedAction, logPage],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       let url = "/api/admin/system/audit-logs";
-      const params: string[] = [];
+      const params: string[] = [`page=${logPage}`, "limit=50"];
       if (searchTerm) params.push(`search=${encodeURIComponent(searchTerm)}`);
       if (selectedAction && selectedAction !== "all") params.push(`action=${encodeURIComponent(selectedAction)}`);
       if (params.length > 0) {
@@ -173,6 +177,9 @@ export default function AuditLogs() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="px-4 pb-3">
+            <PagerBar pagination={data?.pagination} onPage={setLogPage} busy={isFetching} noun="entries" />
           </div>
         </Card>
       )}

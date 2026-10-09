@@ -14,7 +14,7 @@ const RESOURCE_KEYS: Record<string, string[]> = {
   // view. It has to be listed explicitly here or realtime broadcasts can never
   // invalidate an open detail page (only the list views would refresh).
   inventory:        ["/api/inventory", "/api/products", "/api/dashboard/stats", "inventory-detail"],
-  sales:            ["/api/transactions", "/api/dashboard/stats", "/api/profit-loss"],
+  sales:            ["/api/transactions", "/api/dashboard/stats", "/api/profit-loss", "/api/attendance/service-days", "/api/reports/vat-monthly"],
   expense:          ["/api/expenses", "/api/dashboard/stats", "/api/profit-loss"],
   "expense-category": ["/api/expense-categories"],
   customer:         ["/api/customers"],

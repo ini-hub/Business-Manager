@@ -11,8 +11,9 @@ import {
 } from "../test-support/integration-db";
 
 /**
- * getCashFlowTotals replaces loops that loaded every row of the period. The loops are reproduced here, verbatim in
- * behaviour, and both run over the same mix of sales (cash, split, transfer, voided, pending), repayments,
+ * getCashFlowTotals replaces loops that loaded every row of the period. The loops are reproduced here (with one
+ * deliberate correction: a split receipt's cash leg is counted once per receipt, not once per line) and both run over
+ * the same mix of sales (cash, split, transfer, voided, pending), repayments,
  * expenses (cash, split, transfer, the Payroll category, a deleted one) and drops.
  */
 
@@ -53,10 +54,14 @@ const sell = (lines: Array<{ inventoryId: string; quantity: number }>, extra: Re
 async function legacy(start: Date, end: Date, startDay: string, endDay: string) {
   const rows = await db.select().from(checkouts).where(and(eq(checkouts.storeId, f.storeId), gte(checkouts.createdAt, start), lte(checkouts.createdAt, end), eq(checkouts.isVoided, false)));
   let cashSales = 0, nonCashSales = 0;
+  const countedReceipts = new Set<string>();
   for (const c of rows) {
     if (c.paymentMethod === "cash") cashSales += c.totalCharged;
     else if (c.paymentMethod === "split" && c.splitPayments) {
-      const cashPortion = (c.splitPayments as any[]).find((p) => p.method === "cash")?.amount || 0;
+      // A receipt's legs are copied onto each of its lines: take the cash leg from the first line only.
+      const firstLine = !countedReceipts.has(c.receiptNumber);
+      countedReceipts.add(c.receiptNumber);
+      const cashPortion = firstLine ? (c.splitPayments as any[]).find((p) => p.method === "cash")?.amount || 0 : 0;
       cashSales += cashPortion;
       nonCashSales += c.totalCharged - cashPortion;
     } else nonCashSales += c.totalCharged;
@@ -158,6 +163,20 @@ describe("cash flow totals", () => {
     close(got.expensesCashOut, 1200 + 700);   // cash + the cash leg of the split; payroll, deleted and old excluded
     close(got.expensesNonCashOut, 800 + 300);
     close(got.cashDropsTotal, 450.25);        // the 40-day-old drop is outside the window
+  });
+
+  it("counts a multi-line split receipt's cash leg once, not once per line", async () => {
+    // Cash legs in the seeded sales: one single-line split with 400 and one two-line split with 700. Cash sales are
+    // 1000 + (2 x 1000 + 700) + 300... worked out from the stored rows rather than hard-coded:
+    const start = new Date(Date.now() - 86400000);
+    const end = new Date(Date.now() + 86400000);
+    const rows = await db.select().from(checkouts).where(and(eq(checkouts.storeId, f.storeId), gte(checkouts.createdAt, start), lte(checkouts.createdAt, end), eq(checkouts.isVoided, false)));
+    const cashRows = rows.filter((c) => c.paymentMethod === "cash").reduce((s, c) => s + c.totalCharged, 0);
+    const got = await getCashFlowTotals(f.storeId, start, end, day, day);
+    close(got.cashSales, cashRows + 400 + 700);            // 700 once, though that receipt has two lines
+    const totalCharged = rows.reduce((s, c) => s + c.totalCharged, 0);
+    close(got.cashSales + got.nonCashSales, totalCharged); // every charge lands in exactly one bucket
+    expect(got.nonCashSales).toBeGreaterThan(0);
   });
 
   it("returns zeros for a window with nothing in it", async () => {

@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -154,7 +155,7 @@ export default function StockTransferNewPage() {
 
   const { data: inventoryItems = [] } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", fromStoreId],
-    queryFn: async () => (await apiRequest("GET", `/api/inventory?storeId=${fromStoreId}`)).json(),
+    queryFn: async () => fetchAllPages<any>(`/api/inventory?storeId=${fromStoreId}`),
     enabled: hasStore && !!fromStoreId,
   });
 

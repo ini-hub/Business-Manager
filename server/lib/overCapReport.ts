@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from "./concurrency";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { customers, inventory, organisations, staff, stores } from "@shared/schema";
@@ -50,14 +51,14 @@ export async function getOverCapReport(limitType: CountLimitType): Promise<OverC
   const usage = await usageByOrganisation(limitType);
   const orgs = await db.select({ id: organisations.id, name: organisations.name, status: organisations.status }).from(organisations).where(isNull(organisations.deletedAt));
 
-  const rows: OverCapRow[] = [];
-  for (const org of orgs) {
-    // Cheap skip: an org with no usage can't be over any cap.
-    if (!usage.get(org.id)) continue;
+  // Only businesses with some usage can be over a cap. Each check is several queries, so a few run at a time
+  // rather than strictly one after another (or all at once, which would take the connection pool).
+  const candidates = orgs.filter((org) => usage.get(org.id));
+  const checked = await mapWithConcurrency(candidates, 4, async (org): Promise<OverCapRow | null> => {
     const status = await getCountLimitStatus(org.id, limitType);
-    if (status.unlimited || status.used <= status.limit) continue;
+    if (status.unlimited || status.used <= status.limit) return null;
     const owner = await getOwnerContact(org.id);
-    rows.push({
+    return {
       organisationId: org.id,
       name: org.name,
       status: org.status,
@@ -68,7 +69,8 @@ export async function getOverCapReport(limitType: CountLimitType): Promise<OverC
       trial: status.trial,
       ownerName: owner?.name ?? null,
       ownerEmail: owner?.email ?? null,
-    });
-  }
+    };
+  });
+  const rows = checked.filter((row): row is OverCapRow => row !== null);
   return rankOverCap(rows);
 }

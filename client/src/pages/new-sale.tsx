@@ -679,9 +679,7 @@ export default function NewSale() {
   const { data: products = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/products", currentStore?.id],
     queryFn: async () => {
-      const res = await fetch(`/api/products?storeId=${currentStore?.id}`);
-      if (!res.ok) return [];
-      return res.json();
+      return fetchAllPages<any>(`/api/products?storeId=${currentStore?.id}`);
     },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
     staleTime: STALE_TIMES.transactional,

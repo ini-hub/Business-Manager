@@ -23,6 +23,7 @@ import { sanitizeString, sanitizeNumber, sanitizeBoolean, sanitizePhoneNumber } 
 import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
 import { auditLogger } from "../audit";
+import { parsePage, paginated } from "../lib/pagination";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { getUserId, getAuditContext, formatZodErrors, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
@@ -108,30 +109,19 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         });
       };
 
-      // Paginated only when the caller asks for it. Most clients (staff page,
-      // attendance, POS, ...) expect a bare array, so the default stays one.
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
-
-      if (page > 0 && limit > 0) {
-        const search = req.query.search as string;
-        const includeArchived = req.query.includeArchived === 'true';
-        const result = await storage.getStaffPaginated(storeId, { page, limit: Math.min(200, limit), search, includeArchived });
-        if (req.user?.role === "staff") {
-          redactWages(result.data);
-        }
-        await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data)]);
-        redactUserId(result.data);
-        return res.json(result);
-      }
-
-      const staffList = await storage.getStaffList(storeId);
+      // One page at a time (page 1 at the default size when none is asked for); screens that need every staff
+      // member walk the pages (client/src/lib/staff-api.ts). Archived staff are included unless
+      // includeArchived=false, as the unpaged list always did.
+      const pageReq = parsePage(req.query);
+      const search = req.query.search as string | undefined;
+      const includeArchived = req.query.includeArchived !== "false";
+      const result = await storage.getStaffPaginated(storeId, { page: pageReq.page, limit: pageReq.limit, search, includeArchived });
       if (req.user?.role === "staff") {
-        redactWages(staffList);
+        redactWages(result.data);
       }
-      await Promise.all([attachInviteStatus(staffList), attachContractStatus(staffList)]);
-      redactUserId(staffList);
-      res.json(staffList);
+      await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data)]);
+      redactUserId(result.data);
+      res.json(paginated(result.data, result.pagination.total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your staff members. Please try again." });
     }

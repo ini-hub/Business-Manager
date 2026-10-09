@@ -330,6 +330,61 @@ export class CustomerRepository {
     };
   }
 
+  /**
+   * One page of customers across one or more stores, filtered and ordered in the database. Across several stores
+   * a person who is a customer of more than one (same mobile number) is one row, carrying every store's name in
+   * `storeName`, as the all-stores screens expect; a customer with no number stands alone.
+   */
+  async getCustomersPage(
+    storeIds: string[],
+    options: { search?: string; includeArchived?: boolean },
+    page: { limit: number; offset: number },
+  ): Promise<{ rows: (Customer & { storeName?: string })[]; total: number }> {
+    if (storeIds.length === 0) return { rows: [], total: 0 };
+    const conditions: any[] = [storeIds.length === 1 ? eq(customers.storeId, storeIds[0]) : inArray(customers.storeId, storeIds)];
+    if (!options.includeArchived) conditions.push(eq(customers.isArchived, false));
+    if (options.search) {
+      const pattern = `%${options.search}%`;
+      conditions.push(or(
+        ilike(customers.name, pattern),
+        ilike(customers.customerNumber, pattern),
+        ilike(customers.mobileNumber, pattern),
+        anyPhoneLike(pattern),
+      )!);
+    }
+    const where = and(...conditions);
+
+    if (storeIds.length === 1) {
+      const [rows, [{ total }]] = await Promise.all([
+        db.select().from(customers).where(where).orderBy(asc(customers.customerNumber), asc(customers.id)).limit(page.limit).offset(page.offset),
+        db.select({ total: sql<number>`count(*)::int` }).from(customers).where(where),
+      ]);
+      return { rows, total };
+    }
+
+    const key = sql`COALESCE(NULLIF(${customers.mobileNumber}, ''), ${customers.id})`;
+    const groups = await db.select({
+      id: sql<string>`(array_agg(${customers.id} ORDER BY ${customers.customerNumber}, ${customers.id}))[1]`,
+      storeName: sql<string>`string_agg(DISTINCT ${stores.name}, ', ')`,
+      total: sql<number>`(count(*) OVER ())::int`,
+    })
+      .from(customers)
+      .innerJoin(stores, eq(stores.id, customers.storeId))
+      .where(where)
+      .groupBy(key)
+      .orderBy(sql`min(${customers.customerNumber})`, sql`min(${customers.id})`)
+      .limit(page.limit)
+      .offset(page.offset);
+    if (groups.length === 0) return { rows: [], total: 0 };
+
+    const found = await db.select().from(customers).where(inArray(customers.id, groups.map(g => g.id)));
+    const byId = new Map(found.map(c => [c.id, c]));
+    return {
+      rows: groups.map(g => ({ ...byId.get(g.id)!, storeName: g.storeName })),
+      total: groups[0].total,
+    };
+  }
+
   async getCustomer(id: string): Promise<Customer | undefined> {
     const [customer] = await db.select().from(customers).where(eq(customers.id, id));
     return customer;

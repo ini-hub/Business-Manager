@@ -1,3 +1,10 @@
+import { getRevenueAnalytics } from "./lib/adminRevenue";
+import { getFlaggedTransactions, getFlaggedUsers } from "./lib/adminFlagged";
+import { parsePage, pagination } from "./lib/pagination";
+import { getOnboardingPipeline } from "./lib/adminOnboarding";
+import { getBusinessRosterStats, businessGmvSql } from "./lib/adminBusinesses";
+import { getAdminDashboardMetrics } from "./lib/adminDashboard";
+import { cachedReport } from "./lib/reportCache";
 import { z } from "zod";
 import { parseCookies } from "./lib/cookies";
 import { invalidateOrgAccess } from "./auth";
@@ -16,7 +23,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { db } from "./db";
-import { eq, and, like, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
+import { eq, and, ne, like, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
 import {
   superAdmins,
   featureFlags,
@@ -591,331 +598,12 @@ adminRouter.post("/auth/logout", isAdminAuthenticated, async (req: Request, res:
 // 2. DASHBOARD OVERVIEW ENDPOINTS
 // ----------------------------------------------------
 
-adminRouter.get("/dashboard/metrics", isAdminAuthenticated, async (req: Request, res: Response) => {
+adminRouter.get("/dashboard/metrics", isAdminAuthenticated, async (_req: Request, res: Response) => {
   try {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-
-    // Total Businesses
-    const [totalOrgResult] = await db.select({ value: count() }).from(organisations);
-    const totalOrgs = totalOrgResult.value;
-
-    const [priorOrgResult] = await db
-      .select({ value: count() })
-      .from(organisations)
-      .where(lte(organisations.createdAt, thirtyDaysAgo));
-    const priorOrgs = priorOrgResult.value;
-    const orgsDeltaPercent = priorOrgs > 0 ? Math.round(((totalOrgs - priorOrgs) / priorOrgs) * 100) : 0;
-
-    // Active Today (Businesses with transactions today)
-    const activeTodayResult = await db
-      .selectDistinct({ storeId: checkouts.storeId })
-      .from(checkouts)
-      .where(and(gte(checkouts.createdAt, startOfToday), eq(checkouts.isVoided, false)));
-    
-    // Group active stores back to organizations
-    let activeOrgsCount = 0;
-    if (activeTodayResult.length > 0) {
-      const activeStoreIds = activeTodayResult.map(r => r.storeId);
-      const activeStores = await db
-        .select({ businessId: stores.businessId })
-        .from(stores)
-        .where(inArray(stores.id, activeStoreIds));
-      
-      const uniqueActiveOrgs = new Set(activeStores.map(s => s.businessId));
-      activeOrgsCount = uniqueActiveOrgs.size;
-    }
-    const activePercent = totalOrgs > 0 ? Math.round((activeOrgsCount / totalOrgs) * 100) : 0;
-
-    // New This Month
-    const [newOrgsResult] = await db
-      .select({ value: count() })
-      .from(organisations)
-      .where(gte(organisations.createdAt, thirtyDaysAgo));
-    const newOrgsCount = newOrgsResult.value;
-
-    const [priorNewOrgsResult] = await db
-      .select({ value: count() })
-      .from(organisations)
-      .where(and(gte(organisations.createdAt, sixtyDaysAgo), lte(organisations.createdAt, thirtyDaysAgo)));
-    const priorNewOrgsCount = priorNewOrgsResult.value;
-    const newOrgsDeltaPercent = priorNewOrgsCount > 0 ? Math.round(((newOrgsCount - priorNewOrgsCount) / priorNewOrgsCount) * 100) : 0;
-
-    // Suspended Businesses
-    const [suspendedResult] = await db
-      .select({ value: count() })
-      .from(organisations)
-      .where(eq(organisations.status, "suspended"));
-    const suspendedOrgsCount = suspendedResult.value;
-
-    // Total Users
-    const [totalUsersResult] = await db.select({ value: count() }).from(users);
-    const totalUsers = totalUsersResult.value;
-
-    // Transactions counts
-    const [txTodayResult] = await db
-      .select({ value: count() })
-      .from(checkouts)
-      .where(and(gte(checkouts.createdAt, startOfToday), eq(checkouts.isVoided, false)));
-    const txToday = txTodayResult.value;
-
-    const [txMonthResult] = await db
-      .select({ value: count() })
-      .from(checkouts)
-      .where(and(gte(checkouts.createdAt, thirtyDaysAgo), eq(checkouts.isVoided, false)));
-    const txMonth = txMonthResult.value;
-
-    // Gross Merchandise Value (GMV) for Month
-    const checkoutsMonth = await db
-      .select({ totalPrice: checkouts.totalPrice })
-      .from(checkouts)
-      .where(and(gte(checkouts.createdAt, thirtyDaysAgo), eq(checkouts.isVoided, false)));
-    
-    const monthlyGMV = checkoutsMonth.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-
-    const checkoutsPriorMonth = await db
-      .select({ totalPrice: checkouts.totalPrice })
-      .from(checkouts)
-      .where(and(gte(checkouts.createdAt, sixtyDaysAgo), lte(checkouts.createdAt, thirtyDaysAgo), eq(checkouts.isVoided, false)));
-    
-    const priorMonthlyGMV = checkoutsPriorMonth.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-    const gmvDeltaPercent = priorMonthlyGMV > 0 ? Math.round(((monthlyGMV - priorMonthlyGMV) / priorMonthlyGMV) * 100) : 0;
-
-    // Avg Revenue per Active Business
-    const avgRevPerBusiness = activeOrgsCount > 0 ? Math.round(monthlyGMV / activeOrgsCount) : 0;
-
-    // Charts: Business Growth Trendline (Line Chart)
-    const growthTrend = [];
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59);
-
-      const [dayOrgs] = await db
-        .select({ value: count() })
-        .from(organisations)
-        .where(lte(organisations.createdAt, dayEnd));
-
-      growthTrend.push({
-        date: dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        businesses: dayOrgs.value,
-      });
-    }
-
-    // Charts: Transaction Volume (Bar Chart)
-    const transactionTrend = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59);
-
-      const dayCheckouts = await db
-        .select({ totalPrice: checkouts.totalPrice })
-        .from(checkouts)
-        .where(and(gte(checkouts.createdAt, dayStart), lte(checkouts.createdAt, dayEnd), eq(checkouts.isVoided, false)));
-
-      const countVal = dayCheckouts.length;
-      const gmvVal = dayCheckouts.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-
-      transactionTrend.push({
-        day: dayStart.toLocaleDateString("en-US", { weekday: "short" }),
-        count: countVal,
-        gmv: gmvVal,
-      });
-    }
-
-    // Charts: Activity Heatmap (7 Days x 24 Hours mock data anchored on real aggregates)
-    const heatmap = [];
-    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      for (let hour = 8; hour <= 20; hour += 2) {
-        heatmap.push({
-          day: weekdays[dayIndex],
-          hour: `${hour}:00`,
-          value: Math.floor(Math.random() * 45) + (hour >= 10 && hour <= 16 ? 40 : 10),
-        });
-      }
-    }
-
-    // Live Activity Feed
-    const lastOrgs = await db
-      .select({ id: organisations.id, name: organisations.name, createdAt: organisations.createdAt })
-      .from(organisations)
-      .orderBy(desc(organisations.createdAt))
-      .limit(3);
-
-    const lastTx = await db
-      .select({
-        id: checkouts.id,
-        receiptNumber: checkouts.receiptNumber,
-        totalCharged: checkouts.totalCharged,
-        createdAt: checkouts.createdAt,
-        storeId: checkouts.storeId,
-      })
-      .from(checkouts)
-      .where(eq(checkouts.isVoided, false))
-      .orderBy(desc(checkouts.createdAt))
-      .limit(3);
-
-    const liveFeed = [];
-    for (const org of lastOrgs) {
-      liveFeed.push({
-        time: org.createdAt.toLocaleTimeString("en-US", { hour12: false }),
-        timestamp: org.createdAt.getTime(),
-        type: "business_registration",
-        message: `New business registered → ${org.name}`,
-      });
-    }
-
-    for (const tx of lastTx) {
-      const [store] = await db.select({ name: stores.name }).from(stores).where(eq(stores.id, tx.storeId)).limit(1);
-      liveFeed.push({
-        time: tx.createdAt.toLocaleTimeString("en-US", { hour12: false }),
-        timestamp: tx.createdAt.getTime(),
-        type: "transaction_completed",
-        message: `Transaction completed → ${store?.name || "Retail Store"} ₦${tx.totalCharged.toLocaleString()}`,
-      });
-    }
-
-    // Add administrative suspensions to feed
-    const suspensions = await db
-      .select()
-      .from(superAdminAuditLogs)
-      .where(eq(superAdminAuditLogs.action, "suspend_business"))
-      .orderBy(desc(superAdminAuditLogs.createdAt))
-      .limit(2);
-
-    for (const s of suspensions) {
-      liveFeed.push({
-        time: s.createdAt.toLocaleTimeString("en-US", { hour12: false }),
-        timestamp: s.createdAt.getTime(),
-        type: "business_suspended",
-        message: `Business suspended → ${s.target} [by Admin: ${s.adminEmail}]`,
-      });
-    }
-
-    liveFeed.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Requires Attention Alerts
-    const alerts = [];
-
-    // Inactive businesses for 30+ days
-    const allStoreOrgs = await db
-      .select({ businessId: stores.businessId, storeId: stores.id })
-      .from(stores);
-
-    const latestTxPerStore = await db
-      .select({ storeId: checkouts.storeId, latest: sql<Date>`max(${checkouts.createdAt})` })
-      .from(checkouts)
-      .groupBy(checkouts.storeId);
-
-    const inactiveCount = allStoreOrgs.filter(so => {
-      const tx = latestTxPerStore.find(ltx => ltx.storeId === so.storeId);
-      return !tx || new Date(tx.latest).getTime() < thirtyDaysAgo.getTime();
-    }).length;
-
-    if (inactiveCount > 0) {
-      alerts.push({
-        severity: "warning",
-        message: `${inactiveCount} Businesses inactive for 30+ days`,
-      });
-    }
-
-    // Locked accounts
-    const [lockedUsersResult] = await db
-      .select({ value: count() })
-      .from(users)
-      .where(eq(users.status, "locked"));
-    
-    if (lockedUsersResult.value > 0) {
-      alerts.push({
-        severity: "danger",
-        message: `${lockedUsersResult.value} Accounts locked with excessive failed logins`,
-      });
-    }
-
-    // Large transaction flagged (> 500,000)
-    const [largeTxResult] = await db
-      .select({ value: count() })
-      .from(checkouts)
-      .where(and(gte(checkouts.totalPrice, 500000), eq(checkouts.isVoided, false), gte(checkouts.createdAt, startOfToday)));
-    
-    if (largeTxResult.value > 0) {
-      alerts.push({
-        severity: "danger",
-        message: `${largeTxResult.value} Unusually large transaction flagged today (> ₦500,000)`,
-      });
-    }
-
-    // Open support threads (locked-out owners with no pay-to-unlock path, and general Help & Support requests)
-    const [openSupportResult] = await db
-      .select({ value: count() })
-      .from(supportThreads)
-      .where(eq(supportThreads.status, "open"));
-
-    if (openSupportResult.value > 0) {
-      alerts.push({
-        severity: "warning",
-        message: `${openSupportResult.value} Open support message${openSupportResult.value === 1 ? "" : "s"} awaiting a reply`,
-      });
-    }
-
-    // Stuck in onboarding (> 48h and no first sale)
-    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-    const oldOrgs = await db
-      .select({ id: organisations.id })
-      .from(organisations)
-      .where(lte(organisations.createdAt, fortyEightHoursAgo));
-
-    let stuckCount = 0;
-    if (oldOrgs.length > 0) {
-      for (const org of oldOrgs) {
-        const orgStores = await db.select({ id: stores.id }).from(stores).where(eq(stores.businessId, org.id));
-        if (orgStores.length === 0) {
-          stuckCount++;
-          continue;
-        }
-        const storeIds = orgStores.map(s => s.id);
-        const [orgSales] = await db
-          .select({ value: count() })
-          .from(checkouts)
-          .where(inArray(checkouts.storeId, storeIds));
-        
-        if (orgSales.value === 0) {
-          stuckCount++;
-        }
-      }
-    }
-
-    if (stuckCount > 0) {
-      alerts.push({
-        severity: "warning",
-        message: `${stuckCount} New businesses stuck in onboarding funnel (48hr+)`,
-      });
-    }
-
-    return res.json({
-      summaryCards: {
-        totalBusinesses: { count: totalOrgs, deltaPercent: orgsDeltaPercent },
-        activeToday: { count: activeOrgsCount, percent: activePercent },
-        newThisMonth: { count: newOrgsCount, deltaPercent: newOrgsDeltaPercent },
-        suspended: { count: suspendedOrgsCount },
-        totalUsers: { count: totalUsers },
-        transactionsToday: { count: txToday },
-        transactionsMonth: { count: txMonth },
-        gmvMonth: { count: monthlyGMV, deltaPercent: gmvDeltaPercent },
-        avgRevenuePerBusiness: { count: avgRevPerBusiness },
-      },
-      charts: {
-        growthTrend,
-        transactionTrend,
-        activityHeatmap: heatmap,
-      },
-      liveActivity: liveFeed,
-      alerts,
-    });
+    // Polled by every open admin tab. The figures are platform-wide and a half-minute old is fine for an
+    // operations overview, so one computation serves them all.
+    const metrics = await cachedReport({ name: "adminDashboardMetrics", tags: ["admin"] }, () => getAdminDashboardMetrics());
+    return res.json(metrics);
   } catch (error) {
     console.error("Dashboard Metrics retrieval error:", error);
     return res.status(500).json({ error: "Failed to compile dashboard operations overview." });
@@ -930,8 +618,8 @@ adminRouter.get("/dashboard/metrics", isAdminAuthenticated, async (req: Request,
 adminRouter.get("/businesses", isAdminAuthenticated, async (req: Request, res: Response) => {
   const { search, status, minGMV, maxGMV, page = "1", limit = "15" } = req.query;
 
-  const pageNum = parseInt(page as string, 10);
-  const limitNum = parseInt(limit as string, 10);
+  const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 15));
   const offset = (pageNum - 1) * limitNum;
 
   try {
@@ -950,108 +638,47 @@ adminRouter.get("/businesses", isAdminAuthenticated, async (req: Request, res: R
       whereClauses.push(like(organisations.name, `%${search}%`));
     }
 
+    // Gross-sales range, applied before paging so the page and the total both respect it (it used to filter the
+    // page after the fact, which left short pages and a total that ignored the filter).
+    const minGmvValue = minGMV ? parseFloat(minGMV as string) : NaN;
+    const maxGmvValue = maxGMV ? parseFloat(maxGMV as string) : NaN;
+    if (Number.isFinite(minGmvValue)) whereClauses.push(sql`${businessGmvSql} >= ${minGmvValue}`);
+    if (Number.isFinite(maxGmvValue)) whereClauses.push(sql`${businessGmvSql} <= ${maxGmvValue}`);
+
     const queryWhere = whereClauses.length > 0 ? and(...whereClauses) : undefined;
 
     // Fetch roster of matching businesses
-    const matchedOrgs = await db
-      .select()
-      .from(organisations)
-      .where(queryWhere)
-      .orderBy(desc(organisations.createdAt))
-      .limit(limitNum)
-      .offset(offset);
-
-    const [totalCountResult] = await db
-      .select({ value: count() })
-      .from(organisations)
-      .where(queryWhere);
-
+    const [matchedOrgs, [totalCountResult]] = await Promise.all([
+      db.select().from(organisations).where(queryWhere).orderBy(desc(organisations.createdAt)).limit(limitNum).offset(offset),
+      db.select({ value: count() }).from(organisations).where(queryWhere),
+    ]);
     const totalBusinessesCount = totalCountResult.value;
 
-    const businessesRoster = [];
-    for (const org of matchedOrgs) {
-      // Find stores & transaction stats
-      const orgStores = await db.select().from(stores).where(eq(stores.businessId, org.id));
-      
-      let txCount = 0;
-      let totalGMV = 0;
-      let staffCount = 0;
-      let latestActive = org.createdAt;
-
-      if (orgStores.length > 0) {
-        const storeIds = orgStores.map(s => s.id);
-        
-        // Sum transactions
-        const [orgSales] = await db
-          .select({ value: count() })
-          .from(checkouts)
-          .where(and(inArray(checkouts.storeId, storeIds), eq(checkouts.isVoided, false)));
-        txCount = orgSales.value;
-
-        const checkoutsSum = await db
-          .select({ totalPrice: checkouts.totalPrice, createdAt: checkouts.createdAt })
-          .from(checkouts)
-          .where(and(inArray(checkouts.storeId, storeIds), eq(checkouts.isVoided, false)));
-
-        totalGMV = checkoutsSum.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-
-        if (checkoutsSum.length > 0) {
-          const sortedSales = [...checkoutsSum].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-          latestActive = sortedSales[0].createdAt;
-        }
-
-        // Staff count
-        const [staffTotal] = await db
-          .select({ value: count() })
-          .from(staff)
-          .where(and(inArray(staff.storeId, storeIds), eq(staff.isArchived, false)));
-        staffCount = staffTotal.value;
-      }
-
-      // Owner details
-      const [primaryMember] = await db
-        .select()
-        .from(organisationMembers)
-        .where(and(eq(organisationMembers.organisationId, org.id), eq(organisationMembers.role, "owner")))
-        .limit(1);
-
-      let ownerName = "Unconfigured";
-      let ownerEmail = "Unconfigured";
-      if (primaryMember) {
-        const [ownerUser] = await db.select(safeUserFields).from(users).where(eq(users.id, primaryMember.userId)).limit(1);
-        if (ownerUser) {
-          ownerName = ownerUser.name || "Owner Account";
-          ownerEmail = ownerUser.email || ownerUser.phone || "No Email";
-        }
-      }
-
-      businessesRoster.push({
+    // The page's sales, staff and owners come from three queries for the whole page.
+    const stats = await getBusinessRosterStats(matchedOrgs.map((o) => o.id));
+    const businessesRoster = matchedOrgs.map((org) => {
+      const sales = stats.sales.get(org.id);
+      const owner = stats.owners.get(org.id);
+      return {
         id: org.id,
         name: org.name,
         slug: org.slug,
         receiptPrefix: org.receiptPrefix,
         createdAt: org.createdAt,
         status: org.status,
-        owner: { name: ownerName, email: ownerEmail },
+        owner: owner
+          ? { name: owner.name || "Owner Account", email: owner.email || owner.phone || "No Email" }
+          : { name: "Unconfigured", email: "Unconfigured" },
         location: org.address || "Nigeria",
-        staffCount,
-        transactionsCount: txCount,
-        gmv: totalGMV,
-        lastActive: latestActive,
-      });
-    }
-
-    // Filter by GMV threshold in memory if requested
-    let finalRoster = businessesRoster;
-    if (minGMV) {
-      finalRoster = finalRoster.filter(b => b.gmv >= parseFloat(minGMV as string));
-    }
-    if (maxGMV) {
-      finalRoster = finalRoster.filter(b => b.gmv <= parseFloat(maxGMV as string));
-    }
+        staffCount: stats.staff.get(org.id) ?? 0,
+        transactionsCount: sales?.txCount ?? 0,
+        gmv: sales?.gmv ?? 0,
+        lastActive: sales?.latest ?? org.createdAt,
+      };
+    });
 
     return res.json({
-      businesses: finalRoster,
+      businesses: businessesRoster,
       pagination: {
         total: totalBusinessesCount,
         page: pageNum,
@@ -1335,36 +962,52 @@ const SUPPORT_ROLES = ["super_admin", "ops_manager", "support_agent"] as const;
 adminRouter.get("/support-threads", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
     const status = (req.query.status as string) || "open";
-    const rows = await db
-      .select({
-        id: supportThreads.id,
-        reason: supportThreads.reason,
-        status: supportThreads.status,
-        createdAt: supportThreads.createdAt,
-        lastMessageAt: supportThreads.lastMessageAt,
-        lastMessageBySenderType: supportThreads.lastMessageBySenderType,
-        resolvedAt: supportThreads.resolvedAt,
-        resolutionOutcome: supportThreads.resolutionOutcome,
-        adminLastReadAt: supportThreads.adminLastReadAt,
-        organisationId: supportThreads.organisationId,
-        organisationName: organisations.name,
-        organisationStatus: organisations.status,
-        organisationSuspensionReason: organisations.suspensionReason,
-        userName: users.name,
-        userEmail: users.email,
-      })
-      .from(supportThreads)
-      .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
-      .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
-      .where(status === "all" ? undefined : eq(supportThreads.status, status))
-      .orderBy(desc(supportThreads.lastMessageAt));
+    const page = parsePage(req.query, { defaultLimit: 50 });
+    const statusFilter = status === "all" ? undefined : eq(supportThreads.status, status);
+    // Unread for the admin: the last message came from the business, and the admin has not read since.
+    const unread = sql`${supportThreads.lastMessageBySenderType} = 'user' AND (${supportThreads.adminLastReadAt} IS NULL OR ${supportThreads.adminLastReadAt} < ${supportThreads.lastMessageAt})`;
+
+    const [rows, [counts]] = await Promise.all([
+      db
+        .select({
+          id: supportThreads.id,
+          reason: supportThreads.reason,
+          status: supportThreads.status,
+          createdAt: supportThreads.createdAt,
+          lastMessageAt: supportThreads.lastMessageAt,
+          lastMessageBySenderType: supportThreads.lastMessageBySenderType,
+          resolvedAt: supportThreads.resolvedAt,
+          resolutionOutcome: supportThreads.resolutionOutcome,
+          adminLastReadAt: supportThreads.adminLastReadAt,
+          organisationId: supportThreads.organisationId,
+          organisationName: organisations.name,
+          organisationStatus: organisations.status,
+          organisationSuspensionReason: organisations.suspensionReason,
+          userName: users.name,
+          userEmail: users.email,
+        })
+        .from(supportThreads)
+        .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
+        .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
+        .where(statusFilter)
+        .orderBy(desc(supportThreads.lastMessageAt), desc(supportThreads.id))
+        .limit(page.limit)
+        .offset(page.offset),
+      // Counted over every matching thread, not just this page, so the inbox's unread badge stays true.
+      db
+        .select({ total: count(), unread: sql<number>`(count(*) FILTER (WHERE ${unread}))::int` })
+        .from(supportThreads)
+        .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
+        .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
+        .where(statusFilter),
+    ]);
 
     const withUnread = rows.map((t) => ({
       ...t,
       unreadForAdmin: t.lastMessageBySenderType === "user" && (!t.adminLastReadAt || t.adminLastReadAt < t.lastMessageAt),
     }));
 
-    res.json(withUnread);
+    res.json({ data: withUnread, pagination: pagination(counts.total, page), unreadTotal: Number(counts.unread) });
   } catch (error) {
     console.error("GET /admin/support-threads error:", error);
     res.status(500).json({ error: "Failed to load support threads." });
@@ -1374,20 +1017,24 @@ adminRouter.get("/support-threads", isAdminAuthenticated, async (req: Request, r
 adminRouter.get("/support-threads/:id/messages", isAdminAuthenticated, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const [row] = await db
-      .select({
-        thread: supportThreads,
-        organisationName: organisations.name,
-        organisationStatus: organisations.status,
-        organisationSuspensionReason: organisations.suspensionReason,
-        userName: users.name,
-        userEmail: users.email,
-      })
-      .from(supportThreads)
-      .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
-      .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
-      .where(eq(supportThreads.id, id))
-      .limit(1);
+    // The thread and its messages do not depend on each other, so they are read together.
+    const [[row], messages] = await Promise.all([
+      db
+        .select({
+          thread: supportThreads,
+          organisationName: organisations.name,
+          organisationStatus: organisations.status,
+          organisationSuspensionReason: organisations.suspensionReason,
+          userName: users.name,
+          userEmail: users.email,
+        })
+        .from(supportThreads)
+        .innerJoin(organisations, eq(supportThreads.organisationId, organisations.id))
+        .innerJoin(users, eq(supportThreads.createdByUserId, users.id))
+        .where(eq(supportThreads.id, id))
+        .limit(1),
+      db.select().from(supportThreadMessages).where(eq(supportThreadMessages.threadId, id)).orderBy(supportThreadMessages.createdAt),
+    ]);
     if (!row) {
       return res.status(404).json({ error: "Support thread not found." });
     }
@@ -1400,13 +1047,13 @@ adminRouter.get("/support-threads/:id/messages", isAdminAuthenticated, async (re
       userEmail: row.userEmail,
     };
 
-    const messages = await db
-      .select()
-      .from(supportThreadMessages)
-      .where(eq(supportThreadMessages.threadId, id))
-      .orderBy(supportThreadMessages.createdAt);
-
-    await db.update(supportThreads).set({ adminLastReadAt: new Date() }).where(eq(supportThreads.id, id));
+    // This is polled every few seconds while a thread is open. Only write "read" when there is something new to
+    // mark read, rather than updating the row on every poll.
+    const latestMessage = messages.length > 0 ? messages[messages.length - 1].createdAt : null;
+    const readAt = row.thread.adminLastReadAt;
+    if (!readAt || (latestMessage && latestMessage > readAt)) {
+      await db.update(supportThreads).set({ adminLastReadAt: new Date() }).where(eq(supportThreads.id, id));
+    }
 
     res.json({ thread, messages });
   } catch (error) {
@@ -1658,106 +1305,10 @@ adminRouter.post("/businesses/:id/cancel-deletion", isAdminAuthenticated, requir
 });
 
 // Onboarding Funnel Pipelines
-adminRouter.get("/onboarding/pipeline", isAdminAuthenticated, async (req: Request, res: Response) => {
+adminRouter.get("/onboarding/pipeline", isAdminAuthenticated, async (_req: Request, res: Response) => {
   try {
-    const allOrgs = await db.select().from(organisations).where(sql`${organisations.deletedAt} is null`);
-    
-    const pipeline = {
-      registered: [] as any[],
-      configured: [] as any[],
-      staffed: [] as any[],
-      first_sale: [] as any[],
-      active: [] as any[],
-    };
-
-    const now = Date.now();
-    const stuckList = [];
-
-    for (const org of allOrgs) {
-      const orgStores = await db.select().from(stores).where(eq(stores.businessId, org.id));
-      const storeIds = orgStores.map(s => s.id);
-
-      // Determine Owner Details
-      const [primaryMember] = await db
-        .select()
-        .from(organisationMembers)
-        .where(and(eq(organisationMembers.organisationId, org.id), eq(organisationMembers.role, "owner")))
-        .limit(1);
-
-      let ownerName = "Unconfigured";
-      let ownerEmail = "Unconfigured";
-      if (primaryMember) {
-        const [ownerUser] = await db.select(safeUserFields).from(users).where(eq(users.id, primaryMember.userId)).limit(1);
-        if (ownerUser) {
-          ownerName = ownerUser.name || "Owner";
-          ownerEmail = ownerUser.email || ownerUser.phone || "No Contact";
-        }
-      }
-
-      const info = {
-        id: org.id,
-        name: org.name,
-        createdAt: org.createdAt,
-        owner: { name: ownerName, email: ownerEmail },
-      };
-
-      if (storeIds.length === 0) {
-        pipeline.registered.push(info);
-        // Stuck Alert Check
-        if (now - org.createdAt.getTime() > 48 * 60 * 60 * 1000) {
-          stuckList.push({ ...info, stage: "Registered", stuckDuration: "48hr+", reason: "No store locations configured." });
-        }
-        continue;
-      }
-
-      // Check Inventory
-      const [inv] = await db.select({ value: count() }).from(inventory).where(inArray(inventory.storeId, storeIds));
-      if (inv.value === 0) {
-        pipeline.configured.push(info);
-        if (now - org.createdAt.getTime() > 48 * 60 * 60 * 1000) {
-          stuckList.push({ ...info, stage: "Configured", stuckDuration: "48hr+", reason: "No inventory items uploaded." });
-        }
-        continue;
-      }
-
-      // Check Staff
-      const [stf] = await db.select({ value: count() }).from(staff).where(and(inArray(staff.storeId, storeIds), eq(staff.isArchived, false)));
-      if (stf.value === 0) {
-        pipeline.staffed.push(info);
-        if (now - org.createdAt.getTime() > 48 * 60 * 60 * 1000) {
-          stuckList.push({ ...info, stage: "Staffed", stuckDuration: "48hr+", reason: "No staff roster members onboarded." });
-        }
-        continue;
-      }
-
-      // Check Sales
-      const sales = await db
-        .select({ totalPrice: checkouts.totalPrice })
-        .from(checkouts)
-        .where(and(inArray(checkouts.storeId, storeIds), eq(checkouts.isVoided, false)));
-      
-      const salesCount = sales.length;
-
-      if (salesCount === 0) {
-        pipeline.first_sale.push(info);
-        if (now - org.createdAt.getTime() > 48 * 60 * 60 * 1000) {
-          stuckList.push({ ...info, stage: "First Sale", stuckDuration: "48hr+", reason: " Roster set up but zero transactions recorded." });
-        }
-      } else {
-        pipeline.active.push({ ...info, salesCount });
-      }
-    }
-
-    return res.json({
-      funnel: {
-        registered: { count: pipeline.registered.length, items: pipeline.registered },
-        configured: { count: pipeline.configured.length, items: pipeline.configured },
-        staffed: { count: pipeline.staffed.length, items: pipeline.staffed },
-        first_sale: { count: pipeline.first_sale.length, items: pipeline.first_sale },
-        active: { count: pipeline.active.length, items: pipeline.active },
-      },
-      stuckBusinesses: stuckList,
-    });
+    // Exact counts per stage, with each stage's newest businesses (not every business on the platform).
+    return res.json(await getOnboardingPipeline());
   } catch (error) {
     console.error("Funnel pipeline query failure:", error);
     return res.status(500).json({ error: "Failed to calculate funnel transitions." });
@@ -1773,46 +1324,49 @@ adminRouter.get("/users", isAdminAuthenticated, async (req: Request, res: Respon
   const { role, status, search } = req.query;
 
   try {
-    let matchedMembers = await db
-      .select({
-        user: users,
-        member: organisationMembers,
-        org: organisations,
-      })
-      .from(organisationMembers)
-      .innerJoin(users, eq(organisationMembers.userId, users.id))
-      .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
-      .orderBy(desc(users.createdAt));
-
-    let finalRoster = matchedMembers.map(row => ({
-      id: row.user.id,
-      name: row.user.name || "Business User",
-      email: row.user.email || row.user.phone || "No Contact",
-      phone: row.user.phone,
-      role: row.member.role,
-      business: row.org.name,
-      registered: row.user.createdAt,
-      lastLogin: row.user.lastLoginAt,
-      status: row.user.status,
-    }));
-
-    if (role) {
-      finalRoster = finalRoster.filter(u => u.role === role);
-    }
-    if (status) {
-      finalRoster = finalRoster.filter(u => u.status === status);
-    }
+    // Filtered, newest first and paged in the database. This used to select the whole user row (password hash
+    // included) for every business membership on the platform, then filter in Node and return all of them.
+    const displayName = sql`COALESCE(NULLIF(${users.name}, ''), 'Business User')`;
+    const displayEmail = sql`COALESCE(NULLIF(${users.email}, ''), NULLIF(${users.phone}, ''), 'No Contact')`;
+    const conditions: any[] = [];
+    if (role) conditions.push(eq(organisationMembers.role, role as string));
+    if (status) conditions.push(eq(users.status, status as string));
     if (search) {
-      const term = (search as string).toLowerCase();
-      finalRoster = finalRoster.filter(
-        u =>
-          u.name.toLowerCase().includes(term) ||
-          u.email.toLowerCase().includes(term) ||
-          u.business.toLowerCase().includes(term)
-      );
+      const pattern = `%${(search as string).replace(/[\\%_]/g, "\\$&")}%`;
+      conditions.push(sql`(${displayName} ILIKE ${pattern} ESCAPE '\\' OR ${displayEmail} ILIKE ${pattern} ESCAPE '\\' OR ${organisations.name} ILIKE ${pattern} ESCAPE '\\')`);
     }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const page = parsePage(req.query, { defaultLimit: 25 });
 
-    return res.json({ users: finalRoster });
+    const [rows, [{ value: total }]] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          name: displayName,
+          email: displayEmail,
+          phone: users.phone,
+          role: organisationMembers.role,
+          business: organisations.name,
+          registered: users.createdAt,
+          lastLogin: users.lastLoginAt,
+          status: users.status,
+        })
+        .from(organisationMembers)
+        .innerJoin(users, eq(organisationMembers.userId, users.id))
+        .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
+        .where(where)
+        .orderBy(desc(users.createdAt), desc(organisationMembers.id))
+        .limit(page.limit)
+        .offset(page.offset),
+      db
+        .select({ value: count() })
+        .from(organisationMembers)
+        .innerJoin(users, eq(organisationMembers.userId, users.id))
+        .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
+        .where(where),
+    ]);
+
+    return res.json({ users: rows, pagination: pagination(total, page) });
   } catch (error) {
     console.error("List users retrieval error:", error);
     return res.status(500).json({ error: "Failed to list platform accounts." });
@@ -1893,78 +1447,9 @@ adminRouter.post("/users/:id/suspend", isAdminAuthenticated, requireAdminRole(["
 // Scan anomalous flagged accounts
 adminRouter.get("/users/flagged", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
-    const allUsers = await db.select(safeUserFields).from(users);
-    const flagged = [];
-
-    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-
-    for (const user of allUsers) {
-      // Flag 1: Excessive failed logins (10+)
-      if (user.loginAttempts && user.loginAttempts >= 10) {
-        flagged.push({
-          id: user.id,
-          name: user.name || "Business User",
-          email: user.email || user.phone || "No Contact",
-          flag: "Excessive failed logins",
-          trigger: `Account registered ${user.loginAttempts} failed attempts. Currently locked or flagged.`,
-        });
-        continue;
-      }
-
-      // Flag 2: Multiple organization ownership (5+)
-      const orgsOwned = await db
-        .select()
-        .from(organisationMembers)
-        .where(and(eq(organisationMembers.userId, user.id), eq(organisationMembers.role, "owner")));
-      
-      if (orgsOwned.length >= 5) {
-        flagged.push({
-          id: user.id,
-          name: user.name || "Business User",
-          email: user.email || user.phone || "No Contact",
-          flag: "Multiple org ownership",
-          trigger: `Owner of ${orgsOwned.length} organisations. Highly unusual scaling pattern.`,
-        });
-        continue;
-      }
-
-      // Flag 3: Dormant Owner (Owner with no login in 60+ days, but staff is active)
-      const isOwner = orgsOwned.length > 0;
-      if (isOwner && (!user.lastLoginAt || user.lastLoginAt < sixtyDaysAgo)) {
-        // Check if staff in their stores have had sales recently
-        const ownedOrgIds = orgsOwned.map(o => o.organisationId);
-        const orgStores = await db.select({ id: stores.id }).from(stores).where(inArray(stores.businessId, ownedOrgIds));
-        
-        if (orgStores.length > 0) {
-          const storeIds = orgStores.map(s => s.id);
-          const [sales] = await db
-            .select({ value: count() })
-            .from(checkouts)
-            .where(and(inArray(checkouts.storeId, storeIds), gte(checkouts.createdAt, sixtyDaysAgo)));
-          
-          if (sales.value > 0) {
-            flagged.push({
-              id: user.id,
-              name: user.name || "Business User",
-              email: user.email || user.phone || "No Contact",
-              flag: "Dormant owner",
-              trigger: `Owner inactive for 60+ days but staff recorded sales recently.`,
-            });
-          }
-        }
-      }
-    }
-
-    // Add account sharing suspicion mock pattern matching
-    flagged.push({
-      id: "mock-uid-sharing",
-      name: "Chinedu Alao",
-      email: "chinedu@gmail.com",
-      flag: "Account sharing suspicion",
-      trigger: "Same owner account checked in from Lagos and Abuja within 45 minutes.",
-    });
-
-    return res.json({ flagged });
+    const page = parsePage(req.query, { defaultLimit: 24 });
+    const { rows, total } = await getFlaggedUsers(page);
+    return res.json({ flagged: rows, pagination: pagination(total, page) });
   } catch (error) {
     console.error("Flagged accounts scan failure:", error);
     return res.status(500).json({ error: "Failed to scan platform anomalies." });
@@ -2008,92 +1493,9 @@ adminRouter.get("/transactions", isAdminAuthenticated, async (req: Request, res:
 // Filter anomalous flagged transactions
 adminRouter.get("/transactions/flagged", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
-    const list = await db
-      .select({
-        checkout: checkouts,
-        store: stores,
-      })
-      .from(checkouts)
-      .innerJoin(stores, eq(checkouts.storeId, stores.id))
-      .orderBy(desc(checkouts.createdAt));
-
-    const flagged = [];
-
-    for (const item of list) {
-      const tx = item.checkout;
-
-      // Anomaly 1: Unusually large transactions (> ₦500,000)
-      if (tx.totalPrice > 500000) {
-        flagged.push({
-          id: tx.id,
-          reference: tx.receiptNumber,
-          business: item.store.name,
-          date: tx.createdAt,
-          total: tx.totalCharged,
-          flag: "Unusually large",
-          trigger: `Transaction total ₦${tx.totalCharged.toLocaleString()} exceeds platform threshold.`,
-        });
-        continue;
-      }
-
-      // Anomaly 2: High discounts (> 40%)
-      if (tx.discountPercent && tx.discountPercent > 40) {
-        flagged.push({
-          id: tx.id,
-          reference: tx.receiptNumber,
-          business: item.store.name,
-          date: tx.createdAt,
-          total: tx.totalCharged,
-          flag: "High discount",
-          trigger: `Discretionary markdown of ${tx.discountPercent}% exceeds warning index.`,
-        });
-        continue;
-      }
-
-      // Anomaly 3: Rapid void (Voided within 5 min of creation)
-      if (tx.isVoided && tx.voidedAt) {
-        const durationMin = (tx.voidedAt.getTime() - tx.createdAt.getTime()) / 1000 / 60;
-        if (durationMin < 5) {
-          flagged.push({
-            id: tx.id,
-            reference: tx.receiptNumber,
-            business: item.store.name,
-            date: tx.createdAt,
-            total: tx.totalCharged,
-            flag: "Rapid void",
-            trigger: `Transaction voided in ${Math.round(durationMin)} minutes. Suspicious reversal patterns.`,
-          });
-          continue;
-        }
-      }
-
-      // Anomaly 4: Suspiciously round numbers (> 100k and divisible by 10k)
-      if (tx.totalPrice >= 100000 && tx.totalPrice % 10000 === 0) {
-        flagged.push({
-          id: tx.id,
-          reference: tx.receiptNumber,
-          business: item.store.name,
-          date: tx.createdAt,
-          total: tx.totalCharged,
-          flag: "Round number",
-          trigger: `Suspiciously round amount ₦${tx.totalCharged.toLocaleString()} suggests manual input bypass.`,
-        });
-        continue;
-      }
-    }
-
-    // Add zero-cost sale anomaly mock
-    flagged.push({
-      id: "mock-zero-cost",
-      reference: "STN-SALE-08812",
-      business: "Glam House Studio",
-      date: new Date(),
-      total: 0,
-      flag: "Zero-cost item",
-      trigger: "Zero unit pricing sale processed without manager override.",
-    });
-
-    return res.json({ flagged });
+    const page = parsePage(req.query, { defaultLimit: 24 });
+    const { rows, total } = await getFlaggedTransactions(page);
+    return res.json({ flagged: rows, pagination: pagination(total, page) });
   } catch (error) {
     console.error("Flagged transactions query error:", error);
     return res.status(500).json({ error: "Failed to scan platform anomalies." });
@@ -2101,71 +1503,10 @@ adminRouter.get("/transactions/flagged", isAdminAuthenticated, async (req: Reque
 });
 
 // Platform Revenue, MRR, ARR, active plans analytics
-adminRouter.get("/transactions/analytics", isAdminAuthenticated, async (req: Request, res: Response) => {
+adminRouter.get("/transactions/analytics", isAdminAuthenticated, async (_req: Request, res: Response) => {
   try {
-    const allOrgs = await db.select().from(organisations);
-    const freeTrial = allOrgs.filter(o => o.status === "trialing").length;
-
-
-    const allSubscriptions = await db.select().from(subscriptions);
-    const allPlans = await db.select().from(plans);
-    const planById = new Map(allPlans.map(p => [p.id, p]));
-
-    const activeSubscriptions = allSubscriptions.filter(s => s.status === "active");
-    const activePaying = activeSubscriptions.length;
-
-    // MRR: each active subscription's price, normalized to a monthly figure
-    // (annual plans divided by 12) - real revenue once a provider is wired up,
-    // zero for now since nothing can actually subscribe yet.
-    const MRR = activeSubscriptions.reduce((sum, sub) => {
-      const plan = planById.get(sub.planId);
-      if (!plan) return sum;
-      const monthlyEquivalent = sub.billingCycle === "annual" ? Number(plan.priceAnnual) / 12 : Number(plan.priceMonthly);
-      return sum + monthlyEquivalent;
-    }, 0);
-    const ARR = MRR * 12;
-    const arpu = activePaying > 0 ? MRR / activePaying : 0;
-
-    const now = new Date();
-    const churnedThisMonth = allSubscriptions.filter(s =>
-      s.status === "cancelled" &&
-      s.updatedAt.getFullYear() === now.getFullYear() &&
-      s.updatedAt.getMonth() === now.getMonth()
-    ).length;
-
-    const topBusinesses = [];
-    
-    // Top 3 businesses by GMV
-    for (const org of allOrgs.slice(0, 5)) {
-      const orgStores = await db.select().from(stores).where(eq(stores.businessId, org.id));
-      let gmv = 0;
-      if (orgStores.length > 0) {
-        const storeIds = orgStores.map(s => s.id);
-        const checkoutsSum = await db
-          .select({ totalPrice: checkouts.totalPrice })
-          .from(checkouts)
-          .where(and(inArray(checkouts.storeId, storeIds), eq(checkouts.isVoided, false)));
-        gmv = checkoutsSum.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-      }
-      topBusinesses.push({
-        name: org.name,
-        gmv,
-      });
-    }
-
-    topBusinesses.sort((a, b) => b.gmv - a.gmv);
-
-    return res.json({
-      revenueSummary: {
-        activePaying,
-        freeTrial,
-        churnedThisMonth,
-        mrr: MRR,
-        arr: ARR,
-        arpu,
-      },
-      topBusinesses: topBusinesses.slice(0, 5),
-    });
+    // Platform-wide and slow-moving: one computation serves every open admin tab for half a minute.
+    return res.json(await cachedReport({ name: "adminRevenueAnalytics", tags: ["admin"] }, () => getRevenueAnalytics()));
   } catch (error) {
     console.error("Platform financials query failure:", error);
     return res.status(500).json({ error: "Failed to calculate revenue aggregates." });
@@ -2231,18 +1572,28 @@ adminRouter.get(
   requireAdminRole(["super_admin", "ops_manager", "finance_admin"]),
   async (req: Request, res: Response) => {
     try {
-      const rows = await db
-        .select({
-          subscription: subscriptions,
-          organisationName: organisations.name,
-          planName: plans.name,
-        })
-        .from(subscriptions)
-        .leftJoin(organisations, eq(subscriptions.organisationId, organisations.id))
-        .leftJoin(plans, eq(subscriptions.planId, plans.id))
-        .orderBy(desc(subscriptions.updatedAt));
+      // One subscription per business, so this grows with the customer base: newest-updated first, a page at a time.
+      const page = parsePage(req.query);
+      const [rows, [{ value: total }]] = await Promise.all([
+        db
+          .select({
+            subscription: subscriptions,
+            organisationName: organisations.name,
+            planName: plans.name,
+          })
+          .from(subscriptions)
+          .leftJoin(organisations, eq(subscriptions.organisationId, organisations.id))
+          .leftJoin(plans, eq(subscriptions.planId, plans.id))
+          .orderBy(desc(subscriptions.updatedAt), desc(subscriptions.id))
+          .limit(page.limit)
+          .offset(page.offset),
+        db.select({ value: count() }).from(subscriptions),
+      ]);
 
-      res.json(rows.map(r => ({ ...r.subscription, organisationName: r.organisationName, planName: r.planName })));
+      res.json({
+        data: rows.map(r => ({ ...r.subscription, organisationName: r.organisationName, planName: r.planName })),
+        pagination: pagination(total, page),
+      });
     } catch (error) {
       console.error("GET /admin/billing/subscriptions error:", error);
       res.status(500).json({ error: "Failed to load subscriptions." });
@@ -2370,6 +1721,16 @@ async function tierFieldsProblem(row: { key?: string; tierType: string; freeLimi
       if (!opts.keepUnlimited) return "A capped add-on needs a new limit above its free limit.";
     } else if (row.tierCapacity <= row.freeLimit) {
       return "The new limit must be above the free limit.";
+    } else {
+      // Two tiers with the same limit would cover each other in the bigger-replaces-smaller logic.
+      const sameLimit = [
+        eq(featureCatalog.tierType, "paid_metered_limit"),
+        eq(featureCatalog.limitType, row.limitType),
+        eq(featureCatalog.tierCapacity, row.tierCapacity),
+      ];
+      if (row.key) sameLimit.push(ne(featureCatalog.key, row.key));
+      const [dup] = await db.select({ name: featureCatalog.name }).from(featureCatalog).where(and(...sameLimit)).limit(1);
+      if (dup) return `"${dup.name}" already offers a limit of ${row.tierCapacity}. Pick a different limit.`;
     }
   }
   if (row.tierType === "bundle_child") {
@@ -2974,32 +2335,26 @@ adminRouter.get("/system/audit-logs", isAdminAuthenticated, requireAdminRole(["s
   const { adminEmail, action, search } = req.query;
 
   try {
-    let list = await db.select().from(superAdminAuditLogs).orderBy(desc(superAdminAuditLogs.createdAt));
-
+    // Filtered, newest first and paged in the database. This used to read the whole ledger (which only grows)
+    // into Node and filter and slice it there, and it silently cut the list at 100 entries.
+    const conditions: any[] = [];
     // Finance Admins can only view their own action logs
     const admin = req.admin;
-    if (admin?.role === "finance_admin") {
-      list = list.filter(l => l.adminId === admin.adminId);
-    }
-
-    let filtered = list;
-    if (adminEmail) {
-      filtered = filtered.filter(l => l.adminEmail === adminEmail);
-    }
-    if (action) {
-      filtered = filtered.filter(l => l.action === action);
-    }
+    if (admin?.role === "finance_admin") conditions.push(eq(superAdminAuditLogs.adminId, admin.adminId));
+    if (adminEmail) conditions.push(eq(superAdminAuditLogs.adminEmail, adminEmail as string));
+    if (action) conditions.push(eq(superAdminAuditLogs.action, action as string));
     if (search) {
-      const term = (search as string).toLowerCase();
-      filtered = filtered.filter(
-        l =>
-          l.target.toLowerCase().includes(term) ||
-          l.action.toLowerCase().includes(term) ||
-          l.adminEmail.toLowerCase().includes(term)
-      );
+      const pattern = `%${(search as string).replace(/[\\%_]/g, "\\$&")}%`;
+      conditions.push(sql`(${superAdminAuditLogs.target} ILIKE ${pattern} ESCAPE '\\' OR ${superAdminAuditLogs.action} ILIKE ${pattern} ESCAPE '\\' OR ${superAdminAuditLogs.adminEmail} ILIKE ${pattern} ESCAPE '\\')`);
     }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const page = parsePage(req.query, { defaultLimit: 100 });
+    const [logs, [{ value: total }]] = await Promise.all([
+      db.select().from(superAdminAuditLogs).where(where).orderBy(desc(superAdminAuditLogs.createdAt), desc(superAdminAuditLogs.id)).limit(page.limit).offset(page.offset),
+      db.select({ value: count() }).from(superAdminAuditLogs).where(where),
+    ]);
 
-    return res.json({ logs: filtered.slice(0, 100) });
+    return res.json({ logs, pagination: pagination(total, page) });
   } catch (error) {
     return res.status(500).json({ error: "Failed to retrieve immutable operations ledger." });
   }

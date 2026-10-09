@@ -51,50 +51,23 @@ export class ProductController extends BaseController {
         return this.badRequest(res, "Please select a store first.");
       }
 
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
+      // One page at a time (page 1 at the default size when none is asked for); screens that need the whole
+      // list walk the pages (client/src/lib/paginated.ts).
+      const pageReq = parsePage(req.query);
+      const search = (req.query.search as string | undefined) || undefined;
 
       if (storeId === "all") {
         const stores = await this.getUserStores(req);
-        if (stores.length === 0) {
-          return this.ok(res, page > 0 && limit > 0 ? { items: [], total: 0, pages: 0 } : []);
-        }
-
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            const list = await storage.getProducts(s.id);
-            return list.map((item) => ({ ...item, storeName: s.name }));
-          })
-        );
-        let merged = responses.flat();
-
-        if (page > 0 && limit > 0) {
-          const search = req.query.search as string;
-          if (search) {
-            const sLower = search.toLowerCase();
-            merged = merged.filter((item) => String(item.name || "").toLowerCase().includes(sLower));
-          }
-          const start = (page - 1) * limit;
-          const paginated = merged.slice(start, start + limit);
-          return this.ok(res, {
-            items: paginated,
-            total: merged.length,
-            pages: Math.ceil(merged.length / limit),
-          });
-        }
-        return this.ok(res, merged);
+        if (stores.length === 0) return this.ok(res, paginated([], 0, pageReq));
+        const names = new Map(stores.map((s) => [s.id, s.name]));
+        const result = await storage.getProductsPaginated(stores.map((s) => s.id), { page: pageReq.page, limit: pageReq.limit, search });
+        const data = result.data.map((item: any) => ({ ...item, storeName: names.get(item.storeId) }));
+        return this.ok(res, paginated(data, result.pagination.total, pageReq));
       }
 
       if (!(await this.checkStoreAccess(storeId, req, res))) return res;
-
-      if (page > 0 && limit > 0) {
-        const search = req.query.search as string;
-        const result = await storage.getProductsPaginated(storeId, { page, limit, search });
-        return this.ok(res, result);
-      }
-
-      const items = await storage.getProducts(storeId);
-      return this.ok(res, items);
+      const result = await storage.getProductsPaginated(storeId, { page: pageReq.page, limit: pageReq.limit, search });
+      return this.ok(res, paginated(result.data, result.pagination.total, pageReq));
     } catch (error: any) {
       return this.error(res, "We couldn't load your products. Please try again.");
     }

@@ -53,6 +53,10 @@ interface BulkActionResult {
   succeeded: number;
   failed: number;
   failedIds?: (string | number)[];
+  /** Ids the action actually changed, so Undo reverses exactly those and not the failures. */
+  succeededIds?: (string | number)[];
+  /** Why the failures happened, shown in the partial-failure toast in place of the generic line. */
+  failureReason?: string;
 }
 
 export interface BulkAction<T> {
@@ -62,6 +66,11 @@ export interface BulkAction<T> {
   kind: BulkActionKind;
   /** Omit the action entirely (e.g. the caller's role check failed) rather than rendering it disabled. */
   hidden?: boolean;
+  /**
+   * Destructive: runs when the confirm dialog opens and fills in its warning line.
+   * Reversible: runs on click, and a non-null result with ineligibleCount > 0 holds the action behind the
+   * same confirm dialog instead of running it straight away; null runs it immediately.
+   */
   precheck?: (
     selection: BulkActionSelection<T>,
   ) => Promise<BulkActionPrecheck | null> | BulkActionPrecheck | null;
@@ -132,7 +141,7 @@ export function BulkActionsBar<T>({
   const overflowSafe = safeActions.slice(4);
   const hasMore = overflowSafe.length > 0 || destructiveActions.length > 0;
 
-  const requiresTypedCount = selection.count > 5;
+  const requiresTypedCount = confirmAction?.kind === "destructive" && selection.count > 5;
   const typedCountValid = !requiresTypedCount || typedCount.trim() === String(selection.count);
 
   const runAction = async (action: BulkAction<T>) => {
@@ -161,7 +170,7 @@ export function BulkActionsBar<T>({
       } else {
         toast({
           title: `${result.succeeded} updated, ${result.failed} failed`,
-          description: "Some records couldn't be updated.",
+          description: result.failureReason ?? "Some records couldn't be updated.",
           variant: "destructive",
           action:
             onViewFailed && result.failedIds?.length ? (
@@ -182,6 +191,26 @@ export function BulkActionsBar<T>({
     } finally {
       setPendingId(null);
     }
+  };
+
+  const startAction = async (action: BulkAction<T>) => {
+    if (action.onOpen) return action.onOpen(selection);
+    if (action.kind === "reversible" && action.precheck) {
+      setPendingId(action.id);
+      let check: BulkActionPrecheck | null = null;
+      try {
+        check = await action.precheck(selection);
+      } finally {
+        setPendingId(null);
+      }
+      if (check && check.ineligibleCount > 0) {
+        setConfirmAction(action);
+        setTypedCount("");
+        setPrecheck(check);
+        return;
+      }
+    }
+    await runAction(action);
   };
 
   const openDestructiveConfirm = async (action: BulkAction<T>) => {
@@ -235,7 +264,7 @@ export function BulkActionsBar<T>({
               size="sm"
               className={cn("shrink-0", i >= 2 && "hidden lg:inline-flex")}
               disabled={pendingId !== null}
-              onClick={() => (action.onOpen ? action.onOpen(selection) : runAction(action))}
+              onClick={() => startAction(action)}
               aria-label={action.label}
               title={action.label}
               data-testid={`button-bulk-${action.id}`}
@@ -257,7 +286,7 @@ export function BulkActionsBar<T>({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {overflowSafe.map((action) => (
-                  <DropdownMenuItem key={action.id} onClick={() => (action.onOpen ? action.onOpen(selection) : runAction(action))} data-testid={`menu-bulk-${action.id}`}>
+                  <DropdownMenuItem key={action.id} onClick={() => startAction(action)} data-testid={`menu-bulk-${action.id}`}>
                     {action.icon}
                     <span className="ml-2">{action.label}</span>
                   </DropdownMenuItem>
@@ -325,7 +354,7 @@ export function BulkActionsBar<T>({
                   Cancel
                 </Button>
                 <Button
-                  variant="destructive"
+                  variant={confirmAction.kind === "destructive" ? "destructive" : "default"}
                   onClick={confirmDestructive}
                   disabled={!typedCountValid || pendingId !== null || precheckLoading}
                   data-testid="button-bulk-confirm-destructive"

@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -122,8 +123,7 @@ export default function AddExpensePage() {
     queryFn: async () => {
       const storeId = currentStore?.id === "all" ? (stores[0]?.id ?? "") : (currentStore?.id ?? "");
       if (!storeId) return [];
-      const res = await apiRequest("GET", `/api/products?storeId=${storeId}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/products?storeId=${storeId}`);
     },
     enabled: !!currentStore?.id,
   });

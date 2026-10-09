@@ -1,3 +1,4 @@
+import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { planStoreChoice } from "../lib/storeChoice";
 import { requireCustomerSpendAccess } from "../lib/transactionAccess";
@@ -1007,67 +1008,23 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(400).json({ error: "Please select a store first." });
       }
 
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
+      // One page at a time (page 1 at the default size when none is asked for); screens that need the whole
+      // list walk the pages. Archived customers are left out unless asked for with includeArchived=true.
+      const pageReq = parsePage(req.query);
+      const options = {
+        search: (req.query.search as string | undefined) || undefined,
+        includeArchived: req.query.includeArchived === "true",
+      };
 
+      let storeIds: string[];
       if (storeId === "all") {
-        const stores = await getUserStores(req);
-        if (stores.length === 0) return res.json(page > 0 && limit > 0 ? { customers: [], total: 0, pages: 0 } : []);
-
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            const list = await storage.getCustomers(s.id);
-            return list.map(item => ({ ...item, storeName: s.name }));
-          })
-        );
-
-        const mergedMap = new Map<string, any>();
-        for (const list of responses) {
-          for (const item of list) {
-            const key = item.mobileNumber || item.id;
-            const existing = mergedMap.get(key);
-            if (existing) {
-              if (item.storeName && !existing.storeName?.includes(item.storeName)) {
-                existing.storeName = `${existing.storeName}, ${item.storeName}`;
-              }
-            } else {
-              mergedMap.set(key, { ...item });
-            }
-          }
-        }
-        let merged = Array.from(mergedMap.values());
-
-        if (page > 0 && limit > 0) {
-          const search = req.query.search as string;
-          if (search) {
-            const sLower = search.toLowerCase();
-            merged = merged.filter(item => 
-              String(item.name || "").toLowerCase().includes(sLower) || 
-              String(item.mobileNumber || "").toLowerCase().includes(sLower)
-            );
-          }
-          const start = (page - 1) * limit;
-          const paginated = merged.slice(start, start + limit);
-          return res.json({
-            customers: paginated,
-            total: merged.length,
-            pages: Math.ceil(merged.length / limit),
-          });
-        }
-        return res.json(merged);
+        storeIds = (await getUserStores(req)).map(s => s.id);
+      } else {
+        if (!(await checkStoreAccess(storeId, req, res))) return;
+        storeIds = [storeId];
       }
-
-      if (!(await checkStoreAccess(storeId, req, res))) return;
-
-      if (page > 0 && limit > 0) {
-        const search = req.query.search as string;
-        const includeArchived = req.query.includeArchived === 'true';
-        const result = await storage.getCustomersPaginated(storeId, { page, limit, search, includeArchived });
-        return res.json(result);
-      }
-
-      const customerList = await storage.getCustomers(storeId);
-      res.json(customerList);
+      const { rows, total } = await storage.getCustomersPage(storeIds, options, pageReq);
+      res.json(paginated(rows, total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your customers. Please try again." });
     }

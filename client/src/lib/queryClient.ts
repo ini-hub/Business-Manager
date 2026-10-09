@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { announcePlanLimit, toPlanLimitDetails, type PlanLimitDetails } from "./upgrade-prompt";
+import { finishPages, type Paginated } from "./paginated";
 
 // Some endpoints return a machine-readable `error.code` alongside the
 // human-readable message (e.g. "SMS_UNAVAILABLE"), so callers can branch on
@@ -148,6 +149,9 @@ export async function apiRequest(
   return res;
 }
 
+const CATALOG_LIST = /^\/api\/(staff|customers|products|inventory)(\?|$)/;
+const isPageEnvelope = (body: any): body is Paginated<unknown> => !!body && Array.isArray(body.data) && !!body.pagination;
+
 const COUNTED_RESOURCE = /^\/api\/(staff|customers|products|inventory|stores)(\/|\?|$)/;
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -172,6 +176,9 @@ const getQueryFn: <T>(options: {
       }
     }
 
+    // Catalog lists are paged: ask for the largest page up front so most stores need a single request.
+    if (CATALOG_LIST.test(url) && !/[?&]limit=/.test(url)) url += `${url.includes("?") ? "&" : "?"}page=1&limit=200`;
+
     const res = await fetch(url, {
       credentials: "include",
     });
@@ -182,7 +189,11 @@ const getQueryFn: <T>(options: {
     if (isSessionLossResponse(url, res)) handleSessionExpired();
 
     await throwIfResNotOk(res);
-    return await res.json();
+    const body = await res.json();
+    // The catalog lists (staff, customers, products, inventory) come back one page at a time. Screens that read
+    // them through the default fetcher want the plain array, so the remaining pages are fetched here.
+    if (CATALOG_LIST.test(url) && isPageEnvelope(body)) return (await finishPages(url, body)) as any;
+    return body;
   };
 
 export const STALE_TIMES = {

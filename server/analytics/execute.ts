@@ -11,8 +11,12 @@
  * every level.
  */
 
-import { sql } from "drizzle-orm";
-import { db } from "../db";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { PoolClient } from "pg";
+import { pool } from "../db";
+import { createSemaphore } from "../lib/semaphore";
+import { cachedReport, storeTag } from "../lib/reportCache";
 import type { CubeId, ResultColumn, ResultRow } from "@shared/analytics/model";
 import type { AnalyticsQuery } from "@shared/analytics/query";
 import { ANALYTICS_LIMITS, KEY_SEPARATOR } from "@shared/analytics/constants";
@@ -67,22 +71,62 @@ function toNumber(value: unknown): number | null {
 }
 
 /**
- * Runs one compiled statement under a statement timeout.
- *
- * The timeout is SET LOCAL inside a transaction so it applies to this statement
- * and is discarded with it, rather than leaking onto the pooled connection.
+ * At most this many Explorer statements hold a database connection at once. The pool is shared with every other
+ * request (sales, dashboards, payroll), so a burst of tiles queues here instead of taking all of it.
  */
-async function runCompiled(compiled: CompiledCubeQuery): Promise<Record<string, unknown>[]> {
-  return db.transaction(async (tx) => {
-    // SET does not accept bind parameters, so this must be inlined. It is a
-    // compile-time integer constant from our own module, never request input.
-    await tx.execute(
-      sql.raw(`SET LOCAL statement_timeout = ${Number(ANALYTICS_LIMITS.statementTimeoutMs)}`),
+const EXPLORER_CONNECTIONS = 4;
+const explorerSlots = createSemaphore(EXPLORER_CONNECTIONS);
+const dialect = new PgDialect();
+
+/**
+ * Runs one read-only statement under a statement timeout.
+ *
+ * It used to be BEGIN, SET LOCAL, the query and COMMIT as four round trips. The timeout is still SET LOCAL inside
+ * a transaction (the pooler may share connections between requests, so a session-level SET could leak onto
+ * someone else's query), but the transaction now opens with one round trip (BEGIN READ ONLY and the SET together),
+ * and the COMMIT is sent after the rows are already on their way back instead of ahead of them. READ ONLY also
+ * means nothing a query compiles to could write, whatever it contains.
+ *
+ * The connection (and the slot) is held until that COMMIT finishes, so the cap above is a true cap.
+ */
+export async function runReadOnly(
+  statement: SQL,
+  timeoutMs: number = ANALYTICS_LIMITS.statementTimeoutMs,
+): Promise<Record<string, unknown>[]> {
+  const release = await explorerSlots.acquire();
+  let client: PoolClient;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    release();
+    throw error;
+  }
+
+  try {
+    const { sql: text, params } = dialect.sqlToQuery(statement);
+    // SET does not accept bind parameters, so the timeout is inlined: an integer constant from our own module,
+    // never request input.
+    await client.query(`BEGIN READ ONLY; SET LOCAL statement_timeout = ${Math.trunc(Number(timeoutMs))}`);
+    const result = await client.query(text, params as unknown[]);
+    void client.query("COMMIT").then(
+      () => { client.release(); release(); },
+      (error) => { client.release(error as Error); release(); },
     );
-    const result = await tx.execute(compiled.statement);
-    return (result as unknown as { rows: Record<string, unknown>[] }).rows ?? [];
-  });
+    return result.rows ?? [];
+  } catch (error) {
+    // The transaction is aborted (a timeout, a bad statement). Roll it back so the connection goes back clean.
+    try {
+      await client.query("ROLLBACK");
+      client.release();
+    } catch (rollbackError) {
+      client.release(rollbackError as Error);
+    }
+    release();
+    throw error;
+  }
 }
+
+const runCompiled = (compiled: CompiledCubeQuery) => runReadOnly(compiled.statement);
 
 /** The conformed key tuple for a row: bucket first, then each grouped dimension. */
 function rowKey(
@@ -95,21 +139,32 @@ function rowKey(
   return parts.join(KEY_SEPARATOR);
 }
 
-export async function runAnalyticsQuery(query: AnalyticsQuery): Promise<AnalyticsResult> {
-  const current = await runOverRange(query, {
-    from: query.time.from,
-    to: query.time.to,
-  });
-
-  if (query.time.compare === "none") return current;
-
-  // Re-run over the shifted window. `compare: "none"` on the inner call stops it
-  // recursing, and the shift is calendar-aware so a leap year still lines up.
-  const shifted = shiftRange(query.time.from, query.time.to, query.time.compare);
-  const previous = await runOverRange(
-    { ...query, time: { ...query.time, ...shifted, compare: "none" } },
-    shifted,
+/**
+ * Runs an Explorer query. Results are shared for a short time between identical queries over the same stores
+ * (a dashboard repeats its tiles, tabs refocus, several people open the same view) and are dropped as soon as
+ * anything in those stores is written. The query is the cache key in full: its stores were authorised and its
+ * measures filtered for the role before it got here, so two users who ask the same thing get the same answer.
+ * Concurrent identical queries share one computation.
+ */
+export function runAnalyticsQuery(query: AnalyticsQuery): Promise<AnalyticsResult> {
+  return cachedReport(
+    { name: "analytics.query", tags: query.storeIds.map(storeTag), params: query },
+    () => runAnalyticsQueryUncached(query),
   );
+}
+
+async function runAnalyticsQueryUncached(query: AnalyticsQuery): Promise<AnalyticsResult> {
+  if (query.time.compare === "none") {
+    return runOverRange(query, { from: query.time.from, to: query.time.to });
+  }
+
+  // The comparison window does not depend on the current one, so both run together. `compare: "none"` on the
+  // inner call stops it recursing, and the shift is calendar-aware so a leap year still lines up.
+  const shifted = shiftRange(query.time.from, query.time.to, query.time.compare);
+  const [current, previous] = await Promise.all([
+    runOverRange(query, { from: query.time.from, to: query.time.to }),
+    runOverRange({ ...query, time: { ...query.time, ...shifted, compare: "none" } }, shifted),
+  ]);
 
   return {
     ...current,

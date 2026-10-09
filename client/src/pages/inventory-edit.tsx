@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useParams, useSearch, Link } from "wouter";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { openBilling } from "@/lib/upgrade-prompt";
+import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { archiveStockWarning } from "@/lib/archive-stock-warning";
+import { ArchiveItemDialog, type WriteOffRequest } from "@/components/archive-item-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,7 +27,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -334,6 +336,34 @@ export default function InventoryEditPage() {
       setLocation(variantMode ? `/inventory/${id}` : "/inventory");
     },
     onError: (e: Error) => toast({ title: "Couldn't archive", description: e.message, variant: "destructive" }),
+  });
+
+  const writeOffMutation = useMutation({
+    mutationFn: async (request: WriteOffRequest) => {
+      const archiveTarget = variantMode ? primaryVariant?.id : id;
+      // When the archive target is the stocked row itself, write-off and archive commit together. A simple
+      // product archives through its group row, so that case writes off first and archives right after.
+      const atomic = archiveTarget === primaryVariant?.id;
+      const res = await apiRequest("POST", `/api/inventory/${primaryVariant?.id}/write-off`, { ...request, archive: atomic });
+      const result = await res.json();
+      if (!atomic) await apiRequest("POST", `/api/inventory/${archiveTarget}/archive`);
+      return result as { quantityWrittenOff: number; lossRecorded: number };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-detail"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-edit-item"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      setArchiveOpen(false);
+      toast({
+        title: variantMode ? "Variant archived" : "Item archived",
+        description: `${result.quantityWrittenOff} unit${result.quantityWrittenOff === 1 ? "" : "s"} written off${result.lossRecorded > 0 ? ` and ${formatCurrencyUtil(result.lossRecorded, currentStore?.currency || "NGN")} recorded as a loss` : ""}.`,
+      });
+      setLocation(variantMode ? `/inventory/${id}` : "/inventory");
+    },
+    onError: (e: Error) => toast({ title: "Couldn't write off stock", description: e.message, variant: "destructive" }),
   });
 
   if (!currentStore) return <StoreRequiredAlert />;
@@ -1007,15 +1037,27 @@ export default function InventoryEditPage() {
         </form>
       </Form>
 
-      <ConfirmDialog
+      <ArchiveItemDialog
         open={archiveOpen}
         onOpenChange={setArchiveOpen}
         title={variantMode ? "Archive this variant?" : "Archive this item?"}
-        description={`"${variantMode ? primaryVariant?.name : item?.name}" will be hidden from sales and stock lists. History is kept and you can restore it from the Archived tab.`}
-        confirmText="Archive"
-        isDestructive
-        isLoading={archiveMutation.isPending}
-        onConfirm={() => archiveMutation.mutate()}
+        description={[
+          `"${variantMode ? primaryVariant?.name : item?.name}" will be hidden from sales and stock lists. History is kept and you can restore it from the Archived tab.`,
+          archiveStockWarning(
+            variantMode ? [primaryVariant] : item?.isProductGroup ? realVariants : [item],
+            (v) => formatCurrencyUtil(v, currentStore?.currency || "NGN"),
+          ),
+        ].filter(Boolean).join(" ")}
+        writeOffTarget={primaryVariant ? {
+          quantity: Number(primaryVariant.quantity ?? 0),
+          costPrice: Number(primaryVariant.costPrice ?? 0),
+          type: primaryVariant.type ?? item?.type,
+          costingMode: primaryVariant.costingMode,
+        } : null}
+        formatCurrency={(v) => formatCurrencyUtil(v, currentStore?.currency || "NGN")}
+        isPending={archiveMutation.isPending || writeOffMutation.isPending}
+        onArchive={() => archiveMutation.mutate()}
+        onWriteOffAndArchive={(request) => writeOffMutation.mutate(request)}
       />
     </div>
   );

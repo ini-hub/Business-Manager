@@ -18,7 +18,7 @@ import { Spinner } from "@/components/ui/loader";
 export default function Dashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/admin/dashboard/metrics"],
-    refetchInterval: 15000, // Poll every 15 seconds for real-time live events feed
+    refetchInterval: 60000, // The server serves these figures from a 30s cache, so polling faster only re-reads the same numbers
   });
 
   if (isLoading) {

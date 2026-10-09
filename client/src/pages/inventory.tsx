@@ -53,6 +53,8 @@ import { useStore } from "@/lib/store-context";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, useSearch } from "wouter";
+import { ArchiveItemDialog, type WriteOffRequest } from "@/components/archive-item-dialog";
+import { archiveStockWarning, stockSummary } from "@/lib/archive-stock-warning";
 import { formatCurrency as formatCurrencyUtil, formatCurrencyCompact, getCurrencyByCode } from "@/lib/currency-utils";
 import { MetricRow } from "@/components/metric-row";
 import { ListControls } from "@/components/list-controls";
@@ -253,12 +255,20 @@ export default function InventoryPage() {
       } else {
         toast({
           title: "Couldn't Delete Item",
-          description: getUserFriendlyError(error, "deleting this item"),
+          description: msg.startsWith("Can't delete") ? msg : getUserFriendlyError(error, "deleting this item"),
           variant: "destructive",
         });
       }
     },
   });
+
+  // The reasons behind failed bulk archives/deletes: the first distinct messages, plus a count of the rest.
+  const bulkFailureReason = (errors: { message: string }[]): string | undefined => {
+    const distinct = Array.from(new Set(errors.map((e) => e.message).filter(Boolean)));
+    if (distinct.length === 0) return undefined;
+    const shown = distinct.slice(0, 2).join(" ");
+    return distinct.length > 2 ? `${shown} (and ${distinct.length - 2} other reason${distinct.length - 2 === 1 ? "" : "s"})` : shown;
+  };
 
   const archiveMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/inventory/${selectedItem?.id}/archive`),
@@ -273,7 +283,45 @@ export default function InventoryPage() {
     onError: (error: Error) => {
       toast({
         title: "Couldn't Archive Item",
-        description: getUserFriendlyError(error, "archiving this item"),
+        description: error.message.startsWith("Can't archive") ? error.message : getUserFriendlyError(error, "archiving this item"),
+        variant: "destructive",
+      });
+    },
+  });
+
+  // The one stocked row a write-off applies to: a plain item, or a product with a single variant.
+  // Multi-variant products are written off per variant from their own page.
+  const writeOffRow: any = selectedItem
+    ? (selectedItem.variants?.length === 1 ? selectedItem.variants[0] : selectedItem.variants?.length ? null : selectedItem)
+    : null;
+
+  const writeOffMutation = useMutation({
+    mutationFn: async (request: WriteOffRequest) => {
+      // Write-off and archive commit together when the archive target is the stocked row itself; a
+      // single-variant product archives through its group row, so that case archives right after.
+      const atomic = writeOffRow?.id === selectedItem?.id;
+      const res = await apiRequest("POST", `/api/inventory/${writeOffRow.id}/write-off`, { ...request, archive: atomic });
+      const result = await res.json();
+      if (!atomic) await apiRequest("POST", `/api/inventory/${selectedItem?.id}/archive`);
+      return result as { quantityWrittenOff: number; lossRecorded: number };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products/archived"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      toast({
+        title: "Item archived",
+        description: `${result.quantityWrittenOff} unit${result.quantityWrittenOff === 1 ? "" : "s"} written off${result.lossRecorded > 0 ? ` and ${formatCurrency(result.lossRecorded)} recorded as a loss` : ""}.`,
+      });
+      setIsDeleteOpen(false);
+      setDeleteBlockedBySales(false);
+      setSelectedItem(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Couldn't write off stock",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -318,16 +366,17 @@ export default function InventoryPage() {
   const bulkDeleteMutation = useMutation({
     mutationFn: (ids: string[]) =>
       runBulkFanOut(ids, async (id, batchId) => {
-        const res = await apiRequest("DELETE", `/api/inventory/${id}`, undefined, { "X-Batch-Id": batchId });
-        if (res.ok) return "deleted" as const;
-        const body = await res.json().catch(() => ({}));
-        const msg: string = body?.error ?? "";
-        if (res.status === 400 && (msg.includes("sales") || msg.includes("history"))) {
-          // Has sales history — archive instead
-          const archiveRes = await apiRequest("POST", `/api/inventory/${id}/archive`, undefined, { "X-Batch-Id": batchId });
-          if (archiveRes.ok) return "archived" as const;
+        try {
+          await apiRequest("DELETE", `/api/inventory/${id}`, undefined, { "X-Batch-Id": batchId });
+          return "deleted" as const;
+        } catch (err) {
+          // apiRequest throws on a non-OK response. Sales history means archive instead; anything else
+          // (including an open purchase order or transfer) is a real failure the caller reports.
+          const msg = err instanceof Error ? err.message : "";
+          if (!(msg.includes("sales records") || msg.includes("existing sales") || msg.includes("history"))) throw err;
         }
-        throw new Error(msg || "delete failed");
+        await apiRequest("POST", `/api/inventory/${id}/archive`, undefined, { "X-Batch-Id": batchId });
+        return "archived" as const;
       }),
     // Same as bulkArchiveMutation: no toast here, BulkActionsBar reports the outcome.
     onSuccess: () => {
@@ -1078,15 +1127,31 @@ export default function InventoryPage() {
               label: "Archive",
               icon: <Archive className="h-3.5 w-3.5" />,
               kind: "reversible",
+              precheck: (selection) => {
+                const rowsOf = (item: ProductWithVariants): any[] => (item.variants?.length ? item.variants : [item]);
+                const withStock = selection.items.filter((item) => stockSummary(rowsOf(item)).units > 0);
+                if (withStock.length === 0) return null;
+                const { units, cost } = stockSummary(selection.items.flatMap(rowsOf));
+                return {
+                  ineligibleCount: withStock.length,
+                  reason: `still have stock on hand (${units} unit${units === 1 ? "" : "s"}${cost > 0 ? `, ${formatCurrency(cost)} at cost` : ""}). Archived items are hidden from sales and stock lists, and the stock stays recorded until you restore them.`,
+                };
+              },
               onExecute: async (selection) => {
                 const ids = selection.ids as string[];
-                const { counts } = await bulkArchiveMutation.mutateAsync(ids);
-                return { succeeded: counts.archived ?? 0, failed: counts.failed ?? 0 };
+                const { counts, byOutcome, errors } = await bulkArchiveMutation.mutateAsync(ids);
+                return {
+                  succeeded: counts.archived ?? 0,
+                  failed: counts.failed ?? 0,
+                  failedIds: byOutcome.failed,
+                  succeededIds: byOutcome.archived,
+                  failureReason: bulkFailureReason(errors),
+                };
               },
-              onUndo: async () => {
-                // The archive mutation already invalidated queries with the new state;
-                // restore each item that was actually archived by this action.
-                const ids = selectedIds as string[];
+              onUndo: async (result) => {
+                // Restore only what this action archived. Items that failed were never archived, and the
+                // selection may already have been cleared by the time Undo is tapped.
+                const ids = (result.succeededIds ?? []) as string[];
                 await Promise.allSettled(ids.map((id) => restoreMutation.mutateAsync(id)));
               },
             },
@@ -1098,17 +1163,26 @@ export default function InventoryPage() {
               destructiveDescription:
                 "Items with no sales history will be permanently deleted. Items that have sales records will be archived instead to preserve your reports.",
               precheck: (selection) => {
-                const ineligibleCount = selection.items.filter((item) => !!item.hasSales).length;
-                return ineligibleCount > 0
-                  ? { ineligibleCount, reason: "have sales history and will be archived instead" }
-                  : null;
+                const affected = selection.items.filter((item) => {
+                  const rows = item.variants?.length ? item.variants : [item];
+                  return !!item.hasSales || stockSummary(rows).units > 0;
+                });
+                if (affected.length === 0) return null;
+                const { units, cost } = stockSummary(selection.items.flatMap((item): any[] => (item.variants?.length ? item.variants : [item])));
+                const stockNote = units > 0
+                  ? ` Stock on hand (${units} unit${units === 1 ? "" : "s"}${cost > 0 ? `, ${formatCurrency(cost)} at cost` : ""}) is hidden from stock lists but stays recorded.`
+                  : "";
+                return {
+                  ineligibleCount: affected.length,
+                  reason: `have sales history or stock on hand. Those with sales are archived instead of deleted.${stockNote}`,
+                };
               },
               onExecute: async (selection) => {
                 const ids = selection.ids as string[];
-                const { counts } = await bulkDeleteMutation.mutateAsync(ids);
+                const { counts, byOutcome, errors } = await bulkDeleteMutation.mutateAsync(ids);
                 const deleted = counts.deleted ?? 0;
                 const archived = counts.archived ?? 0;
-                return { succeeded: deleted + archived, failed: counts.failed ?? 0 };
+                return { succeeded: deleted + archived, failed: counts.failed ?? 0, failedIds: byOutcome.failed, failureReason: bulkFailureReason(errors) };
               },
             },
             {
@@ -1225,41 +1299,34 @@ export default function InventoryPage() {
 
       {/* Delete / Archive dialog */}
       {deleteBlockedBySales ? (
-        <Dialog open={isDeleteOpen} onOpenChange={(open) => { setIsDeleteOpen(open); if (!open) setDeleteBlockedBySales(false); }}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Archive className="h-5 w-5 text-amber-500" />
-                Archive "{selectedItem?.name}"?
-              </DialogTitle>
-              <DialogDescription className="pt-1">
-                This item has sales history, so it cannot be permanently deleted. Archiving will hide it from your active inventory and prevent new sales, while keeping all past records intact.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-2 pt-2">
-              <Button
-                onClick={() => archiveMutation.mutate()}
-                disabled={archiveMutation.isPending}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white"
-              >
-                {archiveMutation.isPending ? "Archiving…" : "Archive Item"}
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => { setIsDeleteOpen(false); setDeleteBlockedBySales(false); }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <ArchiveItemDialog
+          open={isDeleteOpen}
+          onOpenChange={(open) => { setIsDeleteOpen(open); if (!open) setDeleteBlockedBySales(false); }}
+          title={`Archive "${selectedItem?.name}"?`}
+          description={[
+            "This item has sales history, so it cannot be permanently deleted. Archiving will hide it from your active inventory and prevent new sales, while keeping all past records intact.",
+            archiveStockWarning(selectedItem?.variants?.length ? selectedItem.variants : selectedItem ? [selectedItem] : [], formatCurrency),
+          ].filter(Boolean).join(" ")}
+          writeOffTarget={writeOffRow ? {
+            quantity: Number(writeOffRow.quantity ?? 0),
+            costPrice: Number(writeOffRow.costPrice ?? 0),
+            type: writeOffRow.type ?? selectedItem?.type,
+            costingMode: writeOffRow.costingMode,
+          } : null}
+          formatCurrency={formatCurrency}
+          isPending={archiveMutation.isPending || writeOffMutation.isPending}
+          onArchive={() => archiveMutation.mutate()}
+          onWriteOffAndArchive={(request) => writeOffMutation.mutate(request)}
+        />
       ) : (
         <ConfirmDialog
           open={isDeleteOpen}
           onOpenChange={setIsDeleteOpen}
           title="Delete Item"
-          description={`Are you sure you want to delete "${selectedItem?.name}"? This action cannot be undone.`}
+          description={[
+            `Delete "${selectedItem?.name}"? It has no sales history, so it will be removed from your inventory lists.`,
+            archiveStockWarning(selectedItem?.variants?.length ? selectedItem.variants : selectedItem ? [selectedItem] : [], formatCurrency),
+          ].filter(Boolean).join(" ")}
           confirmText="Delete"
           onConfirm={() => deleteMutation.mutate()}
           isDestructive

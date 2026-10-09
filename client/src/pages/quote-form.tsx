@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -40,8 +41,7 @@ export default function QuoteFormPage() {
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/customers?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<Customer>(`/api/customers?storeId=${currentStore!.id}`);
     },
     enabled: !isDisabled("customer_management") && !!currentStore?.id,
   });
@@ -50,8 +50,7 @@ export default function QuoteFormPage() {
   const { data: inventoryItems = [], isLoading: isLoadingInventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/inventory?storeId=${currentStore!.id}`);
     },
     enabled: !!currentStore?.id,
   });

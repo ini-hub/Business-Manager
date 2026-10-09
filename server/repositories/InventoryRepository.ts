@@ -71,7 +71,7 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
     const data = await db.select()
       .from(inventory)
       .where(and(...conditions))
-      .orderBy(asc(inventory.name))
+      .orderBy(asc(inventory.name), asc(inventory.id))
       .limit(limit)
       .offset(offset);
 
@@ -104,7 +104,7 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
     const data = await db.select()
       .from(inventory)
       .where(and(...conditions))
-      .orderBy(asc(inventory.name))
+      .orderBy(asc(inventory.name), asc(inventory.id))
       .limit(limit)
       .offset(offset);
 

@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Trash2, X } from "lucide-react";
@@ -56,7 +57,7 @@ export default function PromotionsPage() {
 
   const { data: inventory = [], isLoading: inventoryLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", storeId],
-    queryFn: async () => (await apiRequest("GET", `/api/inventory?storeId=${storeId}`)).json(),
+    queryFn: async () => fetchAllPages<any>(`/api/inventory?storeId=${storeId}`),
     enabled: !!storeId,
   });
 

@@ -60,7 +60,8 @@ export class AnalyticsRepository {
         .innerJoin(checkouts, eq(checkouts.id, transactions.checkoutId))
         .where(checkoutDateFilter),
       // Counted by the database. This used to load every inventory row (a full `select *`) on each dashboard
-      // load just to count and filter them in Node. (Soft-deleted items are still counted, as before.)
+      // load just to count and filter them in Node. Soft-deleted items are not stock: they are left out here as
+      // they are from the inventory list, so a deleted product can no longer show up as an out-of-stock alert.
       //
       // Supplies are stock and run out, so they belong in the low-stock alert - running dry on shampoo stops
       // services just as surely as running dry on retail. Services are stockless and never alert.
@@ -71,11 +72,12 @@ export class AnalyticsRepository {
         supplies: sql<number>`(count(*) FILTER (WHERE ${inventory.type} = 'supply'))::int`,
         outOfStock: sql<number>`(count(*) FILTER (WHERE ${inventory.type} IN ('product', 'supply') AND ${inventory.quantity} <= ${itemThreshold} AND ${inventory.quantity} = 0))::int`,
         lowStock: sql<number>`(count(*) FILTER (WHERE ${inventory.type} IN ('product', 'supply') AND ${inventory.quantity} <= ${itemThreshold} AND ${inventory.quantity} <> 0))::int`,
-      }).from(inventory).where(eq(inventory.storeId, storeId)),
+      }).from(inventory).where(and(eq(inventory.storeId, storeId), eq(inventory.isDeleted, false))),
       // Only the most urgent alerts travel to the browser (out of stock first, then lowest stock); the counts
       // above are exact, and the full list lives on the inventory screen.
       db.select().from(inventory).where(and(
         eq(inventory.storeId, storeId),
+        eq(inventory.isDeleted, false),
         inArray(inventory.type, ["product", "supply"]),
         sql`${inventory.quantity} <= ${itemThreshold}`,
       )).orderBy(sql`CASE WHEN ${inventory.quantity} = 0 THEN 0 ELSE 1 END`, asc(inventory.quantity), asc(inventory.name)).limit(LOW_STOCK_LIST_LIMIT),

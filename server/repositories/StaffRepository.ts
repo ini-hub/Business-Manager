@@ -34,7 +34,7 @@ import {
   type InsertStaff,
   type Store,
 } from "@shared/schema";
-import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull, inArray } from "drizzle-orm";
+import { eq, and, or, ilike, count, asc, desc, gte, lte, isNull, inArray, sql } from "drizzle-orm";
 import { commissionService } from "../services/CommissionService";
 import type { PaginationOptions, PaginatedResult } from "../storage";
 import { joinFullName as composeFullName } from "@shared/name-utils";
@@ -183,7 +183,7 @@ export class StaffRepository {
     const data = await db.select()
       .from(staff)
       .where(and(...conditions))
-      .orderBy(asc(staff.staffNumber))
+      .orderBy(asc(staff.staffNumber), asc(staff.id))
       .limit(limit)
       .offset(offset);
 
@@ -483,54 +483,94 @@ export class StaffRepository {
     return { services, products };
   }
 
-  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
-
-    const activeStaff = await db.select().from(staff).where(and(eq(staff.storeId, storeId), eq(staff.isArchived, false)));
+  // `onlyStaffId` narrows the result to one staff member (my-performance): their attendance is the only
+  // attendance read, and only receipts they appear on are loaded (every line of such a receipt, because the
+  // basket discount is allocated across all of its lines).
+  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string, onlyStaffId?: string): Promise<any[]> {
+    const staffConditions: any[] = [eq(staff.storeId, storeId), eq(staff.isArchived, false)];
+    if (onlyStaffId) staffConditions.push(eq(staff.id, onlyStaffId));
+    const tz = await getStoreTimezone(storeId);
 
     const checkoutConditions: any[] = [
       eq(checkouts.storeId, storeId),
       eq(checkouts.paymentStatus, "completed"),
       eq(checkouts.isVoided, false),
     ];
-    const tz = await getStoreTimezone(storeId);
     if (startDate) checkoutConditions.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
     if (endDate) checkoutConditions.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
-
-    const rows = await db.select({
-      checkout: checkouts,
-      order: orders,
-      inventoryItem: inventory,
-    })
-      .from(orders)
-      .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
-      .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
-      .where(and(...checkoutConditions));
+    if (onlyStaffId) {
+      checkoutConditions.push(sql`${checkouts.receiptNumber} IN (
+        SELECT c2.receipt_number FROM checkouts c2
+        WHERE c2.store_id = ${storeId} AND c2.payment_status = 'completed' AND c2.is_voided = false
+          AND (c2.lead_staff_id = ${onlyStaffId} OR c2.staff_id = ${onlyStaffId}
+               OR c2.assisting_staff1_id = ${onlyStaffId} OR c2.assisting_staff2_id = ${onlyStaffId}))`);
+    }
 
     const attendanceConditions: any[] = [eq(attendanceRecords.storeId, storeId)];
     if (startDate) attendanceConditions.push(gte(attendanceRecords.date, startDate));
     if (endDate) attendanceConditions.push(lte(attendanceRecords.date, endDate));
+    if (onlyStaffId) attendanceConditions.push(eq(attendanceRecords.staffId, onlyStaffId));
 
-    const attendanceList = await db.select().from(attendanceRecords).where(and(...attendanceConditions));
-    const effectivePrices = this.allocateEffectivePrices(rows);
+    // Independent reads, so they run together; attendance is counted in SQL instead of shipping every row.
+    const [activeStaff, rows, attendanceCounts] = await Promise.all([
+      db.select().from(staff).where(and(...staffConditions)),
+      db.select({
+        checkout: {
+          id: checkouts.id,
+          receiptNumber: checkouts.receiptNumber,
+          discountAmount: checkouts.discountAmount,
+          subtotal: checkouts.subtotal,
+          totalPrice: checkouts.totalPrice,
+          leadStaffId: checkouts.leadStaffId,
+          staffId: checkouts.staffId,
+          assistingStaff1Id: checkouts.assistingStaff1Id,
+          assistingStaff2Id: checkouts.assistingStaff2Id,
+          commissionSplit: checkouts.commissionSplit,
+        },
+        order: { totalPrice: orders.totalPrice },
+        inventoryItem: { type: inventory.type },
+      })
+        .from(orders)
+        .innerJoin(checkouts, eq(orders.id, checkouts.orderId))
+        .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
+        .where(and(...checkoutConditions)),
+      db.select({
+        staffId: attendanceRecords.staffId,
+        presentDays: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'present')::int`,
+        absentDays: sql<number>`count(*) filter (where ${attendanceRecords.status} = 'absent')::int`,
+        // Late is a flag on top of "present", not a separate status — a late day is still counted in
+        // presentDays, so this is a subset count, not additive.
+        lateDays: sql<number>`count(*) filter (where ${attendanceRecords.isLate})::int`,
+      })
+        .from(attendanceRecords)
+        .where(and(...attendanceConditions))
+        .groupBy(attendanceRecords.staffId),
+    ]);
+
+    const effectivePrices = this.allocateEffectivePrices(rows as any);
+    const attendanceByStaff = new Map(attendanceCounts.map(a => [a.staffId, a]));
+
+    // One pass over the rows, indexed by the staff member each line belongs to (a line counts for its lead,
+    // or the cashier when there is no lead, and for each assistant).
+    const byStaff = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const ids = new Set<string>();
+      if (r.checkout.leadStaffId) ids.add(r.checkout.leadStaffId);
+      else if (r.checkout.staffId) ids.add(r.checkout.staffId);
+      if (r.checkout.assistingStaff1Id) ids.add(r.checkout.assistingStaff1Id);
+      if (r.checkout.assistingStaff2Id) ids.add(r.checkout.assistingStaff2Id);
+      for (const id of Array.from(ids)) {
+        const list = byStaff.get(id);
+        if (list) list.push(r); else byStaff.set(id, [r]);
+      }
+    }
 
     return activeStaff.map(s => {
-      const staffCheckouts = rows.filter(r =>
-        r.checkout.leadStaffId === s.id ||
-        (r.checkout.staffId === s.id && !r.checkout.leadStaffId) ||
-        r.checkout.assistingStaff1Id === s.id ||
-        r.checkout.assistingStaff2Id === s.id
-      );
-
-      const totalRevenue = staffCheckouts.reduce((sum, r) => sum + this.revenueShare(s.id, r.checkout, effectivePrices.get(r.checkout.id) ?? r.order.totalPrice), 0);
+      const staffCheckouts = byStaff.get(s.id) ?? [];
+      const totalRevenue = staffCheckouts.reduce((sum, r) => sum + this.revenueShare(s.id, r.checkout as any, effectivePrices.get(r.checkout.id) ?? r.order.totalPrice), 0);
       const servicesCount = staffCheckouts.filter(r => r.inventoryItem.type === "service").length;
       const productsCount = staffCheckouts.filter(r => r.inventoryItem.type === "product").length;
-
-      const staffAttendance = attendanceList.filter(a => a.staffId === s.id);
-      const presentDays = staffAttendance.filter(a => a.status === "present").length;
-      const absentDays = staffAttendance.filter(a => a.status === "absent").length;
-      // Late is a flag on top of "present", not a separate status — a late day is
-      // still counted in presentDays above, so this is a subset count, not additive.
-      const lateDays = staffAttendance.filter(a => a.isLate).length;
+      const att = attendanceByStaff.get(s.id);
 
       return {
         id: s.id,
@@ -540,9 +580,9 @@ export class StaffRepository {
         totalRevenue,
         servicesCount,
         productsCount,
-        presentDays,
-        absentDays,
-        lateDays,
+        presentDays: att?.presentDays ?? 0,
+        absentDays: att?.absentDays ?? 0,
+        lateDays: att?.lateDays ?? 0,
       };
     });
   }

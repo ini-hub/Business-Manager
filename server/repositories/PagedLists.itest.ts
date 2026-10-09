@@ -222,3 +222,92 @@ describe("stock transfers and register sessions", () => {
     expect((await storage.cashRegisterRepo.getSessionsPage(f.storeId, { limit: 10, offset: 0 })).total).toBe(3);
   });
 });
+
+describe("customers", () => {
+  it("pages in SQL, searches names and numbers, hides archived by default, and folds a shared number into one row across stores", async () => {
+    const mk = (storeId: string, name: string, n: string, o: Record<string, unknown> = {}) =>
+      db.insert(customers).values({ storeId, name, customerNumber: n, address: "x", ...o } as any).returning().then((r) => r[0]);
+    const tag = String(Date.now()).slice(-6);
+    const shared = await mk(f.storeId, "Zainab Okafor", `CP1-${tag}`, { mobileNumber: "08031112222" }); // same person as the other store's
+    await mk(f.storeId, "Bayo Archived", `CP2-${tag}`, { mobileNumber: "08033330001", isArchived: true });
+    await mk(f.storeId, "Cee Nonumber", `CP3-${tag}`);
+    await mk(otherStoreId, "Cee Nonumber", `CP4-${tag}`); // no number: stays a separate row
+
+    const one = await storage.getCustomersPage([f.storeId], {}, { limit: 100, offset: 0 });
+    const names = one.rows.map((r) => r.name);
+    expect(names).toContain("Zainab Okafor");
+    expect(names).not.toContain("Bayo Archived");
+    expect(one.total).toBe(one.rows.length);
+    expect((await storage.getCustomersPage([f.storeId], { includeArchived: true }, { limit: 100, offset: 0 })).rows.map((r) => r.name)).toContain("Bayo Archived");
+
+    // Search: name, number and customer number.
+    expect((await storage.getCustomersPage([f.storeId], { search: "okaf" }, { limit: 10, offset: 0 })).rows.map((r) => r.id)).toEqual([shared.id]);
+    expect((await storage.getCustomersPage([f.storeId], { search: "08031112222" }, { limit: 10, offset: 0 })).total).toBe(1);
+    expect((await storage.getCustomersPage([f.storeId], { search: `CP3-${tag}` }, { limit: 10, offset: 0 })).total).toBe(1);
+
+    // Paging walks every row once with a stable total.
+    const seen: string[] = [];
+    for (let offset = 0; ; offset += 2) {
+      const page = await storage.getCustomersPage([f.storeId], {}, { limit: 2, offset });
+      seen.push(...page.rows.map((r) => r.id));
+      if (offset + 2 >= page.total) break;
+    }
+    expect(seen).toHaveLength(one.total);
+    expect(new Set(seen).size).toBe(one.total);
+
+    // Across stores the shared number is one row naming both stores; the numberless pair stays two rows.
+    const all = await storage.getCustomersPage([f.storeId, otherStoreId], {}, { limit: 100, offset: 0 });
+    const zainab = all.rows.filter((r) => r.name === "Zainab Okafor");
+    expect(zainab).toHaveLength(1);
+    expect(zainab[0].storeName?.split(", ")).toHaveLength(2);
+    expect(all.rows.filter((r) => r.name === "Cee Nonumber")).toHaveLength(2);
+    const allPaged: string[] = [];
+    for (let offset = 0; ; offset += 2) {
+      const page = await storage.getCustomersPage([f.storeId, otherStoreId], {}, { limit: 2, offset });
+      allPaged.push(...page.rows.map((r) => r.id));
+      if (offset + 2 >= page.total) break;
+    }
+    expect(allPaged.sort()).toEqual(all.rows.map((r) => r.id).sort());
+  });
+});
+
+describe("products, inventory and staff", () => {
+  it("page across stores in a stable order and cover every row once", async () => {
+    const mkProduct = async (storeId: string, name: string) => {
+      const [p] = await db.insert(products).values({ storeId, name, type: "product" } as any).returning();
+      await db.insert(inventory).values({ storeId, productId: p.id, name, type: "product", costPrice: 1, sellingPrice: 2, quantity: 1 } as any);
+      return p;
+    };
+    // Same name in both stores: only the id tie-break keeps the page boundaries from repeating or dropping one.
+    const tie = `Tie${Date.now()}`;
+    for (const n of [tie, "Oil"]) await mkProduct(f.storeId, n === "Oil" ? `Oil${tie}` : n);
+    for (const n of [tie, "Brush", "Comb"]) await mkProduct(otherStoreId, n === "Brush" ? `Brush${tie}` : n === "Comb" ? `Comb${tie}` : n);
+
+    const both = [f.storeId, otherStoreId];
+    const whole = await storage.getProductsPaginated(both, { page: 1, limit: 100 });
+    expect(whole.pagination.total).toBe(whole.data.length);
+
+    const seen: string[] = [];
+    for (let page = 1; ; page++) {
+      const r = await storage.getProductsPaginated(both, { page, limit: 2 });
+      seen.push(...r.data.map((p: any) => p.id));
+      if (!r.pagination.hasMore) break;
+    }
+    expect(seen).toEqual(whole.data.map((p: any) => p.id));
+    expect(new Set(seen).size).toBe(whole.pagination.total);
+    expect(whole.data.every((p: any) => Array.isArray(p.variants))).toBe(true);
+    expect((await storage.getProductsPaginated(both, { page: 1, limit: 100, search: `brush${tie}` })).pagination.total).toBe(1);
+
+    const invWhole = await storage.getInventoryForStores(both, { page: 1, limit: 100 });
+    const invSeen: string[] = [];
+    for (let page = 1; ; page++) {
+      const r = await storage.getInventoryForStores(both, { page, limit: 2 });
+      invSeen.push(...r.data.map((i) => i.id));
+      if (!r.pagination.hasMore) break;
+    }
+    expect(invSeen).toEqual(invWhole.data.map((i) => i.id));
+
+    const staffWhole = await storage.getStaffPaginated(f.storeId, { page: 1, limit: 100, includeArchived: true });
+    expect(staffWhole.data.map((s) => s.id)).toContain(f.staffId);
+  });
+});

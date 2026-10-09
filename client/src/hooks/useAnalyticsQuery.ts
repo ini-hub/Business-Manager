@@ -24,5 +24,8 @@ export function useAnalyticsQuery(
     enabled: Boolean(body) && options.enabled !== false,
     placeholderData: keepPreviousData,
     staleTime: STALE_TIMES.transactional,
+    // The server caches these and drops them when the stores change, so refocusing a tab should not re-run every
+    // tile of a dashboard; the next change in the data (or the stale time) refreshes them.
+    refetchOnWindowFocus: false,
   });
 }

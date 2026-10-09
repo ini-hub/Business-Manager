@@ -176,6 +176,7 @@ interface IStorage {
   // Customers
   getCustomers(storeId: string, includeArchived?: boolean): Promise<Customer[]>;
   getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>>;
+  getCustomersPage(storeIds: string[], options: { search?: string; includeArchived?: boolean }, page: { limit: number; offset: number }): Promise<{ rows: (Customer & { storeName?: string })[]; total: number }>;
   getCustomer(id: string): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
@@ -225,7 +226,7 @@ interface IStorage {
 
   // Products
   getProducts(storeId: string): Promise<any[]>;
-  getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>>;
+  getProductsPaginated(storeIds: string | string[], options: PaginationOptions): Promise<PaginatedResult<any>>;
   getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]>;
   getProduct(id: string): Promise<any>;
   getProductByName(storeId: string, name: string): Promise<Product | undefined>;
@@ -498,7 +499,7 @@ interface IStorage {
   getPayslipRecord(id: string): Promise<any>;
 
   // Staff Performance
-  getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
+  getStaffPerformance(storeId: string, startDate?: string, endDate?: string, onlyStaffId?: string): Promise<any[]>;
   getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }>;
 
   // Search
@@ -753,6 +754,10 @@ class DatabaseStorage implements IStorage {
     return this.customerRepo.getCustomers(storeId, includeArchived);
   }
 
+  async getCustomersPage(storeIds: string[], options: { search?: string; includeArchived?: boolean }, page: { limit: number; offset: number }) {
+    return this.customerRepo.getCustomersPage(storeIds, options, page);
+  }
+
   async getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>> {
     return this.customerRepo.getCustomersPaginated(storeId, options);
   }
@@ -902,8 +907,8 @@ class DatabaseStorage implements IStorage {
     return this.productRepo.getProducts(storeId);
   }
 
-  async getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>> {
-    return this.productRepo.getProductsPaginated(storeId, options);
+  async getProductsPaginated(storeIds: string | string[], options: PaginationOptions): Promise<PaginatedResult<any>> {
+    return this.productRepo.getProductsPaginated(storeIds, options);
   }
 
   async getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]> {
@@ -1975,8 +1980,8 @@ class DatabaseStorage implements IStorage {
   }
 
   // ─── Staff Performance / Search ────────────────────────────────────────────
-  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
-    return this.staffRepo.getStaffPerformance(storeId, startDate, endDate);
+  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string, onlyStaffId?: string): Promise<any[]> {
+    return this.staffRepo.getStaffPerformance(storeId, startDate, endDate, onlyStaffId);
   }
 
   async getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }> {

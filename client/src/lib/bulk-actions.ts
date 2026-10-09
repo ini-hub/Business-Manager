@@ -17,17 +17,21 @@ export async function runBulkFanOut<TId, TOutcome extends string>(
   counts: Partial<Record<TOutcome | "failed", number>>;
   byOutcome: Partial<Record<TOutcome | "failed", TId[]>>;
   batchId: string;
+  /** Message of each rejected run, in selection order, so callers can say why something failed. */
+  errors: { id: TId; message: string }[];
 }> {
   const batchId = crypto.randomUUID();
   const settled = await Promise.allSettled(ids.map((id) => run(id, batchId)));
   const byOutcome: Partial<Record<TOutcome | "failed", TId[]>> = {};
   const counts: Partial<Record<TOutcome | "failed", number>> = {};
+  const errors: { id: TId; message: string }[] = [];
 
   settled.forEach((res, i) => {
     const outcome: TOutcome | "failed" = res.status === "fulfilled" ? res.value : "failed";
+    if (res.status === "rejected") errors.push({ id: ids[i], message: res.reason instanceof Error ? res.reason.message : String(res.reason) });
     (byOutcome[outcome] ??= []).push(ids[i]);
     counts[outcome] = (counts[outcome] ?? 0) + 1;
   });
 
-  return { counts, byOutcome, batchId };
+  return { counts, byOutcome, batchId, errors };
 }

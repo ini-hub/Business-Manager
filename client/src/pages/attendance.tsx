@@ -1,6 +1,5 @@
 import { fetchAllPages } from "@/lib/paginated";
 import { useState, useMemo } from "react";
-import type { TransactionWithRelations } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, getDay, addMonths, subMonths } from "date-fns";
 import {
@@ -279,32 +278,17 @@ export default function AttendancePage() {
     };
   }, [scheduleData]);
 
-  // Fetch transactions to resolve active vs passive status dynamically
-  const { data: transactions = [] } = useQuery<TransactionWithRelations[]>({
-    queryKey: ["/api/transactions", currentStore?.id],
-    // Builds the set of staff-and-day pairs doing service work, so it reads every receipt (page by page).
-    queryFn: () => fetchAllPages<TransactionWithRelations>(`/api/transactions?storeId=${currentStore?.id}`),
+  // Staff-and-day pairs that did service work ("staffId:yyyy-MM-dd"), to resolve active vs passive status.
+  // The server groups them within the visible range; the screen never downloads the receipts.
+  const { data: serviceDays } = useQuery<{ days: string[] }>({
+    queryKey: ["/api/attendance/service-days", currentStore?.id, startDate, endDate],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/attendance/service-days?storeId=${currentStore?.id}&startDate=${startDate}&endDate=${endDate}`);
+      return res.json();
+    },
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
-
-  // Lookup set of staff members assigned to service line items per day: "staffId:yyyy-MM-dd"
-  const activeStaffDays = useMemo(() => {
-    const s = new Set<string>();
-    for (const tx of transactions) {
-      if ((tx.inventory?.type === "service" || tx.inventory?.type === "mixed") && tx.checkout) {
-        const dateStr = new Date(tx.transactionDate as unknown as string).toISOString().split("T")[0];
-
-        // For multi-service receipts, serviceStaffIds carries every distinct staff
-        // member across all line items (a single leadStaffId/assistingStaffXId pair
-        // can only represent one service's staff and would drop the others).
-        const staffIds = tx.checkout.serviceStaffIds?.length
-          ? tx.checkout.serviceStaffIds
-          : [tx.checkout.leadStaffId, tx.checkout.assistingStaff1Id, tx.checkout.assistingStaff2Id].filter(Boolean);
-        for (const staffId of staffIds) s.add(`${staffId}:${dateStr}`);
-      }
-    }
-    return s;
-  }, [transactions]);
+  const activeStaffDays = useMemo(() => new Set(serviceDays?.days ?? []), [serviceDays]);
 
   // Build a lookup: staffId + date → record
   const recordMap = useMemo(() => {

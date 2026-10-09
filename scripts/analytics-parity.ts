@@ -33,6 +33,8 @@ interface Comparison {
 interface CaseResult {
   store: string;
   range: string;
+  /** Wall-clock time of the Explorer query, so a slowdown shows up next to the correctness check. */
+  explorerMs?: number;
   comparisons: Comparison[];
   failures: Comparison[];
   error?: string;
@@ -175,7 +177,9 @@ async function runCase(
       dimensions: [],
       time: { from: range.from, to: range.to, grain: "day" },
     });
+    const startedAt = Date.now();
     const actual = await runAnalyticsQuery(query);
+    result.explorerMs = Date.now() - startedAt;
     const t = actual.totals;
 
     result.comparisons = [
@@ -360,6 +364,17 @@ async function main() {
     `${results.length} cases, ${checks} value comparisons, ` +
       `${failed.length} failing case(s).`,
   );
+
+  // Timing is a signal, not a gate: the parity gate used to say nothing about speed, so a regression in how fast the
+  // Explorer answers would have passed unnoticed. The slowest cases are listed so they can be looked at.
+  const timed = results.filter((r) => typeof r.explorerMs === "number").sort((a, b) => b.explorerMs! - a.explorerMs!);
+  if (timed.length > 0) {
+    const total = timed.reduce((n, r) => n + r.explorerMs!, 0);
+    const sorted = timed.map((r) => r.explorerMs!).sort((a, b) => a - b);
+    const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+    console.log(`\nExplorer timing: ${timed.length} queries, ${total}ms total, median ${sorted[Math.floor(sorted.length / 2)]}ms, p95 ${p95}ms`);
+    for (const r of timed.slice(0, 3)) console.log(`  slowest: ${String(r.explorerMs).padStart(6)}ms  ${r.store} / ${r.range}`);
+  }
 
   if (failed.length > 0) {
     console.log("\nParity gate FAILED. The Explorer disagrees with the existing reports.");

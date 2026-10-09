@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -86,8 +87,7 @@ export default function ExpenseEditPage() {
   const { data: productGroups = [] } = useQuery<{ id: string; name: string; type: string }[]>({
     queryKey: ["/api/products", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/products?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/products?storeId=${currentStore!.id}`);
     },
     enabled: !!currentStore?.id,
   });

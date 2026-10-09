@@ -38,9 +38,7 @@ export default function CustomerInsights() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/customers?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as Customer[];
+              const list = await fetchAllPages<Customer>(`/api/customers?storeId=${s.id}&includeArchived=true`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -63,9 +61,7 @@ export default function CustomerInsights() {
         }
         return Array.from(mergedMap.values());
       }
-      const res = await fetch(`/api/customers?storeId=${currentStore?.id}`);
-      if (!res.ok) throw new Error("Failed to fetch customers");
-      return res.json();
+      return fetchAllPages<Customer>(`/api/customers?storeId=${currentStore?.id}&includeArchived=true`);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });

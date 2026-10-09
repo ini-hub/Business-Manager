@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
@@ -88,7 +89,7 @@ export function StoreDetailsSection() {
 
   const { data: inventory = [] } = useQuery<any[]>({
     queryKey: ["/api/inventory", currentStore?.id],
-    queryFn: async () => (await apiRequest("GET", `/api/inventory?storeId=${currentStore?.id}`)).json(),
+    queryFn: async () => fetchAllPages<any>(`/api/inventory?storeId=${currentStore?.id}`),
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
 

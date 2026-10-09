@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -49,9 +50,7 @@ export function LogSupplyUsageDialog({ open, onOpenChange, orderId, storeId, ser
   const { data: supplies = [] } = useQuery({
     queryKey: ["/api/inventory", storeId, "supplies-metered"],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${storeId}`);
-      const data = await res.json();
-      const items = Array.isArray(data) ? data : (data.items ?? []);
+      const items = await fetchAllPages<any>(`/api/inventory?storeId=${storeId}`);
       // Only a metered supply can release cost per use — an expensed one was
       // already charged in full on purchase, so logging usage against it
       // would count the same cost twice.

@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -166,14 +167,12 @@ export default function PurchaseOrderFormPage() {
   const { data: inventoryItems = [] } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id, stores.map(s => s.id).join(","), editPO?.storeId],
     queryFn: async () => {
-      if (editPO) return (await apiRequest("GET", `/api/inventory?storeId=${editPO.storeId}`)).json();
+      if (editPO) return fetchAllPages<any>(`/api/inventory?storeId=${editPO.storeId}`);
       if (currentStore?.id === "all" && stores.length > 0) {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/inventory?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as Inventory[];
+              const list = await fetchAllPages<Inventory>(`/api/inventory?storeId=${s.id}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -182,8 +181,7 @@ export default function PurchaseOrderFormPage() {
         );
         return responses.flat();
       }
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/inventory?storeId=${currentStore!.id}`);
     },
     enabled: isEdit ? !!editPO : currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
   });

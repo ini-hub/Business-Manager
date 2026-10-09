@@ -1,4 +1,3 @@
-import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Trash2, X } from "lucide-react";
@@ -21,20 +20,6 @@ import { ExportToolbar } from "@/components/export-toolbar";
 import { cn } from "@/lib/utils";
 import type { TaxRate } from "@shared/schema";
 import { Spinner } from "@/components/ui/loader";
-
-type Transaction = {
-  id: string;
-  storeId: string;
-  createdAt: string;
-  checkout: {
-    totalPrice: number;
-    totalCharged: number;
-    subtotal: number;
-    taxTotal: number;
-    isVoided: boolean;
-    taxRefunded: number;
-  };
-};
 
 type TaxRateRow = TaxRate & { statusLabel: "Default" | "Custom" };
 
@@ -72,11 +57,13 @@ export default function TaxesCompliancePage() {
     enabled: !!currentStore?.id,
   });
 
-  // Fetch Transactions for VAT reporting
-  const { data: transactions = [], isLoading: isLoadingTransactions } = useQuery<Transaction[]>({
-    queryKey: ["/api/transactions", currentStore?.id],
-    // VAT totals add up every receipt, so this reads them all (page by page).
-    queryFn: () => fetchAllPages<Transaction>(`/api/transactions?storeId=${currentStore?.id}`),
+  // VAT collected per month, summed by the server (store-local months).
+  const { data: vatReport, isLoading: isLoadingTransactions } = useQuery<{ months: { month: string; taxableSales: number; vatCollected: number; count: number }[] }>({
+    queryKey: ["/api/reports/vat-monthly", currentStore?.id],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/reports/vat-monthly?storeId=${currentStore?.id}`);
+      return res.json();
+    },
     enabled: !!currentStore?.id,
   });
 
@@ -159,40 +146,13 @@ export default function TaxesCompliancePage() {
 
   const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
 
-  // Computations for Compliance Reporting.
-  // Checkout-level fields live under tx.checkout, not on tx directly — and
-  // taxTotal/taxableSales must net out taxRefunded so a returned sale doesn't
-  // keep counting toward VAT the store no longer actually collected.
-  const validCheckouts = transactions.filter(tx => !tx.checkout?.isVoided);
-  const netTax = (tx: Transaction) => Math.max(0, (tx.checkout?.taxTotal || 0) - (tx.checkout?.taxRefunded || 0));
   const defaultRate = taxRates.find(r => r.isDefault);
 
-  // Group VAT collected by calendar month
-  const monthlyMetrics: Record<string, { month: string; taxableSales: number; vatCollected: number; count: number }> = {};
-  validCheckouts.forEach(tx => {
-    const d = new Date(tx.createdAt);
-    if (isNaN(d.getTime())) return;
-    const monthKey = d.toLocaleString("en-US", { month: "short", year: "numeric" });
-
-    if (!monthlyMetrics[monthKey]) {
-      monthlyMetrics[monthKey] = { month: monthKey, taxableSales: 0, vatCollected: 0, count: 0 };
-    }
-
-    const tax = netTax(tx);
-    const sub = tx.checkout?.subtotal || (tx.checkout?.totalPrice ?? 0) - tax;
-
-    monthlyMetrics[monthKey].vatCollected += tax;
-    if (tax > 0) {
-      monthlyMetrics[monthKey].taxableSales += sub;
-    }
-    monthlyMetrics[monthKey].count += 1;
-  });
-
-  const reportsList = Object.values(monthlyMetrics).sort((a, b) => {
-    const dateA = new Date(a.month);
-    const dateB = new Date(b.month);
-    return dateB.getTime() - dateA.getTime();
-  });
+  const reportsList = (vatReport?.months ?? []).map(m => ({
+    ...m,
+    // "2026-03" -> "Mar 2026"
+    month: new Date(`${m.month}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }),
+  }));
 
   const taxRatesWithStatus: TaxRateRow[] = taxRates.map(r => ({ ...r, statusLabel: r.isDefault ? "Default" : "Custom" }));
 
