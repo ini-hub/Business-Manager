@@ -38,17 +38,43 @@ type Lookup =
   | { ok: true; accountName: string }
   | { ok: false; status: 422 | 503; error: string };
 
+// A lookup that just succeeded is trusted for a few minutes, so saving doesn't depend on a second
+// provider call (phone-number accounts like OPay/PalmPay often fail or rate-limit on the repeat).
+const VERIFIED_TTL_MS = 10 * 60 * 1000;
+const recentlyVerified = new Map<string, { accountName: string; at: number }>();
+const verifiedKey = (userId: string | undefined, bankCode: string, accountNumber: string) => `${userId ?? ""}|${bankCode}|${accountNumber}`;
+function rememberVerified(userId: string | undefined, bankCode: string, accountNumber: string, accountName: string) {
+  const now = Date.now();
+  recentlyVerified.forEach((v, k) => { if (now - v.at > VERIFIED_TTL_MS) recentlyVerified.delete(k); });
+  recentlyVerified.set(verifiedKey(userId, bankCode, accountNumber), { accountName, at: now });
+}
+function recallVerified(userId: string | undefined, bankCode: string, accountNumber: string): string | null {
+  const hit = recentlyVerified.get(verifiedKey(userId, bankCode, accountNumber));
+  return hit && Date.now() - hit.at <= VERIFIED_TTL_MS ? hit.accountName : null;
+}
+
 /** Asks the bank who owns the account. 422 = the bank says no such account; 503 = we couldn't ask. */
-async function lookupAccount(accountNumber: string, bankCode: string): Promise<Lookup> {
+async function lookupAccount(accountNumber: string, bankCode: string, userId?: string): Promise<Lookup> {
   if (!NUBAN.test(accountNumber)) return { ok: false, status: 422, error: "Account number must be 10 digits." };
+  const remembered = recallVerified(userId, bankCode, accountNumber);
+  if (remembered) return { ok: true, accountName: remembered };
   try {
     const { accountName } = await resolveAccount(accountNumber, bankCode);
+    rememberVerified(userId, bankCode, accountNumber, accountName);
     return { ok: true, accountName };
   } catch (err: any) {
-    // fetch() rejects with a TypeError on network failure; "isn't configured" means no Paystack key.
-    const unreachable = err instanceof TypeError || /isn't configured/.test(err?.message ?? "");
+    // Only the provider's own "can't resolve" answer means the account doesn't exist; network failures,
+    // missing keys, rate limits and provider outages mean we couldn't ask.
+    const msg = String(err?.message ?? "");
+    console.warn(`[PaymentAccounts] bank lookup failed for bank ${bankCode}: ${err?.name ?? "Error"}: ${msg}`);
+    const notFound = /could not resolve|unable to resolve|invalid account|account number|not found|no record/i.test(msg)
+      && !/rate|limit|too many|unavailable|timeout|key|configured/i.test(msg);
+    const unreachable = !notFound;
     if (unreachable) return { ok: false, status: 503, error: "Couldn't reach the bank lookup service. You can save the account unverified." };
-    return { ok: false, status: 422, error: "Couldn't find that account at the selected bank. Check the number and bank." };
+    // The provider's resolver doesn't cover every institution (phone-number accounts such as OPay, PalmPay,
+    // Moniepoint and Kuda are often missing), so "not found" can't be a hard block: let the user confirm
+    // the name themselves and save it unverified.
+    return { ok: false, status: 503, error: "The bank lookup couldn't confirm this account. Phone-number accounts (OPay, PalmPay, Moniepoint, Kuda) are often not covered. If the number and bank are right, type the account name and save it unverified." };
   }
 }
 
@@ -58,9 +84,10 @@ async function lookupAccount(accountNumber: string, bankCode: string): Promise<L
  */
 async function verifiedFields(
   d: { bankCode?: string | null; accountNumber?: string | null; accountName?: string | null; allowUnverified?: boolean },
+  userId?: string,
 ): Promise<{ fields: { accountName?: string | null; accountVerifiedAt: Date | null } } | { status: number; error: string }> {
   if (!d.bankCode || !d.accountNumber) return { fields: { accountVerifiedAt: null } };
-  const found = await lookupAccount(d.accountNumber, d.bankCode);
+  const found = await lookupAccount(d.accountNumber, d.bankCode, userId);
   if (found.ok) return { fields: { accountName: found.accountName, accountVerifiedAt: new Date() } };
   if (found.status === 503 && d.allowUnverified && d.accountName) return { fields: { accountVerifiedAt: null } };
   return { status: found.status, error: found.error };
@@ -91,7 +118,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
   app.post("/api/sales/payment-accounts/resolve", isAuthenticated, requireManagerOrOwner, resolveLimiter, async (req, res) => {
     const parsed = z.object({ accountNumber: z.string().trim(), bankCode: z.string().trim().min(1) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Bank and account number are required." });
-    const found = await lookupAccount(parsed.data.accountNumber, parsed.data.bankCode);
+    const found = await lookupAccount(parsed.data.accountNumber, parsed.data.bankCode, (req as any).user?.id);
     if (!found.ok) return res.status(found.status).json(lookupFailure(found.status, found.error));
     res.json({ accountName: found.accountName });
   });
@@ -119,7 +146,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
       if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid account." });
       const { allowUnverified, ...data } = parsed.data;
       if (data.kind === "bank") {
-        const v = await verifiedFields({ ...data, allowUnverified });
+        const v = await verifiedFields({ ...data, allowUnverified }, (req as any).user?.id);
         if ("error" in v) return res.status(v.status).json(lookupFailure(v.status, v.error));
         Object.assign(data, v.fields);
       } else {
@@ -149,7 +176,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
           accountNumber: data.accountNumber !== undefined ? data.accountNumber : existing.accountNumber,
           accountName: data.accountName ?? existing.accountName,
           allowUnverified,
-        });
+        }, (req as any).user?.id);
         if ("error" in v) return res.status(v.status).json(lookupFailure(v.status, v.error));
         Object.assign(data, v.fields);
       }
