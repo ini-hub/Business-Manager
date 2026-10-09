@@ -7,6 +7,7 @@ import { db } from "../db";
 import { inventoryDrafts } from "@shared/schema";
 import { getUserId } from "./helpers";
 import type { RouteMiddlewares } from "./inventory.routes";
+import { requirePermission } from "../lib/permissionGate";
 
 const draftBody = z.object({
   storeId: z.string().min(1),
@@ -18,7 +19,7 @@ const draftBody = z.object({
 
 // Saved "New item" wizard sessions. Nothing here touches products or inventory.
 export function registerInventoryDraftRoutes(app: Express, { requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
-  app.get("/api/inventory-drafts", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/inventory-drafts", requirePermission("/inventory"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required" });
@@ -35,7 +36,7 @@ export function registerInventoryDraftRoutes(app: Express, { requireManagerOrOwn
     }
   });
 
-  app.get("/api/inventory-drafts/:id", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/inventory-drafts/:id", requirePermission("/inventory"), async (req, res) => {
     try {
       const [row] = await db.select().from(inventoryDrafts).where(eq(inventoryDrafts.id, req.params.id));
       if (!row) return res.status(404).json({ error: "Draft not found." });
@@ -46,7 +47,7 @@ export function registerInventoryDraftRoutes(app: Express, { requireManagerOrOwn
     }
   });
 
-  app.post("/api/inventory-drafts", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory-drafts", requirePermission("/inventory"), async (req, res) => {
     try {
       const body = draftBody.parse(req.body);
       if (!(await checkStoreAccess(body.storeId, req, res))) return;
@@ -65,7 +66,7 @@ export function registerInventoryDraftRoutes(app: Express, { requireManagerOrOwn
     }
   });
 
-  app.put("/api/inventory-drafts/:id", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/inventory-drafts/:id", requirePermission("/inventory"), async (req, res) => {
     try {
       const body = draftBody.parse(req.body);
       const [existing] = await db.select().from(inventoryDrafts).where(eq(inventoryDrafts.id, req.params.id));
@@ -85,7 +86,7 @@ export function registerInventoryDraftRoutes(app: Express, { requireManagerOrOwn
     }
   });
 
-  app.delete("/api/inventory-drafts/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/inventory-drafts/:id", requirePermission("/inventory"), async (req, res) => {
     try {
       const [existing] = await db.select().from(inventoryDrafts).where(eq(inventoryDrafts.id, req.params.id));
       if (!existing) return res.status(204).send();

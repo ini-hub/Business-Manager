@@ -12,6 +12,7 @@ import { engagementFor, getReputation, onBalanceSettled, onPartnershipActivated,
 import { sendPartnerInviteEmail } from "../email";
 import { getUserId, getClientIp } from "./helpers";
 import type { RouteMiddlewares } from "./sales.routes";
+import { requirePermission } from "../lib/permissionGate";
 
 const partnerRepo = new PartnerRepository();
 const transferRepo = new PartnerTransferRepository();
@@ -59,7 +60,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
 
   // ───────────── partnerships ─────────────
 
-  app.get("/api/partners", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/partners", requirePermission("/partners"), async (req, res) => {
     try {
       const { orgId } = ctxOf(req);
       const [code, partnerships] = await Promise.all([partnerRepo.ensurePartnerCode(orgId), partnerRepo.list(orgId)]);
@@ -71,13 +72,13 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not load partners."); }
   });
 
-  app.get("/api/partners/engagement", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/partners/engagement", requirePermission("/partners"), async (req, res) => {
     try {
       res.json(await engagementFor(ctxOf(req).orgId));
     } catch (err) { fail(res, err, "Could not load your partner standing."); }
   });
 
-  app.post("/api/partners/invite", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partners/invite", requirePermission("/partners"), async (req, res) => {
     try {
       const b = z.object({ email: z.string().trim().min(3).max(200), note: z.string().trim().max(300).nullable().optional() }).parse(req.body);
       const ctx = ctxOf(req);
@@ -90,7 +91,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
   });
 
   // The items this store has chosen to share with partners.
-  app.get("/api/partners/shared-items", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/partners/shared-items", requirePermission("/partners"), async (req, res) => {
     try {
       const storeId = z.string().min(1).parse(req.query.storeId);
       if (!(await checkStoreAccess(storeId, req, res))) return;
@@ -98,7 +99,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not load shared items."); }
   });
 
-  app.put("/api/partners/shared-items", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/partners/shared-items", requirePermission("/partners"), async (req, res) => {
     try {
       const b = z.object({ storeId: z.string().min(1), inventoryIds: z.array(z.string()).max(2000) }).parse(req.body);
       if (!(await checkStoreAccess(b.storeId, req, res))) return;
@@ -108,7 +109,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not save shared items."); }
   });
 
-  app.post("/api/partners/request", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partners/request", requirePermission("/partners"), async (req, res) => {
     try {
       const { code } = z.object({ code: z.string().min(1, "Enter a partner code.") }).parse(req.body);
       const ctx = ctxOf(req);
@@ -121,7 +122,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not send the partner request."); }
   });
 
-  app.post("/api/partners/:id/respond", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partners/:id/respond", requirePermission("/partners"), async (req, res) => {
     try {
       const { accept } = z.object({ accept: z.boolean() }).parse(req.body);
       const ctx = ctxOf(req);
@@ -133,7 +134,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not answer the request."); }
   });
 
-  app.post("/api/partners/:id/revoke", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partners/:id/revoke", requirePermission("/partners"), async (req, res) => {
     try {
       const row = await partnerRepo.revoke(req.params.id, ctxOf(req).orgId);
       broadcastDataChange(row.requesterOrgId, "partner", undefined, "mutated");
@@ -142,7 +143,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not end the partnership."); }
   });
 
-  app.put("/api/partners/:id/credit-limit", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/partners/:id/credit-limit", requirePermission("/partners"), async (req, res) => {
     try {
       const { limit } = z.object({ limit: z.number().min(0).nullable() }).parse(req.body);
       const row = await partnerRepo.setTradeCreditLimit(req.params.id, ctxOf(req).orgId, limit);
@@ -152,14 +153,14 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not save the credit limit."); }
   });
 
-  app.get("/api/partners/:orgId/catalog", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/partners/:orgId/catalog", requirePermission("/partners"), async (req, res) => {
     try {
       const storeId = z.string().min(1).parse(req.query.storeId);
       res.json(await partnerRepo.listSharedCatalog(ctxOf(req).orgId, req.params.orgId, storeId));
     } catch (err) { fail(res, err, "Could not load the partner's shared items."); }
   });
 
-  app.get("/api/partners/:orgId/stores", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/partners/:orgId/stores", requirePermission("/partners"), async (req, res) => {
     try {
       res.json(await partnerRepo.listPartnerStores(ctxOf(req).orgId, req.params.orgId));
     } catch (err) { fail(res, err, "Could not load partner stores."); }
@@ -194,7 +195,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not load the transfer."); }
   });
 
-  app.post("/api/partner-transfers", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partner-transfers", requirePermission("/partners"), async (req, res) => {
     try {
       const input = createPartnerTransferSchema.parse(req.body);
       // The caller acts for the store that opens the transfer: the sender when sending, the receiver when requesting.
@@ -233,7 +234,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     path: string, needsActive: boolean, event: string, message: string,
     run: (a: { ctx: PartnerCtx; req: Request }) => Promise<{ fromStoreId: string; toStoreId: string; fromOrgId: string; toOrgId: string; id: string; status: string }>,
     opts: { staffOk?: boolean } = {},
-  ) => app.post(`/api/partner-transfers/:id/${path}`, opts.staffOk ? isAuthenticated : requireManagerOrOwner, async (req, res) => {
+  ) => app.post(`/api/partner-transfers/:id/${path}`, opts.staffOk ? isAuthenticated : requirePermission("/partners"), async (req, res) => {
     try {
       const a = await actor(req, res, needsActive);
       if (!a) return;
@@ -284,7 +285,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
 
   // ───────────── ledger ─────────────
 
-  app.get("/api/partner-ledger", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/partner-ledger", requirePermission("/partners"), async (req, res) => {
     try {
       res.json(await transferRepo.ledger(ctxOf(req).orgId));
     } catch (err) { fail(res, err, "Could not load the partner ledger."); }
@@ -298,7 +299,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     await tellCounterparty(t, ctx.orgId, message);
   }
 
-  app.post("/api/partner-ledger/obligations/:id/settlements", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partner-ledger/obligations/:id/settlements", requirePermission("/partners"), async (req, res) => {
     try {
       const b = z.object({
         amount: z.number().positive().optional(),
@@ -316,7 +317,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not record the payment."); }
   });
 
-  app.post("/api/partner-ledger/settlements/:id/answer", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partner-ledger/settlements/:id/answer", requirePermission("/partners"), async (req, res) => {
     try {
       const { accept } = z.object({ accept: z.boolean() }).parse(req.body);
       const row = await transferRepo.answerSettlement(ctxOf(req), req.params.id, accept);
@@ -328,7 +329,7 @@ export function registerPartnerRoutes(app: Express, { isAuthenticated, requireMa
     } catch (err) { fail(res, err, "Could not answer the payment."); }
   });
 
-  app.post("/api/partner-ledger/obligations/:id/waive", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/partner-ledger/obligations/:id/waive", requirePermission("/partners"), async (req, res) => {
     try {
       const row = await transferRepo.waive(ctxOf(req), req.params.id);
       audit(req, "PARTNER_BALANCE_WAIVE", row.id);

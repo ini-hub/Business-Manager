@@ -209,16 +209,33 @@ export interface ResolvedSection {
  * after the layout was saved lands in its default section, so shipping a module
  * never leaves it out of the sidebar until someone re-saves.
  */
-export function resolveSidebarLayout(saved: Partial<SidebarLayout> | null | undefined, role: NavRole): ResolvedSection[] {
-  const base = saved?.[role] ?? DEFAULT_SIDEBAR_LAYOUT[role];
-  if (!base) return []; // a role this registry doesn't know shows no navigation, as before
+export function resolveSidebarLayout(
+  saved: Partial<SidebarLayout> | null | undefined,
+  role: string,
+  allowed?: ReadonlySet<string> | null,
+): ResolvedSection[] {
+  // A custom role has no layout of its own: it uses the owner's sections and order, filtered by `allowed`.
+  const layoutRole: NavRole = (NAV_ROLES as readonly string[]).includes(role) ? (role as NavRole) : "owner";
+  const base = saved?.[layoutRole] ?? DEFAULT_SIDEBAR_LAYOUT[layoutRole];
   const sections: SidebarSection[] = base.sections.map((s) => ({ ...s, items: [...s.items] }));
 
-  const known = new Set([...sections.flatMap((s) => s.items), ...(base.hidden ?? [])]);
-  const defaults = DEFAULT_SIDEBAR_LAYOUT[role];
-  for (const defaultSection of defaults.sections) {
-    const fresh = defaultSection.items.filter((url) => !known.has(url));
+  // With `allowed` (the role's permissions) the role's hidden list no longer decides anything: any
+  // permitted page that isn't placed lands in its default section. Without it, only pages that are new
+  // in code do (a page the admin hid stays hidden).
+  const known = new Set([...sections.flatMap((s) => s.items), ...(allowed ? [] : base.hidden ?? [])]);
+  const isCustomRole = layoutRole !== role;
+  const lookups = allowed
+    ? [
+        ...DEFAULT_SIDEBAR_LAYOUT[layoutRole].sections,
+        ...DEFAULT_SIDEBAR_LAYOUT.owner.sections,
+        // Staff's own pages (attendance, pay) are open to every role, so a custom role finds them too.
+        ...(isCustomRole ? DEFAULT_SIDEBAR_LAYOUT.staff.sections : []),
+      ]
+    : DEFAULT_SIDEBAR_LAYOUT[layoutRole].sections;
+  for (const defaultSection of lookups) {
+    const fresh = defaultSection.items.filter((url) => !known.has(url) && (!allowed || allowed.has(url)));
     if (fresh.length === 0) continue;
+    fresh.forEach((url) => known.add(url));
     const target = sections.find((s) => s.id === defaultSection.id);
     if (target) target.items.push(...fresh);
     else sections.push({ id: defaultSection.id, label: defaultSection.label, items: fresh });
@@ -227,6 +244,9 @@ export function resolveSidebarLayout(saved: Partial<SidebarLayout> | null | unde
   return sections.map((s) => ({
     id: s.id,
     label: s.label,
-    items: s.items.map((url) => ITEM_BY_URL.get(url)).filter((item): item is NavItemDef => !!item),
+    items: s.items
+      .filter((url) => !allowed || allowed.has(url))
+      .map((url) => ITEM_BY_URL.get(url))
+      .filter((item): item is NavItemDef => !!item),
   }));
 }

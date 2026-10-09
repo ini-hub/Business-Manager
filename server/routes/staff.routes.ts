@@ -29,6 +29,8 @@ import { hrPersonalProfileService } from "../services/HrPersonalProfileService";
 import { validateHrFieldValue } from "@shared/hr-field-validation";
 import { getUserId, getAuditContext, formatZodErrors, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
+import { requirePermission } from "../lib/permissionGate";
+import { checkRoleAssignable } from "../lib/roleManagement";
 
 // The work number is the HR profile's "work_phone" field - the staff form
 // edits that same stored value (no copy to sync). Canonical form is
@@ -204,7 +206,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   // requireCountLimit gates the 1-free-staff-seat tier (FAC-6): creating past
   // the limit without the staff_seats_addon entitlement is a hard 402 block;
   // existing staff beyond the count are never touched. See server/lib/entitlements.ts.
-  app.post("/api/staff", requireManagerOrOwner, requireCountLimit("staff_seats"), async (req, res) => {
+  app.post("/api/staff", requirePermission("/staffs"), requireCountLimit("staff_seats"), async (req, res) => {
     try {
       // Pulled out before insertStaffSchema.parse below, which knows nothing
       // about contracts - validated separately against attachContractSchema.
@@ -254,6 +256,11 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const data = insertStaffSchema.parse(sanitizedBody);
       if (data.role === "owner") {
         return res.status(400).json({ error: "The owner role can't be assigned to a staff member." });
+      }
+      // Plain staff is what a manager gets by default; anything else is checked against what the actor may give.
+      if (data.role && data.role !== "staff") {
+        const assignable = await checkRoleAssignable((req as any).user, data.role);
+        if (!assignable.ok) return res.status(assignable.status).json({ error: assignable.error });
       }
       if (data.storeId && !(await checkStoreAccess(data.storeId, req, res))) return;
 
@@ -428,7 +435,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
-  app.patch("/api/staff/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/staff/:id", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -503,6 +510,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         delete data.role;
       } else if (data.role === "owner") {
         return res.status(400).json({ error: "The owner role can't be assigned to a staff member." });
+      } else if (data.role && data.role !== staffMember.role) {
+        // Only a change of role is checked, so saving an unrelated edit never trips over an old role.
+        const assignable = await checkRoleAssignable((req as any).user, data.role);
+        if (!assignable.ok) return res.status(assignable.status).json({ error: assignable.error });
       }
 
       // ── Email change ────────────────────────────────────────────────────
@@ -731,7 +742,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   // path itself as an authorization signal, and requiring a real staffId
   // used to make file/image contracts impossible to attach while creating a
   // new staff member (no id exists yet at that point). Business-scoped only.
-  app.post("/api/staff/contract-upload-url", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/contract-upload-url", requirePermission("/staffs"), async (req, res) => {
     try {
       const { fileName, mimeType } = req.body;
       if (!fileName || !mimeType) {
@@ -756,7 +767,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   // Attach a contract to an existing staff member, or replace one that is
   // still awaiting a signature. (Attaching at creation time instead goes
   // through the optional `contract` field of POST /api/staff.)
-  app.post("/api/staff/:id/contract", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/:id/contract", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -834,7 +845,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   // Manager-facing view of a staff member's contract: status, version
   // metadata, and (once signed) a link to the document plus the signature
   // audit record.
-  app.get("/api/staff/:id/contract", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/staff/:id/contract", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -890,7 +901,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   // a record only. Without this they sit at not_applicable_existing_account
   // with no way to ever sign it. Same effect as ticking "Require signature"
   // when attaching: the gate applies the next time they log in.
-  app.post("/api/staff/:id/contract/request-signature", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/:id/contract/request-signature", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -933,7 +944,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
-  app.delete("/api/staff/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/staff/:id", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -960,7 +971,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   });
 
   // Restore archived staff
-  app.post("/api/staff/:id/restore", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/:id/restore", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -988,7 +999,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   // Manager-side invitation resend. Until this existed the only resend was
   // /api/auth/resend-activation, which the invitee drives themselves - useless
   // when the invitation went to an address they never had access to.
-  app.post("/api/staff/:id/resend-invite", requireManagerOrOwner, inviteResendLimiter, async (req, res) => {
+  app.post("/api/staff/:id/resend-invite", requirePermission("/staffs"), inviteResendLimiter, async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
@@ -1065,7 +1076,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   });
 
   // Transfer staff to another store
-  app.post("/api/staff/:id/transfer", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/:id/transfer", requirePermission("/staffs"), async (req, res) => {
     try {
       const { targetStoreId } = req.body;
       if (!targetStoreId) {
@@ -1177,7 +1188,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
   });
 
   // Bulk import staff
-  app.post("/api/staff/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/bulk", requirePermission("/staffs"), async (req, res) => {
     try {
       const { data, storeId } = req.body;
       if (!Array.isArray(data) || !storeId) {
@@ -1220,7 +1231,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
-  app.post("/api/staff/:id/link-customer", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/staff/:id/link-customer", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) return res.status(404).json({ error: "Staff member not found." });
@@ -1270,7 +1281,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     }
   });
 
-  app.delete("/api/staff/:id/link-customer", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/staff/:id/link-customer", requirePermission("/staffs"), async (req, res) => {
     try {
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) return res.status(404).json({ error: "Staff member not found." });

@@ -79,6 +79,8 @@ export default function StaffFormPage() {
   const { currentStore, stores } = useStore();
   const { user } = useAuth();
   const isOwner = user?.role === "owner";
+  // Managers can assign roles too, but only ones that give no more than they hold themselves.
+  const canAssignRoles = isOwner || user?.role === "manager";
   const staffId = id === "new" ? undefined : id;
 
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
@@ -266,11 +268,15 @@ export default function StaffFormPage() {
     },
   });
 
-  const { data: customRoles = [] } = useQuery<any[]>({
-    queryKey: ["/api/custom-roles"],
-    enabled: !isDisabled("custom_roles_permissions") && isOwner,
+  const { data: rolesOverview } = useQuery<{ mine: string[]; builtIn: { key: string; pages: string[] }[]; custom: { id: string; name: string; pages: string[] }[] }>({
+    queryKey: ["/api/roles/overview"],
+    enabled: canAssignRoles,
     staleTime: STALE_TIMES.reference,
   });
+  const customRoles = isDisabled("custom_roles_permissions") ? [] : rolesOverview?.custom ?? [];
+  // A manager may only pick a role whose pages they hold themselves; owners may pick any.
+  const canGiveRole = (pages: string[]) => isOwner || pages.every((p) => rolesOverview?.mine.includes(p));
+  const builtInPages = (key: string) => rolesOverview?.builtIn.find((r) => r.key === key)?.pages ?? [];
 
   const { data: storeSettings } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
@@ -471,6 +477,33 @@ export default function StaffFormPage() {
       : <Badge variant="secondary" className="text-[11px]"><FileX className="h-2.5 w-2.5 mr-0.5" />No Contract</Badge>;
   })();
 
+  const accessRoleField = (
+                    <FormField control={form.control} name="role" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2"><Shield className="h-3 w-3" />Access Role</FormLabel>
+                        <Select disabled={field.value === "owner"} onValueChange={field.onChange} value={field.value || "staff"}>
+                          <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            {/* Not a real choice - "owner" is only ever set by the
+                                auto-created record at store creation (see
+                                business.routes.ts), never picked from this dropdown.
+                                Rendered only so the owner's own staff row, if opened
+                                here, shows its actual role instead of a blank Select. */}
+                            {field.value === "owner" && (
+                              <SelectItem value="owner" disabled>Owner — Full Access</SelectItem>
+                            )}
+                            <SelectItem value="staff" disabled={!canGiveRole(builtInPages("staff"))}>Staff — Sales Access Only</SelectItem>
+                            <SelectItem value="manager" disabled={!canGiveRole(builtInPages("manager"))}>Manager — Full Store Access</SelectItem>
+                            {customRoles.map((r: any) => (
+                              <SelectItem key={r.id} value={r.name.toLowerCase()} disabled={!canGiveRole(r.pages)}>{r.name} (Custom)</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+  );
+
   return (
     <div className="min-h-screen bg-muted/20">
       {/* Sticky top nav */}
@@ -636,6 +669,18 @@ export default function StaffFormPage() {
               </CardContent>
             </Card>
 
+            {/* Managers can set a role, within what they hold themselves; the rest of Employment is owners only. */}
+            {!isOwner && canAssignRoles && (
+              <Card className="border-0 shadow-sm">
+                <CardContent className="p-4 space-y-4">
+                  <SectionHeader icon={<Briefcase className="h-3.5 w-3.5" />} label="Access" />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {accessRoleField}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Employment (owners only) */}
             {isOwner && (
               <Card className="border-0 shadow-sm">
@@ -643,30 +688,7 @@ export default function StaffFormPage() {
                   <SectionHeader icon={<Briefcase className="h-3.5 w-3.5" />} label="Employment" />
 
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField control={form.control} name="role" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2"><Shield className="h-3 w-3" />Access Role</FormLabel>
-                        <Select disabled={field.value === "owner"} onValueChange={field.onChange} value={field.value || "staff"}>
-                          <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            {/* Not a real choice - "owner" is only ever set by the
-                                auto-created record at store creation (see
-                                business.routes.ts), never picked from this dropdown.
-                                Rendered only so the owner's own staff row, if opened
-                                here, shows its actual role instead of a blank Select. */}
-                            {field.value === "owner" && (
-                              <SelectItem value="owner" disabled>Owner — Full Access</SelectItem>
-                            )}
-                            <SelectItem value="staff">Staff — Sales Access Only</SelectItem>
-                            <SelectItem value="manager">Manager — Full Store Access</SelectItem>
-                            {customRoles.map((r: any) => (
-                              <SelectItem key={r.id} value={r.name.toLowerCase()}>{r.name} (Custom)</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                    {accessRoleField}
 
                     <FormField control={form.control} name="paymentMethod" render={({ field }) => (
                       <FormItem>

@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { WhatsAppTemplateRepository } from "../repositories/WhatsAppTemplateRepository";
 import { whatsappTemplateCategoryEnum, whatsappTemplateStatusEnum } from "@shared/schema";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -34,7 +35,7 @@ export function registerWhatsAppTemplateRoutes(app: Express, { isAuthenticated, 
     }
   });
 
-  app.post("/api/stores/:storeId/whatsapp-templates", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/stores/:storeId/whatsapp-templates", requirePermission("/settings"), async (req: Request, res: Response) => {
     const { storeId } = req.params;
     if (!(await checkStoreAccess(storeId, req, res))) return;
 
@@ -67,7 +68,7 @@ export function registerWhatsAppTemplateRoutes(app: Express, { isAuthenticated, 
     }
   });
 
-  app.put("/api/stores/:storeId/whatsapp-templates/:id", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.put("/api/stores/:storeId/whatsapp-templates/:id", requirePermission("/settings"), async (req: Request, res: Response) => {
     const { storeId, id } = req.params;
     if (!(await checkStoreAccess(storeId, req, res))) return;
 
@@ -103,7 +104,7 @@ export function registerWhatsAppTemplateRoutes(app: Express, { isAuthenticated, 
   // Soft-disable rather than delete - a disabled template stays visible in
   // history for broadcasts already sent with it (whatsappBroadcasts.templateId
   // references it), just excluded from new campaigns.
-  app.post("/api/stores/:storeId/whatsapp-templates/:id/disable", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/stores/:storeId/whatsapp-templates/:id/disable", requirePermission("/settings"), async (req: Request, res: Response) => {
     const { storeId, id } = req.params;
     if (!(await checkStoreAccess(storeId, req, res))) return;
 

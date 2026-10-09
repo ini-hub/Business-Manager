@@ -16,6 +16,7 @@ import { getUserId, getAuditContext, formatZodErrors, getUserStores, verifyStore
 import { withInventoryId } from '../utils/slug-resolver';
 import { writeOffStock, WriteOffError, WRITE_OFF_REASONS } from "../services/StockWriteOffService";
 import { findArchiveBlockers, describeArchiveBlockers, archiveTargetIds } from "../lib/archiveGuard";
+import { requirePermission } from "../lib/permissionGate";
 
 /**
  * Per-type money rules for an inventory row. Returns an error message, or null
@@ -66,7 +67,7 @@ export type RouteMiddlewares = {
 
 export function registerInventoryRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ── Product groups (for expense linking) ─────────────────────────────────
-  app.get("/api/products", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/products", requirePermission("/inventory"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required" });
@@ -86,7 +87,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   });
 
   // ========== INVENTORY ==========
-  app.post("/api/inventory", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory", requirePermission("/inventory"), async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -147,7 +148,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  app.post("/api/inventory/bulk-import", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/bulk-import", requirePermission("/inventory"), async (req, res) => {
     try {
       const { storeId, items } = req.body;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -202,7 +203,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  app.patch("/api/inventory/:id", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/inventory/:id", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const id = req.params.id;
       let item = await storage.getInventoryItem(id);
@@ -305,7 +306,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   // Archive: soft-delete without checking sales history. Stock on hand does not block it (archiving is
   // reversible and the stock stays recorded); stock that an open purchase order, transfer or count still
   // points at does, so those documents are never left referencing a hidden item.
-  app.post("/api/inventory/:id/archive", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/archive", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const id = req.params.id;
       const item = await storage.getInventoryItem(id);
@@ -345,7 +346,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   // Write off an item's remaining stock (damaged, expired, lost). One variant at a time, on purpose: a
   // write-off removes real stock and the loss is booked at that variant's cost. `recordAsLoss` lets the
   // owner choose whether the cost reaches the P&L; `archive` hides the item in the same transaction.
-  app.post("/api/inventory/:id/write-off", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/write-off", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });
@@ -381,7 +382,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  app.delete("/api/inventory/:id", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/inventory/:id", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const id = req.params.id;
 
@@ -441,7 +442,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   });
 
   // Bulk import inventory
-  app.post("/api/inventory/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/bulk", requirePermission("/inventory"), async (req, res) => {
     try {
       const { data, storeId } = req.body;
       if (!Array.isArray(data) || !storeId) {
@@ -588,7 +589,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   // Unified stock lifecycle timeline (creation, sale, return, transfer, restock,
   // stock-count adjustment, consumable usage) — owner/manager only, same gate as
   // GET /api/audit-logs since this surfaces the same class of sensitive history.
-  app.get("/api/inventory/:id/activity", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.get("/api/inventory/:id/activity", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });
@@ -825,7 +826,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  app.post("/api/inventory/:id/restock", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/restock", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const inventoryId = req.params.id;
       const item = await storage.getInventoryItem(inventoryId);
@@ -913,7 +914,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   });
 
   // Set Bundle Components
-  app.post("/api/inventory/:id/bundle-components", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/bundle-components", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });
@@ -954,7 +955,7 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
   });
 
   // Add batch to inventory item
-  app.post("/api/inventory/:id/batches", withInventoryId, requireManagerOrOwner, async (req, res) => {
+  app.post("/api/inventory/:id/batches", withInventoryId, requirePermission("/inventory"), async (req, res) => {
     try {
       const item = await storage.inventoryRepo.findById(req.params.id);
       if (!item) return res.status(404).json({ error: "Inventory item not found." });

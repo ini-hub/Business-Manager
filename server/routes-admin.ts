@@ -24,7 +24,10 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { db } from "./db";
-import { eq, and, ne, like, desc, sql, gte, lte, count, inArray, or } from "drizzle-orm";
+import { eq, and, ne, like, desc, sql, gte, lte, count, inArray, or, isNull } from "drizzle-orm";
+import { customRoles } from "@shared/schema";
+import { PERMISSIONS_BY_MODULE, SYSTEM_ROLE_DEFAULTS, expandPermissions, normalizePermissions } from "@shared/permissions";
+import { invalidateRoleCache } from "./lib/roles";
 import {
   superAdmins,
   featureFlags,
@@ -3072,6 +3075,134 @@ adminRouter.delete("/platform-config/sidebar-layout", isAdminAuthenticated, requ
   } catch (error) {
     console.error("Reset sidebar-layout error:", error);
     return res.status(500).json({ error: "Failed to reset the sidebar layout." });
+  }
+});
+
+// ========== ROLES: built-in role permissions and role templates ==========
+// Owner always holds every page. Manager and staff start from the defaults in shared/permissions.ts;
+// a row here (kind 'system', no business) overrides them for every business. Templates are
+// ready-made roles businesses can start from. Both only change what a role can use through the
+// sidebar and module-gated screens; per-route enforcement is migrated separately.
+const SYSTEM_ROLE_KEYS = ["manager", "staff"] as const;
+const SYSTEM_ROLE_NAMES = { manager: "Manager", staff: "Staff" } as const;
+const templateBody = z.object({
+  name: z.string().trim().min(1, "A template needs a name.").max(60),
+  description: z.string().trim().max(300).nullish(),
+  permissions: z.array(z.string()).max(100),
+});
+
+adminRouter.get("/roles", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select()
+      .from(customRoles)
+      .where(and(isNull(customRoles.businessId), eq(customRoles.isDeleted, false)));
+    const system = SYSTEM_ROLE_KEYS.map((key) => {
+      const override = rows.find((r) => r.kind === "system" && r.name.toLowerCase() === key);
+      const permissions = override ? override.permissions : [...SYSTEM_ROLE_DEFAULTS[key]];
+      return { key, name: SYSTEM_ROLE_NAMES[key], customised: !!override, permissions, pages: Array.from(expandPermissions(permissions)) };
+    });
+    const templates = rows.filter((r) => r.kind === "template").map((r) => ({ id: r.id, name: r.name, description: r.description, permissions: r.permissions }));
+    return res.json({ system, templates, catalog: PERMISSIONS_BY_MODULE });
+  } catch (error) {
+    console.error("GET /admin/roles error:", error);
+    return res.status(500).json({ error: "Failed to load roles." });
+  }
+});
+
+adminRouter.put("/roles/system/:key", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const key = req.params.key as (typeof SYSTEM_ROLE_KEYS)[number];
+  if (!SYSTEM_ROLE_KEYS.includes(key)) return res.status(400).json({ error: "Only the manager and staff roles can be changed. Owners always have full access." });
+  const normalized = normalizePermissions(Array.isArray(req.body?.permissions) ? req.body.permissions : []);
+  if (!normalized.ok) return res.status(400).json({ error: normalized.error });
+  try {
+    const [existing] = await db
+      .select()
+      .from(customRoles)
+      .where(and(isNull(customRoles.businessId), eq(customRoles.kind, "system"), sql`lower(${customRoles.name}) = ${key}`, eq(customRoles.isDeleted, false)));
+    if (existing) {
+      await db.update(customRoles).set({ permissions: normalized.permissions, updatedAt: new Date() }).where(eq(customRoles.id, existing.id));
+    } else {
+      await db.insert(customRoles).values({ businessId: null, kind: "system", name: SYSTEM_ROLE_NAMES[key], permissions: normalized.permissions });
+    }
+    invalidateRoleCache();
+    await writeAuditLog(req, "update_system_role", key, { permissions: normalized.permissions });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("PUT /admin/roles/system error:", error);
+    return res.status(500).json({ error: "Failed to save the role." });
+  }
+});
+
+adminRouter.delete("/roles/system/:key", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const key = req.params.key as (typeof SYSTEM_ROLE_KEYS)[number];
+  if (!SYSTEM_ROLE_KEYS.includes(key)) return res.status(400).json({ error: "Only the manager and staff roles can be reset." });
+  try {
+    await db
+      .delete(customRoles)
+      .where(and(isNull(customRoles.businessId), eq(customRoles.kind, "system"), sql`lower(${customRoles.name}) = ${key}`));
+    invalidateRoleCache();
+    await writeAuditLog(req, "reset_system_role", key);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("DELETE /admin/roles/system error:", error);
+    return res.status(500).json({ error: "Failed to reset the role." });
+  }
+});
+
+adminRouter.post("/role-templates", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const parsed = templateBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid template." });
+  const normalized = normalizePermissions(parsed.data.permissions);
+  if (!normalized.ok) return res.status(400).json({ error: normalized.error });
+  try {
+    const [row] = await db
+      .insert(customRoles)
+      .values({ businessId: null, kind: "template", name: parsed.data.name, description: parsed.data.description ?? null, permissions: normalized.permissions })
+      .returning();
+    await writeAuditLog(req, "create_role_template", parsed.data.name, { permissions: normalized.permissions });
+    return res.status(201).json(row);
+  } catch (error) {
+    if (isUniqueViolation(error)) return res.status(409).json({ error: "A template with that name already exists." });
+    console.error("POST /admin/role-templates error:", error);
+    return res.status(500).json({ error: "Failed to create the template." });
+  }
+});
+
+adminRouter.put("/role-templates/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const parsed = templateBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid template." });
+  const normalized = normalizePermissions(parsed.data.permissions);
+  if (!normalized.ok) return res.status(400).json({ error: normalized.error });
+  try {
+    const [row] = await db
+      .update(customRoles)
+      .set({ name: parsed.data.name, description: parsed.data.description ?? null, permissions: normalized.permissions, updatedAt: new Date() })
+      .where(and(eq(customRoles.id, req.params.id), isNull(customRoles.businessId), eq(customRoles.kind, "template"), eq(customRoles.isDeleted, false)))
+      .returning();
+    if (!row) return res.status(404).json({ error: "Template not found." });
+    await writeAuditLog(req, "update_role_template", row.name, { permissions: normalized.permissions });
+    return res.json(row);
+  } catch (error) {
+    if (isUniqueViolation(error)) return res.status(409).json({ error: "A template with that name already exists." });
+    console.error("PUT /admin/role-templates error:", error);
+    return res.status(500).json({ error: "Failed to save the template." });
+  }
+});
+
+adminRouter.delete("/role-templates/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const [row] = await db
+      .update(customRoles)
+      .set({ isDeleted: true, deletedAt: new Date() })
+      .where(and(eq(customRoles.id, req.params.id), isNull(customRoles.businessId), eq(customRoles.kind, "template"), eq(customRoles.isDeleted, false)))
+      .returning();
+    if (!row) return res.status(404).json({ error: "Template not found." });
+    await writeAuditLog(req, "delete_role_template", row.name);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("DELETE /admin/role-templates error:", error);
+    return res.status(500).json({ error: "Failed to delete the template." });
   }
 });
 

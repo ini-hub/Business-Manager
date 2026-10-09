@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { AccountingRepository } from "../repositories/AccountingRepository";
 import { AccountingService } from "../services/AccountingService";
 import { insertCapitalContributionSchema, insertAssetSchema, insertLiabilitySchema } from "@shared/schema";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -45,7 +46,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.post("/api/accounting/capital", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/accounting/capital", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     const parsed = insertCapitalContributionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid input." });
     if (!(await checkStoreAccess(parsed.data.storeId, req, res))) return;
@@ -70,7 +71,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.post("/api/accounting/assets", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/accounting/assets", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     const parsed = insertAssetSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid input." });
     if (!(await checkStoreAccess(parsed.data.storeId, req, res))) return;
@@ -83,7 +84,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.put("/api/accounting/assets/:id", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.put("/api/accounting/assets/:id", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     try {
       const existing = await accountingRepository.getAsset(req.params.id);
       if (!existing) return res.status(404).json({ error: "Asset not found." });
@@ -99,7 +100,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.delete("/api/accounting/assets/:id", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.delete("/api/accounting/assets/:id", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     try {
       const existing = await accountingRepository.getAsset(req.params.id);
       if (!existing) return res.status(404).json({ error: "Asset not found." });
@@ -125,7 +126,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.post("/api/accounting/liabilities", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/accounting/liabilities", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     const parsed = insertLiabilitySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid input." });
     if (!(await checkStoreAccess(parsed.data.storeId, req, res))) return;
@@ -138,7 +139,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.put("/api/accounting/liabilities/:id", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.put("/api/accounting/liabilities/:id", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     try {
       const existing = await accountingRepository.getLiability(req.params.id);
       if (!existing) return res.status(404).json({ error: "Liability not found." });
@@ -154,7 +155,7 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
     }
   });
 
-  app.delete("/api/accounting/liabilities/:id", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.delete("/api/accounting/liabilities/:id", requirePermission("/profit-loss"), async (req: Request, res: Response) => {
     try {
       const existing = await accountingRepository.getLiability(req.params.id);
       if (!existing) return res.status(404).json({ error: "Liability not found." });

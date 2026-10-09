@@ -5,6 +5,7 @@ import { db } from "../db";
 import { stores } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { toUtcStart, toUtcEnd } from "../lib/dateUtils";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -17,7 +18,7 @@ export function registerAuditLogRoutes(
   app: Express,
   { requireRole }: RouteMiddlewares,
 ): void {
-  app.get("/api/audit-logs", requireRole("owner", "manager"), async (req: any, res) => {
+  app.get("/api/audit-logs", requirePermission("/reports/audit-logs"), async (req: any, res) => {
     try {
       const businessId = req.user?.businessId || req.user?.organisationId;
       if (!businessId) return res.status(400).json({ error: "Business context required." });

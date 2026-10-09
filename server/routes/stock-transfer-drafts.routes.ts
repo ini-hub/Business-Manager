@@ -7,6 +7,7 @@ import { db } from "../db";
 import { stockTransferDrafts } from "@shared/schema";
 import { getUserId } from "./helpers";
 import type { RouteMiddlewares } from "./inventory.routes";
+import { requirePermission } from "../lib/permissionGate";
 
 const draftBody = z.object({
   storeId: z.string().min(1),
@@ -17,7 +18,7 @@ const draftBody = z.object({
 
 // Saved send/request stock forms. Nothing here touches stock_transfers or inventory.
 export function registerStockTransferDraftRoutes(app: Express, { requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
-  app.get("/api/stock-transfer-drafts", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/stock-transfer-drafts", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required" });
@@ -34,7 +35,7 @@ export function registerStockTransferDraftRoutes(app: Express, { requireManagerO
     }
   });
 
-  app.get("/api/stock-transfer-drafts/:id", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/stock-transfer-drafts/:id", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const [row] = await db.select().from(stockTransferDrafts).where(eq(stockTransferDrafts.id, req.params.id));
       if (!row) return res.status(404).json({ error: "Draft not found." });
@@ -45,7 +46,7 @@ export function registerStockTransferDraftRoutes(app: Express, { requireManagerO
     }
   });
 
-  app.post("/api/stock-transfer-drafts", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/stock-transfer-drafts", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const body = draftBody.parse(req.body);
       if (!(await checkStoreAccess(body.storeId, req, res))) return;
@@ -63,7 +64,7 @@ export function registerStockTransferDraftRoutes(app: Express, { requireManagerO
     }
   });
 
-  app.put("/api/stock-transfer-drafts/:id", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/stock-transfer-drafts/:id", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const body = draftBody.parse(req.body);
       const [existing] = await db.select().from(stockTransferDrafts).where(eq(stockTransferDrafts.id, req.params.id));
@@ -82,7 +83,7 @@ export function registerStockTransferDraftRoutes(app: Express, { requireManagerO
     }
   });
 
-  app.delete("/api/stock-transfer-drafts/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/stock-transfer-drafts/:id", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const [existing] = await db.select().from(stockTransferDrafts).where(eq(stockTransferDrafts.id, req.params.id));
       if (!existing) return res.status(204).send();

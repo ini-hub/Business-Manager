@@ -17,6 +17,8 @@ type EntitlementsResponse = {
   screenGates?: { pattern: string; featureKey: string; module: PermissionModule | null; source: "code" | "admin" }[];
   // Super-admin sidebar layout; null/absent means the built-in default.
   sidebarLayout?: SidebarLayout | null;
+  // The pages this person's role may use (shared/permissions.ts).
+  permissions?: string[];
   // trial -> grace -> soft_locked countdown (server/lib/trial.ts getOrgLifecycle).
   lifecycle?: { state: "trialing" | "grace" | "soft_locked" | "ok" | "suspended"; graceEndsAt: string | null; trialEndsAt: string | null; graceDays: number };
   // Flag off / deactivated: hide these everywhere (nav, buttons, tabs).
@@ -80,6 +82,8 @@ export function useEntitlements() {
       return key ? gates.find((g) => g.featureKey === key)?.module ?? null : null;
     },
     sidebarLayout: data?.sidebarLayout ?? null,
+    // undefined until the first response, so callers can tell "not loaded" from "holds nothing".
+    permissions: data?.permissions,
     lifecycle: data?.lifecycle,
     entitledKeys: data?.features ?? [],
     purchasedKeys: data?.purchasedFeatures ?? [],

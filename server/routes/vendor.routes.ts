@@ -14,6 +14,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { getUserId, getClientIp, getAuditContext, getUserStores, broadcastChange } from './helpers';
 import { withVendorId, withVendorBillId } from '../utils/slug-resolver';
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -40,7 +41,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Create Vendor
-  app.post("/api/vendors", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/vendors", requirePermission("/vendors"), async (req, res) => {
     try {
       const { storeId, name, contactName, email, phone, address, notes } = req.body;
       if (!storeId || !name) return res.status(400).json({ error: "Store ID and name are required." });
@@ -66,7 +67,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Bulk import vendors
-  app.post("/api/vendors/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/vendors/bulk", requirePermission("/vendors"), async (req, res) => {
     try {
       const { data, storeId } = req.body;
       if (!storeId || !Array.isArray(data)) {
@@ -101,7 +102,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Create Vendor Bill
-  app.post("/api/vendors/bills", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/vendors/bills", requirePermission("/vendors"), async (req, res) => {
     try {
       const { storeId, vendorId, amount, amountPaid, status, dueDate, billDate, notes, linkedRestockEventId } = req.body;
       if (!storeId || !vendorId || amount === undefined) {
@@ -142,7 +143,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Update Vendor Bill
-  app.patch("/api/vendors/bills/:id", withVendorBillId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/vendors/bills/:id", withVendorBillId, requirePermission("/vendors"), async (req, res) => {
     try {
       const bill = await storage.vendorRepo.getVendorBill(req.params.id);
       if (!bill) return res.status(404).json({ error: "Vendor bill not found." });
@@ -195,7 +196,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Update Vendor
-  app.patch("/api/vendors/:id", withVendorId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/vendors/:id", withVendorId, requirePermission("/vendors"), async (req, res) => {
     try {
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
@@ -229,7 +230,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Archive Vendor
-  app.patch("/api/vendors/:id/archive", withVendorId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/vendors/:id/archive", withVendorId, requirePermission("/vendors"), async (req, res) => {
     try {
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
@@ -244,7 +245,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Restore Vendor
-  app.patch("/api/vendors/:id/restore", withVendorId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/vendors/:id/restore", withVendorId, requirePermission("/vendors"), async (req, res) => {
     try {
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
@@ -312,7 +313,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Create Stock Audit
-  app.post("/api/stock-audits", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/stock-audits", requirePermission("/inventory"), async (req, res) => {
     try {
       const { storeId, conductedByStaffId, notes, items } = req.body;
       if (!storeId || !Array.isArray(items) || items.length === 0) {
@@ -341,7 +342,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // What approving this count would charge to Direct Supplies, without approving it.
-  app.get("/api/stock-audits/:id/variance-preview", requireRole("owner", "manager"), async (req: any, res) => {
+  app.get("/api/stock-audits/:id/variance-preview", requirePermission("/inventory"), async (req: any, res) => {
     try {
       const audit = await storage.stockAuditRepo.findById(req.params.id);
       if (!audit) return res.status(404).json({ error: "Stock audit not found." });
@@ -353,7 +354,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Approve Stock Audit
-  app.post("/api/stock-audits/:id/approve", requireRole("owner", "manager"), async (req: any, res) => {
+  app.post("/api/stock-audits/:id/approve", requirePermission("/inventory"), async (req: any, res) => {
     try {
       const audit = await storage.stockAuditRepo.findById(req.params.id);
       if (!audit) return res.status(404).json({ error: "Stock audit not found." });
@@ -607,7 +608,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   }
 
   // Create PO
-  app.post("/api/purchase-orders", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/purchase-orders", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const { storeId, vendorId, poNumber, supplierRef, notes, expectedDelivery, items, status } = req.body;
       if (!storeId || !vendorId || !Array.isArray(items)) {
@@ -663,7 +664,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Edit a draft PO
-  app.put("/api/purchase-orders/:id", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/purchase-orders/:id", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -698,7 +699,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Bulk import purchase orders (grouped CSV rows: rows sharing a poRef become one PO)
-  app.post("/api/purchase-orders/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/purchase-orders/bulk", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const { data, storeId } = req.body;
       if (!storeId || !Array.isArray(data)) {
@@ -716,7 +717,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Set / clear the supplier's own reference (their order or invoice number)
-  app.patch("/api/purchase-orders/:id/supplier-ref", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/purchase-orders/:id/supplier-ref", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -734,7 +735,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Update PO Status
-  app.patch("/api/purchase-orders/:id/status", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/purchase-orders/:id/status", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -767,7 +768,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   // rejects at preflight, and this also avoids needing bucket CORS at all.
   // Returns the staged key, which the attach / receive routes then verify.
   const receiptBody = express.raw({ type: PO_RECEIPT_MIME_TYPES, limit: PO_RECEIPT_MAX_BYTES });
-  app.put("/api/purchase-orders/:id/receipt/file", requireManagerOrOwner, receiptBody, async (req, res) => {
+  app.put("/api/purchase-orders/:id/receipt/file", requirePermission("/purchase-orders"), receiptBody, async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -826,7 +827,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     return null;
   }
 
-  app.post("/api/purchase-orders/:id/receipt", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/purchase-orders/:id/receipt", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -871,7 +872,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Receive PO items
-  app.post("/api/purchase-orders/:id/receive", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/purchase-orders/:id/receive", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -914,7 +915,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Delete PO
-  app.delete("/api/purchase-orders/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/purchase-orders/:id", requirePermission("/purchase-orders"), async (req, res) => {
     try {
       const po = await storage.purchaseOrderRepo.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ error: "Purchase order not found." });
@@ -931,7 +932,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
 
   // ---------- 8. STOCK TRANSFERS ----------
   // Get transfers
-  app.get("/api/stock-transfers", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/stock-transfers", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -946,7 +947,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Get single transfer
-  app.get("/api/stock-transfers/:id", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/stock-transfers/:id", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
       if (!transfer) return res.status(404).json({ error: "Transfer not found." });
@@ -961,7 +962,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Create stock transfer
-  app.post("/api/stock-transfers", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/stock-transfers", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const { fromStoreId, toStoreId, notes, items } = req.body;
       const kind = req.body.kind === "request" ? "request" : "send";
@@ -1010,7 +1011,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Bulk import stock transfers (grouped CSV rows: rows sharing a transferRef become one transfer)
-  app.post("/api/stock-transfers/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/stock-transfers/bulk", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const { data, storeId } = req.body;
       if (!storeId || !Array.isArray(data)) {
@@ -1029,7 +1030,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Update status (approvals / completion)
-  app.patch("/api/stock-transfers/:id/status", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/stock-transfers/:id/status", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
       if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
@@ -1063,7 +1064,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Delete stock transfer
-  app.delete("/api/stock-transfers/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/stock-transfers/:id", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
       if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
@@ -1084,7 +1085,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Stock transfer workflow transitions
-  app.put("/api/stock-transfers/:id/accept", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/stock-transfers/:id/accept", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
       if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
@@ -1111,7 +1112,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
-  app.put("/api/stock-transfers/:id/reject", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/stock-transfers/:id/reject", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const { reason } = req.body;
       if (!reason) return res.status(400).json({ error: "Rejection reason is required." });
@@ -1141,7 +1142,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
-  app.put("/api/stock-transfers/:id/schedule", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/stock-transfers/:id/schedule", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const { deliveryDate, deliveryMethod, deliveryNotes } = req.body;
       if (!deliveryDate || !deliveryMethod) {
@@ -1173,7 +1174,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
-  app.put("/api/stock-transfers/:id/deliver", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/stock-transfers/:id/deliver", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const transfer = await storage.stockTransferRepo.getStockTransfer(req.params.id);
       if (!transfer) return res.status(404).json({ error: "Stock transfer not found." });
@@ -1199,7 +1200,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
     }
   });
 
-  app.put("/api/stock-transfers/:id/confirm", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/stock-transfers/:id/confirm", requirePermission("/stock-transfers"), async (req, res) => {
     try {
       const { confirmedQuantities } = req.body;
       if (!confirmedQuantities || typeof confirmedQuantities !== "object") {
@@ -1257,7 +1258,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Create tax rate
-  app.post("/api/tax-rates", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/tax-rates", requirePermission("/settings/taxes"), async (req, res) => {
     try {
       const { storeId, name, rate, isDefault } = req.body;
       if (!storeId || !name || rate === undefined) {
@@ -1280,7 +1281,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Bulk import tax rates
-  app.post("/api/tax-rates/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/tax-rates/bulk", requirePermission("/settings/taxes"), async (req, res) => {
     try {
       const { data, storeId } = req.body;
       if (!storeId || !Array.isArray(data)) {
@@ -1297,7 +1298,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Update tax rate
-  app.patch("/api/tax-rates/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/tax-rates/:id", requirePermission("/settings/taxes"), async (req, res) => {
     try {
       const [rate] = await db.select().from(taxRates).where(eq(taxRates.id, req.params.id));
       if (!rate) return res.status(404).json({ error: "Tax rate not found." });
@@ -1314,7 +1315,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
   });
 
   // Delete tax rate
-  app.delete("/api/tax-rates/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/tax-rates/:id", requirePermission("/settings/taxes"), async (req, res) => {
     try {
       const [rate] = await db.select().from(taxRates).where(eq(taxRates.id, req.params.id));
       if (!rate) return res.status(404).json({ error: "Tax rate not found." });
