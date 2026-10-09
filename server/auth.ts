@@ -362,6 +362,11 @@ export const enforceOrgAccess: RequestHandler = async (req, res, next) => {
     }
   } catch (error) {
     console.error("enforceOrgAccess error:", error);
+    // Fail closed for writes so a DB blip can't let a suspended/expired
+    // business mutate data; reads still pass to keep the app usable.
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      return res.status(503).json({ error: { code: "SERVICE_UNAVAILABLE", message: "Service temporarily unavailable. Please retry." } });
+    }
   }
 
   return next();

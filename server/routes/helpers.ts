@@ -23,7 +23,7 @@ export function formatZodErrors(errors: any[]): string {
 
 // TTL cache for store-access checks — avoids 2 sequential DB queries per request
 const _accessCache = new Map<string, { authorized: boolean; expires: number }>();
-const _ACCESS_TTL = 5 * 60 * 1000; // 5 minutes
+const _ACCESS_TTL = 30 * 1000; // 30 seconds: bounds how long a removed user keeps store access
 const _BUSINESS_ACCESS_TTL = 60 * 1000;
 
 // Purge expired entries every 10 minutes so the Map doesn't grow unboundedly

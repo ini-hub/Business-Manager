@@ -54,3 +54,24 @@ export function decryptSecret(packed: string): string {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
 
+
+/**
+ * Tenant-gateway helpers. Values carry an "enc:v1:" prefix so rows written
+ * before encryption was introduced (plain text) keep working until the
+ * backfill (scripts/encrypt-store-integrations.ts) rewrites them.
+ */
+const ENC_PREFIX = "enc:v1:";
+
+export function isEncryptedValue(v: string | null | undefined): boolean {
+  return typeof v === "string" && v.startsWith(ENC_PREFIX);
+}
+
+export function encryptIfNeeded<T extends string | null | undefined>(v: T): T | string {
+  if (!v || isEncryptedValue(v)) return v;
+  return ENC_PREFIX + encryptSecret(v);
+}
+
+export function decryptIfNeeded<T extends string | null | undefined>(v: T): T | string {
+  if (!v || !isEncryptedValue(v)) return v;
+  return decryptSecret(v.slice(ENC_PREFIX.length));
+}

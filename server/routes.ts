@@ -41,6 +41,8 @@ import {
 import { z } from "zod";
 import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 import { auditLogger } from "./audit";
 import { computeTrialEndsAt } from "./lib/trial";
 import { getConfiguredTrialDays, getSmsConfig, getExportBranding } from "./lib/platformConfig";
@@ -164,6 +166,12 @@ export async function registerRoutes(
   // A hosting health probe must not restart-loop over bad seed data, so an
   // empty catalog reports "degraded" with a 200 rather than failing the check.
   app.get("/api/health", async (_req, res) => {
+    // Uptime monitors alert on non-200, so an unreachable database must say so.
+    try {
+      await db.execute(sql`select 1`);
+    } catch {
+      return res.status(503).json({ status: "down", database: "unreachable", timestamp: new Date().toISOString() });
+    }
     const catalog = await checkCatalogHealth().catch(() => ({ ok: false, activeFeatures: 0 }));
     res.json({
       status: catalog.ok ? "ok" : "degraded",

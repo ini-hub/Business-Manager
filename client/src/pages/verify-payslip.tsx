@@ -81,8 +81,6 @@ export default function VerifyPayslipPage() {
             <Row label="Staff" value={staffName} />
             <Row label="Store / Branch" value={storeName} />
             <Row label="Pay Period" value={period} />
-            <Row label="Gross Pay" value={data.grossPay != null ? formatMoney(Number(data.grossPay)) : "—"} />
-            <Row label="Net Pay" value={data.netPay != null ? formatMoney(Number(data.netPay)) : "—"} highlight />
             <Row label="Document Generated" value={generatedAt} />
           </div>
 
@@ -110,6 +108,3 @@ function Row({ label, value, highlight = false }: { label: string; value: string
   );
 }
 
-function formatMoney(amount: number) {
-  return `NGN ${amount.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}

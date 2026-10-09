@@ -10,6 +10,13 @@ describe("buildCspDirectives", () => {
     expect(d.scriptSrc.join(" ")).not.toContain("googleapis");
     expect(d.frameSrc).toEqual(["'none'"]);
   });
+  it("allows the Sentry ingest origin only when a client DSN is set", () => {
+    expect(buildCspDirectives({} as any).connectSrc.join(" ")).not.toContain("sentry");
+    expect(buildCspDirectives({ VITE_SENTRY_DSN: "https://k@o1.ingest.sentry.io/2" } as any).connectSrc).toContain("https://o1.ingest.sentry.io");
+  });
+  it("does not allow inline scripts", () => {
+    expect(buildCspDirectives({} as any).scriptSrc).not.toContain("'unsafe-inline'");
+  });
   it("adds Google Maps hosts only when a key is configured", () => {
     const d = buildCspDirectives({ VITE_GOOGLE_MAPS_API_KEY: "k" } as any);
     expect(d.scriptSrc).toContain("https://maps.googleapis.com");

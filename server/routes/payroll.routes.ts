@@ -1087,7 +1087,16 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     try {
       const record = await storage.getPayslipRecord(req.params.id);
       if (!record) return res.status(404).json({ error: "Payslip record not found." });
-      res.json(record);
+      // Public endpoint: expose identity/period/validity only, never pay figures.
+      res.json({
+        valid: true,
+        staff: { name: record.staff?.name ?? null },
+        store: { name: record.store?.name ?? null },
+        period: record.period
+          ? { startDate: record.period.startDate, endDate: record.period.endDate }
+          : null,
+        generatedAt: record.generatedAt,
+      });
     } catch (error) {
       res.status(500).json({ error: "Verification failed." });
     }

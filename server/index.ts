@@ -1,4 +1,6 @@
 import "./lib/loadEnv";
+import { initSentry, captureServerError } from "./lib/sentry";
+initSentry();
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { recordRequest, startHealthMetricsFlush } from "./lib/healthMetrics";
@@ -139,7 +141,12 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    if (status >= 500) captureServerError(err);
+    // Never leak internals on 5xx in production; 4xx messages are intentional.
+    const message =
+      status >= 500 && process.env.NODE_ENV === "production"
+        ? "Internal Server Error"
+        : err.message || "Internal Server Error";
 
     res.status(status).json({ error: { code: "INTERNAL_ERROR", message } });
     throw err;

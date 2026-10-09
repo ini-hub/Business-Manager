@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { encryptIfNeeded, decryptIfNeeded } from "../lib/credentialEncryption";
 import {
   businesses,
   organisations,
@@ -278,8 +279,19 @@ export class BusinessRepository {
   }
 
   // ─── Store Integrations ────────────────────────────────────────────────────
+  // secretKey / webhookSecret are AES-256-GCM encrypted at rest; callers always
+  // see plaintext (legacy un-prefixed rows pass through until backfilled).
+  private decryptIntegration(row: StoreIntegration): StoreIntegration {
+    return {
+      ...row,
+      secretKey: decryptIfNeeded(row.secretKey) as string | null,
+      webhookSecret: decryptIfNeeded(row.webhookSecret) as string | null,
+    };
+  }
+
   async getStoreIntegrations(storeId: string): Promise<StoreIntegration[]> {
-    return await db.select().from(storeIntegrations).where(eq(storeIntegrations.storeId, storeId));
+    const rows = await db.select().from(storeIntegrations).where(eq(storeIntegrations.storeId, storeId));
+    return rows.map((r) => this.decryptIntegration(r));
   }
 
   async getStoreIntegrationByProvider(storeId: string, provider: string): Promise<StoreIntegration | undefined> {
@@ -287,21 +299,24 @@ export class BusinessRepository {
       .select()
       .from(storeIntegrations)
       .where(and(eq(storeIntegrations.storeId, storeId), eq(storeIntegrations.provider, provider)));
-    return row;
+    return row ? this.decryptIntegration(row) : undefined;
   }
 
   async upsertStoreIntegration(data: InsertStoreIntegration & { storeId: string; provider: string }): Promise<StoreIntegration> {
     const existing = await this.getStoreIntegrationByProvider(data.storeId, data.provider);
+    const values = { ...data };
+    if (values.secretKey !== undefined) values.secretKey = encryptIfNeeded(values.secretKey) as string | null;
+    if (values.webhookSecret !== undefined) values.webhookSecret = encryptIfNeeded(values.webhookSecret) as string | null;
     if (existing) {
       const [updated] = await db
         .update(storeIntegrations)
-        .set({ ...data, updatedAt: new Date() })
+        .set({ ...values, updatedAt: new Date() })
         .where(eq(storeIntegrations.id, existing.id))
         .returning();
-      return updated;
+      return this.decryptIntegration(updated);
     }
-    const [inserted] = await db.insert(storeIntegrations).values(data).returning();
-    return inserted;
+    const [inserted] = await db.insert(storeIntegrations).values(values).returning();
+    return this.decryptIntegration(inserted);
   }
 
   async deleteStoreIntegration(id: string): Promise<void> {
