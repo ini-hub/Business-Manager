@@ -125,6 +125,8 @@ const PartnerLedgerPage = lazy(() => import("@/pages/partner-ledger"));
 const StockTransferNewPage = lazy(() => import("@/pages/stock-transfer-new"));
 const ServiceProfitabilityPage = lazy(() => import("@/pages/service-profitability"));
 const BalanceSheetPage = lazy(() => import("@/pages/balance-sheet"));
+const PaymentAccountsReportPage = lazy(() => import("@/pages/payment-accounts-report"));
+const TaxReturnsReportPage = lazy(() => import("@/pages/tax-returns-report"));
 const ProfilePage = lazy(() => import("@/pages/profile"));
 const HelpSupportPage = lazy(() => import("@/pages/help-support"));
 const SettingsIndexPage = lazy(() => import("@/pages/settings/index"));
@@ -635,6 +637,12 @@ function AuthenticatedLayout() {
                   <Route path="/broadcasts" component={BroadcastsPage} />
                   <Route path="/reports/service-profitability" component={ServiceProfitabilityPage} />
                   <Route path="/reports/balance-sheet" component={BalanceSheetPage} />
+                  <Route path="/reports/payment-accounts">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <PaymentAccountsReportPage />}
+                  </Route>
+                  <Route path="/reports/tax-returns">
+                    {user?.role === "staff" ? <Redirect to="/" /> : <TaxReturnsReportPage />}
+                  </Route>
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/payroll/new" component={PayrollNewPage} />
                   <Route path="/payroll/advances" component={PayrollAdvancesPage} />

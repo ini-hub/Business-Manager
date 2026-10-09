@@ -1,6 +1,7 @@
 import { CreditCard } from "lucide-react";
 import { SettingsPageHeader } from "@/components/settings-page-header";
 import { useStore } from "@/lib/store-context";
+import { PaymentAccountsSection } from "./components/payment-accounts-section";
 import { StoreIntegrationsSection } from "./components/store-integrations";
 import { NoStoreSelected } from "./components/no-store-selected";
 
@@ -23,6 +24,7 @@ export default function SettingsPaymentIntegrationsPage() {
         <NoStoreSelected icon={CreditCard} action="configure payment integrations" />
       ) : (
         <>
+          <PaymentAccountsSection />
           <StoreIntegrationsSection />
         </>
       )}

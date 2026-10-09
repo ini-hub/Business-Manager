@@ -78,6 +78,7 @@ import { CreditRepository } from "./repositories/CreditRepository";
 import { VendorRepository } from "./repositories/VendorRepository";
 import { CashRegisterRepository } from "./repositories/CashRegisterRepository";
 import { PaymentAccountRepository } from "./repositories/PaymentAccountRepository";
+import { BankFeedRepository } from "./repositories/BankFeedRepository";
 import { StockAuditRepository } from "./repositories/StockAuditRepository";
 import { QuoteRepository } from "./repositories/QuoteRepository";
 import { PurchaseOrderRepository } from "./repositories/PurchaseOrderRepository";
@@ -537,6 +538,7 @@ interface IStorage {
   vendorRepo: VendorRepository;
   cashRegisterRepo: CashRegisterRepository;
   paymentAccountRepo: PaymentAccountRepository;
+  bankFeedRepo: BankFeedRepository;
   stockAuditRepo: StockAuditRepository;
   inventoryRepo: InventoryRepository;
   quoteRepo: QuoteRepository;
@@ -555,6 +557,7 @@ class DatabaseStorage implements IStorage {
   public readonly vendorRepo = new VendorRepository();
   public readonly cashRegisterRepo = new CashRegisterRepository();
   public readonly paymentAccountRepo = new PaymentAccountRepository();
+  public readonly bankFeedRepo = new BankFeedRepository();
   public readonly stockAuditRepo = new StockAuditRepository();
   public readonly quoteRepo = new QuoteRepository();
   public readonly purchaseOrderRepo = new PurchaseOrderRepository();

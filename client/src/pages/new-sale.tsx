@@ -506,6 +506,7 @@ export default function NewSale() {
     setCreditUpfrontPaid(Number(draft.creditUpfrontPaid) || 0);
     setCreditDueDate(draft.creditDueDate || "");
     setSplitPayments(draft.splitPayments ?? defaultSplitPayments());
+    setPaymentDetail(draft.paymentDetail ?? {});
     setActiveDraftId(draft.id);
     setDraftsOpen(false);
     toast({ title: "Draft loaded!", description: "Your cart has been restored." });
@@ -549,6 +550,7 @@ export default function NewSale() {
         creditUpfrontPaid: creditUpfrontPaid || 0,
         creditDueDate: creditDueDate || undefined,
         splitPayments: paymentMethod === "split" ? splitPayments : undefined,
+        paymentDetail: paymentMethod === "split" ? undefined : paymentDetail,
       };
 
       if (isUpdate && activeDraftId) {

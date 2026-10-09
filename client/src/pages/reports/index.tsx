@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Compass,
+  Landmark,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -48,6 +49,20 @@ const REPORT_SECTIONS = [
     icon: BarChart3,
     href: "/reports/service-profitability",
     roles: ["owner"],
+  },
+  {
+    title: "Payment Accounts",
+    description: "See which account each transfer landed in, and confirm pending payments against the bank.",
+    icon: Landmark,
+    href: "/reports/payment-accounts",
+    roles: ["owner", "manager"],
+  },
+  {
+    title: "Tax & Returns",
+    description: "Tax collected against tax given back through returns for a period, checked against the bank, with a CSV for your accountant.",
+    icon: Landmark,
+    href: "/reports/tax-returns",
+    roles: ["owner", "manager"],
   },
   {
     title: "Analytics Explorer",
