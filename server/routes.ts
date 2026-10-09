@@ -952,13 +952,13 @@ export async function registerRoutes(
       };
 
       res.json({
-        message: "Switched workspace successfully.",
+        message: "Switched business successfully.",
         user: sessionUser,
         business: org,
       });
     } catch (error) {
       console.error("Organisation switch error:", error);
-      res.status(500).json({ error: "Failed to switch organization workspace." });
+      res.status(500).json({ error: "Failed to switch business." });
     }
   });
 
@@ -1025,13 +1025,13 @@ export async function registerRoutes(
       };
 
       res.json({
-        message: "Business workspace created successfully.",
+        message: "Business created successfully.",
         user: sessionUser,
         business: organisation,
       });
     } catch (error) {
       console.error("Organisation creation error:", error);
-      res.status(500).json({ error: "Failed to create new business workspace." });
+      res.status(500).json({ error: "Failed to create new business." });
     }
   });
 
@@ -1286,7 +1286,7 @@ export async function registerRoutes(
       const targetMember = members.find(m => m.status === "partial") || members.find(m => m.status === "pending")
         || members.find(m => m.status === "contract_pending") || members.find(m => m.status === "active");
       if (!targetMember) {
-        return res.status(400).json({ error: "No workspace association found." });
+        return res.status(400).json({ error: "No business association found." });
       }
 
       // First-time activation (targetMember has never been "active" before)
@@ -1406,7 +1406,7 @@ export async function registerRoutes(
       }
 
       if (activeMembers.length === 0) {
-        return res.status(400).json({ error: "No active business workspace associated." });
+        return res.status(400).json({ error: "No active business associated." });
       }
 
       // Existing user with multiple workspaces - let them choose, same as password login

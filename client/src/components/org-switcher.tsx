@@ -54,7 +54,7 @@ export function OrgSwitcher() {
     },
     onSuccess: (data) => {
       toast({
-        title: "Switched workspace",
+        title: "Switched business",
         description: data.message || "Successfully switched organization.",
       });
       // Clear react-query cache and perform a hard page reload to re-initialize store provider and other state
@@ -78,15 +78,15 @@ export function OrgSwitcher() {
     },
     onSuccess: (data) => {
       toast({
-        title: "Workspace Created",
-        description: data.message || "Successfully created your new business workspace.",
+        title: "Business Created",
+        description: data.message || "Successfully created your new business.",
       });
       // Clear react-query cache and perform a hard page reload to re-initialize store provider and other state
       queryClient.clear();
       window.location.reload();
     },
     onError: (error: any) => {
-      const errorMsg = error.response?.data?.error || "Failed to create new business workspace.";
+      const errorMsg = error.response?.data?.error || "Failed to create new business.";
       toast({
         title: "Creation Failed",
         description: errorMsg,
@@ -126,10 +126,10 @@ export function OrgSwitcher() {
         </PopoverTrigger>
         <PopoverContent className="w-[240px] p-0" align="start">
           <Command>
-            <CommandInput placeholder="Search organisation..." data-testid="input-org-search" />
+            <CommandInput placeholder="Search business..." data-testid="input-org-search" />
             <CommandList>
               <CommandEmpty>No organisation found.</CommandEmpty>
-              <CommandGroup heading="Your Workspaces">
+              <CommandGroup heading="Your Business">
                 {orgs.map((org) => (
                   <CommandItem
                     key={org.id}
@@ -169,7 +169,7 @@ export function OrgSwitcher() {
                   className="flex items-center gap-2 text-primary font-semibold cursor-pointer"
                 >
                   <Plus className="h-4 w-4 shrink-0 text-primary" />
-                  <span>Create Workspace</span>
+                  <span>Create Business</span>
                 </CommandItem>
               </CommandGroup>
             </CommandList>
@@ -182,10 +182,10 @@ export function OrgSwitcher() {
           <DialogHeader>
             <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
               <Building2 className="h-5 w-5 shrink-0 text-primary" />
-              Create Business Workspace
+              Create Business
             </DialogTitle>
             <DialogDescription className="text-muted-foreground text-sm">
-              Each workspace operates with its own isolated sales ledger, catalog, store locations, and staff assignments.
+              Each business operates with its own isolated sales ledger, catalog, store locations, and staff assignments.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -226,7 +226,7 @@ export function OrgSwitcher() {
               disabled={createMutation.isPending}
               className="font-semibold"
             >
-              {createMutation.isPending ? "Creating..." : "Create Workspace"}
+              {createMutation.isPending ? "Creating..." : "Create Business"}
             </Button>
           </DialogFooter>
         </DialogContent>

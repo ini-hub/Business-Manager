@@ -143,7 +143,7 @@ export function registerContractRoutes(app: Express, middlewares?: { isAuthentic
           const biz = signedStore?.businessId ? await storage.getBusinessById(signedStore.businessId) : undefined;
           const version = review?.version;
           if (signer?.email && version) {
-            await sendContractSignedEmail(signer.email, staff.name, biz?.name || "your workspace", {
+            await sendContractSignedEmail(signer.email, staff.name, biz?.name || "your business", {
               versionNumber: version.versionNumber,
               typedFullName: outcome.signature.typedFullName,
               signedAt: outcome.signature.signedAt,
@@ -169,7 +169,7 @@ export function registerContractRoutes(app: Express, middlewares?: { isAuthentic
       }
       const member = await storage.getOrganisationMember(userId, businessId);
       if (!member) {
-        return res.status(500).json({ error: "No workspace association found." });
+        return res.status(500).json({ error: "No business association found." });
       }
       res.clearCookie("contract_pending_token");
       await completeStaffActivation(user, req, res, {
@@ -206,7 +206,7 @@ export function registerContractRoutes(app: Express, middlewares?: { isAuthentic
         staffContractId,
         versionId: body.versionId,
         staffName: staff.name,
-        businessName: business?.name || "your workspace",
+        businessName: business?.name || "your business",
         inviterEmail: inviter?.email || undefined,
         inviterName: inviter?.name || undefined,
         reason: body.reason,

@@ -188,7 +188,7 @@ export async function completeStaffActivation(
   let targetMember = members.find((m: any) => m.status === "partial") || members.find((m: any) => m.status === "pending")
     || members.find((m: any) => m.status === "contract_pending") || members.find((m: any) => m.status === "active");
   if (!targetMember) {
-    res.status(400).json({ error: "No workspace association found." });
+    res.status(400).json({ error: "No business association found." });
     return;
   }
 

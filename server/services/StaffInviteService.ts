@@ -175,7 +175,7 @@ export class StaffInviteService {
 
     const emailLower = email.toLowerCase();
     const business = await storage.getBusinessById(businessId);
-    const businessName = business?.name || "Business Workspace";
+    const businessName = business?.name || "Business";
     const existing = await storage.getUserByIdentifier(emailLower);
 
     // (A) Nobody owns this address yet - mint a brand new invited account.

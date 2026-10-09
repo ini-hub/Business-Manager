@@ -256,7 +256,7 @@ export default function Login() {
         setOrgSelectToken(data.orgSelectToken);
         setStep("org_select");
         toast({
-          title: "Multiple Workspaces Found",
+          title: "Multiple Businesses Found",
           description: "Please select the organisation you want to access.",
         });
       } else if (data.status === "contract_signature_required") {
@@ -331,9 +331,9 @@ export default function Login() {
       setLocation("/");
     },
     onError: (error: Error) => {
-      const errorMsg = error.message || "Workspace entry failed.";
+      const errorMsg = error.message || "Business entry failed.";
       toast({
-        title: "Workspace entry failed",
+        title: "Business entry failed",
         description: errorMsg,
         variant: "destructive",
       });
@@ -512,7 +512,7 @@ export default function Login() {
         setOrgSelectToken(data.orgSelectToken);
         setStep("org_select");
         toast({
-          title: "Multiple Workspaces Found",
+          title: "Multiple Businesses Found",
           description: "Please select the organisation you want to access.",
         });
         return;
@@ -627,7 +627,7 @@ export default function Login() {
         setOrgSelectToken(data.orgSelectToken);
         setStep("org_select");
         toast({
-          title: "Multiple Workspaces Found",
+          title: "Multiple Businesses Found",
           description: "Please select the organisation you want to access.",
         });
         return;
@@ -792,7 +792,7 @@ export default function Login() {
             {step === "sign_contract" && "Review and sign your contract to finish onboarding"}
             {step === "legal_consent" && "Please review and accept our current legal documents to continue"}
             {step === "almost_there" && `Complete your Kowope registration for ${identifierDisplay}`}
-            {step === "org_select" && "Select the business workspace you want to access"}
+            {step === "org_select" && "Select the business you want to access"}
           </CardDescription>
         </CardHeader>
         )}
@@ -979,7 +979,7 @@ export default function Login() {
           {step === "org_select" && (
             <div className="space-y-3">
               <p className="text-[13px] text-muted-foreground text-center">
-                Select organisation workspace to log in to:
+                Select business to log in to:
               </p>
               {orgs.map((org) => (
                 <Button

@@ -112,7 +112,7 @@ export async function sendAddedToOrgEmail(
     body:
       para(`Hi <strong>${safeName}</strong>,`) +
       para(`<strong>${safeInviter}</strong> has added you to <strong>${safeBusiness}</strong> as a <strong>${safeRole}</strong>.`) +
-      para("Log in with your existing credentials to accept and access this business workspace."),
+      para("Log in with your existing credentials to accept and access this business."),
     button: { label: "Open Kowope", href: loginLink },
     signoff: `The ${safeBusiness} Team`,
   });

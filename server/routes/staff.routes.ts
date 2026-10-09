@@ -824,7 +824,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           const linkedUser = await storage.getUser(staffMember.userId);
           if (linkedUser?.email) {
             const business = await storage.getBusinessById(businessId);
-            sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your workspace", isAmendment)
+            sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your business", isAmendment)
               .catch((err) => console.error("[StaffContract] Failed to send signature-required notification:", err));
           }
         }
@@ -932,7 +932,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (linkedUser?.email) {
         const business = await storage.getBusinessById(businessId);
         const isAmendment = await staffContractService.isAwaitingResignature(contract);
-        sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your workspace", isAmendment)
+        sendContractSignatureRequiredEmail(linkedUser.email, staffMember.name, business?.name || "your business", isAmendment)
           .catch((err) => console.error("[StaffContract] Failed to send signature-required notification:", err));
       }
 

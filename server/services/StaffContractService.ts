@@ -107,7 +107,7 @@ class StaffContractService {
       // another tenant's object. Must precede every storage call.
       const stagingPrefix = contractStagingPrefix(businessId);
       if (!input.storageKey.startsWith(stagingPrefix) || input.storageKey.split("/").includes("..")) {
-        return { kind: "invalid", reason: "That upload doesn't belong to this workspace. Please upload the file again." };
+        return { kind: "invalid", reason: "That upload doesn't belong to this business. Please upload the file again." };
       }
 
       if (!ALLOWED_CONTRACT_MIME_TYPES.includes(input.fileMimeType as any)) {
