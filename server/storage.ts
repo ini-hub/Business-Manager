@@ -175,6 +175,7 @@ interface IStorage {
   // Customers
   getCustomers(storeId: string, includeArchived?: boolean): Promise<Customer[]>;
   getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>>;
+  getCustomersPage(storeIds: string[], options: { search?: string; includeArchived?: boolean }, page: { limit: number; offset: number }): Promise<{ rows: (Customer & { storeName?: string })[]; total: number }>;
   getCustomer(id: string): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: string, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
@@ -748,6 +749,10 @@ class DatabaseStorage implements IStorage {
   // ─── Customer Repo Delegation ──────────────────────────────────────────────
   async getCustomers(storeId: string, includeArchived: boolean = true): Promise<Customer[]> {
     return this.customerRepo.getCustomers(storeId, includeArchived);
+  }
+
+  async getCustomersPage(storeIds: string[], options: { search?: string; includeArchived?: boolean }, page: { limit: number; offset: number }) {
+    return this.customerRepo.getCustomersPage(storeIds, options, page);
   }
 
   async getCustomersPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Customer>> {

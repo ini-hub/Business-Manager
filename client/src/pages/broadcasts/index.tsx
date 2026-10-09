@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { usePaged } from "@/hooks/usePaged";
 import { PagerBar } from "@/components/pager-bar";
 import { useState } from "react";
@@ -38,7 +39,7 @@ export default function BroadcastsPage() {
 
   const { data: customers = [] } = useQuery<Customer[]>({
     queryKey: ["/api/customers", storeId],
-    queryFn: async () => (await fetch(`/api/customers?storeId=${storeId}`)).json(),
+    queryFn: () => fetchAllPages<Customer>(`/api/customers?storeId=${storeId}`),
     enabled: !!storeId,
   });
 

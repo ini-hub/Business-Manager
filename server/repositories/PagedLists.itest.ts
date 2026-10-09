@@ -222,3 +222,51 @@ describe("stock transfers and register sessions", () => {
     expect((await storage.cashRegisterRepo.getSessionsPage(f.storeId, { limit: 10, offset: 0 })).total).toBe(3);
   });
 });
+
+describe("customers", () => {
+  it("pages in SQL, searches names and numbers, hides archived by default, and folds a shared number into one row across stores", async () => {
+    const mk = (storeId: string, name: string, n: string, o: Record<string, unknown> = {}) =>
+      db.insert(customers).values({ storeId, name, customerNumber: n, address: "x", ...o } as any).returning().then((r) => r[0]);
+    const tag = String(Date.now()).slice(-6);
+    const shared = await mk(f.storeId, "Zainab Okafor", `CP1-${tag}`, { mobileNumber: "08031112222" }); // same person as the other store's
+    await mk(f.storeId, "Bayo Archived", `CP2-${tag}`, { mobileNumber: "08033330001", isArchived: true });
+    await mk(f.storeId, "Cee Nonumber", `CP3-${tag}`);
+    await mk(otherStoreId, "Cee Nonumber", `CP4-${tag}`); // no number: stays a separate row
+
+    const one = await storage.getCustomersPage([f.storeId], {}, { limit: 100, offset: 0 });
+    const names = one.rows.map((r) => r.name);
+    expect(names).toContain("Zainab Okafor");
+    expect(names).not.toContain("Bayo Archived");
+    expect(one.total).toBe(one.rows.length);
+    expect((await storage.getCustomersPage([f.storeId], { includeArchived: true }, { limit: 100, offset: 0 })).rows.map((r) => r.name)).toContain("Bayo Archived");
+
+    // Search: name, number and customer number.
+    expect((await storage.getCustomersPage([f.storeId], { search: "okaf" }, { limit: 10, offset: 0 })).rows.map((r) => r.id)).toEqual([shared.id]);
+    expect((await storage.getCustomersPage([f.storeId], { search: "08031112222" }, { limit: 10, offset: 0 })).total).toBe(1);
+    expect((await storage.getCustomersPage([f.storeId], { search: `CP3-${tag}` }, { limit: 10, offset: 0 })).total).toBe(1);
+
+    // Paging walks every row once with a stable total.
+    const seen: string[] = [];
+    for (let offset = 0; ; offset += 2) {
+      const page = await storage.getCustomersPage([f.storeId], {}, { limit: 2, offset });
+      seen.push(...page.rows.map((r) => r.id));
+      if (offset + 2 >= page.total) break;
+    }
+    expect(seen).toHaveLength(one.total);
+    expect(new Set(seen).size).toBe(one.total);
+
+    // Across stores the shared number is one row naming both stores; the numberless pair stays two rows.
+    const all = await storage.getCustomersPage([f.storeId, otherStoreId], {}, { limit: 100, offset: 0 });
+    const zainab = all.rows.filter((r) => r.name === "Zainab Okafor");
+    expect(zainab).toHaveLength(1);
+    expect(zainab[0].storeName?.split(", ")).toHaveLength(2);
+    expect(all.rows.filter((r) => r.name === "Cee Nonumber")).toHaveLength(2);
+    const allPaged: string[] = [];
+    for (let offset = 0; ; offset += 2) {
+      const page = await storage.getCustomersPage([f.storeId, otherStoreId], {}, { limit: 2, offset });
+      allPaged.push(...page.rows.map((r) => r.id));
+      if (offset + 2 >= page.total) break;
+    }
+    expect(allPaged.sort()).toEqual(all.rows.map((r) => r.id).sort());
+  });
+});
