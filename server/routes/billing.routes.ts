@@ -1,6 +1,7 @@
 import { parsePage } from "../lib/pagination";
 import { pagedSelect, totalOf } from "../lib/pagedQuery";
 import { listScreenGates } from "../lib/gateRules";
+import { getSidebarLayout } from "../lib/platformConfig";
 import { tiersNotAbove, validateTierSelection } from "@shared/features";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
@@ -338,12 +339,15 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
 
       const [featureView, lifecycle] = await Promise.all([getOrgFeatureView(user.businessId), getOrgLifecycleView(user.businessId)]);
       const screenGates = (await listScreenGates()).map(({ pattern, featureKey, module, source }) => ({ pattern, featureKey, module, source }));
+      const sidebarLayout = await getSidebarLayout();
 
       res.json({
         features: Array.from(granted),
         // Client screens that need a feature (code baseline + admin-defined rules), so the
         // sidebar and router lock them from the same data the server enforces.
         screenGates,
+        // The super-admin sidebar layout, or null for the built-in default (shared/sidebarLayout.ts).
+        sidebarLayout,
         // Subset of `features` that's actually been purchased (or is free),
         // never inflated by the trial blanket grant - see getOrgPurchasedFeatures.
         purchasedFeatures: Array.from(purchased),

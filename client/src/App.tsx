@@ -174,6 +174,7 @@ const Bundles = lazy(() => import("@/pages/admin/Bundles"));
 const OverCapReport = lazy(() => import("@/pages/admin/OverCapReport"));
 const BundleEditor = lazy(() => import("@/pages/admin/BundleEditor"));
 const PlatformSettings = lazy(() => import("@/pages/admin/PlatformSettings"));
+const NavigationLayout = lazy(() => import("@/pages/admin/NavigationLayout"));
 const LegalDocuments = lazy(() => import("@/pages/admin/LegalDocuments"));
 const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
 const SystemHealth = lazy(() => import("@/pages/admin/SystemHealth"));
@@ -320,6 +321,7 @@ function SuperAdminRouter() {
               <Route path="/super-admin/bundles/new" component={BundleEditor} />
               <Route path="/super-admin/bundles/:id" component={BundleEditor} />
               <Route path="/super-admin/platform-settings" component={PlatformSettings} />
+              <Route path="/super-admin/navigation" component={NavigationLayout} />
               <Route path="/super-admin/legal-documents" component={LegalDocuments} />
               <Route path="/super-admin/announcements" component={AnnouncementsManager} />
               <Route path="/super-admin/health" component={SystemHealth} />

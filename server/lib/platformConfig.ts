@@ -4,6 +4,7 @@ import { platformConfig } from "@shared/schema";
 import { TRIAL_DAYS, GRACE_DAYS } from "./trial";
 import { encryptSecret, decryptSecret } from "./credentialEncryption";
 import { createTtlCache } from "./ttlCache";
+import { validateSidebarLayout, type SidebarLayout } from "@shared/sidebarLayout";
 
 /**
  * Platform-operator-level settings (shared/schema/platform.ts's platformConfig
@@ -53,6 +54,18 @@ export async function getConfiguredTrialDays(): Promise<number> {
 export async function getConfiguredGraceDays(): Promise<number> {
   const value = await getPlatformConfigValue<number>("grace_days");
   return typeof value === "number" && value >= 0 ? value : GRACE_DAYS;
+}
+
+/**
+ * The super-admin-saved sidebar layout, or null when none is saved (or the stored
+ * value no longer validates, e.g. after a page was removed) so clients use the
+ * built-in default. See shared/sidebarLayout.ts.
+ */
+export async function getSidebarLayout(): Promise<SidebarLayout | null> {
+  const raw = await getPlatformConfigValue<unknown>("sidebar_layout");
+  if (!raw) return null;
+  const result = validateSidebarLayout(raw);
+  return result.ok ? result.layout : null;
 }
 
 export type ExportBranding = { enabled: boolean; text: string };
