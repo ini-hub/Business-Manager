@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { findGatedScreen } from "@shared/gateRules";
 import { gatedFeatureForScreen } from "@shared/features";
 import type { PermissionModule } from "@shared/permissionModules";
+import type { SidebarLayout } from "@shared/sidebarLayout";
 import { useOptionalStore } from "@/lib/store-context";
 
 type CountLimitStatus = { limit: number; used: number; unlimited: boolean; tiered?: boolean; trial?: boolean; usedByStore?: Record<string, number> };
@@ -14,6 +15,8 @@ type EntitlementsResponse = {
   // Screens that need a feature: the code baseline plus rules a super admin added in
   // the console. "admin" rules also require the feature's Settings > Roles module.
   screenGates?: { pattern: string; featureKey: string; module: PermissionModule | null; source: "code" | "admin" }[];
+  // Super-admin sidebar layout; null/absent means the built-in default.
+  sidebarLayout?: SidebarLayout | null;
   // trial -> grace -> soft_locked countdown (server/lib/trial.ts getOrgLifecycle).
   lifecycle?: { state: "trialing" | "grace" | "soft_locked" | "ok" | "suspended"; graceEndsAt: string | null; trialEndsAt: string | null; graceDays: number };
   // Flag off / deactivated: hide these everywhere (nav, buttons, tabs).
@@ -76,6 +79,7 @@ export function useEntitlements() {
       const key = findGatedScreen(path, gates);
       return key ? gates.find((g) => g.featureKey === key)?.module ?? null : null;
     },
+    sidebarLayout: data?.sidebarLayout ?? null,
     lifecycle: data?.lifecycle,
     entitledKeys: data?.features ?? [],
     purchasedKeys: data?.purchasedFeatures ?? [],

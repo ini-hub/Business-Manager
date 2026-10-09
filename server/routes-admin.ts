@@ -66,7 +66,8 @@ import { listPendingReview } from "./lib/featureReviewNotice";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
 import { slugifyBundleKey } from "@shared/bundles";
 import { validateBundleMembers } from "./lib/pricing";
-import { getExportBranding, getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getPhoneChangeOtpViaEmail, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
+import { DEFAULT_SIDEBAR_LAYOUT, validateSidebarLayout } from "@shared/sidebarLayout";
+import { getExportBranding, getSidebarLayout, getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getPhoneChangeOtpViaEmail, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
@@ -3034,6 +3035,43 @@ adminRouter.put("/platform-config/export-branding", isAdminAuthenticated, requir
   } catch (error) {
     console.error("Update export-branding error:", error);
     return res.status(500).json({ error: "Failed to update export branding." });
+  }
+});
+
+// Sidebar layout: which pages each role's sidebar shows, in which named sections and order.
+// Saved as one platform_config row; no row means the built-in default (shared/sidebarLayout.ts).
+adminRouter.get("/platform-config/sidebar-layout", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    const saved = await getSidebarLayout();
+    return res.json({ customised: !!saved, layout: saved ?? DEFAULT_SIDEBAR_LAYOUT });
+  } catch {
+    return res.status(500).json({ error: "Failed to load the sidebar layout." });
+  }
+});
+
+adminRouter.put("/platform-config/sidebar-layout", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const result = validateSidebarLayout(req.body?.layout);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  try {
+    await setPlatformConfigValue("sidebar_layout", result.layout, req.admin!.email);
+    await writeAuditLog(req, "update_sidebar_layout", "platform_config", {
+      sections: Object.fromEntries(Object.entries(result.layout).map(([role, l]) => [role, l.sections.map((s) => s.label)])),
+    });
+    return res.json({ success: true, customised: true, layout: result.layout });
+  } catch (error) {
+    console.error("Update sidebar-layout error:", error);
+    return res.status(500).json({ error: "Failed to save the sidebar layout." });
+  }
+});
+
+adminRouter.delete("/platform-config/sidebar-layout", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    await setPlatformConfigValue("sidebar_layout", null, req.admin!.email);
+    await writeAuditLog(req, "reset_sidebar_layout", "platform_config");
+    return res.json({ success: true, customised: false, layout: DEFAULT_SIDEBAR_LAYOUT });
+  } catch (error) {
+    console.error("Reset sidebar-layout error:", error);
+    return res.status(500).json({ error: "Failed to reset the sidebar layout." });
   }
 });
 
