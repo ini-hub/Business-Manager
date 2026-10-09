@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
+import { PagerBar } from "@/components/pager-bar";
 import { Search, User, KeyRound, Ban, RotateCcw, AlertTriangle, Mail, Shield, AlertCircle, SlidersHorizontal } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -37,10 +38,13 @@ export default function UsersList() {
   const [suspensionReason, setSuspensionReason] = useState("");
 
   // Query all users
-  const { data: usersData, isLoading: usersLoading, error: usersError } = useQuery({
-    queryKey: ["/api/admin/users", { role: role === "all" ? "" : role, status: status === "all" ? "" : status, search }],
+  const [usersPage, setUsersPage] = useState(1);
+  useEffect(() => setUsersPage(1), [role, status, search]);
+  const { data: usersData, isLoading: usersLoading, isFetching: usersFetching, error: usersError } = useQuery({
+    queryKey: ["/api/admin/users", { role: role === "all" ? "" : role, status: status === "all" ? "" : status, search }, usersPage],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: String(usersPage), limit: "25" });
       if (role && role !== "all") params.append("role", role);
       if (status && status !== "all") params.append("status", status);
       if (search) params.append("search", search);
@@ -50,10 +54,12 @@ export default function UsersList() {
   });
 
   // Query flagged anomaly accounts
-  const { data: flaggedData, isLoading: flaggedLoading } = useQuery({
-    queryKey: ["/api/admin/users/flagged"],
+  const [flaggedPage, setFlaggedPage] = useState(1);
+  const { data: flaggedData, isLoading: flaggedLoading, isFetching: flaggedFetching } = useQuery({
+    queryKey: ["/api/admin/users/flagged", flaggedPage],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/admin/users/flagged");
+      const res = await apiRequest("GET", `/api/admin/users/flagged?page=${flaggedPage}&limit=24`);
       return res.json();
     },
   });
@@ -152,9 +158,9 @@ export default function UsersList() {
           <TabsTrigger value="directory" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground">Active Roster</TabsTrigger>
           <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-background data-[state=active]:text-foreground flex items-center gap-2">
             Flagged Inspector
-            {flaggedData?.flagged && flaggedData.flagged.length > 0 && (
+            {flaggedData?.pagination?.total > 0 && (
               <Badge className="bg-destructive text-destructive-foreground border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[11px] font-bold">
-                {flaggedData.flagged.length}
+                {flaggedData.pagination.total}
               </Badge>
             )}
           </TabsTrigger>
@@ -335,6 +341,9 @@ export default function UsersList() {
                   </tbody>
                 </table>
               </div>
+              <div className="px-4 pb-3">
+                <PagerBar pagination={usersData?.pagination} onPage={setUsersPage} busy={usersFetching} noun="accounts" />
+              </div>
             </div>
           )}
         </TabsContent>
@@ -399,6 +408,7 @@ export default function UsersList() {
               ))}
             </div>
           )}
+          <PagerBar pagination={flaggedData?.pagination} onPage={setFlaggedPage} busy={flaggedFetching} noun="flagged accounts" />
         </TabsContent>
       </Tabs>
 

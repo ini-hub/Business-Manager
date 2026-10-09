@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUrlState } from "@/hooks/use-url-state";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
+import { PagerBar } from "@/components/pager-bar";
+import type { Pagination } from "@/lib/paginated";
 import { MessageSquareWarning, AlertCircle, CheckCircle2, RotateCcw, Mail, Send, Search, ArrowLeft, Inbox } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -430,14 +432,19 @@ export default function SupportInbox() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  const { data: threads, isLoading, error } = useQuery<ThreadSummary[]>({
-    queryKey: ["/api/admin/support-threads", tab],
+  // The newest 50 threads of the tab, a page at a time; the unread count comes from the server over all of them.
+  const [threadPage, setThreadPage] = useState(1);
+  useEffect(() => setThreadPage(1), [tab]);
+  const { data: threadData, isLoading, isFetching, error } = useQuery<{ data: ThreadSummary[]; pagination: Pagination; unreadTotal: number }>({
+    queryKey: ["/api/admin/support-threads", tab, threadPage],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/admin/support-threads?status=${tab}`);
+      const res = await apiRequest("GET", `/api/admin/support-threads?status=${tab}&page=${threadPage}&limit=50`);
       return res.json();
     },
+    placeholderData: keepPreviousData,
     refetchInterval: POLL_MS,
   });
+  const threads = threadData?.data;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -449,7 +456,7 @@ export default function SupportInbox() {
     );
   }, [threads, search]);
 
-  const unreadCount = threads?.filter((t) => t.unreadForAdmin).length ?? 0;
+  const unreadCount = threadData?.unreadTotal ?? 0;
 
   return (
     <div className="space-y-4 font-sans">
@@ -522,6 +529,9 @@ export default function SupportInbox() {
             ) : (
               filtered.map((t) => <ThreadRow key={t.id} t={t} selected={selectedId === t.id} onSelect={() => setSelectedId(t.id)} />)
             )}
+            <div className="px-3 pb-2">
+              <PagerBar pagination={threadData?.pagination} onPage={setThreadPage} busy={isFetching} noun="conversations" />
+            </div>
           </div>
         </div>
 

@@ -1,5 +1,7 @@
 import { useUrlState } from "@/hooks/use-url-state";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { PagerBar } from "@/components/pager-bar";
 import { Search, Receipt, CreditCard, Calendar, AlertTriangle, Building, ArrowUpRight, TrendingUp, Percent, AlertCircle, ShieldCheck, Ban } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,12 +27,14 @@ export default function TransactionsMonitor() {
   });
 
   // Query anomaly flagged transactions
-  const { data: flaggedData, isLoading: flaggedLoading } = useQuery({
-    queryKey: ["/api/admin/transactions/flagged"],
+  const [flaggedPage, setFlaggedPage] = useState(1);
+  const { data: flaggedData, isLoading: flaggedLoading, isFetching: flaggedFetching } = useQuery({
+    queryKey: ["/api/admin/transactions/flagged", flaggedPage],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/admin/transactions/flagged");
+      const res = await apiRequest("GET", `/api/admin/transactions/flagged?page=${flaggedPage}&limit=24`);
       return res.json();
     },
+    placeholderData: keepPreviousData,
   });
 
   const formatCurrency = (val: number) => {
@@ -72,9 +76,9 @@ export default function TransactionsMonitor() {
           <TabsTrigger value="ledger" className="rounded-xl text-xs font-bold data-[state=active]:bg-muted data-[state=active]:text-foreground">Central Ledger Stream</TabsTrigger>
           <TabsTrigger value="flagged" className="rounded-xl text-xs font-bold data-[state=active]:bg-muted data-[state=active]:text-foreground flex items-center gap-2">
             Anomalous Flagged Intercepts
-            {flaggedData?.flagged && flaggedData.flagged.length > 0 && (
-              <Badge className="bg-rose-500 text-white border-none h-4 w-4 rounded-full flex items-center justify-center p-0 text-[11px] font-bold">
-                {flaggedData.flagged.length}
+            {flaggedData?.pagination?.total > 0 && (
+              <Badge className="bg-rose-500 text-white border-none min-w-4 h-4 px-1 rounded-full flex items-center justify-center p-0 text-[11px] font-bold">
+                {flaggedData.pagination.total}
               </Badge>
             )}
           </TabsTrigger>
@@ -280,6 +284,7 @@ export default function TransactionsMonitor() {
               })}
             </div>
           )}
+          <PagerBar pagination={flaggedData?.pagination} onPage={setFlaggedPage} busy={flaggedFetching} noun="flagged transactions" />
         </TabsContent>
       </Tabs>
     </div>
