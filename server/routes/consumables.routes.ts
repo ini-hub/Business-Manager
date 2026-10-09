@@ -10,6 +10,7 @@ import { orders } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { getStoreTimezone } from "../lib/dateUtils";
 import { switchCostingMode, localDateString } from "../services/SupplyCostingService";
+import { requirePermission } from "../lib/permissionGate";
 
 const consumablesRepo = new ConsumablesRepository();
 
@@ -60,7 +61,7 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
   });
 
   // Add or update a recipe line.
-  app.put("/api/inventory/:id/consumables", requireManagerOrOwner, withInventoryId, async (req, res) => {
+  app.put("/api/inventory/:id/consumables", requirePermission("/inventory"), withInventoryId, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });
@@ -92,7 +93,7 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
   });
 
   // Remove a recipe line.
-  app.delete("/api/inventory/:id/consumables/:lineId", requireManagerOrOwner, withInventoryId, async (req, res) => {
+  app.delete("/api/inventory/:id/consumables/:lineId", requirePermission("/inventory"), withInventoryId, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });
@@ -112,7 +113,7 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
   });
 
   // What the last stock count says this supply's rates SHOULD be.
-  app.get("/api/inventory/:id/calibration", requireManagerOrOwner, withInventoryId, async (req, res) => {
+  app.get("/api/inventory/:id/calibration", requirePermission("/inventory"), withInventoryId, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });
@@ -126,7 +127,7 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
   });
 
   // Adopt the measured rates.
-  app.post("/api/inventory/:id/calibration/apply", requireManagerOrOwner, withInventoryId, async (req, res) => {
+  app.post("/api/inventory/:id/calibration/apply", requirePermission("/inventory"), withInventoryId, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });
@@ -157,7 +158,7 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
   });
 
   // Switch a supply between 'expensed' and 'metered', truing up stock on hand.
-  app.patch("/api/inventory/:id/costing-mode", requireManagerOrOwner, withInventoryId, async (req, res) => {
+  app.patch("/api/inventory/:id/costing-mode", requirePermission("/inventory"), withInventoryId, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(req.params.id);
       if (!item) return res.status(404).json({ error: "Item not found." });

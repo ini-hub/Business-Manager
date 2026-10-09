@@ -1,7 +1,8 @@
-import { PERMISSION_MODULES } from "@shared/permissionModules";
+import { ALL_PERMISSION_KEYS, expandPermissions } from "@shared/permissions";
+import { PermissionPicker } from "@/components/permission-picker";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
-import { ArrowLeft, ShieldCheck, Check, Lock } from "lucide-react";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/icon-button";
@@ -20,11 +21,20 @@ export default function RoleFormPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
+  const canManage = user?.role === "owner" || user?.role === "manager";
 
   const [roleName, setRoleName] = useState("");
   const [roleDesc, setRoleDesc] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [sourceTemplateId, setSourceTemplateId] = useState<string | undefined>();
+
+  // What the caller may hand out (everything for an owner, only their own pages for a manager) and
+  // the templates a super admin published.
+  const { data: overview } = useQuery<{ mine: string[]; templates: { id: string; name: string; description: string | null; permissions: string[] }[] }>({
+    queryKey: ["/api/roles/overview"],
+  });
+  const mine = new Set(overview?.mine ?? []);
+  const disabledKeys = new Set(ALL_PERMISSION_KEYS.filter((k) => !mine.has(k)));
 
   // Paid features under each module, with whether this business holds them. Driven by the
   // feature catalog, so a feature added in the admin console appears here with no code change.
@@ -45,16 +55,10 @@ export default function RoleFormPage() {
       if (role) {
         setRoleName(role.name);
         setRoleDesc(role.description || "");
-        setSelectedPermissions(role.permissions || []);
+        setSelectedPermissions(Array.from(expandPermissions(role.permissions || [])));
       }
     }
   }, [id, customRoles]);
-
-  const togglePermission = (perm: string) => {
-    setSelectedPermissions((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
-    );
-  };
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -63,6 +67,8 @@ export default function RoleFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/roles/overview"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entitlements"] });
       toast({ title: "Custom role created successfully." });
       setLocation("/settings/roles");
     },
@@ -82,6 +88,8 @@ export default function RoleFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/roles/overview"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entitlements"] });
       toast({ title: "Custom role updated successfully." });
       setLocation("/settings/roles");
     },
@@ -102,6 +110,7 @@ export default function RoleFormPage() {
       name: roleName,
       description: roleDesc,
       permissions: selectedPermissions,
+      ...(sourceTemplateId ? { sourceTemplateId } : {}),
     };
 
     if (id) {
@@ -115,18 +124,16 @@ export default function RoleFormPage() {
     return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
   }
 
-  if (!isOwner) {
+  if (!canManage) {
     return (
       <div className="p-8 text-center">
-        <PageHeader title="Role Configuration" description="Only owners can manage custom roles." compact />
+        <PageHeader title="Role Configuration" description="Only owners and managers can manage custom roles." compact />
         <Button variant="outline" className="mt-4" onClick={() => setLocation("/settings/roles")}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Settings
         </Button>
       </div>
     );
   }
-
-  const permissionsList = PERMISSION_MODULES;
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-300">
@@ -175,45 +182,44 @@ export default function RoleFormPage() {
                 />
               </div>
 
-              <div className="space-y-3">
-                <Label className="text-sm font-semibold text-foreground uppercase tracking-wider block">Modular Permissions</Label>
-                <p className="text-xs text-muted-foreground">A role can only use a paid feature if your business has it in its plan and the role includes the module it sits under.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border p-4 rounded-lg bg-muted/10">
-                  {permissionsList.map((perm) => {
-                    const isChecked = selectedPermissions.includes(perm);
-                    return (
-                      <label 
-                        key={perm} 
-                        className={`flex items-center gap-3 text-xs font-semibold cursor-pointer p-3 rounded-lg border transition-all duration-150 ${
-                          isChecked 
-                            ? "bg-primary/5 border-primary/30 text-primary shadow-xs" 
-                            : "bg-background border-muted/50 text-muted-foreground hover:bg-muted/10 hover:border-muted"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="rounded border-muted text-primary focus:ring-primary h-4 w-4"
-                          checked={isChecked}
-                          onChange={() => togglePermission(perm)}
-                        />
-                        <span className="flex flex-col gap-1">
-                          <span>{perm}</span>
-                          {(featuresByModule.get(perm) ?? []).map((f) => (
-                            <span
-                              key={f.key}
-                              className={`flex items-center gap-1 text-[11px] font-normal ${f.granted ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"}`}
-                              title={f.granted ? "Included in your plan" : "Not in your plan yet - add it from Settings > Billing"}
-                            >
-                              {f.granted ? <Check className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                              {f.name}
-                              {!f.granted && " (not in your plan)"}
-                            </span>
-                          ))}
-                        </span>
-                      </label>
-                    );
-                  })}
+              {!id && (overview?.templates.length ?? 0) > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="role-template">Start from a template</Label>
+                  <select
+                    id="role-template"
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={sourceTemplateId ?? ""}
+                    onChange={(e) => {
+                      const t = overview!.templates.find((x) => x.id === e.target.value);
+                      setSourceTemplateId(t?.id);
+                      if (t) {
+                        setRoleName((n) => n || t.name);
+                        setRoleDesc((d) => d || t.description || "");
+                        // Only the pages this person may give; the rest stay unticked.
+                        setSelectedPermissions(Array.from(expandPermissions(t.permissions)).filter((k) => mine.has(k)));
+                      }
+                    }}
+                  >
+                    <option value="">No template</option>
+                    {overview!.templates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
                 </div>
+              )}
+
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold text-foreground uppercase tracking-wider block">Access</Label>
+                <p className="text-xs text-muted-foreground">
+                  Choose the pages this role can open; they also appear in its sidebar. A role can only use a paid feature if your business has it in its plan.
+                  {user?.role === "manager" && " You can only give access you have yourself."}
+                </p>
+                <PermissionPicker
+                  value={selectedPermissions}
+                  onChange={setSelectedPermissions}
+                  disabledKeys={disabledKeys}
+                  featuresByModule={featuresByModule}
+                />
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t">

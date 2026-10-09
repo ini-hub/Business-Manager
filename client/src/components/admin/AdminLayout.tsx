@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { LayoutDashboard, Building2, Users, Receipt, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText, ListTree } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Receipt, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText, ListTree, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -221,6 +221,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Over-cap businesses", path: "/super-admin/over-cap", icon: Users, roles: ["super_admin", "finance_admin"] },
         { name: "Platform Settings", path: "/super-admin/platform-settings", icon: Settings, roles: ["super_admin"] },
         { name: "Navigation", path: "/super-admin/navigation", icon: ListTree, roles: ["super_admin"] },
+        { name: "Roles", path: "/super-admin/roles", icon: ShieldCheck, roles: ["super_admin"] },
         { name: "Legal Documents", path: "/super-admin/legal-documents", icon: FileText, roles: ["super_admin"] },
         { name: "Announcements", path: "/super-admin/announcements", icon: Megaphone, roles: ["super_admin"] },
       ],

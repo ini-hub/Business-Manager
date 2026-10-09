@@ -4,6 +4,7 @@ import { whatsappNumbers } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { encryptSecret } from "../lib/credentialEncryption";
 import { discoverWhatsAppNumbers, MetaGraphError } from "../lib/metaGraphDiscovery";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -48,7 +49,7 @@ export function registerWhatsAppNumberRoutes(app: Express, { isAuthenticated, re
   // see via Meta's Graph API, so the owner picks their number from a list
   // instead of manually finding/typing phone_number_id and waba_id. Never
   // persists anything - PUT below does that once a number is picked.
-  app.post("/api/stores/:storeId/whatsapp-number/discover", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/stores/:storeId/whatsapp-number/discover", requirePermission("/settings"), async (req: Request, res: Response) => {
     const { storeId } = req.params;
     if (!(await checkStoreAccess(storeId, req, res))) return;
 
@@ -69,7 +70,7 @@ export function registerWhatsAppNumberRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.put("/api/stores/:storeId/whatsapp-number", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.put("/api/stores/:storeId/whatsapp-number", requirePermission("/settings"), async (req: Request, res: Response) => {
     const { storeId } = req.params;
     if (!(await checkStoreAccess(storeId, req, res))) return;
 

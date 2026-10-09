@@ -11,6 +11,7 @@ import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { payrollPostingService } from "../services/PayrollPostingService";
 import { getUserId, getAuditContext, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -96,7 +97,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   // Staff performance is gated on the GET itself (rule in shared/features.ts) -
   // it is a computed report with no underlying owned records to keep readable
   // after removal (unlike P&L/Expenses), so there is no mutating route to gate.
-  app.get("/api/reports/staff-performance", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/staff-performance", requirePermission("/staffs/performance"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const startDate = req.query.startDate as string | undefined;
@@ -143,7 +144,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Staff performance breakdown (services + products per staff member)
-  app.get("/api/reports/staff-performance/:staffId/breakdown", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/staff-performance/:staffId/breakdown", requirePermission("/staffs/performance"), async (req, res) => {
     try {
       const { staffId } = req.params;
       const storeId = req.query.storeId as string;
@@ -279,7 +280,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
   // Staff-and-day pairs that did service work, for the attendance screen's active/passive marks. One grouped
   // statement instead of every receipt the store has ever made.
-  app.get("/api/attendance/service-days", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/attendance/service-days", requirePermission("/staffs"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -292,7 +293,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Upsert a single attendance record
-  app.post("/api/attendance", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance", requirePermission("/staffs"), async (req, res) => {
     try {
       const { storeId, staffId, date, status, notes, isLate, lateMinutes } = req.body;
       if (!storeId || !staffId || !date || !status) {
@@ -344,7 +345,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Bulk mark attendance for a day
-  app.post("/api/attendance/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/bulk", requirePermission("/staffs"), async (req, res) => {
     try {
       const { storeId, date, status, staffIds } = req.body;
       if (!storeId || !date || !status || !Array.isArray(staffIds)) {
@@ -471,7 +472,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.put("/api/attendance/schedules/:staffId", requireManagerOrOwner, async (req, res) => {
+  app.put("/api/attendance/schedules/:staffId", requirePermission("/staffs"), async (req, res) => {
     try {
       const { storeId, weeklyOffDays } = req.body;
       if (!storeId) return res.status(400).json({ error: "storeId is required." });
@@ -501,7 +502,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/attendance/schedule-exceptions", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/schedule-exceptions", requirePermission("/staffs"), async (req, res) => {
     try {
       const { storeId, staffId, date, kind, reason } = req.body;
       if (!storeId || !staffId || !date || !kind) {
@@ -618,7 +619,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
 
   // The manager's safety valve: a phone that died, a staff member with no
   // smartphone at all. Reason is mandatory so the audit trail says why.
-  app.post("/api/attendance/punch/proxy", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/punch/proxy", requirePermission("/staffs"), async (req, res) => {
     try {
       const { storeId, staffId, kind, reason, effectiveAt } = req.body;
       if (!storeId || !staffId) return res.status(400).json({ error: "storeId and staffId are required." });
@@ -746,7 +747,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/attendance/retro-requests/:id/approve", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/retro-requests/:id/approve", requirePermission("/staffs"), async (req, res) => {
     try {
       const { clearsLateFlag, note } = req.body ?? {};
       const result = await attendanceService.approveRetroRequest(
@@ -775,7 +776,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/attendance/retro-requests/:id/reject", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/retro-requests/:id/reject", requirePermission("/staffs"), async (req, res) => {
     try {
       const note = req.body?.note;
       if (typeof note !== "string" || note.trim().length === 0) {
@@ -804,7 +805,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
   // One phone that clocked in several people is the one thing the geofence
   // cannot see, because everybody involved really is at the salon.
 
-  app.get("/api/attendance/devices", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/attendance/devices", requirePermission("/staffs"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -815,7 +816,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/attendance/devices/:id/approve", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/devices/:id/approve", requirePermission("/staffs"), async (req, res) => {
     try {
       const device = await attendanceService.setDeviceApproval(req.params.id, (req as any).user?.id ?? null, false);
       if (!device) return res.status(404).json({ error: "Device not found." });
@@ -826,7 +827,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/attendance/devices/:id/revoke", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/attendance/devices/:id/revoke", requirePermission("/staffs"), async (req, res) => {
     try {
       const device = await attendanceService.setDeviceApproval(req.params.id, null, true);
       if (!device) return res.status(404).json({ error: "Device not found." });
@@ -837,7 +838,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.delete("/api/attendance/schedule-exceptions", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/attendance/schedule-exceptions", requirePermission("/staffs"), async (req, res) => {
     try {
       const { storeId, staffId, date } = req.query as Record<string, string>;
       if (!storeId || !staffId || !date) {
@@ -862,7 +863,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.post("/api/expenses/bulk", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/expenses/bulk", requirePermission("/expenses"), async (req, res) => {
     try {
       const storeId = req.body.storeId;
       const rawExpenses = req.body.expenses || req.body.data;

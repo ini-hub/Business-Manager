@@ -23,6 +23,7 @@ import { payrollService } from "../services/PayrollService";
 import { getClientIp, getAuditContext, formatZodErrors, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { withExpenseId } from '../utils/slug-resolver';
 import { hasFeature } from "../lib/entitlements";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -199,7 +200,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // ========== PAYROLL ==========
 
   // List payroll periods for a store
-  app.get("/api/payroll/periods", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods", requirePermission("/payroll"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -212,7 +213,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Create a new payroll period
-  app.post("/api/payroll/periods", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods", requirePermission("/payroll"), async (req, res) => {
     try {
       const { storeId, periodType, startDate, endDate } = req.body;
       if (!storeId || !startDate || !endDate) {
@@ -245,7 +246,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Get a single payroll period
-  app.get("/api/payroll/periods/:id", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods/:id", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
@@ -259,7 +260,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // Staff currently excluded from payroll for this store - contract
   // outstanding or declined. Not period-scoped (see PayrollService.getExcludedStaffForStore);
   // powers the payroll page's "N staff excluded" note.
-  app.get("/api/payroll/excluded-staff", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/excluded-staff", requirePermission("/payroll"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId is required." });
@@ -276,7 +277,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // regardless of the Financial Management bundle (FAC-7) - only gated when
   // the store actually has staff on Hybrid/Commission pay, since those are
   // the only payment methods the bundle prices.
-  app.post("/api/payroll/periods/:id/calculate", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods/:id/calculate", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
@@ -315,7 +316,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Approve a payroll period
-  app.post("/api/payroll/periods/:id/approve", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods/:id/approve", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
@@ -336,7 +337,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Mark a payroll period as paid (locks it)
-  app.post("/api/payroll/periods/:id/mark-paid", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods/:id/mark-paid", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
@@ -383,7 +384,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Get payroll entries (per-staff breakdown) for a period
-  app.get("/api/payroll/periods/:id/entries", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods/:id/entries", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
@@ -402,7 +403,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Commission drill-down for one staff member in a period
-  app.get("/api/payroll/periods/:id/entries/:staffId/drilldown", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods/:id/entries/:staffId/drilldown", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
@@ -417,7 +418,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // PAYROLL DEDUCTIONS
   // ──────────────────────────────────────────────────────────────────────────
 
-  app.get("/api/payroll/periods/:id/deductions", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods/:id/deductions", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -433,7 +434,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not fetch deductions." }); }
   });
 
-  app.post("/api/payroll/periods/:id/deductions", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods/:id/deductions", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -454,7 +455,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not create deduction." }); }
   });
 
-  app.delete("/api/payroll/periods/:id/deductions/:deductionId", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/payroll/periods/:id/deductions/:deductionId", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -490,7 +491,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   });
 
   // Un-waive a staff-credit or advance-recovery line the manager previously excluded.
-  app.post("/api/payroll/periods/:id/deductions/:deductionId/restore", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods/:id/deductions/:deductionId/restore", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -561,7 +562,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // PAYROLL DISBURSEMENTS
   // ──────────────────────────────────────────────────────────────────────────
 
-  app.get("/api/payroll/periods/:id/disbursements", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods/:id/disbursements", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -571,7 +572,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not fetch disbursements." }); }
   });
 
-  app.post("/api/payroll/periods/:id/disbursements", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/periods/:id/disbursements", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -594,7 +595,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // SALARY ADVANCES
   // ──────────────────────────────────────────────────────────────────────────
 
-  app.get("/api/payroll/advances", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/advances", requirePermission("/payroll"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required." });
@@ -605,7 +606,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not fetch advances." }); }
   });
 
-  app.post("/api/payroll/advances", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/advances", requirePermission("/payroll"), async (req, res) => {
     try {
       const { storeId, staffId, amount, date, notes } = req.body;
       if (!storeId || !staffId || !amount || !date) return res.status(400).json({ error: "storeId, staffId, amount, and date are required." });
@@ -620,7 +621,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
 
   // Approve a pending advance — approver identity is kept distinct from the
   // requester (givenByUserId) so the audit trail shows both actors.
-  app.post("/api/payroll/advances/:id/approve", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/advances/:id/approve", requirePermission("/payroll"), async (req, res) => {
     try {
       const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
       if (!adv) return res.status(404).json({ error: "Advance not found." });
@@ -638,7 +639,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not approve advance." }); }
   });
 
-  app.post("/api/payroll/advances/:id/reject", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/advances/:id/reject", requirePermission("/payroll"), async (req, res) => {
     try {
       const { reason } = req.body;
       const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
@@ -668,7 +669,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
    * it (that proposal will settle it automatically; hand-flipping the flag
    * here would leave a deduction line on the books with nothing behind it).
    */
-  app.post("/api/payroll/advances/:id/recover", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/payroll/advances/:id/recover", requirePermission("/payroll"), async (req, res) => {
     try {
       const reason = sanitizeString(req.body?.reason);
       if (!reason) return res.status(400).json({ error: "A reason is required to manually mark an advance recovered outside payroll (e.g. repaid in cash, written off)." });
@@ -765,7 +766,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not restore this advance." }); }
   });
 
-  app.delete("/api/payroll/advances/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/payroll/advances/:id", requirePermission("/payroll"), async (req, res) => {
     try {
       const [adv] = await db.select().from(salaryAdvances).where(eq(salaryAdvances.id, req.params.id));
       if (!adv) return res.status(404).json({ error: "Advance not found." });
@@ -789,7 +790,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // UNRECORDED ATTENDANCE CHECK
   // ──────────────────────────────────────────────────────────────────────────
 
-  app.get("/api/payroll/periods/:id/unrecorded", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/periods/:id/unrecorded", requirePermission("/payroll"), async (req, res) => {
     try {
       const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ error: "Period not found." });
@@ -812,7 +813,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // CONSOLIDATED PAYROLL REPORT
   // ──────────────────────────────────────────────────────────────────────────
 
-  app.get("/api/payroll/report", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/report", requirePermission("/payroll"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required." });
@@ -830,7 +831,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // EXPENSES MODULE
   // ==========================================
 
-  app.get("/api/expense-categories", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/expense-categories", requirePermission("/expenses"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
@@ -892,7 +893,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.get("/api/expenses", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/expenses", requirePermission("/expenses"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       const startDate = req.query.startDate as string | undefined;
@@ -911,7 +912,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.get("/api/expenses/:id", withExpenseId, requireManagerOrOwner, async (req, res) => {
+  app.get("/api/expenses/:id", withExpenseId, requirePermission("/expenses"), async (req, res) => {
     try {
       const expense = await storage.getExpenseById(req.params.id);
       if (!expense) return res.status(404).json({ error: "Expense not found." });
@@ -925,7 +926,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // The Financial Management bundle (FAC-7) is gated centrally on mutating
   // expense routes only (shared/features.ts) - GET stays open so already-recorded expenses remain
   // readable if the bundle is later removed (FAC-8 soft-lock).
-  app.post("/api/expenses", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/expenses", requirePermission("/expenses"), async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -971,7 +972,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
 
-  app.patch("/api/expenses/:id", withExpenseId, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/expenses/:id", withExpenseId, requirePermission("/expenses"), async (req, res) => {
     try {
       const sanitizedBody = {
         ...req.body,
@@ -1107,7 +1108,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
   // ==========================================
 
   // Coverage gap detection — service transactions not covered by any payroll period
-  app.get("/api/payroll/coverage-gaps", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/payroll/coverage-gaps", requirePermission("/payroll"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required." });

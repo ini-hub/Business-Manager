@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, EyeOff, Plus, RotateCcw, Trash2, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/loader";
 import {
-  NAV_ITEMS,
   NAV_ROLES,
   getNavItem,
   type NavRole,
@@ -37,7 +36,7 @@ const newSectionId = () => `s${Date.now().toString(36)}${Math.random().toString(
 
 /**
  * Super-admin editor for the app sidebar: per role, named sections holding pages in
- * a chosen order, plus pages hidden for that role. Saved as one platform setting;
+ * a chosen order. Saved as one platform setting;
  * "Reset" returns to the built-in layout (shared/sidebarLayout.ts). Showing a page
  * here only adds a link - the page itself still enforces who may use it.
  */
@@ -104,7 +103,7 @@ export default function NavigationLayout() {
   const addSection = () =>
     edit((sections, hidden) => ({ sections: [...sections, { id: newSectionId(), label: "New section", items: [] }], hidden }));
 
-  // Deleting a section hides its pages so they can be placed again, rather than losing them.
+  // Deleting a section sends its pages back to their default sections (they are never lost).
   const deleteSection = (id: string) =>
     edit((sections, hidden) => {
       const gone = sections.find((s) => s.id === id);
@@ -129,35 +128,6 @@ export default function NavigationLayout() {
       }),
       hidden,
     }));
-
-  const hideItem = (url: string, sectionId: string) =>
-    edit((sections, hidden) => ({
-      sections: sections.map((s) => (s.id === sectionId ? { ...s, items: s.items.filter((u) => u !== url) } : s)),
-      hidden: [...hidden, url],
-    }));
-
-  const showItem = (url: string, sectionId: string) =>
-    edit((sections, hidden) => ({
-      sections: sections.map((s) => (s.id === sectionId ? { ...s, items: [...s.items, url] } : s)),
-      hidden: hidden.filter((u) => u !== url),
-    }));
-
-  // Copy a page's placement to every other role, in the section with the same id when it exists.
-  const showForAllRoles = (url: string, fromSectionId: string) =>
-    setDraft((d) => {
-      if (!d) return d;
-      const next = structuredClone(d);
-      for (const other of NAV_ROLES) {
-        if (other === role) continue;
-        const layout = next[other];
-        if (layout.sections.some((s) => s.items.includes(url))) continue;
-        const target = layout.sections.find((s) => s.id === fromSectionId) ?? layout.sections[0];
-        if (!target) continue;
-        target.items.push(url);
-        layout.hidden = layout.hidden.filter((u) => u !== url);
-      }
-      return next;
-    });
 
   const sectionNames = current.sections.map((s) => ({ id: s.id, label: s.label || "Untitled" }));
 
@@ -203,8 +173,8 @@ export default function NavigationLayout() {
       </Tabs>
 
       <p className="text-xs text-muted-foreground">
-        A link in the sidebar does not grant access. Businesses still need the feature, and the page and its data still check the person's role, so adding a page
-        for a role that is not allowed to use it shows a link that leads to a "not allowed" screen.
+        This sets the sections, their order and where each page sits. Which pages a role can see and open is set under <a className="underline" href="/super-admin/roles">Roles</a>:
+        a page shows only if the role holds it. Custom roles use the Owner layout. A page that isn't in any section goes back to its default section.
       </p>
 
       <div className="space-y-4">
@@ -269,12 +239,6 @@ export default function NavigationLayout() {
                     >
                       <ArrowDown className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" disabled={!canEdit} onClick={() => showForAllRoles(url, section.id)} aria-label={`Show ${item.title} for all roles`} title="Show for all roles">
-                      <Users className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" disabled={!canEdit} onClick={() => hideItem(url, section.id)} aria-label={`Hide ${item.title}`} title="Hide for this role">
-                      <EyeOff className="h-4 w-4" />
-                    </Button>
                   </div>
                 );
               })}
@@ -286,32 +250,6 @@ export default function NavigationLayout() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Hidden for {ROLE_LABELS[role].toLowerCase()}s</CardTitle>
-          <CardDescription>Pages not shown in this role's sidebar. Add one to a section to show it.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {NAV_ITEMS.filter((i) => current.hidden.includes(i.url)).map((item) => (
-            <div key={item.url} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2" data-testid={`hidden-${item.url}`}>
-              <span className="flex-1 min-w-[8rem] text-sm text-muted-foreground">{item.title}</span>
-              <Select disabled={!canEdit || current.sections.length === 0} onValueChange={(to) => showItem(item.url, to)}>
-                <SelectTrigger className="h-8 w-44" aria-label={`Add ${item.title} to a section`}>
-                  <SelectValue placeholder="Add to section…" />
-                </SelectTrigger>
-                <SelectContent listMaxHeight="360px">
-                  {sectionNames.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
-          {current.hidden.length === 0 && <p className="text-sm text-muted-foreground">Nothing is hidden.</p>}
-        </CardContent>
-      </Card>
     </div>
   );
 }

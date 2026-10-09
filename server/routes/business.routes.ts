@@ -28,6 +28,7 @@ import { withCustomerId } from '../utils/slug-resolver';
 import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError, ensureFeatureOrReply, getCountLimitStatus } from "../lib/entitlements";
 import { splitNormalizedPhone } from "@shared/phone-utils";
 import { splitFullName } from "@shared/name-utils";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -765,7 +766,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.post("/api/stores/:storeId/integrations", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/stores/:storeId/integrations", requirePermission("/settings"), async (req, res) => {
     try {
       const store = await storage.getStore(req.params.storeId);
       if (!store) {

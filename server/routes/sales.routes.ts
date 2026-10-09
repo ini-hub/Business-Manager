@@ -19,6 +19,7 @@ import { isOrgTrialing } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getRequestEntitlements, featureNotPurchasedBody } from "../lib/entitlements";
 import { cachedReport, storeTag, businessTag, businessAggregateTag } from "../lib/reportCache";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -45,7 +46,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
 
   // The Financial Management bundle (FAC-7) - P&L, Expenses, and Hybrid/Commission
   // payroll ship together as one purchase - is gated centrally (shared/features.ts).
-  app.get("/api/profit-loss", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/profit-loss", requirePermission("/profit-loss"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) {

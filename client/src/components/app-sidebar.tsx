@@ -2,7 +2,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { useAttendanceTracked } from "@/hooks/useAttendanceTracked";
 import { useEntitlements, formatPrice } from "@/hooks/useEntitlements";
 import { featureForScreen } from "@shared/features";
-import { resolveSidebarLayout, isNavItemActive, type NavItemDef, type NavRole } from "@shared/sidebarLayout";
+import { resolveSidebarLayout, isNavItemActive, type NavItemDef } from "@shared/sidebarLayout";
 import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard,
@@ -57,7 +57,7 @@ import { useStore } from "@/lib/store-context";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { StoreSelector } from "@/components/store-selector";
 
-type UserRole = NavRole;
+const isBuiltInRole = (role: string) => role === "owner" || role === "manager" || role === "staff";
 
 // Registry icon keys (shared/sidebarLayout.ts NAV_ITEMS) to components.
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -97,12 +97,16 @@ export function AppSidebar() {
     }
   };
   
-  const userRole = (user?.role as UserRole) || "staff";
+  // A built-in role, or a custom role's lowercased name.
+  const userRole = (user?.role as string) || "staff";
 
   // Flag off => the item (and the feature behind it) is hidden entirely.
-  const { isDisabled, isLocked, isLoading: entitlementsLoading, sidebarLayout } = useEntitlements();
+  const { isDisabled, isLocked, isLoading: entitlementsLoading, sidebarLayout, permissions } = useEntitlements();
+  // The pages this role may use. Until they load, a built-in role falls back to the layout (which matches
+  // its defaults); a custom role shows nothing rather than flashing every page.
+  const allowed = permissions ? new Set(permissions) : isBuiltInRole(userRole) ? null : new Set<string>();
   // A store that doesn't keep attendance has nothing to show on that page.
-  const { tracked: attendanceTracked } = useAttendanceTracked(userRole === "staff");
+  const { tracked: attendanceTracked } = useAttendanceTracked(userRole !== "owner" && userRole !== "manager");
 
   // Which pages and sections each role sees is a super-admin setting (shared/sidebarLayout.ts);
   // this only drops what the org's features or store settings rule out.
@@ -115,7 +119,7 @@ export function AppSidebar() {
     // Credit is part of the checkout flow, so its screens are absent (not teased) until it is paid for.
     return !(owner === "credit_sale" && isLocked(owner));
   };
-  const sections = resolveSidebarLayout(sidebarLayout, userRole)
+  const sections = resolveSidebarLayout(sidebarLayout, userRole, allowed)
     .map((section) => ({ ...section, items: section.items.filter(isVisible) }))
     .filter((section) => section.items.length > 0);
 
@@ -125,7 +129,7 @@ export function AppSidebar() {
       const res = await apiRequest("GET", `/api/payroll/periods?storeId=${currentStore!.id}`);
       return res.json();
     },
-    enabled: ["owner", "manager"].includes(userRole) && !!currentStore?.id && currentStore?.id !== "all",
+    enabled: !!allowed?.has("/payroll") && !!currentStore?.id && currentStore?.id !== "all",
   });
 
   const pendingPayrollCount = payrollPeriods?.filter(p => p.status === "pending").length || 0;

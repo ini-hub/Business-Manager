@@ -43,10 +43,13 @@ export type StoreIntegration = typeof storeIntegrations.$inferSelect;
 // Custom Roles Table
 export const customRoles = pgTable("custom_roles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  businessId: varchar("business_id").notNull().references(() => businesses.id),
+  // NULL for platform rows: kind 'system' (override of the built-in manager/staff permissions) and 'template'.
+  businessId: varchar("business_id").references(() => businesses.id),
+  kind: text("kind").notNull().default("custom"), // custom | system | template
+  sourceTemplateId: varchar("source_template_id"), // the template a business role was started from, if any
   name: text("name").notNull(),
   description: text("description"),
-  permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`), // array of accessible modules/features
+  permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`), // module names and/or page keys, see shared/permissions.ts
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -62,6 +65,8 @@ export const customRolesRelations = relations(customRoles, ({ one }) => ({
 
 export const insertCustomRoleSchema = createInsertSchema(customRoles).omit({
   id: true,
+  kind: true,
+  sourceTemplateId: true,
   createdAt: true,
   updatedAt: true,
 }).extend({

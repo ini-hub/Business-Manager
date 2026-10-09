@@ -1,4 +1,4 @@
-import { PERMISSION_MODULES, type PermissionModule } from "@shared/permissionModules";
+import { PERMISSIONS_BY_MODULE } from "@shared/permissions";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Check, Lock, Pencil, Trash2 } from "lucide-react";
@@ -6,41 +6,49 @@ import { useStore } from "@/lib/store-context";
 import { useToast } from "@/hooks/use-toast";
 import { IconButton } from "@/components/icon-button";
 import { getUserFriendlyError } from "@/lib/error-utils";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
-// Plain-language area names; the stored permission strings keep the "&".
+// Plain-language area names.
 const area = (m: string) => m.replace(/ & /g, " and ");
 
-type BuiltIn = { name: string; blurb: string; modules: readonly PermissionModule[] };
+type RoleOverview = {
+  builtIn: { key: string; name: string; pages: string[] }[];
+  custom: { id: string; name: string; description: string | null; pages: string[] }[];
+};
 
-const BUILT_IN: BuiltIn[] = [
-  { name: "Owner / Admin", blurb: "Everything, including money and settings.", modules: PERMISSION_MODULES },
-  { name: "Store Manager", blurb: "Runs the store. No settings.", modules: PERMISSION_MODULES.filter((m) => m !== "Settings") },
-  { name: "Staff", blurb: "Checkout, customers and stock counts.", modules: ["Sales & Checkout", "Customers", "Inventory & Catalog"] },
-];
+/** How much of an area a role can use: every page, some of them, or none. Always-on pages don't count. */
+function coverage(pages: readonly string[], module: (typeof PERMISSIONS_BY_MODULE)[number]) {
+  const choices = module.permissions.filter((p) => !p.selfService);
+  const held = choices.filter((p) => pages.includes(p.key)).length;
+  return { held, total: choices.length, state: held === 0 ? "none" : held === choices.length ? "all" : "some" } as const;
+}
+
+const heldAreas = (pages: readonly string[]) =>
+  PERMISSIONS_BY_MODULE.map((m) => ({ m, c: coverage(pages, m) })).filter(({ c }) => c.state !== "none");
 
 function BuiltInTag() {
   return <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Built in</span>;
 }
 
-function RoleCard({ role }: { role: BuiltIn }) {
-  const denied = PERMISSION_MODULES.filter((m) => !role.modules.includes(m));
+function Cell({ held, total, state }: ReturnType<typeof coverage>) {
+  if (state === "none") return <span className="text-muted-foreground/50" aria-label="No access">·</span>;
+  if (state === "all") {
+    return (
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary" aria-label="Can use">
+        <Check className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+  return <span className="text-xs text-muted-foreground" aria-label={`Can use ${held} of ${total}`}>{held} of {total}</span>;
+}
+
+function AreaList({ pages }: { pages: readonly string[] }) {
+  const areas = heldAreas(pages);
+  if (areas.length === 0) return <p className="text-sm text-muted-foreground">Nothing assigned yet.</p>;
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-semibold">{role.name}</h3>
-        <BuiltInTag />
-      </div>
-      <p className="mt-1 text-sm text-muted-foreground">{role.blurb}</p>
-      <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Can use</p>
-      <p className="text-sm">{role.modules.map(area).join(", ")}</p>
-      {denied.length > 0 && (
-        <>
-          <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">No access</p>
-          <p className="text-sm text-muted-foreground">{denied.map(area).join(", ")}</p>
-        </>
-      )}
-    </div>
+    <p className="text-sm">
+      {areas.map(({ m, c }) => `${area(m.module)}${c.state === "some" ? ` (${c.held} of ${c.total})` : ""}`).join(", ")}
+    </p>
   );
 }
 
@@ -49,18 +57,21 @@ export function RolesPermissionsSection() {
   const { toast } = useToast();
   const { business } = useStore();
 
-  const { data: customRoles = [], refetch: refetchCustomRoles } = useQuery<any[]>({
-    queryKey: ["/api/custom-roles"],
-    enabled: !!business,
-  });
+  // Built-in roles come from the platform's settings (a super admin can change them), not from this file.
+  const { data } = useQuery<RoleOverview>({ queryKey: ["/api/roles/overview"], enabled: !!business });
+  const builtIn = data?.builtIn ?? [];
+  const customRoles = data?.custom ?? [];
 
   const deleteCustomRoleMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("DELETE", `/api/custom-roles/${id}`);
-      return res.json();
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Could not delete role.");
+      return body;
     },
     onSuccess: () => {
-      refetchCustomRoles();
+      queryClient.invalidateQueries({ queryKey: ["/api/roles/overview"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
       toast({ title: "Custom role deleted successfully." });
     },
     onError: (err: any) => {
@@ -72,8 +83,15 @@ export function RolesPermissionsSection() {
     <div className="space-y-6">
       {/* Phone: one card per role. */}
       <div className="space-y-3 md:hidden">
-        {BUILT_IN.map((r) => (
-          <RoleCard key={r.name} role={r} />
+        {builtIn.map((r) => (
+          <div key={r.key} className="rounded-xl border bg-card p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold">{r.name}</h3>
+              <BuiltInTag />
+            </div>
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Can use</p>
+            <AreaList pages={r.pages} />
+          </div>
         ))}
       </div>
 
@@ -83,8 +101,8 @@ export function RolesPermissionsSection() {
           <thead>
             <tr className="border-b text-center">
               <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Area</th>
-              {BUILT_IN.map((r) => (
-                <th key={r.name} className="px-3 py-3 font-semibold">
+              {builtIn.map((r) => (
+                <th key={r.key} className="px-3 py-3 font-semibold">
                   <div>{r.name}</div>
                   <div className="mt-1"><BuiltInTag /></div>
                 </th>
@@ -95,29 +113,21 @@ export function RolesPermissionsSection() {
             </tr>
           </thead>
           <tbody>
-            {PERMISSION_MODULES.map((m) => (
-              <tr key={m} className="border-b last:border-0">
-                <td className="px-5 py-3">{area(m)}</td>
-                {[...BUILT_IN.map((r) => r.modules.includes(m)), ...customRoles.map((r) => !!r.permissions?.includes(m))].map(
-                  (on, i) => (
-                    <td key={i} className="px-3 py-3 text-center">
-                      {on ? (
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary" aria-label="Can use">
-                          <Check className="h-3.5 w-3.5" />
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/50" aria-label="No access">·</span>
-                      )}
-                    </td>
-                  ),
-                )}
+            {PERMISSIONS_BY_MODULE.map((m) => (
+              <tr key={m.module} className="border-b last:border-0">
+                <td className="px-5 py-3">{area(m.module)}</td>
+                {[...builtIn, ...customRoles].map((r) => (
+                  <td key={"key" in r ? r.key : r.id} className="px-3 py-3 text-center">
+                    <Cell {...coverage(r.pages, m)} />
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
         </table>
         <p className="flex items-center gap-2 border-t px-5 py-3 text-xs text-muted-foreground">
           <Lock className="h-3 w-3" />
-          Built-in roles can't be changed. To give someone different access, create a custom role.
+          Built-in roles are set by the platform. To give someone different access, create a custom role.
         </p>
       </div>
 
@@ -139,9 +149,7 @@ export function RolesPermissionsSection() {
               </div>
               {role.description && <p className="mt-1 text-sm text-muted-foreground">{role.description}</p>}
               <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Can use</p>
-              <p className="text-sm">
-                {role.permissions?.length ? role.permissions.map(area).join(", ") : "Nothing assigned yet."}
-              </p>
+              <AreaList pages={role.pages} />
             </div>
           ))}
         </div>

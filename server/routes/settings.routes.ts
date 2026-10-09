@@ -7,13 +7,17 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import { PERMISSION_MODULES } from "@shared/permissionModules";
+import { PERMISSIONS_BY_MODULE, effectivePermissions, expandPermissions } from "@shared/permissions";
+import { createBusinessRole, updateBusinessRole, deleteBusinessRole } from "../lib/roleManagement";
+import { getRoleRows } from "../lib/roles";
 import { db } from "../db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, isNull } from "drizzle-orm";
 import { sanitizeString, sanitizeNumber, sanitizeBoolean } from "../sanitize";
 import { isValidLatitude, isValidLongitude } from "@shared/geo";
 import { getOrgEntitlements, getFeatureByKey } from "../lib/entitlements";
 import { auditLogger } from "../audit";
 import { getUserId, getClientIp, formatZodErrors, checkBusinessAccess, getUserStores, triggerAutoRecalculate } from './helpers';
+import { requirePermission } from "../lib/permissionGate";
 
 // Settings fields gated behind a purchasable feature (§1 of the pay-per-
 // feature plan) - everything else in PUT /api/settings' payload (attendance,
@@ -350,7 +354,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.post("/api/promotions", requireManagerOrOwner, async (req, res) => {
+  app.post("/api/promotions", requirePermission("/settings/promotions"), async (req, res) => {
     try {
       const data = insertPromotionSchema.parse(req.body);
       if (!(await checkStoreAccess(data.storeId, req, res))) return;
@@ -372,7 +376,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.patch("/api/promotions/:id", requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/promotions/:id", requirePermission("/settings/promotions"), async (req, res) => {
     try {
       const { id } = req.params;
       const data = insertPromotionSchema.partial().parse(req.body);
@@ -398,7 +402,7 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  app.delete("/api/promotions/:id", requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/promotions/:id", requirePermission("/settings/promotions"), async (req, res) => {
     try {
       const { id } = req.params;
       const promotion = await db.select().from(promotions).where(eq(promotions.id, id)).then(r => r[0]);
@@ -458,24 +462,49 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
+  // ========== ROLE MANAGEMENT (owners, and managers within their own permissions) ==========
+  // The rules live in server/lib/roleManagement.ts; these routes only parse and map the result.
+
+  // Everything the Roles screen needs in one request: built-in roles with their effective pages,
+  // this business's custom roles, super-admin templates and the caller's own pages.
+  app.get("/api/roles/overview", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.businessId) return res.status(401).json({ error: "Unauthorized access." });
+      const [rows, custom, templates] = await Promise.all([
+        getRoleRows(user.businessId),
+        storage.getCustomRoles(user.businessId),
+        db.select().from(customRoles).where(and(isNull(customRoles.businessId), eq(customRoles.kind, "template"), eq(customRoles.isDeleted, false))),
+      ]);
+      const builtIn = (["owner", "manager", "staff"] as const).map((key) => ({
+        key,
+        name: key === "owner" ? "Owner / Admin" : key === "manager" ? "Store Manager" : "Staff",
+        pages: Array.from(effectivePermissions(key, rows)),
+      }));
+      res.json({
+        builtIn,
+        custom: custom.map((r) => ({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, pages: Array.from(expandPermissions(r.permissions)) })),
+        templates: templates.map((t) => ({ id: t.id, name: t.name, description: t.description, permissions: t.permissions })),
+        mine: Array.from(effectivePermissions(user.role, rows)),
+        catalog: PERMISSIONS_BY_MODULE,
+      });
+    } catch (error) {
+      console.error("GET /api/roles/overview error:", error);
+      res.status(500).json({ error: "Could not load roles." });
+    }
+  });
+
   app.post("/api/custom-roles", isAuthenticated, async (req, res) => {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
-
-      const role = (req as any).user?.role;
-      if (role !== "owner") {
-        return res.status(403).json({ error: "Only owners can manage custom roles." });
-      }
-
-      const data = insertCustomRoleSchema.parse({
-        ...req.body,
-        businessId,
+      const user = (req as any).user;
+      const data = insertCustomRoleSchema.pick({ name: true, description: true, permissions: true }).parse(req.body);
+      const result = await createBusinessRole(user, {
+        ...data,
+        sourceTemplateId: typeof req.body?.sourceTemplateId === "string" ? req.body.sourceTemplateId : undefined,
       });
-      const customRole = await storage.createCustomRole(data);
-
-      auditLogger.logDataModification("custom_roles", customRole.id, getUserId(req), "CREATE", true);
-      res.status(201).json(customRole);
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      auditLogger.logDataModification("custom_roles", result.value.id, getUserId(req), "CREATE", true);
+      res.status(201).json(result.value);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -486,25 +515,11 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
 
   app.patch("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
     try {
-      const { id } = req.params;
-      const businessId = (req as any).user?.businessId;
-      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
-
-      const role = (req as any).user?.role;
-      if (role !== "owner") {
-        return res.status(403).json({ error: "Only owners can manage custom roles." });
-      }
-
-      const existing = await db.select().from(customRoles).where(eq(customRoles.id, id)).then(r => r[0]);
-      if (!existing || existing.businessId !== businessId) {
-        return res.status(404).json({ error: "Role not found." });
-      }
-
-      const data = insertCustomRoleSchema.partial().parse(req.body);
-      const updated = await storage.updateCustomRole(id, data);
-      
-      auditLogger.logDataModification("custom_roles", id, getUserId(req), "UPDATE", true);
-      res.json(updated);
+      const data = insertCustomRoleSchema.pick({ name: true, description: true, permissions: true }).partial().parse(req.body);
+      const result = await updateBusinessRole((req as any).user, req.params.id, data);
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      auditLogger.logDataModification("custom_roles", req.params.id, getUserId(req), "UPDATE", true);
+      res.json(result.value);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: formatZodErrors(error.errors) });
@@ -515,22 +530,9 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
 
   app.delete("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
     try {
-      const { id } = req.params;
-      const businessId = (req as any).user?.businessId;
-      if (!businessId) return res.status(401).json({ error: "Unauthorized access." });
-
-      const role = (req as any).user?.role;
-      if (role !== "owner") {
-        return res.status(403).json({ error: "Only owners can manage custom roles." });
-      }
-
-      const existing = await db.select().from(customRoles).where(eq(customRoles.id, id)).then(r => r[0]);
-      if (!existing || existing.businessId !== businessId) {
-        return res.status(404).json({ error: "Role not found." });
-      }
-
-      await storage.deleteCustomRole(id);
-      auditLogger.logDataModification("custom_roles", id, getUserId(req), "DELETE", true);
+      const result = await deleteBusinessRole((req as any).user, req.params.id);
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      auditLogger.logDataModification("custom_roles", req.params.id, getUserId(req), "DELETE", true);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Could not delete custom role." });

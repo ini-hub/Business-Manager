@@ -24,7 +24,7 @@ import { IdleLogoutGuard } from "@/components/idle-logout-guard";
 import { Lock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useEntitlements } from "@/hooks/useEntitlements";
-import { useHasPermission } from "@/lib/permissions";
+import { useHasPermission, usePageAccess } from "@/lib/permissions";
 import type { PermissionModule } from "@shared/permissionModules";
 import { isOrgLocked } from "@/lib/trial";
 import { TrialBanner } from "@/components/trial-banner";
@@ -175,6 +175,7 @@ const OverCapReport = lazy(() => import("@/pages/admin/OverCapReport"));
 const BundleEditor = lazy(() => import("@/pages/admin/BundleEditor"));
 const PlatformSettings = lazy(() => import("@/pages/admin/PlatformSettings"));
 const NavigationLayout = lazy(() => import("@/pages/admin/NavigationLayout"));
+const AdminRoles = lazy(() => import("@/pages/admin/Roles"));
 const LegalDocuments = lazy(() => import("@/pages/admin/LegalDocuments"));
 const AnnouncementsManager = lazy(() => import("@/pages/admin/AnnouncementsManager"));
 const SystemHealth = lazy(() => import("@/pages/admin/SystemHealth"));
@@ -247,6 +248,10 @@ function ModuleGate({ module, children }: { module: PermissionModule; children: 
 
 function ScreenGate({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  // A custom role has no per-route checks of its own below, so it is held to its page permissions here.
+  const { canOpen, isCustomRole, ready: permissionsReady } = usePageAccess();
+  if (isCustomRole && !permissionsReady) return null;
+  if (isCustomRole && !canOpen(location)) return <NotAuthorized />;
   const { hasFeature, isDisabled, isLoading, isError, gatedFeatureFor, gatedModuleFor } = useEntitlements();
   const featureKey = gatedFeatureFor(location);
   // A page owned by a switched-off feature is not there at all, locked or not.
@@ -322,6 +327,7 @@ function SuperAdminRouter() {
               <Route path="/super-admin/bundles/:id" component={BundleEditor} />
               <Route path="/super-admin/platform-settings" component={PlatformSettings} />
               <Route path="/super-admin/navigation" component={NavigationLayout} />
+              <Route path="/super-admin/roles" component={AdminRoles} />
               <Route path="/super-admin/legal-documents" component={LegalDocuments} />
               <Route path="/super-admin/announcements" component={AnnouncementsManager} />
               <Route path="/super-admin/health" component={SystemHealth} />
@@ -398,6 +404,7 @@ function Router() {
 
 function AuthenticatedLayout() {
   const { user } = useAuth();
+  const { canOpen } = usePageAccess();
   useRealtimeSync();
   const [location, setLocation] = useLocation();
 
@@ -562,7 +569,7 @@ function AuthenticatedLayout() {
                 <ScreenGate>
                 <Switch>
                   <Route path="/">
-                    {user?.role === "staff" ? <StaffDashboard /> : <DashboardViewSwitch><Dashboard /></DashboardViewSwitch>}
+                    {user?.role === "owner" || user?.role === "manager" ? <DashboardViewSwitch><Dashboard /></DashboardViewSwitch> : <StaffDashboard />}
                   </Route>
                   <Route path="/customers" component={Customers} />
                   <Route path="/customers/insights" component={CustomerInsights} />
@@ -591,32 +598,32 @@ function AuthenticatedLayout() {
                   <Route path="/staff/payroll/:periodId" component={MyPayrollDetailPage} />
                   <Route path="/staff/hr-profile" component={HrProfilePage} />
                   <Route path="/staffs">
-                    {user?.role === "staff" ? <NotAuthorized /> : <StaffPage />}
+                    {!canOpen("/staffs") ? <NotAuthorized /> : <StaffPage />}
                   </Route>
                   <Route path="/staffs/new">
-                    {user?.role === "staff" ? <NotAuthorized /> : <LimitGate limitType="staff_seats"><StaffFormPage /></LimitGate>}
+                    {!canOpen("/staffs/new") ? <NotAuthorized /> : <LimitGate limitType="staff_seats"><StaffFormPage /></LimitGate>}
                   </Route>
                   <Route path="/staffs/:id/edit">
-                    {user?.role === "staff" ? <NotAuthorized /> : <StaffFormPage />}
+                    {!canOpen("/staffs/:id/edit") ? <NotAuthorized /> : <StaffFormPage />}
                   </Route>
                   <Route path="/staffs/:id/hr-profile">
-                    {(params) => user?.role === "staff" ? <NotAuthorized /> : <Redirect to={`/staffs/${params.id}?tab=hr-personal`} />}
+                    {(params) => !canOpen("/staffs/:id/hr-profile") ? <NotAuthorized /> : <Redirect to={`/staffs/${params.id}?tab=hr-personal`} />}
                   </Route>
                   <Route path="/staffs/attendance">
-                    {user?.role === "staff" ? <NotAuthorized /> : <AttendancePage />}
+                    {!canOpen("/staffs/attendance") ? <NotAuthorized /> : <AttendancePage />}
                   </Route>
                   <Route path="/staffs/performance/analytics">
-                    {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformanceAnalytics />}
+                    {!canOpen("/staffs/performance/analytics") ? <NotAuthorized /> : <GatedStaffPerformanceAnalytics />}
                   </Route>
                   <Route path="/staffs/performance">
-                    {user?.role === "staff" ? <NotAuthorized /> : <GatedStaffPerformance />}
+                    {!canOpen("/staffs/performance") ? <NotAuthorized /> : <GatedStaffPerformance />}
                   </Route>
                   {/* After every literal /staffs/* route: ":id" would otherwise swallow "new", "attendance", etc. */}
                   <Route path="/staffs/:id/activity">
-                    {user?.role === "staff" ? <NotAuthorized /> : <StaffDetailsPage view="logs" />}
+                    {!canOpen("/staffs/:id/activity") ? <NotAuthorized /> : <StaffDetailsPage view="logs" />}
                   </Route>
                   <Route path="/staffs/:id">
-                    {user?.role === "staff" ? <NotAuthorized /> : <StaffDetailsPage />}
+                    {!canOpen("/staffs/:id") ? <NotAuthorized /> : <StaffDetailsPage />}
                   </Route>
                   <Route path="/inventory" component={InventoryPage} />
                   <Route path="/inventory/new">
@@ -660,61 +667,61 @@ function AuthenticatedLayout() {
                   <Route path="/help-support" component={HelpSupportPage} />
                   <Route path="/payroll/:periodId/staff/:staffId" component={PayrollDetailPage} />
                   <Route path="/settings">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsIndexPage />}
+                    {!canOpen("/settings") ? <Redirect to="/" /> : <SettingsIndexPage />}
                   </Route>
                   <Route path="/settings/stores">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStoresPage />}
+                    {!canOpen("/settings/stores") ? <Redirect to="/" /> : <SettingsStoresPage />}
                   </Route>
                   <Route path="/settings/roles">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsRolesPage />}
+                    {!canOpen("/settings/roles") ? <Redirect to="/" /> : <SettingsRolesPage />}
                   </Route>
                   <Route path="/settings/hr-profiles">
                     {user?.role !== "owner" ? <Redirect to="/" /> : <SettingsHrProfilesPage />}
                   </Route>
                   <Route path="/settings/business">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBusinessPage />}
+                    {!canOpen("/settings/business") ? <Redirect to="/" /> : <SettingsBusinessPage />}
                   </Route>
                   <Route path="/settings/store-settings">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStorePage />}
+                    {!canOpen("/settings/store-settings") ? <Redirect to="/" /> : <SettingsStorePage />}
                   </Route>
                   <Route path="/settings/store-details">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsStoreDetailsPage />}
+                    {!canOpen("/settings/store-details") ? <Redirect to="/" /> : <SettingsStoreDetailsPage />}
                   </Route>
                   <Route path="/settings/attendance">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsAttendancePage />}
+                    {!canOpen("/settings/attendance") ? <Redirect to="/" /> : <SettingsAttendancePage />}
                   </Route>
                   <Route path="/settings/credit-sales">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsCreditSalesPage />}
+                    {!canOpen("/settings/credit-sales") ? <Redirect to="/" /> : <SettingsCreditSalesPage />}
                   </Route>
                   <Route path="/settings/payment-integrations">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsPaymentIntegrationsPage />}
+                    {!canOpen("/settings/payment-integrations") ? <Redirect to="/" /> : <SettingsPaymentIntegrationsPage />}
                   </Route>
                   <Route path="/settings/whatsapp-number">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsWhatsAppNumberPage />}
+                    {!canOpen("/settings/whatsapp-number") ? <Redirect to="/" /> : <SettingsWhatsAppNumberPage />}
                   </Route>
                   <Route path="/settings/capital-assets">
                     {user?.role !== "owner" ? <Redirect to="/" /> : <SettingsCapitalAssetsPage />}
                   </Route>
                   <Route path="/settings/bulk-operations">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <SettingsBulkOperationsPage />}
+                    {!canOpen("/settings/bulk-operations") ? <Redirect to="/" /> : <SettingsBulkOperationsPage />}
                   </Route>
                   <Route path="/settings/stores/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <LimitGate limitType="store_count"><StoreFormPage /></LimitGate>}
+                    {!canOpen("/settings/stores/new") ? <Redirect to="/" /> : <LimitGate limitType="store_count"><StoreFormPage /></LimitGate>}
                   </Route>
                   <Route path="/settings/stores/:id/edit">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <StoreFormPage />}
+                    {!canOpen("/settings/stores/:id/edit") ? <Redirect to="/" /> : <StoreFormPage />}
                   </Route>
                   <Route path="/settings/business/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <BusinessFormPage />}
+                    {!canOpen("/settings/business/new") ? <Redirect to="/" /> : <BusinessFormPage />}
                   </Route>
                   <Route path="/settings/business/edit">
                     <Redirect to="/settings/business" />
                   </Route>
                   <Route path="/settings/roles/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <GatedRoleForm />}
+                    {!canOpen("/settings/roles/new") ? <Redirect to="/" /> : <GatedRoleForm />}
                   </Route>
                   <Route path="/settings/roles/:id/edit">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <GatedRoleForm />}
+                    {!canOpen("/settings/roles/:id/edit") ? <Redirect to="/" /> : <GatedRoleForm />}
                   </Route>
                   <Route path="/vendors" component={VendorsPage} />
                   <Route path="/vendors/new" component={VendorFormPage} />
@@ -730,44 +737,44 @@ function AuthenticatedLayout() {
                   <Route path="/purchase-orders/:id" component={PurchaseOrderDetailPage} />
                   <Route path="/purchase-orders" component={PurchaseOrdersPage} />
                   <Route path="/stock-transfers">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <StockTransfersPage />}
+                    {!canOpen("/stock-transfers") ? <Redirect to="/" /> : <StockTransfersPage />}
                   </Route>
                   <Route path="/partners/transfers/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <PartnerTransferNewPage />}
+                    {!canOpen("/partners/transfers/new") ? <Redirect to="/" /> : <PartnerTransferNewPage />}
                   </Route>
                   <Route path="/partners/transfers/:id" component={PartnerTransferDetailsPage} />
                   <Route path="/partners/ledger">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <PartnerLedgerPage />}
+                    {!canOpen("/partners/ledger") ? <Redirect to="/" /> : <PartnerLedgerPage />}
                   </Route>
                   <Route path="/partners" component={PartnersPage} />
                   <Route path="/stock-transfers/new">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <StockTransferNewPage />}
+                    {!canOpen("/stock-transfers/new") ? <Redirect to="/" /> : <StockTransferNewPage />}
                   </Route>
                   <Route path="/settings/taxes">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <TaxesCompliancePage />}
+                    {!canOpen("/settings/taxes") ? <Redirect to="/" /> : <TaxesCompliancePage />}
                   </Route>
                   <Route path="/settings/promotions">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <PromotionsPage />}
+                    {!canOpen("/settings/promotions") ? <Redirect to="/" /> : <PromotionsPage />}
                   </Route>
                   <Route path="/settings/billing">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <BillingSettingsPage />}
+                    {!canOpen("/settings/billing") ? <Redirect to="/" /> : <BillingSettingsPage />}
                   </Route>
                   <Route path="/settings/billing/payment-history">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <PaymentHistoryPage />}
+                    {!canOpen("/settings/billing/payment-history") ? <Redirect to="/" /> : <PaymentHistoryPage />}
                   </Route>
                   {/* Most specific first — wouter matches top-down, so
                       /analytics would otherwise swallow its own subpaths. */}
                   <Route path="/analytics/dashboards/:id">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <AnalyticsDashboardDetailPage />}
+                    {!canOpen("/analytics/dashboards/:id") ? <Redirect to="/" /> : <AnalyticsDashboardDetailPage />}
                   </Route>
                   <Route path="/analytics/dashboards">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <AnalyticsDashboardsPage />}
+                    {!canOpen("/analytics/dashboards") ? <Redirect to="/" /> : <AnalyticsDashboardsPage />}
                   </Route>
                   <Route path="/analytics">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <AnalyticsExplorerPage />}
+                    {!canOpen("/analytics") ? <Redirect to="/" /> : <AnalyticsExplorerPage />}
                   </Route>
                   <Route path="/reports/audit-logs">
-                    {user?.role === "staff" ? <Redirect to="/" /> : <AuditLogsPage />}
+                    {!canOpen("/reports/audit-logs") ? <Redirect to="/" /> : <AuditLogsPage />}
                   </Route>
                   <Route path="/reports">
                     {user?.role === "staff" ? <Redirect to="/" /> : <ReportsIndexPage />}
