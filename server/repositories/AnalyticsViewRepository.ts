@@ -8,7 +8,7 @@
  * Sharing a view must not become a privilege-escalation route.
  */
 
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import {
   analyticsDashboardTiles,
@@ -52,6 +52,22 @@ class AnalyticsViewRepository {
     if (row.businessId !== viewer.businessId) return null;
     if (row.ownerUserId !== viewer.userId && row.visibility !== "business") return null;
     return row;
+  }
+
+  /**
+   * Several saved views in one query, with the same visibility rules as getView (the viewer's business, and either
+   * theirs or shared with the business). Views the viewer may not see are simply absent from the map.
+   */
+  async getViewsByIds(ids: string[], viewer: ViewerContext): Promise<Map<string, AnalyticsView>> {
+    const out = new Map<string, AnalyticsView>();
+    if (ids.length === 0) return out;
+    const rows = await db.select().from(analyticsViews).where(inArray(analyticsViews.id, Array.from(new Set(ids))));
+    for (const row of rows) {
+      if (row.businessId !== viewer.businessId) continue;
+      if (row.ownerUserId !== viewer.userId && row.visibility !== "business") continue;
+      out.set(row.id, row);
+    }
+    return out;
   }
 
   async createView(
@@ -142,21 +158,20 @@ class AnalyticsViewRepository {
     id: string,
     viewer: ViewerContext,
   ): Promise<{ dashboard: AnalyticsDashboard; tiles: AnalyticsDashboardTile[] } | null> {
-    const [dashboard] = await db
-      .select()
-      .from(analyticsDashboards)
-      .where(eq(analyticsDashboards.id, id));
+    // The dashboard and its tiles do not depend on each other to be read, so they are read together.
+    const [[dashboard], tiles] = await Promise.all([
+      db.select().from(analyticsDashboards).where(eq(analyticsDashboards.id, id)),
+      db
+        .select()
+        .from(analyticsDashboardTiles)
+        .where(eq(analyticsDashboardTiles.dashboardId, id))
+        .orderBy(analyticsDashboardTiles.gridY, analyticsDashboardTiles.gridX),
+    ]);
     if (!dashboard) return null;
     if (dashboard.businessId !== viewer.businessId) return null;
     if (dashboard.ownerUserId !== viewer.userId && dashboard.visibility !== "business") {
       return null;
     }
-
-    const tiles = await db
-      .select()
-      .from(analyticsDashboardTiles)
-      .where(eq(analyticsDashboardTiles.dashboardId, id))
-      .orderBy(analyticsDashboardTiles.gridY, analyticsDashboardTiles.gridX);
 
     return { dashboard, tiles };
   }

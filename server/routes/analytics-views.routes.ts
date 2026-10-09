@@ -226,13 +226,18 @@ export function registerAnalyticsViewRoutes(
 
       // Resolve each tile to a runnable, re-authorised spec.
       const warnings = new Set<string>();
+      // Every tile's saved view in one query (it used to be one query per tile).
+      const views = await analyticsViewRepository.getViewsByIds(
+        found.tiles.map((t) => t.viewId).filter((id): id is string => !!id),
+        viewer,
+      );
       const tiles = await Promise.all(
         found.tiles.map(async (tile) => {
           let spec = tile.spec;
           let title = tile.titleOverride;
 
           if (tile.viewId) {
-            const view = await analyticsViewRepository.getView(tile.viewId, viewer);
+            const view = views.get(tile.viewId);
             if (!view) {
               // The view was deleted or unshared; the tile stays, visibly empty.
               return { ...tile, spec: null, resolvedTitle: title ?? "Unavailable view" };

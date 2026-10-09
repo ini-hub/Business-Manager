@@ -1,3 +1,4 @@
+import { createTtlCache } from "../lib/ttlCache";
 import type { Request, Response } from "express";
 import { storage } from "../storage";
 import { broadcastDataChange } from "../websocket";
@@ -123,20 +124,36 @@ export async function getUserStores(req: Request): Promise<any[]> {
  *
  * Passing no ids means "everything I can see".
  */
+// The stores a manager or owner may query. It is two queries (the user, then their business's stores) and a
+// dashboard asks once per tile, so it is remembered for the rest of the request and, briefly, for the user.
+// Staff are never cached: their store assignment changes who they may see, and that must apply at once.
+const accessibleStoresCache = createTtlCache<string, string[]>(30_000);
+
+async function loadAllowedStoreIds(req: Request): Promise<string[]> {
+  const user = (req as any).user;
+  const userId = user?.id ?? user?.userId;
+  const load = async (): Promise<string[]> => {
+    const stores = await getUserStores(req);
+    return stores.map((s: any) => s.id as string);
+  };
+
+  // Staff are pinned to their own store, matching verifyStoreAccess.
+  if (user?.role === "staff") {
+    const allowed = await load();
+    const staffRecord = await storage.getStaffByUserId(userId);
+    return staffRecord ? allowed.filter((id) => id === staffRecord.storeId) : [];
+  }
+  return userId ? accessibleStoresCache.get(`${userId}:${user?.businessId ?? ""}`, load) : load();
+}
+
 export async function resolveAccessibleStoreIds(
   req: Request,
   requested?: string[],
 ): Promise<{ storeIds: string[]; dropped: string[] }> {
-  const user = (req as any).user;
-  const stores = await getUserStores(req);
-
-  let allowed = stores.map((s: any) => s.id as string);
-
-  // Staff are pinned to their own store, matching verifyStoreAccess.
-  if (user?.role === "staff") {
-    const staffRecord = await storage.getStaffByUserId(user.id ?? user.userId);
-    allowed = staffRecord ? allowed.filter((id) => id === staffRecord.storeId) : [];
-  }
+  // Once per request, however many tiles or views ask.
+  const holder = req as any;
+  if (!holder.__allowedStoreIds) holder.__allowedStoreIds = loadAllowedStoreIds(req);
+  const allowed: string[] = await holder.__allowedStoreIds;
 
   if (!requested || requested.length === 0) {
     return { storeIds: allowed, dropped: [] };

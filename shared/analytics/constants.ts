@@ -30,7 +30,7 @@ export const GRAIN_DAYS: Record<string, number> = {
  */
 export const ANALYTICS_LIMITS = {
   /** Postgres `statement_timeout` for a single Explorer query. */
-  statementTimeoutMs: 15_000,
+  statementTimeoutMs: 10_000,
   /** Rejected in `superRefine` from (to - from) / GRAIN_DAYS[grain]. */
   maxBuckets: 1_500,
   maxMeasures: 12,

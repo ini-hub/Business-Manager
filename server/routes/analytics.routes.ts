@@ -11,6 +11,7 @@
  * handling — but they do need it, which is why they are not exempt.
  */
 
+import { createKeyedSemaphore } from "../lib/semaphore";
 import type { Express, Request, Response } from "express";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { ZodError } from "zod";
@@ -22,6 +23,13 @@ import type { StatTransform } from "@shared/analytics/model";
 import { AnalyticsCompileError } from "../analytics/compiler";
 import { formatZodErrors, resolveAccessibleStoreIds } from "./helpers";
 import type { RouteMiddlewares } from "./reports.routes";
+
+/**
+ * One user's queries run a few at a time and queue behind that, so a dashboard of a dozen tiles cannot flood the
+ * Explorer's share of the database by itself (the Explorer also has a global cap, see analytics/execute.ts).
+ */
+const perUserQueries = createKeyedSemaphore(3);
+const userKeyOf = (req: Request) => String((req as any).user?.userId ?? (req as any).user?.id ?? req.ip ?? "anonymous");
 
 /**
  * Tighter than the global apiLimiter: each of these can run several grouped
@@ -116,7 +124,7 @@ export function registerAnalyticsRoutes(
           measures: permitted,
         });
 
-        const result = await runAnalyticsQuery(query);
+        const result = await perUserQueries.run(userKeyOf(req), () => runAnalyticsQuery(query));
         res.json({ ...result, warnings: [...warnings, ...result.warnings] });
       } catch (error) {
         if (error instanceof ZodError) {
@@ -174,13 +182,13 @@ export function registerAnalyticsRoutes(
           });
         }
 
-        const result = await runScatter(query, {
+        const result = await perUserQueries.run(userKeyOf(req), () => runScatter(query, {
           x,
           y,
           pointGrain,
           pointDimension: req.body?.pointDimension,
           transform,
-        });
+        }));
         res.json({ ...result, warnings: [...warnings, ...result.warnings] });
       } catch (error) {
         handleAnalyticsError(error, res, "scatter");
@@ -199,14 +207,14 @@ export function registerAnalyticsRoutes(
         const { query, warnings } = await prepareQuery(req, res);
         if (!query) return;
 
-        const result = await runCorrelate(query, {
+        const result = await perUserQueries.run(userKeyOf(req), () => runCorrelate(query, {
           measures: query.measures,
           // Percentage change by default: on raw levels almost any two growing
           // measures correlate near 1, which would make this a machine for
           // producing confident nonsense.
           transform: normaliseTransform(req.body?.transform ?? "pct_change"),
           maxLag: Math.min(30, Math.max(0, Number(req.body?.maxLag ?? 7))),
-        });
+        }));
         res.json({ ...result, warnings: [...warnings, ...result.warnings] });
       } catch (error) {
         handleAnalyticsError(error, res, "correlate");
