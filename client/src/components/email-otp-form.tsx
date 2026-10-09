@@ -40,6 +40,10 @@ interface Props {
   onExpired: () => void;
   onChangeEmail: () => void;
   onContinue: () => void;
+  /** Label for the post-verification button; defaults to the dashboard wording. */
+  continueLabel?: string;
+  /** Show the trial terms + implicit-consent line under the button (new-owner signup only). */
+  showTrialTerms?: boolean;
 }
 
 export function EmailOtpForm(p: Props) {
@@ -120,10 +124,17 @@ export function EmailOtpForm(p: Props) {
       <div className="ks-otp ks-otp--done">
         <span className="ks-otp-icon ks-otp-icon--ok" aria-hidden="true"><Check size={22} /></span>
         <h1 className="ks-title">Email verified</h1>
-        <p className="ks-sub">Your account is ready. Your 14-day Growth trial starts now.</p>
+        <p className="ks-sub">
+          {p.showTrialTerms
+            ? "Your 14-day free trial starts now, with full access to every feature and no card required. After it ends you move to our free tier and choose only the features you want to keep. Nothing is deleted or charged automatically."
+            : "Your account is ready. Your 14-day Growth trial starts now."}
+        </p>
         <button type="button" className="ks-otp-primary" onClick={p.onContinue} data-testid="button-go-dashboard">
-          Go to my dashboard
+          {p.continueLabel ?? "Go to my dashboard"}
         </button>
+        {p.showTrialTerms && (
+          <p className="ks-sub" data-testid="text-trial-consent-note">By continuing, you start your 14-day free trial.</p>
+        )}
       </div>
     );
   }

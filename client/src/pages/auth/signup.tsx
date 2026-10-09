@@ -270,9 +270,19 @@ export default function Signup() {
             onEdit={() => setOtpIssue(null)}
             onExpired={() => setOtpIssue((cur) => cur ?? { kind: "expired", message: "" })}
             onChangeEmail={() => setChangingEmail(true)}
+            continueLabel="Set up my business"
+            showTrialTerms
             onContinue={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-              setLocation("/");
+              // Clicking through records the trial consent here, so the separate
+              // TrialWelcomeNotice never needs to block. If the call fails the
+              // notice still gates the app as a fallback.
+              apiRequest("POST", "/api/business/accept-trial-consent")
+                .catch(() => {})
+                .finally(() => {
+                  queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+                  queryClient.invalidateQueries({ queryKey: ["/api/business"] });
+                  setLocation("/");
+                });
             }}
           />
           )}

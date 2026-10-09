@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -13,11 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Store, Users, Package, ShoppingCart, CheckCircle2, ChevronRight, Upload, Wallet } from "lucide-react";
-import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
-import { uploadContractFileToStaging } from "@/lib/contract-upload";
+import { Store, ChevronRight } from "lucide-react";
 import { Spinner } from "@/components/ui/loader";
 
 // Fire-and-forget funnel instrumentation - never blocks the wizard on failure.
@@ -38,231 +33,18 @@ const storeSchema = z.object({
   currency: z.string().default("NGN"),
 });
 
-const staffSchema = z.object({
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().trim().email("Enter a valid email address (e.g. name@example.com)."),
-  mobileNumber: z.string().min(1, "Phone number is required"),
-  countryCode: z.string().default("+234"),
-  role: z.enum(["manager", "staff"]),
-  payPerMonth: z.coerce.number().min(0, "Pay must be 0 or more"),
-});
-
-const inventorySchema = z.object({
-  name: z.string().min(1, "Item name is required"),
-  type: z.enum(["product", "service"]),
-  costPrice: z.coerce.number().min(0),
-  sellingPrice: z.coerce.number().min(0, "Selling price is required"),
-  quantity: z.coerce.number().int().min(0).default(0),
-});
-
-const capitalSchema = z.object({
-  initialCapital: z.coerce.number().min(0).optional(),
-  openingCash: z.coerce.number().min(0).optional(),
-});
-
-// ─── Step Configuration ────────────────────────────────────────────────────────
-
-const STEPS = [
-  { id: 1, label: "Store", icon: Store, description: "Create your first store location" },
-  { id: 2, label: "Staff", icon: Users, description: "Add a staff member" },
-  { id: 3, label: "Inventory", icon: Package, description: "Add your first product or service" },
-  { id: 4, label: "Capital", icon: Wallet, description: "Record what you've invested so far" },
-  { id: 5, label: "Start Selling", icon: ShoppingCart, description: "You're ready to go!" },
-];
-
-// ─── Component ────────────────────────────────────────────────────────────────
+// Store is the only required step. Staff, products and capital are picked up
+// afterwards from the dashboard's getting-started checklist, in context.
 
 export default function OnboardingWizard() {
-  const [step, setStep] = useState(1);
-  const [createdStoreId, setCreatedStoreId] = useState<string | null>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  // ── Step 1: Store ──────────────────────────────────────────────────────────
-
   const storeForm = useForm<z.infer<typeof storeSchema>>({
     resolver: zodResolver(storeSchema),
     defaultValues: { name: "", code: "", address: "", phone: "", phoneCountryCode: "+234", country: "NG", currency: "NGN" },
-  });
-
-  const storeMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof storeSchema>) => {
-      // apiRequest already throws a proper Error (the server's message on
-      // .message) for any non-2xx response - no need to re-check res.ok or
-      // re-parse the body here.
-      const res = await apiRequest("POST", "/api/stores", { ...data, businessId: (user as any)?.businessId });
-      return res.json();
-    },
-    onSuccess: (store) => {
-      setCreatedStoreId(store.id);
-      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
-      toast({ title: "Store created!", description: `${store.name} is ready.` });
-      setStep(2);
-    },
-    onError: (error: Error) => {
-      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
-      if ((error as ApiError).planLimit) return;
-      toast({ title: "Failed to create store", description: getUserFriendlyError(error, "store"), variant: "destructive" });
-    },
-  });
-
-  const skipMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/stores/skip-setup", {});
-      return res.json();
-    },
-    onSuccess: async (store) => {
-      logFunnelEvent("onboarding_skipped_to_dashboard");
-      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
-      toast({ title: "You're all set!", description: `"${store.name}" is ready. You can rename it anytime from Settings.` });
-      await finishOnboarding("/");
-    },
-    onError: (error: Error) => toast({ title: "Couldn't skip setup", description: getUserFriendlyError(error, "store"), variant: "destructive" }),
-  });
-
-  // ── Step 2: Staff ──────────────────────────────────────────────────────────
-
-  const staffForm = useForm<z.infer<typeof staffSchema>>({
-    resolver: zodResolver(staffSchema),
-    defaultValues: { firstName: "", lastName: "", email: "", mobileNumber: "", countryCode: "+234", role: "staff", payPerMonth: 0 },
-  });
-
-  // Optional contract, attached inline the same way as the standalone New
-  // Staff form (client/src/pages/staff-form.tsx) - see
-  // uploadContractFileToStaging for why file/image uploads work here even
-  // though no staffId exists yet at this point in the wizard.
-  const [contractType, setContractType] = useState<"none" | "text" | "file" | "image">("none");
-  const [contractText, setContractText] = useState("");
-  const [contractAltText, setContractAltText] = useState("");
-  const [contractFile, setContractFile] = useState<File | null>(null);
-  const [isPreparingContract, setIsPreparingContract] = useState(false);
-
-  const staffMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof staffSchema> & { contract?: Record<string, unknown> }) => {
-      const phoneCheck = validatePhoneNumber(data.mobileNumber, data.countryCode);
-      if (!phoneCheck.valid) {
-        staffForm.setError("mobileNumber", { message: phoneCheck.error });
-        throw new Error(phoneCheck.error);
-      }
-      const res = await apiRequest("POST", "/api/staff", { ...data, storeId: createdStoreId });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
-      toast({ title: "Staff member added!" });
-      setStep(3);
-    },
-    onError: (error: Error) => {
-      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
-      if ((error as ApiError).planLimit) return;
-      toast({ title: "Failed to add staff", description: getUserFriendlyError(error, "staff"), variant: "destructive" });
-    },
-  });
-
-  const onStaffSubmit = async (data: z.infer<typeof staffSchema>) => {
-    const payload: z.infer<typeof staffSchema> & { contract?: Record<string, unknown> } = { ...data };
-    if (contractType === "text" && contractText.trim()) {
-      payload.contract = { contractType: "text", contentText: contractText.trim() };
-    } else if ((contractType === "file" || contractType === "image") && contractFile) {
-      try {
-        setIsPreparingContract(true);
-        const uploaded = await uploadContractFileToStaging(contractFile);
-        payload.contract = {
-          contractType,
-          ...uploaded,
-          ...(contractType === "image" ? { altText: contractAltText.trim() } : {}),
-        };
-      } catch (error) {
-        toast({ title: "Couldn't upload contract file", description: getUserFriendlyError(error as Error), variant: "destructive" });
-        return;
-      } finally {
-        setIsPreparingContract(false);
-      }
-    }
-    staffMutation.mutate(payload);
-  };
-
-  // ── Step 3: Inventory ──────────────────────────────────────────────────────
-
-  const inventoryForm = useForm<z.infer<typeof inventorySchema>>({
-    resolver: zodResolver(inventorySchema),
-    defaultValues: { name: "", type: "product", costPrice: 0, sellingPrice: 0, quantity: 1 },
-  });
-
-  const inventoryMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof inventorySchema>) => {
-      // Matches the current product+variant model (see client/src/pages/inventory-new.tsx):
-      // a product "group" is created first, then a single default variant carrying
-      // the actual price/stock. The legacy flat POST /api/inventory shape is stale.
-      const parentRes = await apiRequest("POST", "/api/products", {
-        storeId: createdStoreId,
-        name: data.name,
-        type: data.type,
-      });
-      const product = await parentRes.json();
-      const variantRes = await apiRequest("POST", `/api/products/${product.id}/variants`, {
-        name: data.name,
-        costPrice: data.costPrice,
-        sellingPrice: data.sellingPrice,
-        quantity: data.quantity,
-        sku: `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      });
-      return variantRes.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      toast({ title: "Item added to inventory!" });
-      setStep(4);
-    },
-    onError: (error: Error) => {
-      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
-      if ((error as ApiError).planLimit) return;
-      toast({ title: "Failed to add item", description: getUserFriendlyError(error, "inventory"), variant: "destructive" });
-    },
-  });
-
-  // ── Step 4: Capital ────────────────────────────────────────────────────────
-  // Optional. Feeds the Balance Sheet / true-profitability report
-  // (client/src/pages/balance-sheet.tsx) - capital invested and opening cash
-  // let that report compute ROI and net worth alongside the existing P&L.
-  // Fillable later from Settings → Capital & Assets if skipped here.
-
-  const capitalForm = useForm<z.infer<typeof capitalSchema>>({
-    resolver: zodResolver(capitalSchema),
-    defaultValues: { initialCapital: undefined, openingCash: undefined },
-  });
-
-  const capitalMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof capitalSchema>) => {
-      const today = new Date().toISOString().slice(0, 10);
-      if (data.initialCapital && data.initialCapital > 0) {
-        await apiRequest("POST", "/api/accounting/capital", {
-          storeId: createdStoreId,
-          type: "capital_injection",
-          amount: data.initialCapital,
-          description: "Initial capital invested (onboarding)",
-          date: today,
-        });
-      }
-      if (data.openingCash && data.openingCash > 0) {
-        await apiRequest("POST", "/api/accounting/assets", {
-          storeId: createdStoreId,
-          name: "Opening cash",
-          category: "cash",
-          value: data.openingCash,
-          acquiredDate: today,
-        });
-      }
-    },
-    onSuccess: () => {
-      toast({ title: "Capital recorded!" });
-      setStep(5);
-    },
-    onError: (error: Error) => toast({ title: "Failed to record capital", description: getUserFriendlyError(error, "capital"), variant: "destructive" }),
   });
 
   const finishOnboarding = async (destination: string = "/") => {
@@ -272,54 +54,53 @@ export default function OnboardingWizard() {
     setLocation(destination);
   };
 
-  // ─── UI ───────────────────────────────────────────────────────────────────
+  const storeMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof storeSchema>) => {
+      // apiRequest already throws a proper Error (the server's message on
+      // .message) for any non-2xx response - no need to re-check res.ok or
+      // re-parse the body here.
+      const res = await apiRequest("POST", "/api/stores", { ...data, businessId: (user as any)?.businessId });
+      return res.json();
+    },
+    onSuccess: async (store) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/stores"] });
+      toast({ title: "Store created!", description: `${store.name} is ready.` });
+      await finishOnboarding("/");
+    },
+    onError: (error: Error) => {
+      // At the plan cap, apiRequest has already opened the upgrade dialog; a toast saying the same would double up.
+      if ((error as ApiError).planLimit) return;
+      toast({ title: "Failed to create store", description: getUserFriendlyError(error, "store"), variant: "destructive" });
+    },
+  });
+
+  // Server creates "Main Store"/"MAIN" (idempotent) so the dashboard has a store to attach to.
+  const skipMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/stores/skip-setup")).json(),
+    onSuccess: async () => {
+      logFunnelEvent("onboarding_skipped");
+      await finishOnboarding("/");
+    },
+    onError: (error: Error) => {
+      if ((error as ApiError).planLimit) return;
+      toast({ title: "Couldn't set up your store", description: getUserFriendlyError(error, "store"), variant: "destructive" });
+    },
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background flex items-center justify-center p-4">
       <div className="w-full max-w-2xl space-y-6">
-        {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-[26px] font-bold tracking-tight">Welcome to Kowope</h1>
-          <p className="text-sm text-primary font-semibold">Business Management System</p>
-          <p className="text-muted-foreground text-sm">Let's set up your business in just a few steps</p>
+          <p className="text-muted-foreground text-sm">One quick step - name your first store (about 30 seconds). You'll add products and staff from your dashboard.</p>
         </div>
 
-        {/* Progress */}
-        <div className="flex items-center justify-between">
-          {STEPS.map((s, i) => {
-            const Icon = s.icon;
-            const done = step > s.id;
-            const active = step === s.id;
-            return (
-              <div key={s.id} className="flex items-center flex-1">
-                <div className="flex flex-col items-center gap-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
-                    done ? "bg-primary border-primary text-primary-foreground" :
-                    active ? "border-primary text-primary bg-primary/10" :
-                    "border-muted text-muted-foreground"
-                  }`}>
-                    {done ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
-                  </div>
-                  <span className={`text-xs font-medium ${active ? "text-primary" : done ? "text-primary" : "text-muted-foreground"}`}>
-                    {s.label}
-                  </span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-2 ${step > s.id ? "bg-primary" : "bg-muted"}`} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Step Cards */}
-        {step === 1 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Store className="h-5 w-5" /> Create Your First Store</CardTitle>
-              <CardDescription>This is your primary business location. You can add more stores later.</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Store className="h-5 w-5" /> Create Your First Store</CardTitle>
+            <CardDescription>This is your primary business location. You can add more stores later.</CardDescription>
+          </CardHeader>
+          <CardContent>
               <Form {...storeForm}>
                 <form onSubmit={storeForm.handleSubmit(d => storeMutation.mutate(d))} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -362,301 +143,18 @@ export default function OnboardingWizard() {
                       </FormItem>
                     )} />
                   </div>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => skipMutation.mutate()} disabled={skipMutation.isPending || storeMutation.isPending}>
-                      {skipMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Setting up...</> : "Skip to Dashboard"}
+                  <div className="flex flex-col-reverse sm:flex-row gap-3">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => skipMutation.mutate()} disabled={storeMutation.isPending || skipMutation.isPending}>
+                      {skipMutation.isPending ? "Setting up..." : "Skip for now, go to dashboard"}
                     </Button>
                     <Button type="submit" className="flex-1" disabled={storeMutation.isPending || skipMutation.isPending}>
-                      {storeMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Creating...</> : <>Create Store <ChevronRight className="h-4 w-4 ml-1" /></>}
+                      {storeMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Creating...</> : <>Create store and continue <ChevronRight className="h-4 w-4 ml-1" /></>}
                     </Button>
                   </div>
                 </form>
               </Form>
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 2 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Add Your First Staff Member</CardTitle>
-              <CardDescription>Add a team member to this store. You can skip this and add staff later.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...staffForm}>
-                <form onSubmit={staffForm.handleSubmit(onStaffSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField control={staffForm.control} name="firstName" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>First Name</FormLabel>
-                        <FormControl><Input placeholder="Jane" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={staffForm.control} name="lastName" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Last Name</FormLabel>
-                        <FormControl><Input placeholder="Doe" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={staffForm.control} name="role" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Role</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="manager">Manager</SelectItem>
-                            <SelectItem value="staff">Staff</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={staffForm.control} name="email" render={({ field }) => (
-                      <FormItem className="col-span-2">
-                        <FormLabel>Email</FormLabel>
-                        <FormControl><Input type="email" placeholder="jane@example.com" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={staffForm.control} name="mobileNumber" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Phone Number</FormLabel>
-                        <div className="flex gap-2">
-                          <FormField control={staffForm.control} name="countryCode" render={({ field: ccField }) => (
-                            <Select onValueChange={ccField.onChange} value={ccField.value}>
-                              <SelectTrigger className="w-[110px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent className="max-h-[280px]">
-                                {deduplicatedCountryCodes.map(c => (
-                                  <SelectItem key={c.dialCode} value={c.dialCode}>{c.name} ({c.dialCode})</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )} />
-                          <FormControl><Input placeholder="08012345678" {...field} /></FormControl>
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={staffForm.control} name="payPerMonth" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Monthly Pay</FormLabel>
-                        <FormControl><Input type="number" min="0" placeholder="0" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
-
-                  <div className="space-y-3 border-t pt-4">
-                    <div>
-                      <p className="text-sm font-medium">Employment Contract <span className="text-muted-foreground font-normal text-xs">(optional)</span></p>
-                      <p className="text-xs text-muted-foreground">Attach now for them to review and sign during onboarding, after they set their password.</p>
-                    </div>
-                    <RadioGroup
-                      value={contractType}
-                      onValueChange={(v) => setContractType(v as typeof contractType)}
-                      className="flex flex-wrap gap-3"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="none" id="ob-contract-none" />
-                        <label htmlFor="ob-contract-none" className="text-xs cursor-pointer">None for now</label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="text" id="ob-contract-text" />
-                        <label htmlFor="ob-contract-text" className="text-xs cursor-pointer">Type contract text</label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="file" id="ob-contract-file" />
-                        <label htmlFor="ob-contract-file" className="text-xs cursor-pointer">Upload file (PDF)</label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="image" id="ob-contract-image" />
-                        <label htmlFor="ob-contract-image" className="text-xs cursor-pointer">Upload image</label>
-                      </div>
-                    </RadioGroup>
-
-                    {contractType === "text" && (
-                      <Textarea
-                        placeholder="Paste or type the full contract text..."
-                        className="min-h-28 text-sm"
-                        value={contractText}
-                        onChange={(e) => setContractText(e.target.value)}
-                      />
-                    )}
-
-                    {(contractType === "file" || contractType === "image") && (
-                      <div className="space-y-2">
-                        <label className="flex items-center gap-2 text-xs border rounded-lg p-3 cursor-pointer hover:bg-muted/30">
-                          <Upload className="h-4 w-4 text-muted-foreground" />
-                          {contractFile ? contractFile.name : `Choose ${contractType === "image" ? "an image" : "a PDF"}...`}
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept={contractType === "image" ? "image/png,image/jpeg,image/webp" : "application/pdf"}
-                            onChange={(e) => setContractFile(e.target.files?.[0] || null)}
-                          />
-                        </label>
-                        {contractType === "image" && (
-                          <Input
-                            placeholder="Describe the image for accessibility (required)"
-                            value={contractAltText}
-                            onChange={(e) => setContractAltText(e.target.value)}
-                            className="text-xs h-10"
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "staff" }); setStep(3); }}>
-                      Skip for now
-                    </Button>
-                    <Button type="submit" className="flex-1" disabled={staffMutation.isPending || isPreparingContract}>
-                      {isPreparingContract
-                        ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Uploading contract...</>
-                        : staffMutation.isPending
-                          ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Adding...</>
-                          : <>Add Staff <ChevronRight className="h-4 w-4 ml-1" /></>}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 3 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Add Your First Product or Service</CardTitle>
-              <CardDescription>Add an item to your inventory. You can add more from the Inventory page.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...inventoryForm}>
-                <form onSubmit={inventoryForm.handleSubmit(d => inventoryMutation.mutate(d))} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField control={inventoryForm.control} name="name" render={({ field }) => (
-                      <FormItem className="col-span-2">
-                        <FormLabel>Item Name</FormLabel>
-                        <FormControl><Input placeholder="e.g. Laptop, Web Design Service" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={inventoryForm.control} name="type" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="product">Product</SelectItem>
-                            <SelectItem value="service">Service</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={inventoryForm.control} name="quantity" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Quantity in Stock</FormLabel>
-                        <FormControl><Input type="number" min="0" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={inventoryForm.control} name="costPrice" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Cost Price</FormLabel>
-                        <FormControl><Input type="number" min="0" placeholder="0" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={inventoryForm.control} name="sellingPrice" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Selling Price</FormLabel>
-                        <FormControl><Input type="number" min="0" placeholder="0" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "inventory" }); setStep(4); }}>
-                      Skip for now
-                    </Button>
-                    <Button type="submit" className="flex-1" disabled={inventoryMutation.isPending}>
-                      {inventoryMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Adding...</> : <>Add Item <ChevronRight className="h-4 w-4 ml-1" /></>}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 4 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Record Your Capital</CardTitle>
-              <CardDescription>How much have you invested in this business so far? This powers your true-profitability report (ROI on what you put in, not just sales minus expenses). You can skip this and add it later from Settings.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...capitalForm}>
-                <form onSubmit={capitalForm.handleSubmit(d => capitalMutation.mutate(d))} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField control={capitalForm.control} name="initialCapital" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Capital Invested <span className="text-muted-foreground text-xs">(optional)</span></FormLabel>
-                        <FormControl><Input type="number" min="0" placeholder="0" {...field} value={field.value ?? ""} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={capitalForm.control} name="openingCash" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Opening Cash <span className="text-muted-foreground text-xs">(optional)</span></FormLabel>
-                        <FormControl><Input type="number" min="0" placeholder="0" {...field} value={field.value ?? ""} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" className="flex-1" onClick={() => { logFunnelEvent("onboarding_step_skipped", { step: "capital" }); setStep(5); }}>
-                      Skip for now
-                    </Button>
-                    <Button type="submit" className="flex-1" disabled={capitalMutation.isPending}>
-                      {capitalMutation.isPending ? <><Spinner className="h-5 w-5 mr-2 animate-spin" />Saving...</> : <>Save <ChevronRight className="h-4 w-4 ml-1" /></>}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 5 && (
-          <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="pt-8 pb-8 text-center space-y-6">
-              <div className="flex justify-center">
-                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
-                  <CheckCircle2 className="h-8 w-8 text-primary" />
-                </div>
-              </div>
-              <div>
-                <h2 className="text-lg font-bold">You're all set!</h2>
-                <p className="text-muted-foreground mt-2">Your business is ready. Head to the dashboard to start managing operations.</p>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm sm:max-w-none mx-auto justify-center">
-                <Button onClick={() => finishOnboarding("/")} size="lg" className="w-full sm:w-auto">
-                  Go to Dashboard <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-                <Button variant="outline" size="lg" onClick={() => finishOnboarding("/sales/new")} className="w-full sm:w-auto">
-                  Make First Sale <ShoppingCart className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
