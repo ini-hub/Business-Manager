@@ -6,7 +6,8 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { validateEmailFormat } from "../sanitize";
-import { sendEmailVerificationOtpEmail, sendEmailChangeNoticeToOldAddress, sendSMS } from "../email";
+import { sendEmailVerificationOtpEmail, sendEmailChangeNoticeToOldAddress, sendPhoneChangeOtpEmail, sendSMS } from "../email";
+import { getPhoneChangeOtpViaEmail } from "../lib/platformConfig";
 import { getViolatedConstraint } from "../db-errors";
 import { checkResendCooldown, MAX_OTP_ATTEMPTS } from "../lib/otp-cooldown";
 import { syncUserIdentityToLinkedStaff } from "../services/IdentitySync";
@@ -244,19 +245,24 @@ export class AuthController extends BaseController {
       const otpCode = crypto.randomInt(100000, 1000000).toString();
       const otpExpiry = new Date(Date.now() + PHONE_CHANGE_OTP_EXPIRY_MS);
 
-      // A phone-change code can only go to the new number - there's no email
-      // fallback the way other OTP flows have. Check delivery before writing
-      // any pending-phone state (and before consuming the resend cooldown),
-      // so a failed send never leaves the account "waiting" on a code that
-      // was never sent.
-      const delivered = await sendSMS(normalizedNewPhone, `Your verification code is: ${otpCode}. Valid for 10 minutes.`);
-      if (!delivered) {
-        return res.status(503).json({
-          error: {
-            code: "SMS_UNAVAILABLE",
-            message: "We're unable to send an SMS verification code right now. Please try again later.",
-          },
-        });
+      // Delivery check happens before any pending-phone state is written (and
+      // before the resend cooldown is consumed), so a failed send never leaves
+      // the account "waiting" on a code that was never sent. When the admin
+      // toggle is on, the code goes to the account's own email (SMS isn't
+      // configured yet); accounts with no email fall through to SMS.
+      const viaEmail = !!user.email && (await getPhoneChangeOtpViaEmail());
+      if (viaEmail) {
+        await sendPhoneChangeOtpEmail(user.email!, user.name || "there", otpCode, normalizedNewPhone);
+      } else {
+        const delivered = await sendSMS(normalizedNewPhone, `Your verification code is: ${otpCode}. Valid for 10 minutes.`);
+        if (!delivered) {
+          return res.status(503).json({
+            error: {
+              code: "SMS_UNAVAILABLE",
+              message: "We're unable to send an SMS verification code right now. Please try again later.",
+            },
+          });
+        }
       }
 
       await storage.updateUser(userId, {
@@ -269,8 +275,11 @@ export class AuthController extends BaseController {
       });
 
       return this.ok(res, {
-        message: "A verification code has been sent to your new phone number.",
+        message: viaEmail
+          ? "A verification code has been sent to your email address."
+          : "A verification code has been sent to your new phone number.",
         pendingPhone: normalizedNewPhone,
+        otpChannel: viaEmail ? "email" : "sms",
       });
     } catch (error) {
       return this.error(res, "Could not start phone number change.");

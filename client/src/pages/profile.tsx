@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient, type ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
@@ -52,6 +52,9 @@ export default function ProfilePage() {
   const [phoneChangePassword, setPhoneChangePassword] = useState("");
   const [phoneChangeOtp, setPhoneChangeOtp] = useState("");
   const [phoneChangeResendCooldown, setPhoneChangeResendCooldown] = useState(0);
+  const [phoneOtpChannel, setPhoneOtpChannel] = useState<"email" | "sms" | null>(null);
+  const { data: smsConfig } = useQuery<{ phoneChangeOtpViaEmail: boolean }>({ queryKey: ["/api/auth/platform-sms-config"] });
+  const phoneCodeViaEmail = (phoneOtpChannel ?? (smsConfig?.phoneChangeOtpViaEmail ? "email" : "sms")) === "email";
   const [smsUnavailableOpen, setSmsUnavailableOpen] = useState(false);
 
   useEffect(() => {
@@ -137,10 +140,18 @@ export default function ProfilePage() {
   });
 
   const requestPhoneChangeMutation = useMutation({
-    mutationFn: (data: { newPhone: string; phoneCountryCode: string; currentPassword: string }) =>
-      apiRequest("POST", "/api/auth/user/change-phone", data),
-    onSuccess: () => {
-      toast({ title: "Code sent", description: `A verification code was sent to your new phone number.` });
+    mutationFn: async (data: { newPhone: string; phoneCountryCode: string; currentPassword: string }) => {
+      const res = await apiRequest("POST", "/api/auth/user/change-phone", data);
+      return (await res.json().catch(() => ({}))) as { otpChannel?: "email" | "sms" };
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Code sent",
+        description: data?.otpChannel === "email"
+          ? "A verification code was sent to your email address."
+          : "A verification code was sent to your new phone number.",
+      });
+      setPhoneOtpChannel(data?.otpChannel === "email" ? "email" : "sms");
       setPhoneChangeStep("verify_otp");
       setPhoneChangeResendCooldown(60);
     },
@@ -400,7 +411,7 @@ export default function ProfilePage() {
                     {phoneChangeStep === "idle" && (
                       user?.pendingPhone ? (
                         <div className="text-xs text-amber-600 flex items-center gap-1 flex-wrap">
-                          <span>Change to <strong>{user.pendingPhone}</strong> pending — check that number for a code.</span>
+                          <span>Change to <strong>{user.pendingPhone}</strong> pending — check {phoneCodeViaEmail ? "your email" : "that number"} for a code.</span>
                           <Button type="button" variant="ghost" size="sm" className="h-auto p-0 text-xs underline" onClick={() => setPhoneChangeStep("verify_otp")}>
                             Enter code
                           </Button>
@@ -497,7 +508,7 @@ export default function ProfilePage() {
                     {phoneChangeStep === "verify_otp" && (
                       <div className="border rounded-md p-3 space-y-3 mt-1">
                         <p className="text-xs text-muted-foreground">
-                          Enter the 6-digit code sent to {user?.pendingPhone || newPhoneNumber}.
+                          Enter the 6-digit code sent to {phoneCodeViaEmail ? (user?.email || "your email") : (user?.pendingPhone || newPhoneNumber)}.
                         </p>
                         <div className="grid gap-2">
                           <Label htmlFor="phone-change-otp">Verification Code</Label>

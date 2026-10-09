@@ -59,7 +59,7 @@ import { listPendingReview } from "./lib/featureReviewNotice";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
 import { slugifyBundleKey } from "@shared/bundles";
 import { validateBundleMembers } from "./lib/pricing";
-import { getExportBranding, getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
+import { getExportBranding, getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getPhoneChangeOtpViaEmail, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
 import { legalDocumentService } from "./services/LegalDocumentService";
 import { verifyTOTP, generateSecret, getOTPAuthURL } from "./totp";
@@ -2738,24 +2738,31 @@ adminRouter.get("/platform-config/sms", isAdminAuthenticated, async (req: Reques
   try {
     const smsEnabled = await getPlatformConfigValue<boolean>("sms_enabled");
     const whatsappEnabled = await getPlatformConfigValue<boolean>("whatsapp_enabled");
-    return res.json({ smsEnabled: smsEnabled === true, whatsappEnabled: whatsappEnabled === true });
+    const phoneChangeOtpViaEmail = await getPhoneChangeOtpViaEmail();
+    return res.json({ smsEnabled: smsEnabled === true, whatsappEnabled: whatsappEnabled === true, phoneChangeOtpViaEmail });
   } catch (error) {
     return res.status(500).json({ error: "Failed to load SMS configuration." });
   }
 });
 
 adminRouter.put("/platform-config/sms", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
-  const { smsEnabled, whatsappEnabled } = req.body;
+  const { smsEnabled, whatsappEnabled, phoneChangeOtpViaEmail } = req.body;
 
   if (typeof smsEnabled !== "boolean" || typeof whatsappEnabled !== "boolean") {
     return res.status(400).json({ error: "smsEnabled and whatsappEnabled must be booleans." });
+  }
+  if (phoneChangeOtpViaEmail !== undefined && typeof phoneChangeOtpViaEmail !== "boolean") {
+    return res.status(400).json({ error: "phoneChangeOtpViaEmail must be a boolean." });
   }
 
   try {
     await setPlatformConfigValue("sms_enabled", smsEnabled, req.admin!.email);
     await setPlatformConfigValue("whatsapp_enabled", whatsappEnabled, req.admin!.email);
-    await writeAuditLog(req, "update_sms_config", "platform_config", { smsEnabled, whatsappEnabled });
-    return res.json({ success: true, smsEnabled, whatsappEnabled });
+    if (typeof phoneChangeOtpViaEmail === "boolean") {
+      await setPlatformConfigValue("phone_change_otp_via_email", phoneChangeOtpViaEmail, req.admin!.email);
+    }
+    await writeAuditLog(req, "update_sms_config", "platform_config", { smsEnabled, whatsappEnabled, phoneChangeOtpViaEmail });
+    return res.json({ success: true, smsEnabled, whatsappEnabled, phoneChangeOtpViaEmail: await getPhoneChangeOtpViaEmail() });
   } catch (error) {
     console.error("Update SMS config error:", error);
     return res.status(500).json({ error: "Failed to update SMS configuration." });

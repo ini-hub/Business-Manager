@@ -185,23 +185,25 @@ export default function PlatformSettings() {
   });
 
   // ---- SMS/WhatsApp configuration ----
-  const { data: smsData, isLoading: smsLoading } = useQuery<{ smsEnabled: boolean; whatsappEnabled: boolean }>({
+  const { data: smsData, isLoading: smsLoading } = useQuery<{ smsEnabled: boolean; whatsappEnabled: boolean; phoneChangeOtpViaEmail: boolean }>({
     queryKey: ["/api/admin/platform-config/sms"],
   });
 
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [phoneChangeOtpViaEmail, setPhoneChangeOtpViaEmail] = useState(true);
 
   useEffect(() => {
     if (smsData) {
       setSmsEnabled(smsData.smsEnabled);
       setWhatsappEnabled(smsData.whatsappEnabled);
+      setPhoneChangeOtpViaEmail(smsData.phoneChangeOtpViaEmail);
     }
   }, [smsData]);
 
   const saveSmsConfig = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("PUT", "/api/admin/platform-config/sms", { smsEnabled, whatsappEnabled });
+      const res = await apiRequest("PUT", "/api/admin/platform-config/sms", { smsEnabled, whatsappEnabled, phoneChangeOtpViaEmail });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Failed to update SMS configuration");
       return body;
@@ -402,6 +404,16 @@ export default function PlatformSettings() {
                     <p className="text-xs text-muted-foreground">Send reset codes via WhatsApp messages</p>
                   </div>
                   <Switch id="whatsapp-enabled" checked={whatsappEnabled} onCheckedChange={setWhatsappEnabled} />
+                </div>
+
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/50">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-semibold">Email phone-change codes</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Send the profile phone-number change code to the user's email instead of SMS. Turn off once SMS is configured.
+                    </p>
+                  </div>
+                  <Switch id="phone-change-otp-email" checked={phoneChangeOtpViaEmail} onCheckedChange={setPhoneChangeOtpViaEmail} />
                 </div>
               </div>
 

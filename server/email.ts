@@ -553,6 +553,32 @@ export async function sendSMS(_phone: string, _textContent: string): Promise<boo
   return false;
 }
 
+export async function sendPhoneChangeOtpEmail(
+  to: string,
+  name: string,
+  code: string,
+  newPhone: string,
+  businessName: string = BUSINESS_NAME
+): Promise<void> {
+  const html = renderEmail({
+    heading: "Confirm your new phone number",
+    preheader: `Your phone verification code is ${code}`,
+    body:
+      para(`Hi <strong>${escapeHtml(name)}</strong>,`) +
+      para(`Use this code to confirm changing your phone number to <strong>${escapeHtml(newPhone)}</strong>:`) +
+      codeBlock(escapeHtml(code)) +
+      para("This code expires in 10 minutes. Do not share it with anyone.") +
+      muted("If you did not request this, you can safely ignore this email and change your password."),
+    signoff: `The ${escapeHtml(businessName)} Team`,
+  });
+
+  sendEmail({
+    to,
+    subject: `Your phone number verification code — ${sanitizeHeaderValue(businessName)}`,
+    html,
+  });
+}
+
 export async function sendEmailVerificationOtpEmail(
   to: string,
   name: string,

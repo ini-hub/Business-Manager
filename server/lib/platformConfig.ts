@@ -67,12 +67,23 @@ export async function getExportBranding(): Promise<ExportBranding> {
   };
 }
 
-export async function getSmsConfig(): Promise<{ smsEnabled: boolean; whatsappEnabled: boolean }> {
+/**
+ * Whether a profile phone-change code is emailed to the account's address
+ * instead of texted to the new number. Defaults ON until an admin turns it
+ * off, since no SMS provider is integrated yet (see sendSMS in email.ts).
+ */
+export async function getPhoneChangeOtpViaEmail(): Promise<boolean> {
+  const v = await getPlatformConfigValue<boolean>("phone_change_otp_via_email");
+  return v !== false;
+}
+
+export async function getSmsConfig(): Promise<{ smsEnabled: boolean; whatsappEnabled: boolean; phoneChangeOtpViaEmail: boolean }> {
   const smsEnabled = await getPlatformConfigValue<boolean>("sms_enabled");
   const whatsappEnabled = await getPlatformConfigValue<boolean>("whatsapp_enabled");
   return {
     smsEnabled: smsEnabled === true,
     whatsappEnabled: whatsappEnabled === true,
+    phoneChangeOtpViaEmail: await getPhoneChangeOtpViaEmail(),
   };
 }
 
