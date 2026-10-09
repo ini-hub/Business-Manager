@@ -247,6 +247,11 @@ async function destroyStore(storeId: string, businessId: string): Promise<void> 
   await db.execute(sql`DELETE FROM capital_contributions WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM assets WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM liabilities WHERE store_id = ${storeId}`);
+  // Payment accounts (and what hangs off them: receipt payment legs, linked bank feeds) reference the store.
+  await db.execute(sql`DELETE FROM sale_payment_legs WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM bank_transactions WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM bank_connections WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM store_payment_accounts WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM stores WHERE id = ${storeId}`);
   await db.execute(sql`DELETE FROM hr_field_definitions WHERE business_id = ${businessId}`);
   await db.execute(sql`DELETE FROM hr_section_config WHERE business_id = ${businessId}`);
