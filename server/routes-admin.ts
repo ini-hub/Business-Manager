@@ -1,4 +1,5 @@
 import { getRevenueAnalytics } from "./lib/adminRevenue";
+import { isUniqueViolation } from "./db-errors";
 import { getFlaggedTransactions, getFlaggedUsers } from "./lib/adminFlagged";
 import { parsePage, pagination } from "./lib/pagination";
 import { getOnboardingPipeline } from "./lib/adminOnboarding";
@@ -13,7 +14,7 @@ import type { CountLimitType } from "./lib/entitlements";
 import { listApiRoutes } from "./lib/listRoutes";
 import { APP_SCREEN_PATHS } from "@shared/screens";
 import { validateGateRule } from "@shared/gateRules";
-import { FEATURES, checkDisableAllowed, type FeatureDef } from "@shared/features";
+import { FEATURES, checkDisableAllowed, getFeatureDef, PENDING_GATE_KEYS, type FeatureDef } from "@shared/features";
 import {
   GateRuleError, computeRuleImpact, listRuleEvents as listGateRuleEvents, listRulesWithFeature, revertEvent as revertGateRuleEvent,
   createRule as createGateRule, updateRule as updateGateRule, enableRule as enableGateRule, disableRule as disableGateRule, deleteRule as deleteGateRule,
@@ -23,7 +24,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { db } from "./db";
-import { eq, and, ne, like, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
+import { eq, and, ne, like, desc, sql, gte, lte, count, inArray, or } from "drizzle-orm";
 import {
   superAdmins,
   featureFlags,
@@ -54,6 +55,12 @@ import {
   createLegalDocumentSchema
 } from "@shared/schema";
 import { grantFeatureEntitlement, invalidateFeatureCatalogCache } from "./lib/entitlements";
+import { explainVisibility } from "./lib/featureVisibility";
+import { flagUpdateProblem } from "./lib/flagRollout";
+import { CAPS, CAP_ORDER, isCapType, planThreshold, type CapType, type LadderStep } from "@shared/thresholds";
+import { grandfatherApplies, sunsetDateProblem, sunsetTierProblem } from "./lib/publishRules";
+import { cancelSunset, getSunsetState, scheduleSunset } from "./lib/featureSunset";
+import { dependencyProblem } from "./lib/dependencyGraph";
 import { publishFeature } from "./lib/featureSync";
 import { listPendingReview } from "./lib/featureReviewNotice";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
@@ -1227,7 +1234,7 @@ adminRouter.post("/support-threads/:id/reopen", isAdminAuthenticated, requireAdm
         .set({ status: "open", resolvedAt: null, resolvedByAdminId: null })
         .where(eq(supportThreads.id, id));
     } catch (err: any) {
-      if (err?.code === "23505") {
+      if (isUniqueViolation(err)) {
         return res.status(409).json({ error: "This user already has a newer open conversation." });
       }
       throw err;
@@ -1628,6 +1635,14 @@ adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["s
       return res.status(404).json({ error: "Feature flag not found." });
     }
 
+    const inputProblem = flagUpdateProblem({ status, scopedOrgIds }, flag);
+    if (inputProblem) return res.status(400).json({ error: inputProblem });
+    if (Array.isArray(scopedOrgIds) && scopedOrgIds.length) {
+      const wanted = Array.from(new Set(scopedOrgIds as string[]));
+      const found = await db.select({ id: organisations.id }).from(organisations).where(inArray(organisations.id, wanted));
+      if (found.length !== wanted.length) return res.status(400).json({ error: "One or more of those businesses no longer exists." });
+    }
+
     // "off" and "scoped" both turn the feature off for businesses outside the list.
     const turnsOff = (status === "off" || status === "scoped") && flag.status !== "off" && flag.status !== "scoped";
     if (turnsOff) {
@@ -1639,7 +1654,7 @@ adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["s
       .update(featureFlags)
       .set({
         status: status !== undefined ? status : flag.status,
-        scopedOrgIds: scopedOrgIds !== undefined ? JSON.stringify(scopedOrgIds) : flag.scopedOrgIds,
+        scopedOrgIds: scopedOrgIds !== undefined ? Array.from(new Set(scopedOrgIds as string[])) : flag.scopedOrgIds,
         description: description !== undefined ? description : flag.description,
         updatedAt: new Date(),
         updatedBy: req.admin!.email,
@@ -1648,7 +1663,11 @@ adminRouter.put("/feature-flags/:id", isAdminAuthenticated, requireAdminRole(["s
       .returning();
     invalidateFeatureCatalogCache();
 
-    await writeAuditLog(req, "toggle_feature_flag", flag.name, { status, scopedOrgIds });
+    await writeAuditLog(req, "toggle_feature_flag", flag.name, {
+      before: { status: flag.status, scopedOrgIds: flag.scopedOrgIds },
+      status,
+      scopedOrgIds,
+    });
 
     return res.json({ success: true, flag: updatedFlag });
   } catch (error) {
@@ -1750,6 +1769,239 @@ adminRouter.get("/feature-catalog", isAdminAuthenticated, async (req: Request, r
   }
 });
 
+// ---- Cap thresholds -------------------------------------------------------------------------------------
+// A threshold is a paid step above a feature's free cap ("Stores: up to 3"). It is an ordinary capped catalog
+// row, so the limit logic and purchase flow treat it like a built-in pack; it starts pending review.
+
+function capLadders(catalog: (typeof featureCatalog.$inferSelect)[]) {
+  return CAP_ORDER.flatMap((limitType) => {
+    const rows = catalog.filter((f) => f.tierType === "paid_metered_limit" && f.limitType === limitType);
+    if (rows.length === 0) return [];
+    const template = rows.find((f) => f.tierCapacity == null) ?? rows[0];
+    const ladder: LadderStep[] = rows
+      .map((f) => ({
+        key: f.key,
+        name: f.name,
+        capacity: f.tierCapacity,
+        priceMonthly: f.priceMonthly,
+        state: (f.reviewStatus === "pending_review" ? "needs_review" : f.isActive ? "live" : "inactive") as LadderStep["state"],
+      }))
+      .sort((a, b) => (a.capacity ?? Infinity) - (b.capacity ?? Infinity));
+    return [{ limitType, label: CAPS[limitType].label, unit: CAPS[limitType].unit, freeLimit: template.freeLimit ?? 0, ladder, template }];
+  });
+}
+
+adminRouter.get("/feature-catalog/thresholds", isAdminAuthenticated, async (_req: Request, res: Response) => {
+  try {
+    const catalog = await db.select().from(featureCatalog);
+    return res.json({ caps: capLadders(catalog).map(({ template: _t, ...cap }) => cap) });
+  } catch (error) {
+    console.error("List thresholds error:", error);
+    return res.status(500).json({ error: "Failed to load the cap thresholds." });
+  }
+});
+
+adminRouter.post("/feature-catalog/thresholds", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const body = z.object({
+    limitType: z.string(),
+    limit: z.number(),
+    priceMonthly: z.number().nonnegative(),
+    priceAnnual: z.number().nonnegative().nullable().optional(),
+  }).safeParse(req.body ?? {});
+  if (!body.success || !isCapType(body.data.limitType)) return res.status(400).json({ error: "Pick a cap, a limit and a monthly price." });
+  const { limitType, limit, priceMonthly, priceAnnual } = body.data as { limitType: CapType; limit: number; priceMonthly: number; priceAnnual?: number | null };
+  try {
+    const catalog = await db.select().from(featureCatalog);
+    const cap = capLadders(catalog).find((c) => c.limitType === limitType);
+    if (!cap) return res.status(400).json({ error: "That cap has no add-on to build a threshold from." });
+
+    const plan = planThreshold({ cap: limitType, limit, freeLimit: cap.freeLimit, ladder: cap.ladder, existingKeys: new Set(catalog.map((f) => f.key)) });
+    if (plan.problems.length) return res.status(400).json({ error: plan.problems.join(" ") });
+
+    const t = cap.template;
+    const created = await db.transaction(async (tx) => {
+      const [flag] = await tx.insert(featureFlags).values({ name: plan.key, status: "on", description: plan.name, updatedBy: req.admin!.email }).returning();
+      const [row] = await tx.insert(featureCatalog).values({
+        key: plan.key,
+        name: plan.name,
+        description: plan.description,
+        category: t.category,
+        tierType: "paid_metered_limit",
+        limitType,
+        freeLimit: t.freeLimit,
+        tierCapacity: limit,
+        priceMonthly,
+        priceAnnual: priceAnnual ?? null,
+        currency: t.currency,
+        parentFeatureId: t.parentFeatureId,
+        groupParentFeatureId: t.groupParentFeatureId,
+        permissionModule: t.permissionModule,
+        section: t.section,
+        sortOrder: Math.min(...catalog.filter((f) => f.limitType === limitType).map((f) => f.sortOrder ?? 9999)) - 1,
+        isActive: false,
+        reviewStatus: "pending_review",
+        flagId: flag.id,
+      }).returning();
+      return row;
+    });
+    invalidateFeatureCatalogCache();
+    await writeAuditLog(req, "create_feature_threshold", created.key, { limitType, limit, priceMonthly, priceAnnual: priceAnnual ?? null });
+    return res.json({ success: true, feature: created });
+  } catch (error) {
+    if (isUniqueViolation(error)) return res.status(409).json({ error: "A feature with that key already exists." });
+    console.error("Create threshold error:", error);
+    return res.status(500).json({ error: "Failed to add this threshold." });
+  }
+});
+
+// What publishing these features would do, before the admin commits: how many businesses get each one free
+// (the same rule publishFeature applies), whether its gate rules are confirmed, and what it depends on.
+adminRouter.post("/feature-catalog/publish-preview", isAdminAuthenticated, async (req: Request, res: Response) => {
+  const body = z.object({ ids: z.array(z.string()).min(1).max(100) }).safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: "Pick at least one feature." });
+  try {
+    const catalog = await db.select().from(featureCatalog);
+    const byKey = new Map(catalog.map((f) => [f.key, f]));
+    const [{ n: orgCount }] = await db.select({ n: count() }).from(organisations);
+    const items = body.data.ids.flatMap((id) => {
+      const row = catalog.find((f) => f.id === id);
+      if (!row) return [];
+      const def = getFeatureDef(row.key);
+      return [{
+        id: row.id,
+        key: row.key,
+        alreadyPublished: row.reviewStatus !== "pending_review",
+        grandfathered: grandfatherApplies(def, row.tierType) ? Number(orgCount) : 0,
+        gatePending: PENDING_GATE_KEYS.includes(row.key),
+        dependsOn: (def?.dependsOn ?? []).map((key) => {
+          const dep = byKey.get(key);
+          return { key, name: dep?.name ?? key, pending: dep?.reviewStatus === "pending_review", id: dep?.id ?? null };
+        }),
+      }];
+    });
+    return res.json({ items });
+  } catch (error) {
+    console.error("Publish preview error:", error);
+    return res.status(500).json({ error: "Failed to preview this publish." });
+  }
+});
+
+// Publishes several pending features in one go. Each goes through publishFeature (its own transaction), so a
+// failure on one never rolls back the others; the response says which succeeded.
+adminRouter.post("/feature-catalog/publish", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  const body = z.object({
+    items: z.array(z.object({
+      id: z.string(),
+      priceMonthly: z.number().nonnegative().nullable().optional(),
+      priceAnnual: z.number().nonnegative().nullable().optional(),
+      gateConfirmed: z.boolean().optional(),
+    })).min(1).max(100),
+  }).safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: body.error.errors.map((e) => e.message).join(", ") });
+  try {
+    const catalog = await db.select().from(featureCatalog);
+    // Validate everything first so a bad row stops the whole batch before anything goes live.
+    const problems: { id: string; error: string }[] = [];
+    for (const item of body.data.items) {
+      const row = catalog.find((f) => f.id === item.id);
+      if (!row) { problems.push({ id: item.id, error: "Feature not found." }); continue; }
+      if (row.reviewStatus !== "pending_review") { problems.push({ id: item.id, error: `${row.name} is already published.` }); continue; }
+      const price = publishProblem({ ...row, ...(item.priceMonthly !== undefined ? { priceMonthly: item.priceMonthly } : {}) });
+      if (price) { problems.push({ id: item.id, error: `${row.name}: ${price}` }); continue; }
+      if (PENDING_GATE_KEYS.includes(row.key) && !item.gateConfirmed) problems.push({ id: item.id, error: `${row.name}: confirm its gate rules first.` });
+    }
+    if (problems.length) return res.status(400).json({ error: problems.map((p) => p.error).join(" "), problems });
+
+    const results: { id: string; key: string; ok: boolean; grandfathered?: number; error?: string }[] = [];
+    for (const item of body.data.items) {
+      const row = catalog.find((f) => f.id === item.id)!;
+      try {
+        const result = await publishFeature(item.id, { priceMonthly: item.priceMonthly, priceAnnual: item.priceAnnual });
+        if (!result) { results.push({ id: item.id, key: row.key, ok: false, error: "Already published." }); continue; }
+        await writeAuditLog(req, "publish_feature_catalog_entry", row.key, {
+          price: { priceMonthly: item.priceMonthly, priceAnnual: item.priceAnnual },
+          grandfathered: result.grandfathered,
+          gateConfirmed: !!item.gateConfirmed,
+          bulk: body.data.items.length > 1,
+        });
+        results.push({ id: item.id, key: row.key, ok: true, grandfathered: result.grandfathered });
+      } catch (err) {
+        console.error(`Bulk publish failed for ${row.key}:`, err);
+        results.push({ id: item.id, key: row.key, ok: false, error: "Failed to publish." });
+      }
+    }
+    const published = results.filter((r) => r.ok);
+    return res.status(published.length === results.length ? 200 : 207).json({
+      success: published.length === results.length,
+      results,
+      grandfathered: published.reduce((n, r) => n + (r.grandfathered ?? 0), 0),
+    });
+  } catch (error) {
+    console.error("Bulk publish error:", error);
+    return res.status(500).json({ error: "Failed to publish these features." });
+  }
+});
+
+// One feature with its flag, why it is or is not visible, and the registry facts the detail screen shows.
+// Static sub-paths (summary, thresholds, ...) must be registered above this.
+adminRouter.get("/feature-catalog/:key", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const catalog = await db.select().from(featureCatalog).orderBy(featureCatalog.sortOrder);
+    const feature = catalog.find((f) => f.key === req.params.key);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+
+    const flags = await db.select().from(featureFlags);
+    const flagStatusByKey = new Map(flags.map((f) => [f.name, f.status]));
+    const flag = flags.find((f) => f.id === feature.flagId) ?? flags.find((f) => f.name === feature.key) ?? null;
+
+    let scopedIds: string[] = [];
+    const rawScoped: unknown = flag?.scopedOrgIds;
+    const parsedScoped = typeof rawScoped === "string" ? (() => { try { return JSON.parse(rawScoped); } catch { return []; } })() : rawScoped;
+    if (flag?.status === "scoped" && Array.isArray(parsedScoped)) scopedIds = parsedScoped.filter((v): v is string => typeof v === "string");
+    const scopedOrgs = scopedIds.length
+      ? await db.select({ id: organisations.id, name: organisations.name }).from(organisations).where(inArray(organisations.id, scopedIds))
+      : [];
+
+    const visibility = explainVisibility({ feature, catalog, flagStatusByKey, scopedCount: scopedIds.length });
+    const def = getFeatureDef(feature.key);
+    const parent = feature.parentFeatureId ? catalog.find((f) => f.id === feature.parentFeatureId) : undefined;
+    return res.json({
+      feature,
+      flag,
+      scopedOrgs,
+      visibility,
+      registry: {
+        inRegistry: !!def,
+        parentKey: parent?.key ?? null,
+        dependsOn: def?.dependsOn ?? [],
+        gatePending: PENDING_GATE_KEYS.includes(feature.key),
+      },
+    });
+  } catch (error) {
+    console.error("Get feature error:", error);
+    return res.status(500).json({ error: "Failed to load this feature." });
+  }
+});
+
+// Lightweight business lookup for the rollout picker (the roster endpoint also computes sales stats).
+adminRouter.get("/organisations-search", isAdminAuthenticated, async (req: Request, res: Response) => {
+  const q = String(req.query.q ?? "").trim();
+  if (q.length < 2) return res.json({ organisations: [] });
+  try {
+    const escaped = q.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const rows = await db
+      .select({ id: organisations.id, name: organisations.name })
+      .from(organisations)
+      .where(and(sql`${organisations.deletedAt} is null`, sql`(${organisations.name} ilike ${`%${escaped}%`} or ${organisations.id}::text = ${q})`))
+      .orderBy(organisations.name)
+      .limit(8);
+    return res.json({ organisations: rows });
+  } catch (error) {
+    console.error("Organisation search error:", error);
+    return res.status(500).json({ error: "Failed to search businesses." });
+  }
+});
+
 adminRouter.post("/feature-catalog", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   const parsed = insertFeatureCatalogSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -1814,7 +2066,7 @@ adminRouter.put("/feature-catalog/:id", isAdminAuthenticated, requireAdminRole([
       .returning();
     invalidateFeatureCatalogCache();
 
-    await writeAuditLog(req, "update_feature_catalog_pricing", existing.key, { before: existing, after: patch.data });
+    await writeAuditLog(req, "update_feature_catalog_pricing", existing.key, { before: existing, after: updated, changed: patch.data });
     return res.json({ success: true, feature: updated });
   } catch (error) {
     console.error("Update feature catalog entry error:", error);
@@ -1861,39 +2113,156 @@ adminRouter.post("/feature-catalog/:id/publish", isAdminAuthenticated, requireAd
 // existing lazy sweep in getOrgEntitlements enforces the actual cutover once
 // the date passes - this endpoint only schedules it.
 adminRouter.post("/feature-catalog/:id/schedule-sunset", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
-  const { paywallEffectiveAt } = req.body;
-  if (!paywallEffectiveAt) return res.status(400).json({ error: "paywallEffectiveAt is required." });
-
-  const effectiveAt = new Date(paywallEffectiveAt);
-  if (Number.isNaN(effectiveAt.getTime())) return res.status(400).json({ error: "paywallEffectiveAt must be a valid date." });
-  const minDate = new Date();
-  minDate.setDate(minDate.getDate() + 30);
-  if (effectiveAt < minDate) {
-    return res.status(400).json({ error: "The paywall date must be at least 30 days out, so affected businesses get real notice." });
-  }
+  const { date: effectiveAt, error: dateError } = sunsetDateProblem(req.body?.paywallEffectiveAt);
+  if (dateError || !effectiveAt) return res.status(400).json({ error: dateError });
 
   try {
     const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
     if (!feature) return res.status(404).json({ error: "Feature not found." });
+    const tierProblem = sunsetTierProblem(feature.tierType);
+    if (tierProblem) return res.status(400).json({ error: tierProblem });
 
-    const updated = await db
-      .update(orgFeatureEntitlements)
-      .set({ status: "pending_removal", source: "grandfathered_sunset", removalEffectiveAt: effectiveAt, updatedAt: new Date() })
-      .where(and(eq(orgFeatureEntitlements.featureId, req.params.id), eq(orgFeatureEntitlements.status, "active"), eq(orgFeatureEntitlements.source, "grandfathered")))
-      .returning({ organisationId: orgFeatureEntitlements.organisationId });
-
-    await writeAuditLog(req, "schedule_feature_sunset", feature.key, { paywallEffectiveAt: effectiveAt, affectedOrgs: updated.length });
-    return res.json({ success: true, affectedOrgs: updated.length, paywallEffectiveAt: effectiveAt });
+    const before = await getSunsetState(feature.id);
+    const affected = await scheduleSunset(feature.id, effectiveAt);
+    await writeAuditLog(req, before.scheduled ? "reschedule_feature_sunset" : "schedule_feature_sunset", feature.key, {
+      paywallEffectiveAt: effectiveAt,
+      previousEffectiveAt: before.effectiveAt,
+      affectedOrgs: affected,
+    });
+    return res.json({ success: true, affectedOrgs: affected, paywallEffectiveAt: effectiveAt });
   } catch (error) {
     console.error("Schedule feature sunset error:", error);
     return res.status(500).json({ error: "Failed to schedule this transition." });
   }
 });
 
+adminRouter.delete("/feature-catalog/:id/schedule-sunset", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
+  try {
+    const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+    const before = await getSunsetState(feature.id);
+    if (!before.scheduled) return res.status(409).json({ error: "No sunset is scheduled for this feature." });
+    const restored = await cancelSunset(feature.id);
+    await writeAuditLog(req, "cancel_feature_sunset", feature.key, { previousEffectiveAt: before.effectiveAt, restoredOrgs: restored });
+    return res.json({ success: true, restoredOrgs: restored });
+  } catch (error) {
+    console.error("Cancel feature sunset error:", error);
+    return res.status(500).json({ error: "Failed to cancel this transition." });
+  }
+});
+
+adminRouter.get("/feature-catalog/:id/sunset", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    return res.json(await getSunsetState(req.params.id));
+  } catch (error) {
+    console.error("Get feature sunset error:", error);
+    return res.status(500).json({ error: "Failed to load the sunset state." });
+  }
+});
+
+// Who has this feature, by how they got it. Counts ignore the search; the rows respect it.
+const ENTITLEMENT_SOURCES = ["purchased", "grandfathered", "grandfathered_sunset", "admin_grant"];
+
+adminRouter.get("/feature-catalog/:id/entitlements", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const [feature] = await db.select({ id: featureCatalog.id }).from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+    const source = typeof req.query.source === "string" && ENTITLEMENT_SOURCES.includes(req.query.source) ? req.query.source : undefined;
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const page = parsePage(req.query, { defaultLimit: 25 });
+    const held = and(eq(orgFeatureEntitlements.featureId, feature.id), ne(orgFeatureEntitlements.status, "removed"));
+    const where = and(
+      held,
+      source ? eq(orgFeatureEntitlements.source, source) : undefined,
+      q ? like(organisations.name, `%${q.replace(/[\\%_]/g, "\\$&")}%`) : undefined,
+    );
+    const [rows, [total], bySource] = await Promise.all([
+      db
+        .select({
+          organisationId: organisations.id,
+          name: organisations.name,
+          source: orgFeatureEntitlements.source,
+          status: orgFeatureEntitlements.status,
+          removalEffectiveAt: orgFeatureEntitlements.removalEffectiveAt,
+          since: orgFeatureEntitlements.createdAt,
+        })
+        .from(orgFeatureEntitlements)
+        .innerJoin(organisations, eq(organisations.id, orgFeatureEntitlements.organisationId))
+        .where(where)
+        .orderBy(organisations.name)
+        .limit(page.limit)
+        .offset(page.offset),
+      db.select({ n: count() }).from(orgFeatureEntitlements).innerJoin(organisations, eq(organisations.id, orgFeatureEntitlements.organisationId)).where(where),
+      db.select({ source: orgFeatureEntitlements.source, n: count() }).from(orgFeatureEntitlements).where(held).groupBy(orgFeatureEntitlements.source),
+    ]);
+    const counts = Object.fromEntries(ENTITLEMENT_SOURCES.map((s) => [s, Number(bySource.find((b) => b.source === s)?.n ?? 0)]));
+    return res.json({ data: rows, pagination: pagination(Number(total.n), page), counts });
+  } catch (error) {
+    console.error("Feature entitlements error:", error);
+    return res.status(500).json({ error: "Failed to load who has this feature." });
+  }
+});
+
+// Every admin action that touched this feature, newest first. Actions record the feature key as their target,
+// or (gate rules, dependencies) in details.featureKey.
+adminRouter.get("/feature-catalog/:id/history", isAdminAuthenticated, async (req: Request, res: Response) => {
+  try {
+    const [feature] = await db.select({ key: featureCatalog.key }).from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+    const page = parsePage(req.query, { defaultLimit: 25 });
+    const where = or(
+      eq(superAdminAuditLogs.target, feature.key),
+      sql`(${superAdminAuditLogs.details} #>> '{}')::jsonb ->> 'featureKey' = ${feature.key}`,
+    );
+    const [rows, [total]] = await Promise.all([
+      db
+        .select({ id: superAdminAuditLogs.id, action: superAdminAuditLogs.action, adminEmail: superAdminAuditLogs.adminEmail, createdAt: superAdminAuditLogs.createdAt, details: superAdminAuditLogs.details })
+        .from(superAdminAuditLogs)
+        .where(where)
+        .orderBy(desc(superAdminAuditLogs.createdAt))
+        .limit(page.limit)
+        .offset(page.offset),
+      db.select({ n: count() }).from(superAdminAuditLogs).where(where),
+    ]);
+    // Details were written as a JSON string; read both that and a plain object.
+    const parsed = rows.map((r) => {
+      let details: any = r.details;
+      if (typeof details === "string") { try { details = JSON.parse(details); } catch { /* leave as is */ } }
+      return { ...r, details };
+    });
+    const orgIds = Array.from(new Set(parsed.map((r) => r.details?.organisationId).filter((v): v is string => typeof v === "string")));
+    const orgs = orgIds.length ? await db.select({ id: organisations.id, name: organisations.name }).from(organisations).where(inArray(organisations.id, orgIds)) : [];
+    const orgName = new Map(orgs.map((o) => [o.id, o.name]));
+    const data = parsed.map((r) => ({ ...r, organisationName: r.details?.organisationId ? orgName.get(r.details.organisationId) ?? null : null }));
+    return res.json({ data, pagination: pagination(Number(total.n), page) });
+  } catch (error) {
+    console.error("Feature history error:", error);
+    return res.status(500).json({ error: "Failed to load this feature's history." });
+  }
+});
+
 adminRouter.get("/feature-catalog/:id/dependencies", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
-    const rows = await db.select().from(featureDependencies).where(eq(featureDependencies.featureId, req.params.id));
-    return res.json({ dependencies: rows });
+    const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    if (!feature) return res.status(404).json({ error: "Feature not found." });
+    const edges = await db
+      .select()
+      .from(featureDependencies)
+      .where(or(eq(featureDependencies.featureId, feature.id), eq(featureDependencies.dependsOnFeatureId, feature.id)));
+    const ids = Array.from(new Set(edges.flatMap((e) => [e.featureId, e.dependsOnFeatureId])));
+    const named = ids.length ? await db.select({ id: featureCatalog.id, key: featureCatalog.key, name: featureCatalog.name }).from(featureCatalog).where(inArray(featureCatalog.id, ids)) : [];
+    const byId = new Map(named.map((f) => [f.id, f]));
+    const registryNeeds = new Set(getFeatureDef(feature.key)?.dependsOn ?? []);
+    const view = (edge: typeof edges[number], otherId: string) => {
+      const other = byId.get(otherId);
+      return { dependencyId: edge.id, id: otherId, key: other?.key ?? otherId, name: other?.name ?? otherId };
+    };
+    return res.json({
+      dependencies: edges.filter((e) => e.featureId === feature.id),
+      // Edges the code registry defines are re-created by every sync, so they are shown but not removable here.
+      needs: edges.filter((e) => e.featureId === feature.id).map((e) => ({ ...view(e, e.dependsOnFeatureId), fromRegistry: registryNeeds.has(byId.get(e.dependsOnFeatureId)?.key ?? "") })),
+      neededBy: edges.filter((e) => e.dependsOnFeatureId === feature.id).map((e) => view(e, e.featureId)),
+    });
   } catch (error) {
     return res.status(500).json({ error: "Failed to load dependencies." });
   }
@@ -1903,14 +2272,21 @@ adminRouter.post("/feature-catalog/:id/dependencies", isAdminAuthenticated, requ
   const { dependsOnFeatureId } = req.body;
   if (!dependsOnFeatureId) return res.status(400).json({ error: "dependsOnFeatureId is required." });
   try {
-    const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.id, req.params.id)).limit(1);
+    const catalog = await db.select({ id: featureCatalog.id, key: featureCatalog.key, name: featureCatalog.name }).from(featureCatalog);
+    const feature = catalog.find((f) => f.id === req.params.id);
+    const dependency = catalog.find((f) => f.id === dependsOnFeatureId);
     if (!feature) return res.status(404).json({ error: "Feature not found." });
+    if (!dependency) return res.status(400).json({ error: "That dependency does not exist." });
+    const edges = await db.select().from(featureDependencies);
+    const nameOf = (id: string) => catalog.find((f) => f.id === id)?.name ?? id;
+    const problem = dependencyProblem(edges, feature.id, dependency.id, nameOf);
+    if (problem) return res.status(400).json({ error: problem });
     const [created] = await db
       .insert(featureDependencies)
       .values({ featureId: req.params.id, dependsOnFeatureId })
       .onConflictDoNothing()
       .returning();
-    await writeAuditLog(req, "add_feature_dependency", feature.key, { dependsOnFeatureId });
+    await writeAuditLog(req, "add_feature_dependency", feature.key, { dependsOnFeatureId, dependsOnKey: dependency.key, featureKey: feature.key });
     return res.json({ success: true, dependency: created ?? null });
   } catch (error) {
     console.error("Add feature dependency error:", error);
@@ -1920,8 +2296,16 @@ adminRouter.post("/feature-catalog/:id/dependencies", isAdminAuthenticated, requ
 
 adminRouter.delete("/feature-catalog/dependencies/:dependencyId", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   try {
-    await db.delete(featureDependencies).where(eq(featureDependencies.id, req.params.dependencyId));
-    await writeAuditLog(req, "remove_feature_dependency", req.params.dependencyId);
+    const [edge] = await db.select().from(featureDependencies).where(eq(featureDependencies.id, req.params.dependencyId)).limit(1);
+    if (!edge) return res.status(404).json({ error: "Dependency not found." });
+    const named = await db.select({ id: featureCatalog.id, key: featureCatalog.key }).from(featureCatalog).where(inArray(featureCatalog.id, [edge.featureId, edge.dependsOnFeatureId]));
+    const featureKey = named.find((f) => f.id === edge.featureId)?.key ?? edge.featureId;
+    const dependsOnKey = named.find((f) => f.id === edge.dependsOnFeatureId)?.key ?? edge.dependsOnFeatureId;
+    if (getFeatureDef(featureKey)?.dependsOn?.includes(dependsOnKey)) {
+      return res.status(409).json({ error: `${featureKey} needs ${dependsOnKey} in the code registry, so this is re-created on every release. Change the registry to remove it.` });
+    }
+    await db.delete(featureDependencies).where(eq(featureDependencies.id, edge.id));
+    await writeAuditLog(req, "remove_feature_dependency", featureKey, { dependsOnKey, featureKey, dependencyId: edge.id });
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: "Failed to remove this dependency." });
@@ -1936,6 +2320,12 @@ adminRouter.delete("/feature-catalog/dependencies/:dependencyId", isAdminAuthent
 // saved as drafts, enabled only after the admin confirms the affected-org
 // count, and every change is in an append-only history that can be reverted.
 
+/** Audit entries about a rule name the pattern as their target; the feature key in the details lets History find them. */
+async function featureKeyById(id: string): Promise<string | null> {
+  const [row] = await db.select({ key: featureCatalog.key }).from(featureCatalog).where(eq(featureCatalog.id, id)).limit(1);
+  return row?.key ?? null;
+}
+
 const sendGateRuleError = (res: Response, error: unknown, fallback: string) => {
   if (error instanceof GateRuleError) return res.status(error.status).json({ error: error.message, details: error.details });
   console.error("Gate rule error:", error);
@@ -1944,10 +2334,12 @@ const sendGateRuleError = (res: Response, error: unknown, fallback: string) => {
 
 const gateRulePickerRoutes = (req: Request) => listApiRoutes(req.app).filter((r) => !validateGateRule({ kind: "route", methods: "*", pattern: r.path }));
 
-adminRouter.get("/feature-gate-rules", isAdminAuthenticated, async (_req: Request, res: Response) => {
+adminRouter.get("/feature-gate-rules", isAdminAuthenticated, async (req: Request, res: Response) => {
   try {
-    const rules = await listRulesWithFeature();
-    const baseline = (FEATURES as readonly FeatureDef[]).flatMap((f) => [
+    const featureId = typeof req.query.featureId === "string" ? req.query.featureId : undefined;
+    const rules = (await listRulesWithFeature()).filter((r) => !featureId || r.featureId === featureId);
+    const [scopeFeature] = featureId ? await db.select({ key: featureCatalog.key }).from(featureCatalog).where(eq(featureCatalog.id, featureId)).limit(1) : [];
+    const baseline = (FEATURES as readonly FeatureDef[]).filter((f) => !featureId || f.key === scopeFeature?.key).flatMap((f) => [
       ...(f.routes ?? []).map((r) => ({ featureKey: f.key, kind: "route", methods: r.methods === "*" ? "*" : r.methods.join(","), pattern: r.path.source })),
       ...(f.gatedScreens ?? []).map((pattern) => ({ featureKey: f.key, kind: "screen", methods: "*", pattern })),
     ]);
@@ -1973,7 +2365,7 @@ adminRouter.post("/feature-gate-rules", isAdminAuthenticated, requireAdminRole([
       req.admin!.email,
       listApiRoutes(req.app),
     );
-    await writeAuditLog(req, "create_gate_rule", rule.pattern, { featureId, kind, methods: rule.methods });
+    await writeAuditLog(req, "create_gate_rule", rule.pattern, { featureId, featureKey: await featureKeyById(featureId), kind, methods: rule.methods });
     return res.json({ success: true, rule });
   } catch (error) {
     return sendGateRuleError(res, error, "Failed to create this rule.");
@@ -1983,7 +2375,7 @@ adminRouter.post("/feature-gate-rules", isAdminAuthenticated, requireAdminRole([
 adminRouter.patch("/feature-gate-rules/:id", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   try {
     const rule = await updateGateRule(req.params.id, req.body ?? {}, req.admin!.email, listApiRoutes(req.app));
-    await writeAuditLog(req, "update_gate_rule", rule.pattern, req.body);
+    await writeAuditLog(req, "update_gate_rule", rule.pattern, { ...req.body, featureKey: await featureKeyById(rule.featureId) });
     return res.json({ success: true, rule });
   } catch (error) {
     return sendGateRuleError(res, error, "Failed to update this rule.");
@@ -2001,7 +2393,7 @@ adminRouter.get("/feature-gate-rules/:id/preview", isAdminAuthenticated, async (
 adminRouter.post("/feature-gate-rules/:id/enable", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   try {
     const { rule, impact } = await enableGateRule(req.params.id, req.body?.confirmAffectedOrgs, req.admin!.email);
-    await writeAuditLog(req, "enable_gate_rule", rule.pattern, { affectedOrgs: impact.wouldLoseAccess });
+    await writeAuditLog(req, "enable_gate_rule", rule.pattern, { affectedOrgs: impact.wouldLoseAccess, featureKey: await featureKeyById(rule.featureId) });
     return res.json({ success: true, rule, impact });
   } catch (error) {
     return sendGateRuleError(res, error, "Failed to enable this rule.");
@@ -2011,7 +2403,7 @@ adminRouter.post("/feature-gate-rules/:id/enable", isAdminAuthenticated, require
 adminRouter.post("/feature-gate-rules/:id/disable", isAdminAuthenticated, requireAdminRole(["super_admin"]), async (req: Request, res: Response) => {
   try {
     const rule = await disableGateRule(req.params.id, req.admin!.email);
-    await writeAuditLog(req, "disable_gate_rule", rule.pattern);
+    await writeAuditLog(req, "disable_gate_rule", rule.pattern, { featureKey: await featureKeyById(rule.featureId) });
     return res.json({ success: true, rule });
   } catch (error) {
     return sendGateRuleError(res, error, "Failed to disable this rule.");
@@ -2101,7 +2493,7 @@ adminRouter.delete(
         .update(orgFeatureEntitlements)
         .set({ status: "removed", updatedAt: new Date() })
         .where(and(eq(orgFeatureEntitlements.organisationId, req.params.id), eq(orgFeatureEntitlements.featureId, feature.id), eq(orgFeatureEntitlements.status, "active")));
-      await writeAuditLog(req, "admin_revoke_feature", req.params.featureKey, { organisationId: req.params.id });
+      await writeAuditLog(req, "admin_revoke_feature", req.params.featureKey, { organisationId: req.params.id, reason: typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) || undefined : undefined });
       return res.json({ success: true });
     } catch (error) {
       console.error("Admin revoke feature error:", error);

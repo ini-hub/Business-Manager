@@ -143,7 +143,7 @@ export default function SystemHealth() {
               {featureReview.features.slice(0, 4).map((f) => f.name).join(", ")}{featureReview.pending > 4 ? ` and ${featureReview.pending - 4} more` : ""}. Hidden from businesses until priced and published.
             </p>
           </div>
-          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => navigate("/super-admin/feature-catalog?active=pending")}>Review</Button>
+          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => navigate("/super-admin/features/review")}>Review</Button>
         </div>
       )}
 

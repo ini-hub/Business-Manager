@@ -167,8 +167,8 @@ const UsersList = lazy(() => import("@/pages/admin/UsersList"));
 const TransactionsMonitor = lazy(() => import("@/pages/admin/TransactionsMonitor"));
 const RevenueAnalytics = lazy(() => import("@/pages/admin/RevenueAnalytics"));
 const BillingPayments = lazy(() => import("@/pages/admin/BillingPayments"));
-const FeatureFlags = lazy(() => import("@/pages/admin/FeatureFlags"));
-const FeatureCatalog = lazy(() => import("@/pages/admin/FeatureCatalog"));
+const FeaturesList = lazy(() => import("@/pages/admin/features/FeaturesList"));
+const PublishReview = lazy(() => import("@/pages/admin/features/PublishReview"));
 const FeatureEditor = lazy(() => import("@/pages/admin/FeatureEditor"));
 const Bundles = lazy(() => import("@/pages/admin/Bundles"));
 const OverCapReport = lazy(() => import("@/pages/admin/OverCapReport"));
@@ -305,8 +305,14 @@ function SuperAdminRouter() {
               <Route path="/super-admin/support-inbox" component={SupportInbox} />
               <Route path="/super-admin/revenue" component={RevenueAnalytics} />
               <Route path="/super-admin/billing" component={BillingPayments} />
-              <Route path="/super-admin/flags" component={FeatureFlags} />
-              <Route path="/super-admin/feature-catalog" component={FeatureCatalog} />
+              <Route path="/super-admin/flags">
+                <Redirect to="/super-admin/features" />
+              </Route>
+              <Route path="/super-admin/features/review" component={PublishReview} />
+              <Route path="/super-admin/features/:key?" component={FeaturesList} />
+              <Route path="/super-admin/feature-catalog">
+                <Redirect to="/super-admin/features" />
+              </Route>
               <Route path="/super-admin/feature-catalog/new" component={FeatureEditor} />
               <Route path="/super-admin/feature-catalog/:id" component={FeatureEditor} />
               <Route path="/super-admin/over-cap" component={OverCapReport} />

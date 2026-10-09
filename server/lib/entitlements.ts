@@ -17,6 +17,7 @@ import {
 import { getOrgLifecycle } from "./trial";
 import { getConfiguredGraceDays } from "./platformConfig";
 import { FREE_FEATURE_KEYS, getFeatureDef, resolveCountLimit, tiersNotAbove, type LimitTier } from "@shared/features";
+import { computeDisabledKeys } from "./featureVisibility";
 
 /**
  * Pay-per-feature entitlement resolution. Deliberately request-scoped, no
@@ -391,27 +392,6 @@ export async function getOrgLifecycleView(organisationId: string): Promise<{ sta
   const graceDays = await getConfiguredGraceDays();
   if (!life) return { state: "ok", graceEndsAt: null, trialEndsAt: null, graceDays };
   return { state: life.state, graceEndsAt: life.graceEndsAt?.toISOString() ?? null, trialEndsAt: life.org.trialEndsAt ? new Date(life.org.trialEndsAt).toISOString() : null, graceDays };
-}
-
-/** Hidden features: flag off, deactivated, or whose bundle parent / dependency is hidden. */
-function computeDisabledKeys(catalog: FeatureCatalog[], flagOff: Set<string>): Set<string> {
-  const byId = new Map(catalog.map((f) => [f.id, f]));
-  const disabled = new Set<string>(flagOff);
-  for (const f of catalog) if (!f.isActive) disabled.add(f.key);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const f of catalog) {
-      if (disabled.has(f.key)) continue;
-      const parent = f.parentFeatureId ? byId.get(f.parentFeatureId) : undefined;
-      const deps = getFeatureDef(f.key)?.dependsOn ?? [];
-      if ((parent && disabled.has(parent.key)) || deps.some((d) => disabled.has(d))) {
-        disabled.add(f.key);
-        changed = true;
-      }
-    }
-  }
-  return disabled;
 }
 
 /** Request-scoped, like getRequestEntitlements: the hidden features for this org, queried at most once per request. */

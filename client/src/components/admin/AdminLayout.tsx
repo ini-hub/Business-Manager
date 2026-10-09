@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { LayoutDashboard, Building2, Users, Receipt, ToggleLeft, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Receipt, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +13,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FullScreenLoader } from "@/components/ui/loader";
+
+const FEATURES_PATH = "/super-admin/features";
+// The feature editor (Add feature) still lives under its old path; the sidebar item stays lit on it.
+const FEATURES_LEGACY_PATHS = ["/super-admin/feature-catalog"];
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -212,8 +216,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     {
       category: "Platform Control",
       items: [
-        { name: "Feature Flags", path: "/super-admin/flags", icon: ToggleLeft, roles: ["super_admin"] },
-        { name: "Feature Catalog", path: "/super-admin/feature-catalog", icon: Tag, roles: ["super_admin", "finance_admin"] },
+        { name: "Features", path: FEATURES_PATH, icon: Tag, roles: ["super_admin", "finance_admin"] },
         { name: "Bundles", path: "/super-admin/bundles", icon: Layers, roles: ["super_admin", "finance_admin"] },
         { name: "Over-cap businesses", path: "/super-admin/over-cap", icon: Users, roles: ["super_admin", "finance_admin"] },
         { name: "Platform Settings", path: "/super-admin/platform-settings", icon: Settings, roles: ["super_admin"] },
@@ -280,7 +283,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                   const isActive =
                     item.path === "/super-admin"
                       ? location === item.path
-                      : location === item.path || location.startsWith(`${item.path}/`);
+                      : location === item.path || location.startsWith(`${item.path}/`) ||
+                        (item.path === FEATURES_PATH && FEATURES_LEGACY_PATHS.some((p) => location === p || location.startsWith(`${p}/`)));
                   const Icon = item.icon;
 
                   return (
@@ -299,7 +303,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                         }`}
                       />
                       {!collapsed && <span className="truncate">{item.name}</span>}
-                      {!collapsed && item.path === "/super-admin/feature-catalog" && pendingReviewCount > 0 && (
+                      {!collapsed && item.path === FEATURES_PATH && pendingReviewCount > 0 && (
                         <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white tabular-nums" aria-label={`${pendingReviewCount} features need review`}>
                           {pendingReviewCount}
                         </span>

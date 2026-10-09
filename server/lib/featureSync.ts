@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { invalidateFeatureCatalogCache } from "./entitlements";
+import { grandfatherApplies, isAdminThreshold } from "./publishRules";
 import { featureCatalog, featureDependencies, featureFlags, organisations, orgFeatureEntitlements, type FeatureCatalog } from "@shared/schema";
 import { FEATURES, getFeatureDef, launchesForReview, duplicateLimitTiers, type FeatureDef, type LimitTier } from "@shared/features";
 
@@ -42,7 +43,10 @@ export interface SyncReport {
   /** A new bundle granted to the organisations that held one of the features it now contains. */
   absorbed: { key: string; organisations: number }[];
   /** In the database but not in the registry (left alone; e.g. a stray test row). */
+  /** Rows in the database that are not in the registry and are not thresholds an admin added. */
   dbOnlyFeatures: string[];
+  /** Capped tiers an admin added in the catalog (Features > Cap thresholds). Left alone, and expected. */
+  dbThresholds: string[];
 }
 
 type StructuralFields = Pick<
@@ -114,9 +118,7 @@ export async function publishFeature(
       .where(eq(featureCatalog.id, id))
       .returning();
     const def = lookup(row.key);
-    const grandfathered = def?.grandfather && row.tierType !== "free" && row.tierType !== "bundle_child"
-      ? await grandfatherToExistingOrgs(tx, row.id)
-      : 0;
+    const grandfathered = grandfatherApplies(def, row.tierType) ? await grandfatherToExistingOrgs(tx, row.id) : 0;
     return { feature, grandfathered };
   });
   if (published) invalidateFeatureCatalogCache(); // after commit, so a concurrent read cannot re-cache the old rows
@@ -128,7 +130,7 @@ export async function syncFeatureRegistry(
 ): Promise<SyncReport> {
   const features = options.features ?? (FEATURES as readonly FeatureDef[]);
   const report: SyncReport = {
-    createdFeatures: [], createdFlags: [], pendingReview: [], updatedFeatures: [], createdDependencies: [], removedDependencies: [], grandfathered: [], absorbed: [], dbOnlyFeatures: [],
+    createdFeatures: [], createdFlags: [], pendingReview: [], updatedFeatures: [], createdDependencies: [], removedDependencies: [], grandfathered: [], absorbed: [], dbOnlyFeatures: [], dbThresholds: [],
   };
 
   // A dry run still goes through a transaction, and rolls it back at the end.
@@ -314,7 +316,9 @@ export async function syncFeatureRegistry(
     }
 
     const registryKeys = new Set(features.map((f) => f.key));
-    report.dbOnlyFeatures = Array.from(existing.keys()).filter((k) => !registryKeys.has(k));
+    const notInRegistry = Array.from(existing.keys()).filter((k) => !registryKeys.has(k));
+    report.dbThresholds = notInRegistry.filter((k) => isAdminThreshold(existing.get(k)!));
+    report.dbOnlyFeatures = notInRegistry.filter((k) => !report.dbThresholds.includes(k));
   };
 
   try {
@@ -341,6 +345,7 @@ export function formatSyncReport(r: SyncReport): string {
     `grandfathered:        ${r.grandfathered.length ? r.grandfathered.map((g) => `${g.key} (${g.organisations} orgs)`).join(", ") : "none"}`,
     `absorbed into bundles: ${r.absorbed.length ? r.absorbed.map((g) => `${g.key} (${g.organisations} orgs)`).join(", ") : "none"}`,
     `in DB, not in registry (left alone): ${r.dbOnlyFeatures.length ? r.dbOnlyFeatures.join(", ") : "none"}`,
+    `cap thresholds added in admin (left alone): ${r.dbThresholds.length ? r.dbThresholds.join(", ") : "none"}`,
   ];
   return lines.join("\n");
 }
