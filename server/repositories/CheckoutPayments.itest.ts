@@ -101,6 +101,11 @@ describe("transfer accounts", () => {
     expect(ok.success).toBe(true);
     const [leg] = await legsFor(f.storeId);
     expect(leg).toMatchObject({ method: "transfer", amount: 500, paymentAccountId: acct.id, accountLabel: "GTB main", confirmationStatus: "confirmed", confirmationSource: "manual", reference: "TRX1" });
+
+    // The ledger page reads these slim summaries, one statement for the whole page.
+    const summaries = await storage.paymentAccountRepo.getLegSummariesForReceipts([f.storeId], [leg.receiptNumber]);
+    expect(summaries).toEqual([{ storeId: f.storeId, receiptNumber: leg.receiptNumber, method: "transfer", amount: 500, paymentAccountId: acct.id, accountLabel: "GTB main", confirmationStatus: "confirmed" }]);
+    expect(await storage.paymentAccountRepo.getLegSummariesForReceipts([f.storeId], [])).toEqual([]);
   });
 
   it("rejects another store's account and records an unconfirmed transfer as pending", async () => {

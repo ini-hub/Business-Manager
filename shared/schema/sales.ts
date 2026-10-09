@@ -275,6 +275,8 @@ export type TransactionWithRelations = Transaction & {
     serviceStaffIds?: string[];
   };
   store: Store;
+  /** Slim payment legs for the receipt; set on the paged ledger, so the account a sale paid into can be shown and filtered. */
+  paymentLegs?: Array<{ method: string; amount: number; paymentAccountId: string | null; accountLabel: string | null; confirmationStatus: string }>;
 };
 
 // Void reason presets

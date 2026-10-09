@@ -29,3 +29,18 @@ describe("sale type filters (returns, credit, staff purchases)", () => {
     expect(clearSaleFilterChip(f, "staffPurchasesOnly").staffPurchasesOnly).toBe(false);
   });
 });
+
+describe("paid-into-account filter", () => {
+  const paid = sale({ paymentAccountIds: ["a1", "a2"] });
+  it("matches a sale with any leg on the account", () => {
+    expect(saleMatchesFilters(paid, { ...EMPTY_SALE_FILTERS, paymentAccountId: "a2" })).toBe(true);
+    expect(saleMatchesFilters(paid, { ...EMPTY_SALE_FILTERS, paymentAccountId: "a3" })).toBe(false);
+    expect(saleMatchesFilters(sale({}), { ...EMPTY_SALE_FILTERS, paymentAccountId: "a1" })).toBe(false);
+  });
+  it("counts, chips and clears like the other filters", () => {
+    const f = { ...EMPTY_SALE_FILTERS, paymentAccountId: "a1" };
+    expect(countActiveSaleFilters(f)).toBe(1);
+    expect(buildSaleFilterChips(f, "₦", () => "", () => "GTBank")).toEqual([{ key: "paymentAccountId", label: "GTBank" }]);
+    expect(clearSaleFilterChip(f, "paymentAccountId").paymentAccountId).toBeNull();
+  });
+});

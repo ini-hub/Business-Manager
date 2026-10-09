@@ -20,13 +20,14 @@ interface SaleFiltersSheetProps {
   currencySymbol: string;
   paymentMethods: string[];
   staffOptions: { id: string; name: string }[];
+  accountOptions?: { id: string; label: string }[];
   trigger: React.ReactNode;
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const money = (n: number, s: string) => `${s}${n.toLocaleString()}`;
 
-export function SaleFiltersSheet({ filters, onApply, resultCountFor, currencySymbol, paymentMethods, staffOptions, trigger }: SaleFiltersSheetProps) {
+export function SaleFiltersSheet({ filters, onApply, resultCountFor, currencySymbol, paymentMethods, staffOptions, accountOptions = [], trigger }: SaleFiltersSheetProps) {
   return (
     <FilterSheet
       applied={filters}
@@ -71,6 +72,16 @@ export function SaleFiltersSheet({ filters, onApply, resultCountFor, currencySym
                 onChange={(v) => patch({ paymentMethod: v })}
               />
             </FilterSection>
+
+            {accountOptions.length > 0 && (
+              <FilterSection label="Paid into account" summary={accountOptions.find((a) => a.id === draft.paymentAccountId)?.label} onClear={() => patch({ paymentAccountId: null })}>
+                <OptionRows
+                  options={accountOptions.map((a) => ({ value: a.id, label: a.label, count: resultCountFor({ ...draft, paymentAccountId: a.id }) }))}
+                  value={draft.paymentAccountId}
+                  onChange={(v) => patch({ paymentAccountId: v })}
+                />
+              </FilterSection>
+            )}
 
             <FilterSection label="Amount" summary={amountSummary} onClear={() => patch({ amountMin: null, amountMax: null })}>
               <MoneyRange label="Amount" symbol={currencySymbol} min={draft.amountMin} max={draft.amountMax} onChange={(min, max) => patch({ amountMin: min, amountMax: max })} />

@@ -131,6 +131,21 @@ export class PaymentAccountRepository {
       .where(and(eq(salePaymentLegs.storeId, storeId), eq(salePaymentLegs.receiptNumber, receiptNumber)));
   }
 
+  /** Slim leg summaries for one page of receipts, in one statement; the ledger shows and filters on them. */
+  async getLegSummariesForReceipts(storeIds: string[], receiptNumbers: string[]) {
+    if (storeIds.length === 0 || receiptNumbers.length === 0) return [];
+    return db.select({
+      storeId: salePaymentLegs.storeId,
+      receiptNumber: salePaymentLegs.receiptNumber,
+      method: salePaymentLegs.method,
+      amount: salePaymentLegs.amount,
+      paymentAccountId: salePaymentLegs.paymentAccountId,
+      accountLabel: salePaymentLegs.accountLabel,
+      confirmationStatus: salePaymentLegs.confirmationStatus,
+    }).from(salePaymentLegs)
+      .where(and(inArray(salePaymentLegs.storeId, storeIds), inArray(salePaymentLegs.receiptNumber, receiptNumbers)));
+  }
+
   /**
    * A provider webhook says this checkout's payment link was paid. Confirms the receipt's pending
    * gateway leg, but only when the amount paid covers it: a short payment stays pending for a person
